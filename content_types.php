@@ -55,12 +55,12 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
-                    <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
-                    <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
-                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>">Listar</a> |
-                    <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>">Taxonomias</a> |
-                    <a href="content_type_form.php?id=<?php echo $type['id']; ?>">Editar</a> |
-                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" onclick="return confirm('Eliminar este tipo?');">Eliminar</a>
+                    <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-info">Campos</a>
+                    <a href="add_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-success">Adicionar</a>
+                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-secondary">Listar</a>
+                    <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-warning">Taxonomias</a>
+                    <a href="content_type_form.php?id=<?php echo $type['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
+                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este tipo?');">Eliminar</a>
                 </td>
             </tr>
         <?php endforeach; ?>

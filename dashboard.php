@@ -38,11 +38,11 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td><i class="fa <?php echo htmlspecialchars($type['icon'] ?: 'fa-file-text'); ?>"></i></td>
                 <td>
-                    <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
-                    <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
-                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>">Listar</a> |
-                    <a href="content_types.php?edit_id=<?php echo $type['id']; ?>">Editar</a> |
-                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" onclick="return confirm('Eliminar este tipo?');">Eliminar</a>
+                    <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-info">Campos</a>
+                    <a href="add_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-success">Adicionar</a>
+                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-secondary">Listar</a>
+                    <a href="content_types.php?edit_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
+                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este tipo?');">Eliminar</a>
                 </td>
             </tr>
         <?php endforeach; ?>
@@ -79,9 +79,9 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($tax['name']); ?></td>
                 <td><?php echo htmlspecialchars($tax['label']); ?></td>
                 <td>
-                    <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a> |
-                    <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>">Editar</a> |
-                    <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" onclick="return confirm('Eliminar esta taxonomia?');">Eliminar</a>
+                    <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info">Gerir termos</a>
+                    <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
+                    <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta taxonomia?');">Eliminar</a>
                 </td>
             </tr>
         <?php endforeach; ?>

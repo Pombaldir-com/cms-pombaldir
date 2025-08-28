@@ -112,8 +112,8 @@ require_once __DIR__ . '/header.php';
                 <tr>
                     <td><?php echo htmlspecialchars($term['name']); ?></td>
                     <td>
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad&term_edit_id=<?php echo $term['id']; ?>">Editar</a> |
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&term_delete_id=<?php echo $term['id']; ?>" onclick="return confirm('Eliminar este termo?');">Eliminar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad&term_edit_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&term_delete_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este termo?');">Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
@@ -153,9 +153,9 @@ require_once __DIR__ . '/header.php';
                     <td><?php echo htmlspecialchars($tax['name']); ?></td>
                     <td><?php echo htmlspecialchars($tax['label']); ?></td>
                     <td>
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a> |
-                        <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>">Editar</a> |
-                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" onclick="return confirm('Eliminar esta taxonomia?');">Eliminar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info">Gerir termos</a>
+                        <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
+                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta taxonomia?');">Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
