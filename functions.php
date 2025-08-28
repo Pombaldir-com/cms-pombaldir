@@ -142,11 +142,39 @@ function getContentType(int $id): ?array {
  * @param string $icon  CSS class for an icon
  * @return int
  */
+
 function createContentType(string $name, string $label, string $icon): int {
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon) VALUES (?, ?, ?)');
     $stmt->execute([$name, $label, $icon]);
     return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Update an existing content type.
+ *
+ * @param int $id
+ * @param string $name
+ * @param string $label
+ * @param string|null $icon
+ * @return void
+ */
+function updateContentType(int $id, string $name, string $label, ?string $icon = null): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ? WHERE id = ?');
+    $stmt->execute([$name, $label, $icon, $id]);
+}
+
+/**
+ * Delete a content type by id.
+ *
+ * @param int $id
+ * @return void
+ */
+function deleteContentType(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM content_types WHERE id = ?');
+    $stmt->execute([$id]);
 }
 
 /**
@@ -247,7 +275,7 @@ function deleteCustomField(int $id): void {
  */
 function getTaxonomies(): array {
     $pdo = getPDO();
-    $stmt = $pdo->query('SELECT id, name, label FROM taxonomies ORDER BY id ASC');
+    $stmt = $pdo->query('SELECT id, name, label, icon FROM taxonomies ORDER BY id ASC');
     return $stmt->fetchAll();
 }
 
@@ -259,7 +287,7 @@ function getTaxonomies(): array {
  */
 function getTaxonomy(int $id): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, label, icon FROM taxonomies WHERE id = ?');
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -271,11 +299,38 @@ function getTaxonomy(int $id): ?array {
  * @param string $label Label
  * @return int
  */
-function createTaxonomy(string $name, string $label): int {
+function createTaxonomy(string $name, string $label, ?string $icon = null): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO taxonomies (name, label) VALUES (?, ?)');
-    $stmt->execute([$name, $label]);
+    $stmt = $pdo->prepare('INSERT INTO taxonomies (name, label, icon) VALUES (?, ?, ?)');
+    $stmt->execute([$name, $label, $icon]);
     return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Update an existing taxonomy.
+ *
+ * @param int $id
+ * @param string $name
+ * @param string $label
+ * @param string|null $icon
+ * @return void
+ */
+function updateTaxonomy(int $id, string $name, string $label, ?string $icon = null): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE taxonomies SET name = ?, label = ?, icon = ? WHERE id = ?');
+    $stmt->execute([$name, $label, $icon, $id]);
+}
+
+/**
+ * Delete a taxonomy by id.
+ *
+ * @param int $id
+ * @return void
+ */
+function deleteTaxonomy(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM taxonomies WHERE id = ?');
+    $stmt->execute([$id]);
 }
 
 /**
