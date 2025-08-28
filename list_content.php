@@ -37,9 +37,8 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
-// Get custom fields, taxonomies and content list
+// Get custom fields and taxonomies
 $customFields = getCustomFields($typeId);
-$contents = getContentList($typeId);
 $allTaxonomies = getTaxonomiesForContentType($typeId);
 
 require_once __DIR__ . '/header.php';
@@ -56,7 +55,7 @@ require_once __DIR__ . '/header.php';
             <div class="x_panel">
                 <div class="x_content">
                     <a href="add_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-success mb-3">Add New</a>
-                    <table class="table table-striped datatable">
+                    <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
                         <thead>
                             <tr>
                                 <th>Title</th>
@@ -71,43 +70,7 @@ require_once __DIR__ . '/header.php';
                                 <th>Ações</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <?php foreach ($contents as $content): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($content['title']); ?></td>
-                                    <td><?php echo htmlspecialchars($content['author_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($content['created_at']); ?></td>
-                                    <?php foreach ($customFields as $field): ?>
-                                        <?php
-                                            $fieldId = $field['id'];
-                                            $fieldValue = '';
-                                            foreach ($content['fields'] as $cv) {
-                                                if ($cv['field_id'] == $fieldId) {
-                                                    $fieldValue = $cv['value'];
-                                                    break;
-                                                }
-                                            }
-                                        ?>
-                                        <td><?php echo htmlspecialchars($fieldValue); ?></td>
-                                    <?php endforeach; ?>
-                                    <?php foreach ($allTaxonomies as $tax): ?>
-                                        <?php
-                                            $termsList = [];
-                                            foreach ($content['taxonomies'] as $assoc) {
-                                                if ($assoc['taxonomy_id'] == $tax['id']) {
-                                                    $termsList[] = $assoc['term_name'];
-                                                }
-                                            }
-                                        ?>
-                                        <td><?php echo htmlspecialchars(implode(', ', $termsList)); ?></td>
-                                    <?php endforeach; ?>
-                                    <td>
-                                        <a href="edit_content.php?id=<?php echo $content['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
-                                        <a href="list_content.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $content['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este conteúdo?');">Apagar</a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
+                        <tbody></tbody>
                     </table>
                     <a href="dashboard.php" class="btn btn-secondary">Back</a>
                 </div>

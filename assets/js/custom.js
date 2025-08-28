@@ -325,7 +325,18 @@ function updtCliParam(cliente, params) {
 }
 
 $(document).ready(function() {
-    $('table.datatable').DataTable({
-        responsive: true
+    $('table.datatable').each(function() {
+        var $table = $(this);
+        var source = $table.data('source');
+        var options = { responsive: true };
+        if (source) {
+            var typeId = $table.data('type-id');
+            options.ajax = {
+                url: source,
+                type: 'POST',
+                data: { type_id: typeId }
+            };
+        }
+        $table.DataTable(options);
     });
 });
