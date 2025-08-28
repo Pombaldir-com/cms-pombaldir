@@ -36,10 +36,9 @@ require_once __DIR__ . '/header.php';
 
 <!-- Conteúdo da página -->
 <div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mt-3">
         <h2>Tipos de Conteúdo</h2>
         <a class="btn btn-primary" href="content_type_form.php">Criar novo tipo de conteúdo</a>
-    </div>
+ 
     <table class="table table-striped datatable" data-no-sort-last="true">
         <thead><tr><th>Rótulo</th><th>Slug</th><th>Ícone</th><th>Ações</th></tr></thead>
         <tbody>
