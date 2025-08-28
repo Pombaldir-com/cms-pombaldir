@@ -10,10 +10,9 @@
     </div> <!-- /main_container -->
 </div> <!-- /container body -->
 
-<!-- jQuery and Bootstrap JS -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<!-- Gentelella JS -->
-<script src="https://colorlibhq.github.io/gentelella/build/js/gentelella.min.js"></script>
+<script src="vendors/jquery/dist/jquery.min.js"></script>
+<script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<script src="assets/js/custom.js"></script>
+
 </body>
 </html>
