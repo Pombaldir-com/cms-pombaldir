@@ -45,7 +45,7 @@ require_once __DIR__ . '/header.php';
             <div class="x_panel">
                 <div class="x_content">
                     <a href="add_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-success mb-3">Add New</a>
-                    <table class="table table-striped">
+                    <table class="table table-striped datatable">
                         <thead>
                             <tr>
                                 <th>Title</th>

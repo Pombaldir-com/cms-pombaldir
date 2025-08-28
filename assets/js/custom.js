@@ -323,3 +323,9 @@ function updtCliParam(cliente, params) {
         }
     });
 }
+
+$(document).ready(function() {
+    $('table.datatable').DataTable({
+        responsive: true
+    });
+});

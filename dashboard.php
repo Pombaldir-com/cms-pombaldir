@@ -27,7 +27,7 @@ require_once __DIR__ . '/header.php';
 <!-- Conteúdo da página -->
 <div class="container-fluid">
     <h2 class="mt-3">Tipos de Conteúdo</h2>
-    <table class="table table-striped">
+    <table class="table table-striped datatable">
         <thead>
             <tr><th>Nome</th><th>Ações</th></tr>
         </thead>
@@ -55,7 +55,7 @@ require_once __DIR__ . '/header.php';
         </form>
     </div>
     <h2 class="mt-5">Taxonomias</h2>
-    <table class="table table-striped">
+    <table class="table table-striped datatable">
         <thead>
             <tr><th>Nome</th><th>Ações</th></tr>
         </thead>

@@ -25,6 +25,8 @@ $user = currentUser();
     <title>CMS</title>
 <link rel="stylesheet" href="vendors/bootstrap/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
+<link rel="stylesheet" href="vendors/datatables.net-bs5/css/dataTables.bootstrap5.min.css">
+<link rel="stylesheet" href="vendors/datatables.net-responsive-bs5/css/responsive.bootstrap5.min.css">
 <link rel="stylesheet" href="assets/css/custom.css">
 
 

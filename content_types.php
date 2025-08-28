@@ -38,7 +38,7 @@ require_once __DIR__ . '/header.php';
     <?php if ($error): ?>
         <div class="alert alert-danger"> <?php echo htmlspecialchars($error); ?> </div>
     <?php endif; ?>
-    <table class="table table-striped">
+    <table class="table table-striped datatable">
         <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
