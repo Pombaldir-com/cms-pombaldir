@@ -51,7 +51,7 @@ require_once __DIR__ . '/header.php';
 <div class="container-fluid">
 <?php if ($taxonomyId && $taxonomy): ?>
     <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['name']); ?></h2>
-    <table class="table table-striped">
+    <table class="table table-striped datatable">
         <thead><tr><th>Nome</th></tr></thead>
         <tbody>
         <?php foreach ($terms as $term): ?>
@@ -72,7 +72,7 @@ require_once __DIR__ . '/header.php';
     </div>
 <?php else: ?>
     <h2 class="mt-3">Taxonomias</h2>
-    <table class="table table-striped">
+    <table class="table table-striped datatable">
         <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($taxonomies as $tax): ?>
