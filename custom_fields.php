@@ -7,23 +7,26 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 
-// Obtém o ID do tipo de conteúdo a partir do parâmetro GET
-$typeId = isset($_GET['type_id']) ? (int)$_GET['type_id'] : 0;
-$type = $typeId ? getContentType($typeId) : null;
+// Obtém parâmetros básicos
+$typeId = isset($_GET['type_id']) ? (int) $_GET['type_id'] : 0;
+$type   = $typeId ? getContentType($typeId) : null;
+$act    = $_GET['act'] ?? '';
+$editId = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
+$deleteId = isset($_GET['delete_id']) ? (int) $_GET['delete_id'] : 0;
+
 if (!$type) {
-    echo "Tipo de conteúdo inválido.";
+    echo 'Tipo de conteúdo inválido.';
     exit;
 }
 
 // Listas auxiliares de taxonomias e tipos de conteúdo
-$taxonomies = getTaxonomies();
+$taxonomies      = getTaxonomies();
 $contentTypesAll = getContentTypes();
 
-// Ações de apagar
-if (isset($_GET['delete'])) {
-    $deleteId = (int)$_GET['delete'];
+// Ação de apagar
+if ($deleteId) {
     $field = getCustomField($deleteId);
-    if ($field && (int)$field['content_type_id'] === $typeId) {
+    if ($field && (int) $field['content_type_id'] === $typeId) {
         deleteCustomField($deleteId);
     }
     header('Location: custom_fields.php?type_id=' . $typeId);
@@ -31,23 +34,22 @@ if (isset($_GET['delete'])) {
 }
 
 // Campo em edição, se aplicável
-$editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
 $editField = null;
 if ($editId) {
     $editField = getCustomField($editId);
-    if (!$editField || (int)$editField['content_type_id'] !== $typeId) {
+    if (!$editField || (int) $editField['content_type_id'] !== $typeId) {
         $editField = null;
     }
 }
 
 // Processa submissão do formulário para criar ou atualizar um campo
 $error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $fieldId  = isset($_POST['field_id']) ? (int)$_POST['field_id'] : 0;
-    $name     = isset($_POST['name']) ? trim($_POST['name']) : '';
-    $label    = isset($_POST['label']) ? trim($_POST['label']) : '';
+if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
+    $fieldId   = isset($_POST['field_id']) ? (int) $_POST['field_id'] : 0;
+    $name      = isset($_POST['name']) ? trim($_POST['name']) : '';
+    $label     = isset($_POST['label']) ? trim($_POST['label']) : '';
     $fieldType = isset($_POST['field_type']) ? trim($_POST['field_type']) : '';
-    $options  = '';
+    $options   = '';
     if ($fieldType === 'select') {
         $options = isset($_POST['options_text']) ? trim($_POST['options_text']) : '';
     } elseif ($fieldType === 'taxonomy') {
@@ -55,12 +57,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($fieldType === 'content') {
         $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
     }
-    $required = isset($_POST['required']);
+    $required   = isset($_POST['required']);
     $showInList = isset($_POST['show_in_list']);
     if ($name !== '' && $label !== '' && $fieldType !== '') {
         if ($fieldId) {
             $existing = getCustomField($fieldId);
-            if ($existing && (int)$existing['content_type_id'] === $typeId) {
+            if ($existing && (int) $existing['content_type_id'] === $typeId) {
                 updateCustomField($fieldId, $name, $label, $fieldType, $options, $required, $showInList);
             }
         } else {
@@ -73,60 +75,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Recupera os campos existentes
-$fields = getCustomFields($typeId);
+// Recupera os campos existentes apenas quando a listagem é exibida
+if ($act !== 'ad' && !$editField) {
+    $fields = getCustomFields($typeId);
+}
 
 require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid">
-    <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
+<?php if ($act === 'ad' || $editField): ?>
+    <h2 class="mt-3"><?php echo $editField ? 'Editar campo' : 'Adicionar novo campo a ' . htmlspecialchars($type['label']); ?></h2>
     <?php if ($error): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
     <?php endif; ?>
-    <table class="table table-striped datatable">
-        <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
-        </thead>
-        <tbody>
-        <?php foreach ($fields as $field): ?>
-            <tr>
-                <td><?php echo htmlspecialchars($field['name']); ?></td>
-                <td><?php echo htmlspecialchars($field['label']); ?></td>
-                <td><?php echo htmlspecialchars($field['type']); ?></td>
-                <td>
-                    <?php if ($field['type'] === 'taxonomy'): ?>
-                        <?php
-                            $opt = '';
-                            foreach ($taxonomies as $tax) {
-                                if ($tax['id'] == $field['options']) { $opt = $tax['label']; break; }
-                            }
-                            echo htmlspecialchars($opt);
-                        ?>
-                    <?php elseif ($field['type'] === 'content'): ?>
-                        <?php
-                            $opt = '';
-                            foreach ($contentTypesAll as $ct) {
-                                if ($ct['id'] == $field['options']) { $opt = $ct['label']; break; }
-                            }
-                            echo htmlspecialchars($opt);
-                        ?>
-                    <?php else: ?>
-                        <?php echo htmlspecialchars($field['options']); ?>
-                    <?php endif; ?>
-                </td>
-                <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
-                <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
-                <td>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');">Apagar</a>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
     <div class="card p-3 mt-4">
-        <h5><?php echo $editField ? 'Editar campo' : 'Adicionar novo campo'; ?></h5>
-        <form method="post" action="">
+        <form method="post" action="<?php echo $editField ? '?type_id=' . $typeId . '&edit_id=' . $editField['id'] : '?type_id=' . $typeId . '&act=ad'; ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
@@ -182,12 +145,56 @@ require_once __DIR__ . '/header.php';
                 <label class="form-check-label" for="show_in_list">Mostrar na listagem</label>
             </div>
             <button type="submit" class="btn btn-primary"><?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
-            <?php if ($editField): ?>
-                <a href="custom_fields.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary ms-2">Cancelar</a>
-        <?php endif; ?>
+            <a href="custom_fields.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary ms-2">Voltar</a>
         </form>
     </div>
+<?php else: ?>
+    <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
+    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&act=ad" class="btn btn-success mb-3">Adicionar campo</a>
+    <table class="table table-striped datatable">
+        <thead>
+            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+        <?php foreach ($fields as $field): ?>
+            <tr>
+                <td><?php echo htmlspecialchars($field['name']); ?></td>
+                <td><?php echo htmlspecialchars($field['label']); ?></td>
+                <td><?php echo htmlspecialchars($field['type']); ?></td>
+                <td>
+                    <?php if ($field['type'] === 'taxonomy'): ?>
+                        <?php
+                            $opt = '';
+                            foreach ($taxonomies as $tax) {
+                                if ($tax['id'] == $field['options']) { $opt = $tax['label']; break; }
+                            }
+                            echo htmlspecialchars($opt);
+                        ?>
+                    <?php elseif ($field['type'] === 'content'): ?>
+                        <?php
+                            $opt = '';
+                            foreach ($contentTypesAll as $ct) {
+                                if ($ct['id'] == $field['options']) { $opt = $ct['label']; break; }
+                            }
+                            echo htmlspecialchars($opt);
+                        ?>
+                    <?php else: ?>
+                        <?php echo htmlspecialchars($field['options']); ?>
+                    <?php endif; ?>
+                </td>
+                <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
+                <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
+                <td>
+                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
+                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');">Apagar</a>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+<?php endif; ?>
 </div>
+<?php if ($act === 'ad' || $editField): ?>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const typeSel = document.getElementById('field_type');
@@ -203,5 +210,6 @@ document.addEventListener('DOMContentLoaded', function () {
     updateOpts();
 });
 </script>
+<?php endif; ?>
 <?php require_once __DIR__ . '/footer.php'; ?>
 
