@@ -212,7 +212,7 @@ function createTaxonomy(string $name, string $label): int {
  */
 function getTerms(int $taxonomy_id): array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, term FROM taxonomy_terms WHERE taxonomy_id = ? ORDER BY term ASC');
+    $stmt = $pdo->prepare('SELECT id, name FROM taxonomy_terms WHERE taxonomy_id = ? ORDER BY name ASC');
     $stmt->execute([$taxonomy_id]);
     return $stmt->fetchAll();
 }
@@ -226,7 +226,7 @@ function getTerms(int $taxonomy_id): array {
  */
 function createTerm(int $taxonomy_id, string $term): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO taxonomy_terms (taxonomy_id, term) VALUES (?, ?)');
+    $stmt = $pdo->prepare('INSERT INTO taxonomy_terms (taxonomy_id, name) VALUES (?, ?)');
     $stmt->execute([$taxonomy_id, $term]);
     return (int)$pdo->lastInsertId();
 }
@@ -310,7 +310,7 @@ function getContentList(int $content_type_id): array {
         $cstmt->execute([$content['id']]);
         $content['fields'] = $cstmt->fetchAll();
         // Fetch taxonomy assignments
-        $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.term AS term_name FROM content_taxonomy ct JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
+        $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.name AS term_name FROM content_taxonomy ct JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
         $tstmt->execute([$content['id']]);
         $content['taxonomies'] = $tstmt->fetchAll();
     }

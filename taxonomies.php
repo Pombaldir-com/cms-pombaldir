@@ -36,9 +36,10 @@ if ($taxonomyId) {
     $terms = getTerms($taxonomyId);
 } else {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['name'])) {
-        $name = trim($_POST['name']);
-        if ($name !== '') {
-            createTaxonomy($name);
+        $name  = trim($_POST['name']);
+        $label = trim($_POST['label'] ?? '');
+        if ($name !== '' && $label !== '') {
+            createTaxonomy($name, $label);
             header('Location: taxonomies.php');
             exit;
         }
@@ -50,7 +51,7 @@ require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid">
 <?php if ($taxonomyId && $taxonomy): ?>
-    <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['name']); ?></h2>
+    <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
     <table class="table table-striped datatable">
         <thead><tr><th>Nome</th></tr></thead>
         <tbody>
@@ -73,11 +74,12 @@ require_once __DIR__ . '/header.php';
 <?php else: ?>
     <h2 class="mt-3">Taxonomias</h2>
     <table class="table table-striped datatable">
-        <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($taxonomies as $tax): ?>
             <tr>
                 <td><?php echo htmlspecialchars($tax['name']); ?></td>
+                <td><?php echo htmlspecialchars($tax['label']); ?></td>
                 <td><a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a></td>
             </tr>
         <?php endforeach; ?>
@@ -87,8 +89,12 @@ require_once __DIR__ . '/header.php';
         <h5>Criar nova taxonomia</h5>
         <form method="post" action="">
             <div class="mb-3">
-                <label class="form-label" for="name">Nome</label>
+                <label class="form-label" for="name">Slug</label>
                 <input type="text" class="form-control" id="name" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="label">Rótulo</label>
+                <input type="text" class="form-control" id="label" name="label" required>
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
             <a href="dashboard.php" class="btn btn-secondary">Voltar</a>

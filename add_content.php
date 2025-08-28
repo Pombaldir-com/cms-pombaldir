@@ -65,7 +65,7 @@ require_once __DIR__ . '/header.php';
 <div class="container-fluid">
     <div class="page-title">
         <div class="title_left">
-            <h3>Add <?php echo htmlspecialchars($contentType['name']); ?></h3>
+            <h3>Add <?php echo htmlspecialchars($contentType['label']); ?></h3>
         </div>
     </div>
     <div class="clearfix"></div>
@@ -88,20 +88,21 @@ require_once __DIR__ . '/header.php';
                         <?php foreach ($customFields as $field): ?>
                             <?php
                                 $inputName = 'field_' . $field['id'];
-                                $options = $field['options'];
+                                $options   = $field['options'];
+                                $isRequired = $field['required'] ? 'required' : '';
                             ?>
                             <div class="mb-3">
-                                <label class="form-label"><?php echo htmlspecialchars($field['name']); ?></label>
-                                <?php if ($field['field_type'] === 'text'): ?>
-                                    <input type="text" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control">
-                                <?php elseif ($field['field_type'] === 'textarea'): ?>
-                                    <textarea name="<?php echo htmlspecialchars($inputName); ?>" class="form-control"></textarea>
-                                <?php elseif ($field['field_type'] === 'number'): ?>
-                                    <input type="number" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control">
-                                <?php elseif ($field['field_type'] === 'date'): ?>
-                                    <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control">
-                                <?php elseif ($field['field_type'] === 'select'): ?>
-                                    <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select">
+                                <label class="form-label"><?php echo htmlspecialchars($field['label']); ?></label>
+                                <?php if ($field['type'] === 'text'): ?>
+                                    <input type="text" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
+                                <?php elseif ($field['type'] === 'textarea'): ?>
+                                    <textarea name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>></textarea>
+                                <?php elseif ($field['type'] === 'number'): ?>
+                                    <input type="number" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
+                                <?php elseif ($field['type'] === 'date'): ?>
+                                    <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
+                                <?php elseif ($field['type'] === 'select'): ?>
+                                    <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
                                         <option value="">-- Select --</option>
                                         <?php foreach (explode(',', $options) as $opt): ?>
                                             <option value="<?php echo htmlspecialchars(trim($opt)); ?>"><?php echo htmlspecialchars(trim($opt)); ?></option>
@@ -112,7 +113,7 @@ require_once __DIR__ . '/header.php';
                         <?php endforeach; ?>
                         <?php foreach ($allTaxonomies as $taxonomy): ?>
                             <div class="mb-3">
-                                <label class="form-label">Select <?php echo htmlspecialchars($taxonomy['name']); ?></label>
+                                <label class="form-label">Select <?php echo htmlspecialchars($taxonomy['label']); ?></label>
                                 <?php $terms = getTerms($taxonomy['id']); ?>
                                 <select name="taxonomy_<?php echo htmlspecialchars($taxonomy['id']); ?>[]" class="form-select" multiple>
                                     <?php foreach ($terms as $term): ?>
