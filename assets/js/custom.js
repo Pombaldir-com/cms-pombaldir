@@ -329,6 +329,16 @@ $(document).ready(function() {
         var $table = $(this);
         var source = $table.data('source');
         var options = { responsive: true };
+        var nonSortable = [];
+        $table.find('thead th').each(function(i){
+            if ($(this).data('orderable') === false){
+                nonSortable.push(i);
+            }
+        });
+        if (nonSortable.length) {
+            options.columnDefs = options.columnDefs || [];
+            options.columnDefs.push({ targets: nonSortable, orderable: false });
+        }
         if ($table.data('no-sort-last')) {
             options.columnDefs = options.columnDefs || [];
             options.columnDefs.push({ targets: -1, orderable: false });

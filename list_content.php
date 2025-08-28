@@ -69,7 +69,7 @@ require_once __DIR__ . '/header.php';
                                     <th>Date</th>
                                 <?php endif; ?>
                                 <?php foreach ($customFields as $field): ?>
-                                    <th><?php echo htmlspecialchars($field['label']); ?></th>
+                                    <th<?php echo empty($field['sortable']) ? ' data-orderable="false"' : ''; ?>><?php echo htmlspecialchars($field['label']); ?></th>
                                 <?php endforeach; ?>
                                 <?php foreach ($allTaxonomies as $tax): ?>
                                     <th><?php echo htmlspecialchars($tax['label']); ?></th>
