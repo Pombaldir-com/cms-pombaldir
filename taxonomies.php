@@ -4,9 +4,10 @@
  *
  * Esta página permite criar novas taxonomias e gerir os termos de cada
  * taxonomia seleccionada. Se um parâmetro `taxonomy_id` for passado, a
- * interface apresenta os termos dessa taxonomia e um formulário para
- * adicionar novos termos. Caso contrário, lista-se todas as taxonomias
- * existentes. Para criar uma nova taxonomia, utilizar `taxonomies.php?act=ad`.
+ * interface apresenta os termos dessa taxonomia. Para adicionar novos termos,
+ * utilizar `taxonomies.php?taxonomy_id={ID}&act=ad`. Caso contrário, lista-se
+ * todas as taxonomias existentes. Para criar uma nova taxonomia, utilizar
+ * `taxonomies.php?act=ad`.
  */
 
 require_once __DIR__ . '/functions.php';
@@ -19,7 +20,7 @@ requireLogin();
  $taxonomy = null;
 if ($taxonomyId) {
     // Gestão de termos para uma taxonomia específica
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['term_name'])) {
+    if ($act === 'ad' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['term_name'])) {
         $termName = trim($_POST['term_name']);
         if ($termName !== '') {
             createTerm($taxonomyId, $termName);
@@ -72,26 +73,31 @@ require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid">
 <?php if ($taxonomyId && $taxonomy): ?>
-    <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
-    <table class="table table-striped datatable">
-        <thead><tr><th>Nome</th></tr></thead>
-        <tbody>
-        <?php foreach ($terms as $term): ?>
-            <tr><td><?php echo htmlspecialchars($term['name']); ?></td></tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-    <div class="card p-3 mt-4">
-        <h5>Adicionar novo termo</h5>
-        <form method="post" action="">
-            <div class="mb-3">
-                <label class="form-label" for="term_name">Nome</label>
-                <input type="text" class="form-control" id="term_name" name="term_name" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Adicionar</button>
-            <a href="taxonomies.php" class="btn btn-secondary">Voltar</a>
-        </form>
-    </div>
+    <?php if ($act === 'ad'): ?>
+        <h2 class="mt-3">Adicionar novo termo a <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
+        <div class="card p-3 mt-4">
+            <form method="post" action="?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad">
+                <div class="mb-3">
+                    <label class="form-label" for="term_name">Nome</label>
+                    <input type="text" class="form-control" id="term_name" name="term_name" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Adicionar</button>
+                <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>" class="btn btn-secondary">Voltar</a>
+            </form>
+        </div>
+    <?php else: ?>
+        <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
+        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad" class="btn btn-success mb-3">Adicionar termo</a>
+        <table class="table table-striped datatable">
+            <thead><tr><th>Nome</th></tr></thead>
+            <tbody>
+            <?php foreach ($terms as $term): ?>
+                <tr><td><?php echo htmlspecialchars($term['name']); ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <a href="taxonomies.php" class="btn btn-secondary">Voltar</a>
+    <?php endif; ?>
 <?php else: ?>
     <?php if ($act === 'ad' || $editing): ?>
         <h2 class="mt-3"><?php echo $editing ? 'Editar taxonomia' : 'Criar nova taxonomia'; ?></h2>
