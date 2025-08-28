@@ -49,12 +49,11 @@ if ($taxonomyId) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['name'])) {
         $name  = trim($_POST['name']);
         $label = trim($_POST['label'] ?? '');
-        $icon  = trim($_POST['icon'] ?? '');
         if ($name !== '' && $label !== '') {
             if ($editing) {
-                updateTaxonomy($editing['id'], $name, $label, $icon);
+                updateTaxonomy($editing['id'], $name, $label);
             } else {
-                createTaxonomy($name, $label, $icon);
+                createTaxonomy($name, $label);
             }
             header('Location: taxonomies.php');
             exit;
@@ -95,13 +94,12 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger"> <?php echo htmlspecialchars($error); ?> </div>
     <?php endif; ?>
     <table class="table table-striped datatable">
-        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ícone</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($taxonomies as $tax): ?>
             <tr>
                 <td><?php echo htmlspecialchars($tax['name']); ?></td>
                 <td><?php echo htmlspecialchars($tax['label']); ?></td>
-                <td><i class="fa <?php echo htmlspecialchars($tax['icon'] ?: 'fa-tag'); ?>"></i></td>
                 <td>
                     <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a> |
                     <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>">Editar</a> |
@@ -121,10 +119,6 @@ require_once __DIR__ . '/header.php';
             <div class="mb-3">
                 <label class="form-label" for="label">Rótulo</label>
                 <input type="text" class="form-control" id="label" name="label" value="<?php echo htmlspecialchars($editing['label'] ?? ''); ?>" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
-                <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>">
             </div>
             <button type="submit" class="btn btn-primary"><?php echo isset($editing) && $editing ? 'Guardar' : 'Criar'; ?></button>
             <?php if (isset($editing) && $editing): ?>

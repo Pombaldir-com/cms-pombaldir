@@ -71,14 +71,13 @@ require_once __DIR__ . '/header.php';
     <h2 class="mt-5">Taxonomias</h2>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Ícone</th><th>Ações</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($taxonomies as $tax): ?>
             <tr>
                 <td><?php echo htmlspecialchars($tax['name']); ?></td>
                 <td><?php echo htmlspecialchars($tax['label']); ?></td>
-                <td><i class="fa <?php echo htmlspecialchars($tax['icon'] ?: 'fa-tag'); ?>"></i></td>
                 <td>
                     <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a> |
                     <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>">Editar</a> |
@@ -98,10 +97,6 @@ require_once __DIR__ . '/header.php';
             <div class="mb-3">
                 <label class="form-label" for="tlabel">Rótulo</label>
                 <input type="text" class="form-control" id="tlabel" name="label" required>
-            </div>
-            <div class="mb-3">
-                <label class="form-label" for="ticon">Ícone (classe Font Awesome)</label>
-                <input type="text" class="form-control" id="ticon" name="icon">
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>

@@ -275,7 +275,7 @@ function deleteCustomField(int $id): void {
  */
 function getTaxonomies(): array {
     $pdo = getPDO();
-    $stmt = $pdo->query('SELECT id, name, label, icon FROM taxonomies ORDER BY id ASC');
+    $stmt = $pdo->query('SELECT id, name, label FROM taxonomies ORDER BY id ASC');
     return $stmt->fetchAll();
 }
 
@@ -287,7 +287,7 @@ function getTaxonomies(): array {
  */
 function getTaxonomy(int $id): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, name, label, icon FROM taxonomies WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE id = ?');
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -299,10 +299,10 @@ function getTaxonomy(int $id): ?array {
  * @param string $label Label
  * @return int
  */
-function createTaxonomy(string $name, string $label, ?string $icon = null): int {
+function createTaxonomy(string $name, string $label): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO taxonomies (name, label, icon) VALUES (?, ?, ?)');
-    $stmt->execute([$name, $label, $icon]);
+    $stmt = $pdo->prepare('INSERT INTO taxonomies (name, label) VALUES (?, ?)');
+    $stmt->execute([$name, $label]);
     return (int)$pdo->lastInsertId();
 }
 
@@ -312,13 +312,12 @@ function createTaxonomy(string $name, string $label, ?string $icon = null): int 
  * @param int $id
  * @param string $name
  * @param string $label
- * @param string|null $icon
  * @return void
  */
-function updateTaxonomy(int $id, string $name, string $label, ?string $icon = null): void {
+function updateTaxonomy(int $id, string $name, string $label): void {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('UPDATE taxonomies SET name = ?, label = ?, icon = ? WHERE id = ?');
-    $stmt->execute([$name, $label, $icon, $id]);
+    $stmt = $pdo->prepare('UPDATE taxonomies SET name = ?, label = ? WHERE id = ?');
+    $stmt->execute([$name, $label, $id]);
 }
 
 /**
