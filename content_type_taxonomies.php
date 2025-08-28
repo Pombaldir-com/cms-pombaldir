@@ -36,6 +36,7 @@ require_once __DIR__ . '/header.php';
             </div>
         <?php endforeach; ?>
         <button type="submit" class="btn btn-primary mt-3">Guardar</button>
+        <a href="content_types.php" class="btn btn-secondary mt-3 ms-2">Voltar</a>
     </form>
 </div>
 <?php require_once __DIR__ . '/footer.php'; ?>
