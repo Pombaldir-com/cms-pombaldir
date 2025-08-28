@@ -93,8 +93,8 @@ foreach ($sidebarTypes as $sidebarType):
                 <nav class="navbar navbar-expand w-100" role="navigation">
                     <ul class="navbar-nav w-100">
                         <!-- Explicit logout button for better visibility -->
-                        <li class="nav-item w-100">
-                            <a href="logout.php" class="btn btn-sm btn-danger d-block w-100 text-end">
+                        <li class="nav-item ms-auto">
+                            <a href="logout.php" class="btn btn-sm btn-danger">
                                 Terminar sessão (<?php echo htmlspecialchars($user['username']); ?>)
                             </a>
                         </li>
