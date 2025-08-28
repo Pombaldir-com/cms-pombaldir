@@ -77,10 +77,8 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
     }
 }
 
-// Recupera os campos existentes apenas quando a listagem é exibida
-if ($act !== 'ad' && !$editField) {
-    $fields = getCustomFields($typeId);
-}
+// Recupera os campos existentes para exibição
+$fields = getCustomFields($typeId);
 
 require_once __DIR__ . '/header.php';
 ?>
