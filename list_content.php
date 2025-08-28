@@ -2,8 +2,9 @@
 /**
  * list_content.php
  *
- * Displays a list of content entries for a given content type. It shows the title, author,
- * creation date, and values of custom fields along with taxonomy terms for each entry.
+ * Displays a list of content entries for a given content type. It shows the title and,
+ * depending on the content type settings, the author and creation date. Custom fields
+ * marked for listing and taxonomy terms are also displayed for each entry.
  */
 
 require_once __DIR__ . '/db.php';
@@ -61,8 +62,12 @@ require_once __DIR__ . '/header.php';
                         <thead>
                             <tr>
                                 <th>Title</th>
-                                <th>Author</th>
-                                <th>Date</th>
+                                <?php if (!empty($contentType['show_author'])): ?>
+                                    <th>Author</th>
+                                <?php endif; ?>
+                                <?php if (!empty($contentType['show_date'])): ?>
+                                    <th>Date</th>
+                                <?php endif; ?>
                                 <?php foreach ($customFields as $field): ?>
                                     <th><?php echo htmlspecialchars($field['label']); ?></th>
                                 <?php endforeach; ?>
