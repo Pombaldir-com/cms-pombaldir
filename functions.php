@@ -297,7 +297,7 @@ function setContentTaxonomyTerms(int $content_id, int $taxonomy_id, array $term_
 function getContentList(int $content_type_id): array {
     $pdo = getPDO();
     // Fetch basic content
-    $stmt = $pdo->prepare('SELECT c.id, c.title, c.created_at, u.username FROM content c JOIN users u ON c.user_id = u.id WHERE c.content_type_id = ? ORDER BY c.id DESC');
+    $stmt = $pdo->prepare('SELECT c.id, c.title, c.created_at, u.username AS author_name FROM content c JOIN users u ON c.user_id = u.id WHERE c.content_type_id = ? ORDER BY c.id DESC');
     $stmt->execute([$content_type_id]);
     $contents = $stmt->fetchAll();
     // Preload fields definitions and taxonomy definitions
@@ -306,19 +306,13 @@ function getContentList(int $content_type_id): array {
     // For each content entry, fetch custom values and terms
     foreach ($contents as &$content) {
         // Fetch custom values
-        $cstmt = $pdo->prepare('SELECT cf.name, cv.value FROM custom_values cv JOIN custom_fields cf ON cv.field_id = cf.id WHERE cv.content_id = ?');
+        $cstmt = $pdo->prepare('SELECT cv.field_id, cv.value FROM custom_values cv WHERE cv.content_id = ?');
         $cstmt->execute([$content['id']]);
-        $content['fields'] = [];
-        while ($row = $cstmt->fetch()) {
-            $content['fields'][$row['name']] = $row['value'];
-        }
+        $content['fields'] = $cstmt->fetchAll();
         // Fetch taxonomy assignments
-        $content['taxonomies'] = [];
-        $tstmt = $pdo->prepare('SELECT t.name AS taxonomy_name, tt.term FROM content_taxonomy ct JOIN taxonomies t ON ct.taxonomy_id = t.id JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
+        $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.term AS term_name FROM content_taxonomy ct JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
         $tstmt->execute([$content['id']]);
-        while ($row = $tstmt->fetch()) {
-            $content['taxonomies'][$row['taxonomy_name']][] = $row['term'];
-        }
+        $content['taxonomies'] = $tstmt->fetchAll();
     }
     return $contents;
 }
