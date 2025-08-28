@@ -36,7 +36,7 @@ require_once __DIR__ . '/header.php';
 <div class="container-fluid">
     <div class="page-title">
         <div class="title_left">
-            <h3><?php echo htmlspecialchars($contentType['name']); ?> List</h3>
+            <h3><?php echo htmlspecialchars($contentType['label']); ?> List</h3>
         </div>
     </div>
     <div class="clearfix"></div>
@@ -52,10 +52,10 @@ require_once __DIR__ . '/header.php';
                                 <th>Author</th>
                                 <th>Date</th>
                                 <?php foreach ($customFields as $field): ?>
-                                    <th><?php echo htmlspecialchars($field['name']); ?></th>
+                                    <th><?php echo htmlspecialchars($field['label']); ?></th>
                                 <?php endforeach; ?>
                                 <?php foreach ($allTaxonomies as $tax): ?>
-                                    <th><?php echo htmlspecialchars($tax['name']); ?></th>
+                                    <th><?php echo htmlspecialchars($tax['label']); ?></th>
                                 <?php endforeach; ?>
                             </tr>
                         </thead>

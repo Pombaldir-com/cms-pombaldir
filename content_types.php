@@ -15,13 +15,14 @@ requireLogin();
 // Tratamento da submissão do formulário para criar um novo tipo
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = isset($_POST['name']) ? trim($_POST['name']) : '';
-    if ($name !== '') {
-        createContentType($name);
+    $name  = isset($_POST['name']) ? trim($_POST['name']) : '';
+    $label = isset($_POST['label']) ? trim($_POST['label']) : '';
+    if ($name !== '' && $label !== '') {
+        createContentType($name, $label);
         header('Location: content_types.php');
         exit;
     } else {
-        $error = 'O nome é obrigatório.';
+        $error = 'Nome e rótulo são obrigatórios.';
     }
 }
 
@@ -39,11 +40,12 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger"> <?php echo htmlspecialchars($error); ?> </div>
     <?php endif; ?>
     <table class="table table-striped datatable">
-        <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <tr>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
+                <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
@@ -57,8 +59,12 @@ require_once __DIR__ . '/header.php';
         <h5>Criar novo tipo de conteúdo</h5>
         <form method="post" action="">
             <div class="mb-3">
-                <label class="form-label" for="name">Nome</label>
+                <label class="form-label" for="name">Slug</label>
                 <input type="text" class="form-control" id="name" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="label">Rótulo</label>
+                <input type="text" class="form-control" id="label" name="label" required>
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>

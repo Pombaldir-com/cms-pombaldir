@@ -29,12 +29,13 @@ require_once __DIR__ . '/header.php';
     <h2 class="mt-3">Tipos de Conteúdo</h2>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Nome</th><th>Ações</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <tr>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
+                <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
@@ -48,8 +49,12 @@ require_once __DIR__ . '/header.php';
         <h5>Criar novo tipo de conteúdo</h5>
         <form method="post" action="content_types.php">
             <div class="mb-3">
-                <label class="form-label" for="name">Nome</label>
+                <label class="form-label" for="name">Slug</label>
                 <input type="text" class="form-control" id="name" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="label">Rótulo</label>
+                <input type="text" class="form-control" id="label" name="label" required>
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>
@@ -57,12 +62,13 @@ require_once __DIR__ . '/header.php';
     <h2 class="mt-5">Taxonomias</h2>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Nome</th><th>Ações</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($taxonomies as $tax): ?>
             <tr>
                 <td><?php echo htmlspecialchars($tax['name']); ?></td>
+                <td><?php echo htmlspecialchars($tax['label']); ?></td>
                 <td><a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>">Gerir termos</a></td>
             </tr>
         <?php endforeach; ?>
@@ -72,8 +78,12 @@ require_once __DIR__ . '/header.php';
         <h5>Criar nova taxonomia</h5>
         <form method="post" action="taxonomies.php">
             <div class="mb-3">
-                <label class="form-label" for="tname">Nome</label>
+                <label class="form-label" for="tname">Slug</label>
                 <input type="text" class="form-control" id="tname" name="name" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="tlabel">Rótulo</label>
+                <input type="text" class="form-control" id="tlabel" name="label" required>
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>

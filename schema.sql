@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS content_types (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
+    label VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -18,8 +19,10 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     id INT AUTO_INCREMENT PRIMARY KEY,
     content_type_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
-    field_type ENUM('text','textarea','number','date','select') NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    type ENUM('text','textarea','number','date','select') NOT NULL,
     options TEXT,
+    required TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (content_type_id) REFERENCES content_types(id) ON DELETE CASCADE
 );
@@ -27,6 +30,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
 CREATE TABLE IF NOT EXISTS taxonomies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
+    label VARCHAR(100) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
