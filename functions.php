@@ -156,7 +156,14 @@ function createContentType(string $name, string $label): int {
  */
 function getCustomFields(int $content_type_id): array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, name, label, type, options, required FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC');
+
+    // Older installations might lack the "label" column.  Detect its
+    // existence and fall back to using the field name as a label so the
+    // application continues to work without a fatal database error.
+    $hasLabel = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'label'")->fetch();
+    $labelExpr = $hasLabel ? 'label' : 'name AS label';
+
+    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
     $stmt->execute([$content_type_id]);
     return $stmt->fetchAll();
 }
@@ -174,8 +181,19 @@ function getCustomFields(int $content_type_id): array {
  */
 function createCustomField(int $content_type_id, string $name, string $label, string $type, string $options = '', bool $required = false): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, label, type, options, required) VALUES (?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$content_type_id, $name, $label, $type, $options, $required ? 1 : 0]);
+
+    // If the table doesn't have a "label" column (older schema), insert
+    // without it.  This keeps the function compatible with both schema
+    // versions and avoids SQL errors during field creation.
+    $hasLabel = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'label'")->fetch();
+    if ($hasLabel) {
+        $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, label, type, options, required) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$content_type_id, $name, $label, $type, $options, $required ? 1 : 0]);
+    } else {
+        $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, type, options, required) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute([$content_type_id, $name, $type, $options, $required ? 1 : 0]);
+    }
+
     return (int)$pdo->lastInsertId();
 }
 
