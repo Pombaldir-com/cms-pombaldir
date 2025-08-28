@@ -40,19 +40,14 @@ require_once __DIR__ . '/header.php';
         <h2>Tipos de Conteúdo</h2>
         <a class="btn btn-primary" href="content_type_form.php">Criar novo tipo de conteúdo</a>
     </div>
-    <div class="column-toggler mb-2">
-        <label class="me-2"><input type="checkbox" data-column="0" checked> Slug</label>
-        <label class="me-2"><input type="checkbox" data-column="1" checked> Rótulo</label>
-        <label class="me-2"><input type="checkbox" data-column="2" checked> Ícone</label>
-        <label class="me-2"><input type="checkbox" data-column="3" checked> Ações</label>
-    </div>
     <table class="table table-striped datatable" data-no-sort-last="true">
-        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ícone</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Rótulo</th><th>Slug</th><th>Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <tr>
+                                <td><?php echo htmlspecialchars($type['label']); ?></td>
+
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
-                <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-info">Campos</a>
