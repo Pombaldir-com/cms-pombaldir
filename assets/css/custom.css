@@ -732,7 +732,8 @@ a:focus {
     cursor: pointer
 }
 .nav.side-menu>li>a {
-    margin-bottom: 6px
+    margin-bottom: 6px;
+    width: 100%;
 }
 .nav.side-menu>li>a:hover {
     color: #F2F5F7 !important
