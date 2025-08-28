@@ -24,9 +24,9 @@ $user = currentUser();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CMS</title>
     <!-- Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-ENjdO4Dr2bkBIFxQpeo3xXbl4ClbBZ9OezHET57ikQRAxQF93FhjV0z9WTR2xmQf" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Font Awesome Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-dN3c8+Gl9FPT0IwwxDRf6b0yYmFjc7Nrg5oWlVm1DrF7kRquYnpHPgSlx2uP9duADy9OLdPzPU1jU5hTBdGdZg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" referrerpolicy="no-referrer" />
     <!-- Gentelella CSS (Bootstrap 5 based) -->
     <link rel="stylesheet" href="https://unpkg.com/gentelella@2.0.0/dist/css/gentelella.min.css">
     <!-- Custom styles for the CMS (optional) -->
