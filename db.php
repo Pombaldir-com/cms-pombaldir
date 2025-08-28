@@ -7,6 +7,8 @@
 
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'cms');
+// Updated database credentials for local development.  In production
+// you should create a dedicated database user with limited privileges.
 define('DB_USER', 'root');
 define('DB_PASS', 'root');
 
