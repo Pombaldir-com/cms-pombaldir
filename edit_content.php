@@ -19,7 +19,7 @@ if (!$content) {
 $typeId = (int)$content['content_type_id'];
 $contentType = getContentType($typeId);
 $customFields = getCustomFields($typeId);
-$allTaxonomies = getAllTaxonomies();
+$allTaxonomies = getTaxonomiesForContentType($typeId);
 $customValues = getCustomValuesForContent($contentId);
 $taxonomyMap = getContentTaxonomy($contentId);
 
