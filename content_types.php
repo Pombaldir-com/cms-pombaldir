@@ -49,7 +49,8 @@ require_once __DIR__ . '/header.php';
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
-                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>">Listar</a>
+                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>">Listar</a> |
+                    <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>">Taxonomias</a>
                 </td>
             </tr>
         <?php endforeach; ?>

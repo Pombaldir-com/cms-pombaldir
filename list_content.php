@@ -29,7 +29,7 @@ if (!$contentType) {
 // Get custom fields, taxonomies and content list
 $customFields = getCustomFields($typeId);
 $contents = getContentList($typeId);
-$allTaxonomies = getAllTaxonomies();
+$allTaxonomies = getTaxonomiesForContentType($typeId);
 
 require_once __DIR__ . '/header.php';
 ?>

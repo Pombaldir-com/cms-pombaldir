@@ -30,7 +30,7 @@ if (!$contentType) {
 }
 // Get custom fields and taxonomies
 $customFields = getCustomFields($typeId);
-$allTaxonomies = getAllTaxonomies();
+$allTaxonomies = getTaxonomiesForContentType($typeId);
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
