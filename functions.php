@@ -292,6 +292,19 @@ function getTerms(int $taxonomy_id): array {
 }
 
 /**
+ * Retrieve a single taxonomy term by id.
+ *
+ * @param int $term_id
+ * @return array|null
+ */
+function getTerm(int $term_id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, taxonomy_id, name FROM taxonomy_terms WHERE id = ?');
+    $stmt->execute([$term_id]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
  * Create a taxonomy term.  Returns new id.
  *
  * @param int $taxonomy_id
