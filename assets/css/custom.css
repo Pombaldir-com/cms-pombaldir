@@ -13,7 +13,12 @@ html , body{
  
 .full-height{
  height:100%;
- }
+}
+
+/* Ensure the main container spans the full width of the viewport */
+.container.body {
+    max-width: 100%;
+}
 
 .daterangepicker .ranges li {
     color: #73879C
