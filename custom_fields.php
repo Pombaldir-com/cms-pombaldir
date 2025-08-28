@@ -89,49 +89,6 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
     <?php endif; ?>
 
-    <table class="table table-striped datatable">
-        <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ordenável</th><th>Ações</th></tr>
-        </thead>
-        <tbody>
-        <?php foreach ($fields as $field): ?>
-            <tr>
-                <td><?php echo htmlspecialchars($field['name']); ?></td>
-                <td><?php echo htmlspecialchars($field['label']); ?></td>
-                <td><?php echo htmlspecialchars($field['type']); ?></td>
-                <td>
-                    <?php if ($field['type'] === 'taxonomy'): ?>
-                        <?php
-                            $opt = '';
-                            foreach ($taxonomies as $tax) {
-                                if ($tax['id'] == $field['options']) { $opt = $tax['label']; break; }
-                            }
-                            echo htmlspecialchars($opt);
-                        ?>
-                    <?php elseif ($field['type'] === 'content'): ?>
-                        <?php
-                            $opt = '';
-                            foreach ($contentTypesAll as $ct) {
-                                if ($ct['id'] == $field['options']) { $opt = $ct['label']; break; }
-                            }
-                            echo htmlspecialchars($opt);
-                        ?>
-                    <?php else: ?>
-                        <?php echo htmlspecialchars($field['options']); ?>
-                    <?php endif; ?>
-                </td>
-                <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
-                <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
-                <td><?php echo !empty($field['sortable']) ? 'Sim' : 'Não'; ?></td>
-                <td>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');">Apagar</a>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-
     <div class="card p-3 mt-4">
         <form method="post" action="<?php echo $editField ? '?type_id=' . $typeId . '&edit_id=' . $editField['id'] : '?type_id=' . $typeId . '&act=ad'; ?>">
             <?php if ($editField): ?>
