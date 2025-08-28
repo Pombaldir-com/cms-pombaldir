@@ -20,10 +20,15 @@ requireLogin();
  $taxonomy = null;
 if ($taxonomyId) {
     // Gestão de termos para uma taxonomia específica
+
     if ($act === 'ad' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['term_name'])) {
         $termName = trim($_POST['term_name']);
         if ($termName !== '') {
-            createTerm($taxonomyId, $termName);
+            if ($editingTerm) {
+                updateTerm($editingTerm['id'], $termName);
+            } else {
+                createTerm($taxonomyId, $termName);
+            }
             header('Location: taxonomies.php?taxonomy_id=' . $taxonomyId);
             exit;
         }
@@ -98,6 +103,7 @@ require_once __DIR__ . '/header.php';
         </table>
         <a href="taxonomies.php" class="btn btn-secondary">Voltar</a>
     <?php endif; ?>
+
 <?php else: ?>
     <?php if ($act === 'ad' || $editing): ?>
         <h2 class="mt-3"><?php echo $editing ? 'Editar taxonomia' : 'Criar nova taxonomia'; ?></h2>
