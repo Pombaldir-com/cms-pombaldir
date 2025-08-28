@@ -329,6 +329,10 @@ $(document).ready(function() {
         var $table = $(this);
         var source = $table.data('source');
         var options = { responsive: true };
+        if ($table.data('no-sort-last')) {
+            options.columnDefs = options.columnDefs || [];
+            options.columnDefs.push({ targets: -1, orderable: false });
+        }
         if (source) {
             var typeId = $table.data('type-id');
             options.ajax = {
@@ -337,6 +341,13 @@ $(document).ready(function() {
                 data: { type_id: typeId }
             };
         }
-        $table.DataTable(options);
+        var table = $table.DataTable(options);
+        var $toggles = $table.prev('.column-toggler');
+        if ($toggles.length) {
+            $toggles.find('input[type="checkbox"]').on('change', function() {
+                var column = table.column($(this).data('column'));
+                column.visible(this.checked);
+            });
+        }
     });
 });
