@@ -32,7 +32,7 @@ require_once __DIR__ . '/header.php';
         <?php foreach ($allTaxonomies as $tax): ?>
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="tax_<?php echo $tax['id']; ?>" name="taxonomies[]" value="<?php echo $tax['id']; ?>" <?php echo in_array($tax['id'], $current) ? 'checked' : ''; ?>>
-                <label class="form-check-label" for="tax_<?php echo $tax['id']; ?>"><?php echo htmlspecialchars($tax['label']); ?></label>
+                <label class="form-check-label" for="tax_<?php echo $tax['id']; ?>"><i class="fa <?php echo htmlspecialchars($tax['icon'] ?: 'fa-tag'); ?>"></i> <?php echo htmlspecialchars($tax['label']); ?></label>
             </div>
         <?php endforeach; ?>
         <button type="submit" class="btn btn-primary mt-3">Guardar</button>

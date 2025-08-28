@@ -12,13 +12,28 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 
-// Tratamento da submissão do formulário para criar um novo tipo
-$error = '';
+// Handling edit/delete actions and form submissions
+$error   = '';
+$editId  = isset($_GET['edit_id']) ? (int)$_GET['edit_id'] : 0;
+$delId   = isset($_GET['delete_id']) ? (int)$_GET['delete_id'] : 0;
+$editing = $editId ? getContentType($editId) : null;
+
+if ($delId) {
+    deleteContentType($delId);
+    header('Location: content_types.php');
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name  = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label = isset($_POST['label']) ? trim($_POST['label']) : '';
+    $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : '';
     if ($name !== '' && $label !== '') {
-        createContentType($name, $label);
+        if ($editing) {
+            updateContentType($editing['id'], $name, $label, $icon);
+        } else {
+            createContentType($name, $label, $icon);
+        }
         header('Location: content_types.php');
         exit;
     } else {
@@ -40,34 +55,44 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger"> <?php echo htmlspecialchars($error); ?> </div>
     <?php endif; ?>
     <table class="table table-striped datatable">
-        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <tr>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
+                <td><i class="fa <?php echo htmlspecialchars($type['icon'] ?: 'fa-file-text'); ?>"></i></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
                     <a href="list_content.php?type_id=<?php echo $type['id']; ?>">Listar</a> |
-                    <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>">Taxonomias</a>
+                    <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>">Taxonomias</a> |
+                    <a href="content_types.php?edit_id=<?php echo $type['id']; ?>">Editar</a> |
+                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" onclick="return confirm('Eliminar este tipo?');">Eliminar</a>
                 </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
     <div class="card p-3 mt-4">
-        <h5>Criar novo tipo de conteúdo</h5>
-        <form method="post" action="">
+        <h5><?php echo $editing ? 'Editar tipo de conteúdo' : 'Criar novo tipo de conteúdo'; ?></h5>
+        <form method="post" action="<?php echo $editing ? '?edit_id=' . $editing['id'] : ''; ?>">
             <div class="mb-3">
                 <label class="form-label" for="name">Slug</label>
-                <input type="text" class="form-control" id="name" name="name" required>
+                <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editing['name'] ?? ''); ?>" required>
             </div>
             <div class="mb-3">
                 <label class="form-label" for="label">Rótulo</label>
-                <input type="text" class="form-control" id="label" name="label" required>
+                <input type="text" class="form-control" id="label" name="label" value="<?php echo htmlspecialchars($editing['label'] ?? ''); ?>" required>
             </div>
-            <button type="submit" class="btn btn-primary">Criar</button>
+            <div class="mb-3">
+                <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
+                <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>">
+            </div>
+            <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Guardar' : 'Criar'; ?></button>
+            <?php if ($editing): ?>
+                <a href="content_types.php" class="btn btn-secondary">Cancelar</a>
+            <?php endif; ?>
         </form>
     </div>
 </div>
