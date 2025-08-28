@@ -40,7 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
     <link rel="stylesheet" href="vendors/nprogress/nprogress.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
-    <link rel="stylesheet" href="https://colorlibhq.github.io/gentelella/build/css/custom.min.css">
+    <link rel="stylesheet" href="https://colorlibhq.github.io/gentelella/build/css/gentelella.min.css">
+    <link rel="stylesheet" href="assets/css/custom.css">
+    <!-- Layout follows the Gentelella theme -->
 </head>
 <body class="login">
     <div>
@@ -62,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" class="form-control" placeholder="Palavra‑passe" name="password" required />
               </div>
               <div>
-                <button class="btn btn-default submit" type="submit">Entrar</button>
+                <button class="btn btn-primary submit" type="submit">Entrar</button>
               </div>
               <div class="clearfix"></div>
             </form>

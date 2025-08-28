@@ -78,9 +78,9 @@ $user = currentUser();
             <div class="nav_menu">
                 <nav class="navbar navbar-expand" role="navigation">
                     <ul class="navbar-nav ms-auto">
+                        <!-- Explicit logout button for better visibility -->
                         <li class="nav-item">
-                            <a href="logout.php" class="user-profile nav-link">
-                                <!-- Display username and logout link -->
+                            <a href="logout.php" class="btn btn-sm btn-danger">
                                 Terminar sessão (<?php echo htmlspecialchars($user['username']); ?>)
                             </a>
                         </li>
