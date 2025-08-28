@@ -20,6 +20,18 @@ requireLogin();
  $taxonomy = null;
 if ($taxonomyId) {
     // Gestão de termos para uma taxonomia específica
+    $termEditId   = isset($_GET['term_edit_id']) ? (int)$_GET['term_edit_id'] : 0;
+    $termDeleteId = isset($_GET['term_delete_id']) ? (int)$_GET['term_delete_id'] : 0;
+    $editingTerm  = $termEditId ? getTerm($termEditId) : null;
+    if ($editingTerm && $editingTerm['taxonomy_id'] != $taxonomyId) {
+        $editingTerm = null;
+    }
+
+    if ($termDeleteId) {
+        deleteTerm($termDeleteId);
+        header('Location: taxonomies.php?taxonomy_id=' . $taxonomyId);
+        exit;
+    }
 
     if ($act === 'ad' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['term_name'])) {
         $termName = trim($_POST['term_name']);
@@ -79,14 +91,14 @@ require_once __DIR__ . '/header.php';
 <div class="container-fluid">
 <?php if ($taxonomyId && $taxonomy): ?>
     <?php if ($act === 'ad'): ?>
-        <h2 class="mt-3">Adicionar novo termo a <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
+        <h2 class="mt-3"><?php echo $editingTerm ? 'Editar termo' : 'Adicionar novo termo a ' . htmlspecialchars($taxonomy['label']); ?></h2>
         <div class="card p-3 mt-4">
-            <form method="post" action="?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad">
+            <form method="post" action="?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad<?php echo $editingTerm ? '&term_edit_id=' . $editingTerm['id'] : ''; ?>">
                 <div class="mb-3">
                     <label class="form-label" for="term_name">Nome</label>
-                    <input type="text" class="form-control" id="term_name" name="term_name" required>
+                    <input type="text" class="form-control" id="term_name" name="term_name" value="<?php echo htmlspecialchars($editingTerm['name'] ?? ''); ?>" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Adicionar</button>
+                <button type="submit" class="btn btn-primary"><?php echo $editingTerm ? 'Guardar' : 'Adicionar'; ?></button>
                 <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>" class="btn btn-secondary">Voltar</a>
             </form>
         </div>
@@ -94,10 +106,16 @@ require_once __DIR__ . '/header.php';
         <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
         <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad" class="btn btn-success mb-3">Adicionar termo</a>
         <table class="table table-striped datatable">
-            <thead><tr><th>Nome</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
             <tbody>
             <?php foreach ($terms as $term): ?>
-                <tr><td><?php echo htmlspecialchars($term['name']); ?></td></tr>
+                <tr>
+                    <td><?php echo htmlspecialchars($term['name']); ?></td>
+                    <td>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad&term_edit_id=<?php echo $term['id']; ?>">Editar</a> |
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&term_delete_id=<?php echo $term['id']; ?>" onclick="return confirm('Eliminar este termo?');">Eliminar</a>
+                    </td>
+                </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
