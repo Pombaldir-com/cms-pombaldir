@@ -20,6 +20,12 @@ html , body{
     max-width: 100%;
 }
 
+/* Make the top navigation menu span the full width */
+.top_nav .nav_menu,
+.top_nav .nav_menu .navbar-nav {
+    width: 100%;
+}
+
 .daterangepicker .ranges li {
     color: #73879C
 }
