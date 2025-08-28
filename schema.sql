@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS content_types (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     label VARCHAR(100) NOT NULL,
-    icon VARCHAR(100) DEFAULT NULL,
+    icon VARCHAR(100) NOT NULL DEFAULT 'fa fa-file-text',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     content_type_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     label VARCHAR(100) NOT NULL,
-    type ENUM('text','textarea','number','date','select','taxonomy','content') NOT NULL,
+    type ENUM('text','textarea','number','date','datetime','select','taxonomy','content') NOT NULL,
     options TEXT,
     required TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

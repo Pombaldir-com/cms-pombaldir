@@ -68,7 +68,9 @@ $user = currentUser();
 $sidebarTypes = getContentTypes();
 foreach ($sidebarTypes as $sidebarType):
 ?>
-                            <li><a><i class="fa <?php echo htmlspecialchars($sidebarType['icon'] ?: 'fa-file-text'); ?>"></i> <?php echo htmlspecialchars($sidebarType['label']); ?> <span class="fa fa-chevron-down"></span></a>
+
+                            <li><a><i class="<?php echo htmlspecialchars($sidebarType['icon'] ?? 'fa fa-file-text'); ?>"></i> <?php echo htmlspecialchars($sidebarType['label']); ?> <span class="fa fa-chevron-down"></span></a>
+
                                 <ul class="nav child_menu">
                                     <li><a href="add_content.php?type_id=<?php echo $sidebarType['id']; ?>">Adicionar</a></li>
                                     <li><a href="list_content.php?type_id=<?php echo $sidebarType['id']; ?>">Listar</a></li>

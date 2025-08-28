@@ -27,13 +27,11 @@ if ($delId) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name  = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label = isset($_POST['label']) ? trim($_POST['label']) : '';
-    $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : '';
+
+    $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : 'fa fa-file-text';
     if ($name !== '' && $label !== '') {
-        if ($editing) {
-            updateContentType($editing['id'], $name, $label, $icon);
-        } else {
-            createContentType($name, $label, $icon);
-        }
+        createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+
         header('Location: content_types.php');
         exit;
     } else {
@@ -61,7 +59,9 @@ require_once __DIR__ . '/header.php';
             <tr>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
-                <td><i class="fa <?php echo htmlspecialchars($type['icon'] ?: 'fa-file-text'); ?>"></i></td>
+
+                <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
+
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
@@ -89,10 +89,13 @@ require_once __DIR__ . '/header.php';
                 <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
                 <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>">
             </div>
-            <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Guardar' : 'Criar'; ?></button>
-            <?php if ($editing): ?>
-                <a href="content_types.php" class="btn btn-secondary">Cancelar</a>
-            <?php endif; ?>
+
+            <div class="mb-3">
+                <label class="form-label" for="icon">Ícone (classe CSS)</label>
+                <input type="text" class="form-control" id="icon" name="icon" placeholder="fa fa-file-text">
+            </div>
+            <button type="submit" class="btn btn-primary">Criar</button>
+
         </form>
     </div>
 </div>

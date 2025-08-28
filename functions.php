@@ -139,9 +139,11 @@ function getContentType(int $id): ?array {
  *
  * @param string $name Slug used internally
  * @param string $label Human-readable label
+ * @param string $icon  CSS class for an icon
  * @return int
  */
-function createContentType(string $name, string $label, ?string $icon = null): int {
+
+function createContentType(string $name, string $label, string $icon): int {
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon) VALUES (?, ?, ?)');
     $stmt->execute([$name, $label, $icon]);
@@ -201,7 +203,7 @@ function getCustomFields(int $content_type_id): array {
  * @param int $content_type_id
  * @param string $name Internal slug
  * @param string $label Display label
- * @param string $type One of: text, textarea, number, date, select
+ * @param string $type One of: text, textarea, number, date, datetime, select
  * @param string $options Comma-separated values for select type (empty otherwise)
  * @param bool $required Whether the field is mandatory
  * @return int
@@ -342,6 +344,19 @@ function getTerms(int $taxonomy_id): array {
     $stmt = $pdo->prepare('SELECT id, name FROM taxonomy_terms WHERE taxonomy_id = ? ORDER BY name ASC');
     $stmt->execute([$taxonomy_id]);
     return $stmt->fetchAll();
+}
+
+/**
+ * Retrieve a single taxonomy term by id.
+ *
+ * @param int $term_id
+ * @return array|null
+ */
+function getTerm(int $term_id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, taxonomy_id, name FROM taxonomy_terms WHERE id = ?');
+    $stmt->execute([$term_id]);
+    return $stmt->fetch() ?: null;
 }
 
 /**
