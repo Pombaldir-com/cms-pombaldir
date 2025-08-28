@@ -16,6 +16,7 @@
 <script src="vendors/datatables.net-bs5/js/dataTables.bootstrap5.min.js"></script>
 <script src="vendors/datatables.net-responsive/js/dataTables.responsive.min.js"></script>
 <script src="vendors/datatables.net-responsive-bs5/js/responsive.bootstrap5.min.js"></script>
+<script src="https://colorlibhq.github.io/gentelella/build/js/gentelella.min.js"></script>
 <script src="assets/js/custom.js"></script>
 
 </body>
