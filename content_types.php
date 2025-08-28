@@ -30,7 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : 'fa fa-file-text';
     if ($name !== '' && $label !== '') {
-        createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+        if ($editId) {
+            // Update existing content type
+            updateContentType($editId, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+        } else {
+            // Create a new content type
+            createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+        }
 
         header('Location: content_types.php');
         exit;
@@ -87,14 +93,9 @@ require_once __DIR__ . '/header.php';
             </div>
             <div class="mb-3">
                 <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
-                <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>">
+                <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>" placeholder="fa fa-file-text">
             </div>
-
-            <div class="mb-3">
-                <label class="form-label" for="icon">Ícone (classe CSS)</label>
-                <input type="text" class="form-control" id="icon" name="icon" placeholder="fa fa-file-text">
-            </div>
-            <button type="submit" class="btn btn-primary">Criar</button>
+            <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Atualizar' : 'Criar'; ?></button>
 
         </form>
     </div>
