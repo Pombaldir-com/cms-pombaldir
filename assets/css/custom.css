@@ -729,6 +729,7 @@ a:focus {
 .nav.side-menu>li {
     position: relative;
     display: block;
+    width: 100%;
     cursor: pointer
 }
 .nav.side-menu>li>a {
