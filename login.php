@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CMS – Login</title>
     <!-- Bootstrap and Gentelella CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-ENjdO4Dr2bkBIFxQpeo3xXbl4ClbBZ9OezHET57ikQRAxQF93FhjV0z9WTR2xmQf" crossorigin="anonymous">
     <link rel="stylesheet" href="https://colorlibhq.github.io/gentelella/build/css/gentelella.min.css">
 </head>
 <body class="login">
@@ -64,6 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </section>
     </div>
     <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-QT8V3PQR9on7WZzscCvtAHvjNa3Wxj4Rtx6ATLv3b29btaLGGkpqCj1BEcLFcVVU" crossorigin="anonymous"></script>
+    <!-- Gentelella JS -->
+    <script src="https://colorlibhq.github.io/gentelella/build/js/gentelella.min.js"></script>
 </body>
 </html>
