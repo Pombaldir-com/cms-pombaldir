@@ -60,7 +60,7 @@ $user = currentUser();
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="dashboard.php"><i class="fa fa-home"></i> Dashboard</a></li>
-                            <li><a href="content_types.php"><i class="fa fa-layer-group"></i> Tipos de Conteúdo</a></li>
+                            <li><a href="content_types.php"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
                             <li><a href="taxonomies.php"><i class="fa fa-tags"></i> Taxonomias</a></li>
                             <li><a href="add_content.php"><i class="fa fa-plus-circle"></i> Adicionar Conteúdo</a></li>
                             <li><a href="list_content.php"><i class="fa fa-list"></i> Listar Conteúdo</a></li>
@@ -75,10 +75,10 @@ $user = currentUser();
         <!-- Top navigation -->
         <div class="top_nav">
             <div class="nav_menu">
-                <nav class="" role="navigation">
-                    <ul class="nav navbar-nav navbar-right">
-                        <li class="">
-                            <a href="logout.php" class="user-profile">
+                <nav class="navbar navbar-expand" role="navigation">
+                    <ul class="navbar-nav ms-auto">
+                        <li class="nav-item">
+                            <a href="logout.php" class="user-profile nav-link">
                                 <!-- Display username and logout link -->
                                 Terminar sessão (<?php echo htmlspecialchars($user['username']); ?>)
                             </a>
