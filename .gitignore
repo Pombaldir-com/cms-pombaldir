@@ -3,6 +3,7 @@ CMS.code-workspace
 .DS_Store
 node_modules/
 dist/
+vendors/
 .env
 .env.local
 .env.*.local
