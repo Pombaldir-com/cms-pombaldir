@@ -425,6 +425,31 @@ function createTerm(int $taxonomy_id, string $term): int {
 }
 
 /**
+ * Update a taxonomy term's name.
+ *
+ * @param int $term_id
+ * @param string $term
+ * @return void
+ */
+function updateTerm(int $term_id, string $term): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE taxonomy_terms SET name = ? WHERE id = ?');
+    $stmt->execute([$term, $term_id]);
+}
+
+/**
+ * Delete a taxonomy term by id.
+ *
+ * @param int $term_id
+ * @return void
+ */
+function deleteTerm(int $term_id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM taxonomy_terms WHERE id = ?');
+    $stmt->execute([$term_id]);
+}
+
+/**
  * Retrieve taxonomies assigned to a given content type.
  *
  * @param int $content_type_id
