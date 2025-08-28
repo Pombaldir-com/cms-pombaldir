@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     options TEXT,
     required TINYINT(1) NOT NULL DEFAULT 0,
     show_in_list TINYINT(1) NOT NULL DEFAULT 0,
+    sortable TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (content_type_id) REFERENCES content_types(id) ON DELETE CASCADE
 );
