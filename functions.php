@@ -191,8 +191,10 @@ function getCustomFields(int $content_type_id): array {
     // application continues to work without a fatal database error.
     $hasLabel = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'label'")->fetch();
     $labelExpr = $hasLabel ? 'label' : 'name AS label';
+    $hasList = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
+    $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
 
-    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
+    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
     $stmt->execute([$content_type_id]);
     return $stmt->fetchAll();
 }
@@ -208,16 +210,24 @@ function getCustomFields(int $content_type_id): array {
  * @param bool $required Whether the field is mandatory
  * @return int
  */
-function createCustomField(int $content_type_id, string $name, string $label, string $type, string $options = '', bool $required = false): int {
+function createCustomField(int $content_type_id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false): int {
     $pdo = getPDO();
 
-    // If the table doesn't have a "label" column (older schema), insert
-    // without it.  This keeps the function compatible with both schema
-    // versions and avoids SQL errors during field creation.
+    // If the table doesn't have certain columns (older schema), insert
+    // without them.  This keeps the function compatible with multiple
+    // schema versions and avoids SQL errors during field creation.
     $hasLabel = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'label'")->fetch();
-    if ($hasLabel) {
+    $hasList  = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
+
+    if ($hasLabel && $hasList) {
+        $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, label, type, options, required, show_in_list) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$content_type_id, $name, $label, $type, $options, $required ? 1 : 0, $show_in_list ? 1 : 0]);
+    } elseif ($hasLabel) {
         $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, label, type, options, required) VALUES (?, ?, ?, ?, ?, ?)');
         $stmt->execute([$content_type_id, $name, $label, $type, $options, $required ? 1 : 0]);
+    } elseif ($hasList) {
+        $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, type, options, required, show_in_list) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$content_type_id, $name, $type, $options, $required ? 1 : 0, $show_in_list ? 1 : 0]);
     } else {
         $stmt = $pdo->prepare('INSERT INTO custom_fields (content_type_id, name, type, options, required) VALUES (?, ?, ?, ?, ?)');
         $stmt->execute([$content_type_id, $name, $type, $options, $required ? 1 : 0]);
@@ -234,7 +244,9 @@ function createCustomField(int $content_type_id, string $name, string $label, st
  */
 function getCustomField(int $id): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, content_type_id, name, label, type, options, required FROM custom_fields WHERE id = ?');
+    $hasList = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
+    $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
+    $stmt = $pdo->prepare("SELECT id, content_type_id, name, label, type, options, required, $listExpr FROM custom_fields WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -250,10 +262,16 @@ function getCustomField(int $id): ?array {
  * @param bool $required
  * @return void
  */
-function updateCustomField(int $id, string $name, string $label, string $type, string $options = '', bool $required = false): void {
+function updateCustomField(int $id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false): void {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('UPDATE custom_fields SET name = ?, label = ?, type = ?, options = ?, required = ? WHERE id = ?');
-    $stmt->execute([$name, $label, $type, $options, $required ? 1 : 0, $id]);
+    $hasList = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
+    if ($hasList) {
+        $stmt = $pdo->prepare('UPDATE custom_fields SET name = ?, label = ?, type = ?, options = ?, required = ?, show_in_list = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $type, $options, $required ? 1 : 0, $show_in_list ? 1 : 0, $id]);
+    } else {
+        $stmt = $pdo->prepare('UPDATE custom_fields SET name = ?, label = ?, type = ?, options = ?, required = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $type, $options, $required ? 1 : 0, $id]);
+    }
 }
 
 /**

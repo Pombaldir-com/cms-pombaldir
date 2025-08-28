@@ -56,14 +56,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
     }
     $required = isset($_POST['required']);
+    $showInList = isset($_POST['show_in_list']);
     if ($name !== '' && $label !== '' && $fieldType !== '') {
         if ($fieldId) {
             $existing = getCustomField($fieldId);
             if ($existing && (int)$existing['content_type_id'] === $typeId) {
-                updateCustomField($fieldId, $name, $label, $fieldType, $options, $required);
+                updateCustomField($fieldId, $name, $label, $fieldType, $options, $required, $showInList);
             }
         } else {
-            createCustomField($typeId, $name, $label, $fieldType, $options, $required);
+            createCustomField($typeId, $name, $label, $fieldType, $options, $required, $showInList);
         }
         header('Location: custom_fields.php?type_id=' . $typeId);
         exit;
@@ -84,7 +85,7 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Ações</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($fields as $field): ?>
@@ -114,6 +115,7 @@ require_once __DIR__ . '/header.php';
                     <?php endif; ?>
                 </td>
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
+                <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
                     <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');">Apagar</a>
@@ -174,6 +176,10 @@ require_once __DIR__ . '/header.php';
             <div class="form-check mb-3">
                 <input class="form-check-input" type="checkbox" id="required" name="required" <?php echo !empty($editField['required']) ? 'checked' : ''; ?>>
                 <label class="form-check-label" for="required">Obrigatório</label>
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="show_in_list" name="show_in_list" <?php echo !empty($editField['show_in_list']) ? 'checked' : ''; ?>>
+                <label class="form-check-label" for="show_in_list">Mostrar na listagem</label>
             </div>
             <button type="submit" class="btn btn-primary"><?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
             <?php if ($editField): ?>
