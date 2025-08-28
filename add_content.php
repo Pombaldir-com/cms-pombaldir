@@ -8,7 +8,7 @@
  * After submitting the form, it saves the content, custom field values, and taxonomy
  * assignments using functions from functions.php.
  */
-
+ 
 require_once 'db.php';
 require_once 'functions.php';
 
