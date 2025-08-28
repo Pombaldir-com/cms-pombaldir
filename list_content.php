@@ -26,9 +26,10 @@ if (!$contentType) {
     exit;
 }
 
-// Get custom fields and content list
+// Get custom fields, taxonomies and content list
 $customFields = getCustomFields($typeId);
 $contents = getContentList($typeId);
+$allTaxonomies = getAllTaxonomies();
 
 ?>
 <!DOCTYPE html>
@@ -65,7 +66,7 @@ $contents = getContentList($typeId);
                                             <?php foreach ($customFields as $field): ?>
                                                 <th><?php echo htmlspecialchars($field['name']); ?></th>
                                             <?php endforeach; ?>
-                                            <?php foreach (getAllTaxonomies() as $tax): ?>
+                                            <?php foreach ($allTaxonomies as $tax): ?>
                                                 <th><?php echo htmlspecialchars($tax['name']); ?></th>
                                             <?php endforeach; ?>
                                         </tr>
@@ -89,7 +90,7 @@ $contents = getContentList($typeId);
                                                     ?>
                                                     <td><?php echo htmlspecialchars($fieldValue); ?></td>
                                                 <?php endforeach; ?>
-                                                <?php foreach (getAllTaxonomies() as $tax): ?>
+                                                <?php foreach ($allTaxonomies as $tax): ?>
                                                     <?php
                                                         $termsList = [];
                                                         foreach ($content['taxonomies'] as $assoc) {
