@@ -1,1 +1,10 @@
-add_content.php
+CMS.code-workspace
+.vscode/
+.DS_Store
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log* 
