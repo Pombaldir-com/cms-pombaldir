@@ -13,6 +13,12 @@ if (!$typeId) {
     exit;
 }
 
+$contentType = getContentType($typeId);
+if (!$contentType) {
+    echo json_encode(['data' => []]);
+    exit;
+}
+
 $customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
     return !empty($f['show_in_list']);
 }));
@@ -21,11 +27,13 @@ $contents = getContentList($typeId);
 
 $data = [];
 foreach ($contents as $content) {
-    $row = [
-        htmlspecialchars($content['title']),
-        htmlspecialchars($content['author_name']),
-        htmlspecialchars($content['created_at'])
-    ];
+    $row = [htmlspecialchars($content['title'])];
+    if (!empty($contentType['show_author'])) {
+        $row[] = htmlspecialchars($content['author_name']);
+    }
+    if (!empty($contentType['show_date'])) {
+        $row[] = htmlspecialchars($content['created_at']);
+    }
 
     foreach ($customFields as $field) {
         $fieldId = $field['id'];

@@ -16,12 +16,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name  = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label = isset($_POST['label']) ? trim($_POST['label']) : '';
     $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : 'fa fa-file-text';
+    $showAuthor = isset($_POST['show_author']);
+    $showDate   = isset($_POST['show_date']);
 
     if ($name !== '' && $label !== '') {
         if ($id) {
-            updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+            updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate);
         } else {
-            createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
+            createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate);
         }
         header('Location: content_types.php');
         exit;
@@ -49,6 +51,14 @@ require_once __DIR__ . '/header.php';
         <div class="mb-3">
             <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
             <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>" placeholder="fa fa-file-text">
+        </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="show_author" name="show_author" <?php echo !empty($editing['show_author']) ? 'checked' : ''; ?>>
+            <label class="form-check-label" for="show_author">Mostrar autor na listagem</label>
+        </div>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="show_date" name="show_date" <?php echo !empty($editing['show_date']) ? 'checked' : ''; ?>>
+            <label class="form-check-label" for="show_date">Mostrar data na listagem</label>
         </div>
         <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Atualizar' : 'Criar'; ?></button>
     </form>
