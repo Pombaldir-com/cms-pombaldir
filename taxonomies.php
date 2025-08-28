@@ -146,12 +146,13 @@ require_once __DIR__ . '/header.php';
         <h2 class="mt-3">Taxonomias</h2>
         <a href="taxonomies.php?act=ad" class="btn btn-success mb-3">Adicionar taxonomia</a>
         <table class="table table-striped datatable">
-            <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Rótulo</th><th>Slug</th><th>Ações</th></tr></thead>
             <tbody>
             <?php foreach ($taxonomies as $tax): ?>
                 <tr>
-                    <td><?php echo htmlspecialchars($tax['name']); ?></td>
+                   
                     <td><?php echo htmlspecialchars($tax['label']); ?></td>
+                     <td><?php echo htmlspecialchars($tax['name']); ?></td>
                     <td>
                         <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info">Gerir termos</a>
                         <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
