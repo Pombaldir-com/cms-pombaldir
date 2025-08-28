@@ -117,7 +117,7 @@ function currentUser(): ?array {
  */
 function getContentTypes(): array {
     $pdo = getPDO();
-    $stmt = $pdo->query('SELECT id, name, label FROM content_types ORDER BY id ASC');
+    $stmt = $pdo->query('SELECT id, name, label, icon FROM content_types ORDER BY id ASC');
     return $stmt->fetchAll();
 }
 
@@ -129,7 +129,7 @@ function getContentTypes(): array {
  */
 function getContentType(int $id): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, name, label FROM content_types WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name, label, icon FROM content_types WHERE id = ?');
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -139,12 +139,13 @@ function getContentType(int $id): ?array {
  *
  * @param string $name Slug used internally
  * @param string $label Human-readable label
+ * @param string $icon  CSS class for an icon
  * @return int
  */
-function createContentType(string $name, string $label): int {
+function createContentType(string $name, string $label, string $icon): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO content_types (name, label) VALUES (?, ?)');
-    $stmt->execute([$name, $label]);
+    $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon) VALUES (?, ?, ?)');
+    $stmt->execute([$name, $label, $icon]);
     return (int)$pdo->lastInsertId();
 }
 
@@ -174,7 +175,7 @@ function getCustomFields(int $content_type_id): array {
  * @param int $content_type_id
  * @param string $name Internal slug
  * @param string $label Display label
- * @param string $type One of: text, textarea, number, date, select
+ * @param string $type One of: text, textarea, number, date, datetime, select
  * @param string $options Comma-separated values for select type (empty otherwise)
  * @param bool $required Whether the field is mandatory
  * @return int

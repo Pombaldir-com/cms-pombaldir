@@ -35,6 +35,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fieldName = 'field_' . $field['id'];
             $value = $_POST[$fieldName] ?? null;
             if ($value !== null) {
+                if ($field['type'] === 'datetime' && $value !== '') {
+                    $value = str_replace('T', ' ', substr($value, 0, 16));
+                }
                 saveCustomValue($contentId, $field['id'], $value);
             }
         }
@@ -90,6 +93,9 @@ require_once __DIR__ . '/header.php';
                                     <input type="number" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($value); ?>" <?php echo $isRequired; ?>>
                                 <?php elseif ($field['type'] === 'date'): ?>
                                     <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($value); ?>" <?php echo $isRequired; ?>>
+                                <?php elseif ($field['type'] === 'datetime'): ?>
+                                    <?php $formatted = $value ? str_replace(' ', 'T', substr($value, 0, 16)) : ''; ?>
+                                    <input type="datetime-local" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($formatted); ?>" <?php echo $isRequired; ?>>
                                 <?php elseif ($field['type'] === 'select'): ?>
                                     <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
                                         <option value="">-- Select --</option>

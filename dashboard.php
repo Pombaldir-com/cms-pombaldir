@@ -56,6 +56,10 @@ require_once __DIR__ . '/header.php';
                 <label class="form-label" for="label">Rótulo</label>
                 <input type="text" class="form-control" id="label" name="label" required>
             </div>
+            <div class="mb-3">
+                <label class="form-label" for="icon">Ícone (classe CSS)</label>
+                <input type="text" class="form-control" id="icon" name="icon" placeholder="fa fa-file-text">
+            </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>
     </div>
