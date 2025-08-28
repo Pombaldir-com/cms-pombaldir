@@ -34,6 +34,15 @@ foreach ($contents as $content) {
                 break;
             }
         }
+
+        if ($field['type'] === 'taxonomy' && $fieldValue !== '') {
+            $term = getTerm((int)$fieldValue);
+            $fieldValue = $term ? $term['name'] : $fieldValue;
+        } elseif ($field['type'] === 'content' && $fieldValue !== '') {
+            $related = getContent((int)$fieldValue);
+            $fieldValue = $related ? $related['title'] : $fieldValue;
+        }
+
         $row[] = htmlspecialchars($fieldValue);
     }
 
