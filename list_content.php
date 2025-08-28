@@ -37,8 +37,10 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
-// Get custom fields and taxonomies
-$customFields = getCustomFields($typeId);
+// Get custom fields (only those marked to show in list) and taxonomies
+$customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
+    return !empty($f['show_in_list']);
+}));
 $allTaxonomies = getTaxonomiesForContentType($typeId);
 
 require_once __DIR__ . '/header.php';

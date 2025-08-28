@@ -13,7 +13,9 @@ if (!$typeId) {
     exit;
 }
 
-$customFields = getCustomFields($typeId);
+$customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
+    return !empty($f['show_in_list']);
+}));
 $allTaxonomies = getTaxonomiesForContentType($typeId);
 $contents = getContentList($typeId);
 
