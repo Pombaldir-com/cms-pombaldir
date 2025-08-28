@@ -63,8 +63,20 @@ $user = currentUser();
                             <li><a href="dashboard.php"><i class="fa fa-home"></i> Dashboard</a></li>
                             <li><a href="content_types.php"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
                             <li><a href="taxonomies.php"><i class="fa fa-tags"></i> Taxonomias</a></li>
-                            <li><a href="add_content.php"><i class="fa fa-plus-circle"></i> Adicionar Conteúdo</a></li>
-                            <li><a href="list_content.php"><i class="fa fa-list"></i> Listar Conteúdo</a></li>
+<?php
+// Dynamically list each content type with shortcuts to common actions.
+$sidebarTypes = getContentTypes();
+foreach ($sidebarTypes as $sidebarType):
+?>
+                            <li><a><i class="fa fa-file-text"></i> <?php echo htmlspecialchars($sidebarType['label']); ?> <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="add_content.php?type_id=<?php echo $sidebarType['id']; ?>">Adicionar</a></li>
+                                    <li><a href="list_content.php?type_id=<?php echo $sidebarType['id']; ?>">Listar</a></li>
+                                    <li><a href="custom_fields.php?type_id=<?php echo $sidebarType['id']; ?>">Campos</a></li>
+                                    <li><a href="content_type_taxonomies.php?type_id=<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
+                                </ul>
+                            </li>
+<?php endforeach; ?>
                         </ul>
                     </div>
                 </div>

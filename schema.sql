@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS custom_values (
     FOREIGN KEY (field_id) REFERENCES custom_fields(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS content_type_taxonomy (
+    content_type_id INT NOT NULL,
+    taxonomy_id INT NOT NULL,
+    PRIMARY KEY (content_type_id, taxonomy_id),
+    FOREIGN KEY (content_type_id) REFERENCES content_types(id) ON DELETE CASCADE,
+    FOREIGN KEY (taxonomy_id) REFERENCES taxonomies(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS content_taxonomy (
     content_id INT NOT NULL,
     taxonomy_id INT NOT NULL,

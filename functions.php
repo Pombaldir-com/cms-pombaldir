@@ -292,6 +292,39 @@ function createTerm(int $taxonomy_id, string $term): int {
 }
 
 /**
+ * Retrieve taxonomies assigned to a given content type.
+ *
+ * @param int $content_type_id
+ * @return array
+ */
+function getTaxonomiesForContentType(int $content_type_id): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT t.id, t.name, t.label FROM taxonomies t JOIN content_type_taxonomy ctt ON t.id = ctt.taxonomy_id WHERE ctt.content_type_id = ? ORDER BY t.id ASC');
+    $stmt->execute([$content_type_id]);
+    return $stmt->fetchAll();
+}
+
+/**
+ * Assign a set of taxonomies to a content type.
+ * Existing assignments are removed before inserting the new ones.
+ *
+ * @param int $content_type_id
+ * @param array $taxonomy_ids
+ * @return void
+ */
+function setContentTypeTaxonomies(int $content_type_id, array $taxonomy_ids): void {
+    $pdo = getPDO();
+    $pdo->beginTransaction();
+    $del = $pdo->prepare('DELETE FROM content_type_taxonomy WHERE content_type_id = ?');
+    $del->execute([$content_type_id]);
+    $ins = $pdo->prepare('INSERT INTO content_type_taxonomy (content_type_id, taxonomy_id) VALUES (?, ?)');
+    foreach ($taxonomy_ids as $tid) {
+        $ins->execute([$content_type_id, $tid]);
+    }
+    $pdo->commit();
+}
+
+/**
  * Create a content entry.  The function inserts a row into the
  * `content` table and returns the new content id.
  *
