@@ -15,16 +15,45 @@ if (!$type) {
     exit;
 }
 
-// Processa submissão do formulário para criar um novo campo
+// Ações de apagar
+if (isset($_GET['delete'])) {
+    $deleteId = (int)$_GET['delete'];
+    $field = getCustomField($deleteId);
+    if ($field && (int)$field['content_type_id'] === $typeId) {
+        deleteCustomField($deleteId);
+    }
+    header('Location: custom_fields.php?type_id=' . $typeId);
+    exit;
+}
+
+// Campo em edição, se aplicável
+$editId = isset($_GET['edit']) ? (int)$_GET['edit'] : 0;
+$editField = null;
+if ($editId) {
+    $editField = getCustomField($editId);
+    if (!$editField || (int)$editField['content_type_id'] !== $typeId) {
+        $editField = null;
+    }
+}
+
+// Processa submissão do formulário para criar ou atualizar um campo
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $fieldId  = isset($_POST['field_id']) ? (int)$_POST['field_id'] : 0;
     $name     = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label    = isset($_POST['label']) ? trim($_POST['label']) : '';
     $fieldType = isset($_POST['field_type']) ? trim($_POST['field_type']) : '';
     $options  = isset($_POST['options']) ? trim($_POST['options']) : '';
     $required = isset($_POST['required']);
     if ($name !== '' && $label !== '' && $fieldType !== '') {
-        createCustomField($typeId, $name, $label, $fieldType, $options, $required);
+        if ($fieldId) {
+            $existing = getCustomField($fieldId);
+            if ($existing && (int)$existing['content_type_id'] === $typeId) {
+                updateCustomField($fieldId, $name, $label, $fieldType, $options, $required);
+            }
+        } else {
+            createCustomField($typeId, $name, $label, $fieldType, $options, $required);
+        }
         header('Location: custom_fields.php?type_id=' . $typeId);
         exit;
     } else {
@@ -44,7 +73,7 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($fields as $field): ?>
@@ -54,40 +83,50 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($field['type']); ?></td>
                 <td><?php echo htmlspecialchars($field['options']); ?></td>
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
+                <td>
+                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
+                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');">Apagar</a>
+                </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
     <div class="card p-3 mt-4">
-        <h5>Adicionar novo campo</h5>
+        <h5><?php echo $editField ? 'Editar campo' : 'Adicionar novo campo'; ?></h5>
         <form method="post" action="">
+            <?php if ($editField): ?>
+                <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
+            <?php endif; ?>
             <div class="mb-3">
                 <label class="form-label" for="name">Slug</label>
-                <input type="text" class="form-control" id="name" name="name" required>
+                <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editField['name'] ?? ''); ?>" required>
             </div>
             <div class="mb-3">
                 <label class="form-label" for="label">Rótulo</label>
-                <input type="text" class="form-control" id="label" name="label" required>
+                <input type="text" class="form-control" id="label" name="label" value="<?php echo htmlspecialchars($editField['label'] ?? ''); ?>" required>
             </div>
             <div class="mb-3">
                 <label class="form-label" for="field_type">Tipo</label>
                 <select class="form-select" id="field_type" name="field_type" required>
-                    <option value="text">Texto</option>
-                    <option value="textarea">Textarea</option>
-                    <option value="number">Número</option>
-                    <option value="date">Data</option>
-                    <option value="select">Select (opções separadas por vírgula)</option>
+                    <option value="text" <?php echo isset($editField['type']) && $editField['type'] === 'text' ? 'selected' : ''; ?>>Texto</option>
+                    <option value="textarea" <?php echo isset($editField['type']) && $editField['type'] === 'textarea' ? 'selected' : ''; ?>>Textarea</option>
+                    <option value="number" <?php echo isset($editField['type']) && $editField['type'] === 'number' ? 'selected' : ''; ?>>Número</option>
+                    <option value="date" <?php echo isset($editField['type']) && $editField['type'] === 'date' ? 'selected' : ''; ?>>Data</option>
+                    <option value="select" <?php echo isset($editField['type']) && $editField['type'] === 'select' ? 'selected' : ''; ?>>Select (opções separadas por vírgula)</option>
                 </select>
             </div>
             <div class="mb-3">
                 <label class="form-label" for="options">Opções (apenas para Select)</label>
-                <input type="text" class="form-control" id="options" name="options" placeholder="opção1,opção2,opção3">
+                <input type="text" class="form-control" id="options" name="options" placeholder="opção1,opção2,opção3" value="<?php echo htmlspecialchars($editField['options'] ?? ''); ?>">
             </div>
             <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" id="required" name="required">
+                <input class="form-check-input" type="checkbox" id="required" name="required" <?php echo !empty($editField['required']) ? 'checked' : ''; ?>>
                 <label class="form-check-label" for="required">Obrigatório</label>
             </div>
-            <button type="submit" class="btn btn-primary">Adicionar</button>
+            <button type="submit" class="btn btn-primary"><?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
+            <?php if ($editField): ?>
+                <a href="custom_fields.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary ms-2">Cancelar</a>
+            <?php endif; ?>
         </form>
     </div>
 </div>

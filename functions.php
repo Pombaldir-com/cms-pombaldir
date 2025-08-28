@@ -198,6 +198,48 @@ function createCustomField(int $content_type_id, string $name, string $label, st
 }
 
 /**
+ * Fetch a single custom field by id.
+ *
+ * @param int $id
+ * @return array|null
+ */
+function getCustomField(int $id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, content_type_id, name, label, type, options, required FROM custom_fields WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
+ * Update an existing custom field.
+ *
+ * @param int $id
+ * @param string $name
+ * @param string $label
+ * @param string $type
+ * @param string $options
+ * @param bool $required
+ * @return void
+ */
+function updateCustomField(int $id, string $name, string $label, string $type, string $options = '', bool $required = false): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE custom_fields SET name = ?, label = ?, type = ?, options = ?, required = ? WHERE id = ?');
+    $stmt->execute([$name, $label, $type, $options, $required ? 1 : 0, $id]);
+}
+
+/**
+ * Delete a custom field by id.
+ *
+ * @param int $id
+ * @return void
+ */
+function deleteCustomField(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM custom_fields WHERE id = ?');
+    $stmt->execute([$id]);
+}
+
+/**
  * Retrieve all taxonomies.
  *
  * @return array
