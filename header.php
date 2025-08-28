@@ -89,9 +89,9 @@ foreach ($sidebarTypes as $sidebarType):
 
         <!-- Top navigation -->
         <div class="top_nav">
-            <div class="nav_menu">
-                <nav class="navbar navbar-expand" role="navigation">
-                    <ul class="navbar-nav ms-auto">
+            <div class="nav_menu w-100">
+                <nav class="navbar navbar-expand w-100" role="navigation">
+                    <ul class="navbar-nav w-100 justify-content-end">
                         <!-- Explicit logout button for better visibility -->
                         <li class="nav-item">
                             <a href="logout.php" class="btn btn-sm btn-danger">
