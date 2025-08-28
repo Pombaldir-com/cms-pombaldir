@@ -11,6 +11,13 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 
+// Redirect to the creation form when requested via act=ad for backward compatibility
+$action = isset($_GET['act']) ? $_GET['act'] : '';
+if ($action === 'ad') {
+    header('Location: content_type_form.php');
+    exit;
+}
+
 // Handle deletion of a content type
 $delId = isset($_GET['delete_id']) ? (int)$_GET['delete_id'] : 0;
 
