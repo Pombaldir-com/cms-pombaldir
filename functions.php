@@ -238,12 +238,13 @@ function createTerm(int $taxonomy_id, string $term): int {
  * @param int $content_type_id
  * @param int $user_id
  * @param string $title
+ * @param string|null $body Optional body text
  * @return int
  */
-function createContent(int $content_type_id, int $user_id, string $title): int {
+function createContent(int $content_type_id, int $user_id, string $title, ?string $body = null): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO content (content_type_id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())');
-    $stmt->execute([$content_type_id, $user_id, $title]);
+    $stmt = $pdo->prepare('INSERT INTO content (content_type_id, user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())');
+    $stmt->execute([$content_type_id, $user_id, $title, $body]);
     return (int)$pdo->lastInsertId();
 }
 
