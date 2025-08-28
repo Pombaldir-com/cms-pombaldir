@@ -15,6 +15,10 @@ if (!$type) {
     exit;
 }
 
+// Listas auxiliares de taxonomias e tipos de conteúdo
+$taxonomies = getTaxonomies();
+$contentTypesAll = getContentTypes();
+
 // Ações de apagar
 if (isset($_GET['delete'])) {
     $deleteId = (int)$_GET['delete'];
@@ -43,7 +47,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name     = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label    = isset($_POST['label']) ? trim($_POST['label']) : '';
     $fieldType = isset($_POST['field_type']) ? trim($_POST['field_type']) : '';
-    $options  = isset($_POST['options']) ? trim($_POST['options']) : '';
+    $options  = '';
+    if ($fieldType === 'select') {
+        $options = isset($_POST['options_text']) ? trim($_POST['options_text']) : '';
+    } elseif ($fieldType === 'taxonomy') {
+        $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
+    } elseif ($fieldType === 'content') {
+        $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
+    }
     $required = isset($_POST['required']);
     if ($name !== '' && $label !== '' && $fieldType !== '') {
         if ($fieldId) {
@@ -81,7 +92,27 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($field['name']); ?></td>
                 <td><?php echo htmlspecialchars($field['label']); ?></td>
                 <td><?php echo htmlspecialchars($field['type']); ?></td>
-                <td><?php echo htmlspecialchars($field['options']); ?></td>
+                <td>
+                    <?php if ($field['type'] === 'taxonomy'): ?>
+                        <?php
+                            $opt = '';
+                            foreach ($taxonomies as $tax) {
+                                if ($tax['id'] == $field['options']) { $opt = $tax['label']; break; }
+                            }
+                            echo htmlspecialchars($opt);
+                        ?>
+                    <?php elseif ($field['type'] === 'content'): ?>
+                        <?php
+                            $opt = '';
+                            foreach ($contentTypesAll as $ct) {
+                                if ($ct['id'] == $field['options']) { $opt = $ct['label']; break; }
+                            }
+                            echo htmlspecialchars($opt);
+                        ?>
+                    <?php else: ?>
+                        <?php echo htmlspecialchars($field['options']); ?>
+                    <?php endif; ?>
+                </td>
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
@@ -113,11 +144,31 @@ require_once __DIR__ . '/header.php';
                     <option value="number" <?php echo isset($editField['type']) && $editField['type'] === 'number' ? 'selected' : ''; ?>>Número</option>
                     <option value="date" <?php echo isset($editField['type']) && $editField['type'] === 'date' ? 'selected' : ''; ?>>Data</option>
                     <option value="select" <?php echo isset($editField['type']) && $editField['type'] === 'select' ? 'selected' : ''; ?>>Select (opções separadas por vírgula)</option>
+                    <option value="taxonomy" <?php echo isset($editField['type']) && $editField['type'] === 'taxonomy' ? 'selected' : ''; ?>>Select Taxonomia</option>
+                    <option value="content" <?php echo isset($editField['type']) && $editField['type'] === 'content' ? 'selected' : ''; ?>>Select Conteúdo</option>
                 </select>
             </div>
-            <div class="mb-3">
-                <label class="form-label" for="options">Opções (apenas para Select)</label>
-                <input type="text" class="form-control" id="options" name="options" placeholder="opção1,opção2,opção3" value="<?php echo htmlspecialchars($editField['options'] ?? ''); ?>">
+            <div class="mb-3" id="options_text_wrapper">
+                <label class="form-label" for="options_text">Opções (apenas para Select)</label>
+                <input type="text" class="form-control" id="options_text" name="options_text" placeholder="opção1,opção2,opção3" value="<?php echo isset($editField) && $editField['type'] === 'select' ? htmlspecialchars($editField['options']) : ''; ?>">
+            </div>
+            <div class="mb-3" id="options_taxonomy_wrapper">
+                <label class="form-label" for="options_taxonomy">Taxonomia</label>
+                <select class="form-select" id="options_taxonomy" name="options_taxonomy">
+                    <option value="">-- Selecione --</option>
+                    <?php foreach ($taxonomies as $tax): ?>
+                        <option value="<?php echo $tax['id']; ?>" <?php echo isset($editField) && $editField['type'] === 'taxonomy' && $editField['options'] == $tax['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($tax['label']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="mb-3" id="options_content_wrapper">
+                <label class="form-label" for="options_content">Tipo de Conteúdo</label>
+                <select class="form-select" id="options_content" name="options_content">
+                    <option value="">-- Selecione --</option>
+                    <?php foreach ($contentTypesAll as $ct): ?>
+                        <option value="<?php echo $ct['id']; ?>" <?php echo isset($editField) && $editField['type'] === 'content' && $editField['options'] == $ct['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($ct['label']); ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="form-check mb-3">
                 <input class="form-check-input" type="checkbox" id="required" name="required" <?php echo !empty($editField['required']) ? 'checked' : ''; ?>>
@@ -126,9 +177,24 @@ require_once __DIR__ . '/header.php';
             <button type="submit" class="btn btn-primary"><?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
             <?php if ($editField): ?>
                 <a href="custom_fields.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary ms-2">Cancelar</a>
-            <?php endif; ?>
+        <?php endif; ?>
         </form>
     </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const typeSel = document.getElementById('field_type');
+    const textWrap = document.getElementById('options_text_wrapper');
+    const taxWrap = document.getElementById('options_taxonomy_wrapper');
+    const contentWrap = document.getElementById('options_content_wrapper');
+    function updateOpts() {
+        textWrap.style.display = typeSel.value === 'select' ? 'block' : 'none';
+        taxWrap.style.display = typeSel.value === 'taxonomy' ? 'block' : 'none';
+        contentWrap.style.display = typeSel.value === 'content' ? 'block' : 'none';
+    }
+    typeSel.addEventListener('change', updateOpts);
+    updateOpts();
+});
+</script>
 <?php require_once __DIR__ . '/footer.php'; ?>
 

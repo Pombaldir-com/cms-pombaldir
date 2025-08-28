@@ -26,6 +26,17 @@ if (!$contentType) {
     exit;
 }
 
+// Handle deletion of a content entry
+if (isset($_GET['delete'])) {
+    $deleteId = (int)$_GET['delete'];
+    $content = getContent($deleteId);
+    if ($content && (int)$content['content_type_id'] === $typeId) {
+        deleteContent($deleteId);
+    }
+    header('Location: list_content.php?type_id=' . $typeId);
+    exit;
+}
+
 // Get custom fields, taxonomies and content list
 $customFields = getCustomFields($typeId);
 $contents = getContentList($typeId);
@@ -57,6 +68,7 @@ require_once __DIR__ . '/header.php';
                                 <?php foreach ($allTaxonomies as $tax): ?>
                                     <th><?php echo htmlspecialchars($tax['label']); ?></th>
                                 <?php endforeach; ?>
+                                <th>Ações</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -89,6 +101,10 @@ require_once __DIR__ . '/header.php';
                                         ?>
                                         <td><?php echo htmlspecialchars(implode(', ', $termsList)); ?></td>
                                     <?php endforeach; ?>
+                                    <td>
+                                        <a href="edit_content.php?id=<?php echo $content['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
+                                        <a href="list_content.php?type_id=<?php echo $typeId; ?>&delete=<?php echo $content['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este conteúdo?');">Apagar</a>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>

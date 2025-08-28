@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     content_type_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     label VARCHAR(100) NOT NULL,
-    type ENUM('text','textarea','number','date','select') NOT NULL,
+    type ENUM('text','textarea','number','date','select','taxonomy','content') NOT NULL,
     options TEXT,
     required TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

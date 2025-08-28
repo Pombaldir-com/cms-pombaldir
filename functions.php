@@ -251,6 +251,19 @@ function getTaxonomies(): array {
 }
 
 /**
+ * Fetch a single taxonomy by id.
+ *
+ * @param int $id
+ * @return array|null
+ */
+function getTaxonomy(int $id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
  * Create a taxonomy.  Returns new id.
  *
  * @param string $name Slug
@@ -375,6 +388,92 @@ function setContentTaxonomyTerms(int $content_id, int $taxonomy_id, array $term_
     foreach ($term_ids as $term_id) {
         $insert->execute([$content_id, $taxonomy_id, $term_id]);
     }
+}
+
+/**
+ * Fetch a single content entry by id.
+ *
+ * @param int $id
+ * @return array|null
+ */
+function getContent(int $id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, content_type_id, user_id, title, body FROM content WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
+ * Update basic fields of a content entry.
+ *
+ * @param int $id
+ * @param string $title
+ * @param string|null $body
+ * @return void
+ */
+function updateContent(int $id, string $title, ?string $body = null): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE content SET title = ?, body = ?, updated_at = NOW() WHERE id = ?');
+    $stmt->execute([$title, $body, $id]);
+}
+
+/**
+ * Delete a content entry by id.
+ *
+ * @param int $id
+ * @return void
+ */
+function deleteContent(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM content WHERE id = ?');
+    $stmt->execute([$id]);
+}
+
+/**
+ * Retrieve custom field values for a content entry keyed by field id.
+ *
+ * @param int $content_id
+ * @return array<int,string>
+ */
+function getCustomValuesForContent(int $content_id): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT field_id, value FROM custom_values WHERE content_id = ?');
+    $stmt->execute([$content_id]);
+    $values = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $values[(int)$row['field_id']] = $row['value'];
+    }
+    return $values;
+}
+
+/**
+ * Remove all custom values for a content entry.
+ *
+ * @param int $content_id
+ * @return void
+ */
+function deleteCustomValuesForContent(int $content_id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM custom_values WHERE content_id = ?');
+    $stmt->execute([$content_id]);
+}
+
+/**
+ * Retrieve taxonomy term assignments for a content entry, grouped by taxonomy id.
+ *
+ * @param int $content_id
+ * @return array<int,array<int>>
+ */
+function getContentTaxonomy(int $content_id): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT taxonomy_id, term_id FROM content_taxonomy WHERE content_id = ?');
+    $stmt->execute([$content_id]);
+    $map = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $taxId = (int)$row['taxonomy_id'];
+        $map[$taxId][] = (int)$row['term_id'];
+    }
+    return $map;
 }
 
 /**
