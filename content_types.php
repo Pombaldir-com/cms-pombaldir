@@ -17,8 +17,9 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name  = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label = isset($_POST['label']) ? trim($_POST['label']) : '';
+    $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : 'fa fa-file-text';
     if ($name !== '' && $label !== '') {
-        createContentType($name, $label);
+        createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon);
         header('Location: content_types.php');
         exit;
     } else {
@@ -40,12 +41,13 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger"> <?php echo htmlspecialchars($error); ?> </div>
     <?php endif; ?>
     <table class="table table-striped datatable">
-        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Slug</th><th>Rótulo</th><th>Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <tr>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
+                <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>">Campos</a> |
                     <a href="add_content.php?type_id=<?php echo $type['id']; ?>">Adicionar</a> |
@@ -66,6 +68,10 @@ require_once __DIR__ . '/header.php';
             <div class="mb-3">
                 <label class="form-label" for="label">Rótulo</label>
                 <input type="text" class="form-control" id="label" name="label" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="icon">Ícone (classe CSS)</label>
+                <input type="text" class="form-control" id="icon" name="icon" placeholder="fa fa-file-text">
             </div>
             <button type="submit" class="btn btn-primary">Criar</button>
         </form>

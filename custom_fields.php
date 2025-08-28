@@ -143,6 +143,7 @@ require_once __DIR__ . '/header.php';
                     <option value="textarea" <?php echo isset($editField['type']) && $editField['type'] === 'textarea' ? 'selected' : ''; ?>>Textarea</option>
                     <option value="number" <?php echo isset($editField['type']) && $editField['type'] === 'number' ? 'selected' : ''; ?>>Número</option>
                     <option value="date" <?php echo isset($editField['type']) && $editField['type'] === 'date' ? 'selected' : ''; ?>>Data</option>
+                    <option value="datetime" <?php echo isset($editField['type']) && $editField['type'] === 'datetime' ? 'selected' : ''; ?>>Data e Hora</option>
                     <option value="select" <?php echo isset($editField['type']) && $editField['type'] === 'select' ? 'selected' : ''; ?>>Select (opções separadas por vírgula)</option>
                     <option value="taxonomy" <?php echo isset($editField['type']) && $editField['type'] === 'taxonomy' ? 'selected' : ''; ?>>Select Taxonomia</option>
                     <option value="content" <?php echo isset($editField['type']) && $editField['type'] === 'content' ? 'selected' : ''; ?>>Select Conteúdo</option>
