@@ -18,7 +18,6 @@
 <script src="vendors/datatables.net-responsive-bs5/js/responsive.bootstrap5.min.js"></script>
 
 
-<script src="https://cdn.datatables.net/rowreorder/1.3.3/js/dataTables.rowReorder.min.js"></script>
 
 <script src="https://colorlibhq.github.io/gentelella/build/js/gentelella.min.js"></script>
 <script src="assets/js/custom.js"></script>
