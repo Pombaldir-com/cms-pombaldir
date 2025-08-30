@@ -85,10 +85,9 @@ switch (true) {
 
         require __DIR__ . '/custom_fields.php';
         break;
-    case preg_match('#^campos/([0-9]+)/edit-field/([0-9]+)$#', $path, $m):
-        // Edit a custom field of a content type
-        $_GET['type_id'] = $m[1];
-        $_GET['edit_id'] = $m[2];
+    case preg_match('#^campos/edit-field/([0-9]+)$#', $path, $m):
+        // Edit a custom field, e.g. "/cms/campos/edit-field/10"
+        $_GET['edit_id'] = $m[1];
         require __DIR__ . '/custom_fields.php';
         break;
     case preg_match('#^campos/([0-9]+)$#', $path, $m):

@@ -9,11 +9,25 @@ requireLogin();
 
 // Obtém parâmetros básicos
 $typeId = isset($_GET['type_id']) ? (int) $_GET['type_id'] : 0;
-$type   = $typeId ? getContentType($typeId) : null;
 $act    = $_GET['act'] ?? '';
 $editId = isset($_GET['edit_id']) ? (int) $_GET['edit_id'] : 0;
 $deleteId = isset($_GET['delete_id']) ? (int) $_GET['delete_id'] : 0;
 
+// Se apenas o ID do campo foi fornecido, descobrir o tipo pelo próprio campo
+$editField = null;
+if ($editId) {
+    $editField = getCustomField($editId);
+    if ($editField) {
+        if (!$typeId) {
+            $typeId = (int) $editField['content_type_id'];
+            $_GET['type_id'] = $typeId; // para consistência em links/formulários
+        } elseif ((int) $editField['content_type_id'] !== $typeId) {
+            $editField = null; // campo não pertence a este tipo
+        }
+    }
+}
+
+$type   = $typeId ? getContentType($typeId) : null;
 if (!$type) {
     echo 'Tipo de conteúdo inválido.';
     exit;
@@ -31,15 +45,6 @@ if ($deleteId) {
     }
     header('Location: ' . BASE_URL . 'campos/' . $typeId);
     exit;
-}
-
-// Campo em edição, se aplicável
-$editField = null;
-if ($editId) {
-    $editField = getCustomField($editId);
-    if (!$editField || (int) $editField['content_type_id'] !== $typeId) {
-        $editField = null;
-    }
 }
 
 // Processa submissão do formulário para criar ou atualizar um campo
@@ -91,7 +96,7 @@ require_once __DIR__ . '/header.php';
 
     <div class="card p-3 mt-4">
 
-        <form method="post" action="<?php echo $editField ? BASE_URL . 'campos/' . $typeId . '?edit_id=' . $editField['id'] : BASE_URL . 'campos/' . $typeId . '/ad'; ?>">
+        <form method="post" action="<?php echo $editField ? BASE_URL . 'campos/edit-field/' . $editField['id'] : BASE_URL . 'campos/' . $typeId . '/ad'; ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
@@ -193,7 +198,7 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
                 <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
                 <td>
-                    <a href="<?= BASE_URL . 'campos/' . $typeId . '/edit-field/' . $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                    <a href="<?= BASE_URL . 'campos/edit-field/' . $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
                     <a href="<?= BASE_URL . 'campos/' . $typeId; ?>?delete_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');"><i class="fa fa-trash"></i> Apagar</a>
                 </td>
             </tr>
