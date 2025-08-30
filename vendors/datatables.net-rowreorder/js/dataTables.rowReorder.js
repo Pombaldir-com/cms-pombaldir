@@ -2,6 +2,53 @@
  * © SpryMedia Ltd - datatables.net/license
  */
 
+(function( factory ){
+	if ( typeof define === 'function' && define.amd ) {
+		// AMD
+		define( ['jquery', 'datatables.net'], function ( $ ) {
+			return factory( $, window, document );
+		} );
+	}
+	else if ( typeof exports === 'object' ) {
+		// CommonJS
+		var jq = require('jquery');
+		var cjsRequires = function (root, $) {
+			if ( ! $.fn.dataTable ) {
+				require('datatables.net')(root, $);
+			}
+		};
+
+		if (typeof window === 'undefined') {
+			module.exports = function (root, $) {
+				if ( ! root ) {
+					// CommonJS environments without a window global must pass a
+					// root. This will give an error otherwise
+					root = window;
+				}
+
+				if ( ! $ ) {
+					$ = jq( root );
+				}
+
+				cjsRequires( root, $ );
+				return factory( $, root, root.document );
+			};
+		}
+		else {
+			cjsRequires( window, jq );
+			module.exports = factory( jq, window, window.document );
+		}
+	}
+	else {
+		// Browser
+		factory( jQuery, window, document );
+	}
+}(function( $, window, document ) {
+'use strict';
+var DataTable = $.fn.dataTable;
+
+
+
 /**
  * @summary     RowReorder
  * @description Row reordering extension for DataTables
@@ -421,9 +468,11 @@ $.extend(RowReorder.prototype, {
 		if (cancelable) {
 			var bodyArea = this.s.bodyArea;
 			var cloneArea = this._calcCloneParentArea();
-
 			this.s.dropAllowed = this._rectanglesIntersect(bodyArea, cloneArea);
-			$(this.dom.cloneParent).toggleClass('drop-not-allowed', !this.s.dropAllowed);
+
+			this.s.dropAllowed
+				? $(this.dom.cloneParent).removeClass('drop-not-allowed')
+				: $(this.dom.cloneParent).addClass('drop-not-allowed');
 		}
 
 		// Transform the mouse position into a position in the table's body
@@ -980,3 +1029,7 @@ $(document).on('init.dt.dtr', function (e, settings, json) {
 		}
 	}
 });
+
+
+return DataTable;
+}));
