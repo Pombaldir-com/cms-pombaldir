@@ -99,7 +99,7 @@ foreach ($sidebarTypes as $sidebarType):
                      <ul class="navbar-nav ms-auto">
                          <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fa fa-user"></i> <?php echo htmlspecialchars($user['username']); ?>
+                                <i class="fa fa-user"></i>
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
                                 <li><a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil">Editar perfil</a></li>
