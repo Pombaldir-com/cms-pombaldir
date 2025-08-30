@@ -93,9 +93,11 @@ foreach ($sidebarTypes as $sidebarType):
         <div class="top_nav">
             <div class="nav_menu w-100 d-flex">
                 <div class="nav toggle">
-                    <a id="menu_toggle"><i class="fa fa-bars"></i></a>
+                    <button id="menu_toggle" class="navbar-toggler border-0" type="button" aria-label="Alternar navegação">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
                 </div>
-                 <nav class="navbar navbar-expand w-100" role="navigation">
+                 <nav class="navbar navbar-expand w-100 navbar-light" role="navigation">
                      <ul class="navbar-nav ms-auto">
                          <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
