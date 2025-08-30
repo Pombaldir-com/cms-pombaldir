@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($username !== '' && $password !== '') {
         if (loginUser($username, $password)) {
             // Redirect to dashboard or to a previously requested page
-            $redirect = $_GET['redirect'] ?? 'dashboard.php';
+            $redirect = $_GET['redirect'] ?? '/dashboard';
             header('Location: ' . $redirect);
             exit;
         } else {

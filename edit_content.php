@@ -18,6 +18,7 @@ if (!$content) {
 
 $typeId = (int)$content['content_type_id'];
 $contentType = getContentType($typeId);
+$typeSlug = $contentType['name'];
 $customFields = getCustomFields($typeId);
 $allTaxonomies = getTaxonomiesForContentType($typeId);
 $customValues = getCustomValuesForContent($contentId);
@@ -46,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $termIds = isset($_POST[$termsKey]) ? (array)$_POST[$termsKey] : [];
             setContentTaxonomyTerms($contentId, $taxonomy['id'], $termIds);
         }
-        header('Location: list_content.php?type_id=' . $typeId);
+        header('Location: /tipode-conteudo/' . rawurlencode($typeSlug));
         exit;
     }
 }
@@ -134,7 +135,7 @@ require_once __DIR__ . '/header.php';
                             </div>
                         <?php endforeach; ?>
                         <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save</button>
-                        <a href="list_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
+                        <a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
                     </form>
                 </div>
             </div>

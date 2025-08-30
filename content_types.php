@@ -50,8 +50,8 @@ require_once __DIR__ . '/header.php';
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
                     <a href="custom_fields.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-list-alt"></i> Campos</a>
-                    <a href="add_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
-                    <a href="list_content.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
+                    <a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($type['name'])); ?>/add" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
+                    <a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($type['name'])); ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
                     <a href="content_type_taxonomies.php?type_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-warning"><i class="fa fa-tags"></i> Taxonomias</a>
                     <a href="content_type_form.php?id=<?php echo $type['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
                     <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este tipo?');"><i class="fa fa-trash"></i> Eliminar</a>
