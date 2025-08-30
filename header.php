@@ -23,6 +23,7 @@ $user = currentUser();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CMS</title>
+    <base href="<?= BASE_URL ?>">
 <link rel="stylesheet" href="vendors/bootstrap/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
 <link rel="stylesheet" href="vendors/datatables.net-bs5/css/dataTables.bootstrap5.min.css">
@@ -43,7 +44,7 @@ $user = currentUser();
         <div class="col-md-3 left_col">
             <div class="left_col scroll-view">
                 <div class="navbar nav_title" style="border: 0;">
-                    <a href="/dashboard" class="site_title"><i class="fa fa-home"></i> <span>CMS</span></a>
+                    <a href="<?= BASE_URL ?>dashboard" class="site_title"><i class="fa fa-home"></i> <span>CMS</span></a>
                 </div>
                 <div class="clearfix"></div>
 
@@ -60,9 +61,9 @@ $user = currentUser();
                 <div id="sidebar-menu" class="main_menu_side hidden-print main_menu">
                     <div class="menu_section">
                         <ul class="nav side-menu">
-                            <li><a href="/dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
-                            <li><a href="/content-types"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
-                            <li><a href="/taxonomies"><i class="fa fa-tags"></i> Taxonomias</a></li>
+                            <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
+                            <li><a href="<?= BASE_URL ?>content-types"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
+                            <li><a href="<?= BASE_URL ?>taxonomies"><i class="fa fa-tags"></i> Taxonomias</a></li>
 <?php
 // Dynamically list each content type with shortcuts to common actions.
 $sidebarTypes = getContentTypes();
@@ -72,8 +73,8 @@ foreach ($sidebarTypes as $sidebarType):
                             <li><a><i class="<?php echo htmlspecialchars($sidebarType['icon'] ?? 'fa fa-file-text'); ?>"></i> <?php echo htmlspecialchars($sidebarType['label']); ?> <span class="fa fa-chevron-down"></span></a>
 
                                 <ul class="nav child_menu">
-                                    <li><a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
-                                    <li><a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
+                                    <li><a href="<?= BASE_URL ?>tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
+                                    <li><a href="<?= BASE_URL ?>tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
                                     <li><a href="custom_fields.php?type_id=<?php echo $sidebarType['id']; ?>">Campos</a></li>
                                     <li><a href="content_type_taxonomies.php?type_id=<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
                                 </ul>
@@ -94,7 +95,7 @@ foreach ($sidebarTypes as $sidebarType):
                     <ul class="navbar-nav w-100">
                         <!-- Explicit logout button for better visibility -->
                         <li class="nav-item ms-auto">
-                            <a href="/logout" class="btn btn-sm btn-danger"><i class="fa fa-sign-out"></i>
+                            <a href="<?= BASE_URL ?>logout" class="btn btn-sm btn-danger"><i class="fa fa-sign-out"></i>
                                 Terminar sessão (<?php echo htmlspecialchars($user['username']); ?>)
                             </a>
                         </li>

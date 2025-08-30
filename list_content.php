@@ -25,7 +25,7 @@ if (isset($_GET['type_slug'])) {
 } else {
     $typeId = isset($_GET['type_id']) ? (int)$_GET['type_id'] : 0;
     if (!$typeId) {
-        header('Location: /dashboard');
+        header('Location: ' . BASE_URL . 'dashboard');
         exit;
     }
     $contentType = getContentType($typeId);
@@ -43,7 +43,7 @@ if (isset($_GET['delete'])) {
     if ($content && (int)$content['content_type_id'] === $typeId) {
         deleteContent($deleteId);
     }
-    header('Location: /tipode-conteudo/' . rawurlencode($typeSlug));
+    header('Location: ' . BASE_URL . 'tipode-conteudo/' . rawurlencode($typeSlug));
     exit;
 }
 
@@ -66,7 +66,7 @@ require_once __DIR__ . '/header.php';
         <div class="col-md-12 col-sm-12">
             <div class="x_panel">
                 <div class="x_content">
-                    <a href="/tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
+                    <a href="<?= BASE_URL ?>tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
                     <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
                         <thead>
                             <tr>
@@ -88,7 +88,7 @@ require_once __DIR__ . '/header.php';
                         </thead>
                         <tbody></tbody>
                     </table>
-                    <a href="/dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+                    <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
                 </div>
             </div>
         </div>

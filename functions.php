@@ -9,6 +9,14 @@
 
 require_once __DIR__ . '/db.php';
 
+// Determine the base URL for the application (e.g., "/cms/") so links
+// can be generated correctly regardless of the installation directory.
+// This assumes the code is executing within the public document root.
+$baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
+if (!defined('BASE_URL')) {
+    define('BASE_URL', ($baseDir === '' ? '/' : $baseDir . '/'));
+}
+
 /**
  * Start a session if it hasn't been started yet.  This helper uses
  * session cookies with the HttpOnly flag for security.  It does not
@@ -48,7 +56,7 @@ function requireLogin() {
     startSession();
     if (!isLoggedIn()) {
         $redirect = urlencode($_SERVER['REQUEST_URI'] ?? '/');
-        header('Location: login.php?redirect=' . $redirect);
+        header('Location: ' . BASE_URL . 'login?redirect=' . $redirect);
         exit;
     }
 }

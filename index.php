@@ -11,11 +11,11 @@ startSession();
 
 // If the user is already authenticated redirect them to the dashboard.
 if (isLoggedIn()) {
-    header('Location: /cms/dashboard');
+    header('Location: ' . BASE_URL . 'dashboard');
     exit;
 }
 
 // Otherwise go to the login page.  We include an optional redirect
 // parameter so that after logging in the user is returned here.
-header('Location: /login');
+header('Location: ' . BASE_URL . 'login');
 exit;
