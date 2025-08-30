@@ -28,7 +28,7 @@ $user = currentUser();
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
 <link rel="stylesheet" href="vendors/datatables.net-bs5/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="vendors/datatables.net-responsive-bs5/css/responsive.bootstrap5.min.css">
-<link rel="stylesheet" href="vendors/datatables.net-rowreorder-bs5/css/rowReorder.bootstrap5.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/rowreorder/1.3.3/css/rowReorder.bootstrap5.min.css">
 <link rel="stylesheet" href="https://colorlibhq.github.io/gentelella/build/css/gentelella.min.css">
 <link rel="stylesheet" href="assets/css/custom.css">
 
@@ -98,6 +98,7 @@ foreach ($sidebarTypes as $sidebarType):
                 </div>
                 <nav class="nav navbar-nav">
                     <ul class="navbar-right">
+
                         <li class="nav-item dropdown open" style="padding-left: 15px;">
                             <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-toggle="dropdown" aria-expanded="false">
                                 <img src="images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
