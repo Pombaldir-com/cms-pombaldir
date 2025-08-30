@@ -212,6 +212,19 @@ function deleteContentType(int $id): void {
 }
 
 /**
+ * Count how many content entries belong to a content type.
+ *
+ * @param int $content_type_id
+ * @return int Number of associated content records
+ */
+function countContentByContentType(int $content_type_id): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM content WHERE content_type_id = ?');
+    $stmt->execute([$content_type_id]);
+    return (int)$stmt->fetchColumn();
+}
+
+/**
  * Retrieve custom fields for a given content type.
  *
  * @param int $content_type_id
@@ -433,6 +446,19 @@ function deleteTaxonomy(int $id): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('DELETE FROM taxonomies WHERE id = ?');
     $stmt->execute([$id]);
+}
+
+/**
+ * Count how many content entries reference a given taxonomy.
+ *
+ * @param int $taxonomy_id
+ * @return int Number of associated content records
+ */
+function countContentByTaxonomy(int $taxonomy_id): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM content_taxonomy WHERE taxonomy_id = ?');
+    $stmt->execute([$taxonomy_id]);
+    return (int)$stmt->fetchColumn();
 }
 
 /**
@@ -697,8 +723,8 @@ function getContentList(int $content_type_id): array {
         $cstmt = $pdo->prepare('SELECT cv.field_id, cv.value FROM custom_values cv WHERE cv.content_id = ?');
         $cstmt->execute([$content['id']]);
         $content['fields'] = $cstmt->fetchAll();
-        // Fetch taxonomy assignments
-        $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.name AS term_name FROM content_taxonomy ct JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
+        // Fetch taxonomy assignments, keeping track of missing terms
+        $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.name AS term_name FROM content_taxonomy ct LEFT JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
         $tstmt->execute([$content['id']]);
         $content['taxonomies'] = $tstmt->fetchAll();
     }

@@ -60,8 +60,13 @@ if ($taxonomyId) {
     $editing = $editId ? getTaxonomy($editId) : null;
 
     if ($delId) {
+        $associated = countContentByTaxonomy($delId);
         deleteTaxonomy($delId);
-        header('Location: taxonomies.php');
+        $params = 'deleted=1';
+        if ($associated) {
+            $params .= '&associated=' . $associated;
+        }
+        header('Location: taxonomies.php?' . $params);
         exit;
     }
 
@@ -84,6 +89,8 @@ if ($taxonomyId) {
     if ($act !== 'ad' && !$editing) {
         $taxonomies = getTaxonomies();
     }
+    $deleted = isset($_GET['deleted']);
+    $associated = isset($_GET['associated']) ? (int)$_GET['associated'] : 0;
 }
 
 require_once __DIR__ . '/header.php';
@@ -143,20 +150,32 @@ require_once __DIR__ . '/header.php';
             </form>
         </div>
     <?php else: ?>
+        <?php if ($deleted): ?>
+            <div class="alert alert-warning mt-3">
+                <?php if ($associated): ?>
+                    Esta taxonomia tinha <?php echo $associated; ?> conteúdos associados e foi removida.
+                <?php else: ?>
+                    Taxonomia removida.
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <h2 class="mt-3">Taxonomias</h2>
         <a href="taxonomies.php?act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar taxonomia</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Rótulo</th><th>Slug</th><th>Ações</th></tr></thead>
             <tbody>
             <?php foreach ($taxonomies as $tax): ?>
+                <?php
+                    $cnt = countContentByTaxonomy($tax['id']);
+                    $confirmMsg = $cnt ? "Eliminar esta taxonomia? Existem $cnt conteúdos associados." : 'Eliminar esta taxonomia?';
+                ?>
                 <tr>
-                   
                     <td><?php echo htmlspecialchars($tax['label']); ?></td>
-                     <td><?php echo htmlspecialchars($tax['name']); ?></td>
+                    <td><?php echo htmlspecialchars($tax['name']); ?></td>
                     <td>
                         <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-tags"></i> Gerir termos</a>
                         <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
-                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta taxonomia?');"><i class="fa fa-trash"></i> Eliminar</a>
+                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
