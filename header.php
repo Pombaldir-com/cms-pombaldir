@@ -90,7 +90,10 @@ foreach ($sidebarTypes as $sidebarType):
 
         <!-- Top navigation -->
         <div class="top_nav">
-            <div class="nav_menu w-100">
+            <div class="nav_menu w-100 d-flex">
+                <div class="nav toggle">
+                    <a id="menu_toggle"><i class="fa fa-bars"></i></a>
+                </div>
                 <nav class="navbar navbar-expand w-100" role="navigation">
                     <ul class="navbar-nav w-100">
                         <li class="nav-item dropdown ms-auto">
