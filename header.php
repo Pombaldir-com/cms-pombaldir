@@ -113,9 +113,6 @@ foreach ($sidebarTypes as $sidebarType):
                             </div>
                         </li>
 
-
-
-
                     </ul>
 
 
