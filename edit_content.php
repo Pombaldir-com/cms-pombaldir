@@ -133,8 +133,8 @@ require_once __DIR__ . '/header.php';
                                 </select>
                             </div>
                         <?php endforeach; ?>
-                        <button type="submit" class="btn btn-success">Save</button>
-                        <a href="list_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save</button>
+                        <a href="list_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
                     </form>
                 </div>
             </div>

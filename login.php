@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" class="form-control" placeholder="Palavra‑passe" name="password" required />
               </div>
               <div>
-                <button class="btn btn-primary submit" type="submit">Entrar</button>
+                <button class="btn btn-primary submit" type="submit"><i class="fa fa-sign-in"></i> Entrar</button>
               </div>
               <div class="clearfix"></div>
             </form>

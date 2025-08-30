@@ -15,6 +15,14 @@ if (!$type) {
 }
 
 $allTaxonomies = getTaxonomies();
+$fields = getCustomFields($typeId);
+$usedTaxonomies = [];
+foreach ($fields as $field) {
+    if ($field['type'] === 'taxonomy') {
+        $usedTaxonomies[] = (int)$field['options'];
+    }
+}
+$allTaxonomies = array_filter($allTaxonomies, fn($t) => !in_array((int)$t['id'], $usedTaxonomies));
 $current = array_map(fn($t) => (int)$t['id'], getTaxonomiesForContentType($typeId));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -35,8 +43,8 @@ require_once __DIR__ . '/header.php';
                 <label class="form-check-label" for="tax_<?php echo $tax['id']; ?>"><?php echo htmlspecialchars($tax['label']); ?></label>
             </div>
         <?php endforeach; ?>
-        <button type="submit" class="btn btn-primary mt-3">Guardar</button>
-        <a href="content_types.php" class="btn btn-secondary mt-3 ms-2">Voltar</a>
+        <button type="submit" class="btn btn-primary mt-3"><i class="fa fa-save"></i> Guardar</button>
+        <a href="content_types.php" class="btn btn-secondary mt-3 ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
     </form>
 </div>
 <?php require_once __DIR__ . '/footer.php'; ?>

@@ -98,13 +98,13 @@ require_once __DIR__ . '/header.php';
                     <label class="form-label" for="term_name">Nome</label>
                     <input type="text" class="form-control" id="term_name" name="term_name" value="<?php echo htmlspecialchars($editingTerm['name'] ?? ''); ?>" required>
                 </div>
-                <button type="submit" class="btn btn-primary"><?php echo $editingTerm ? 'Guardar' : 'Adicionar'; ?></button>
-                <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>" class="btn btn-secondary">Voltar</a>
+                <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editingTerm ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editingTerm ? 'Guardar' : 'Adicionar'; ?></button>
+                <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
             </form>
         </div>
     <?php else: ?>
         <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
-        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad" class="btn btn-success mb-3">Adicionar termo</a>
+        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar termo</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
             <tbody>
@@ -112,14 +112,14 @@ require_once __DIR__ . '/header.php';
                 <tr>
                     <td><?php echo htmlspecialchars($term['name']); ?></td>
                     <td>
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad&term_edit_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-primary">Editar</a>
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&term_delete_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este termo?');">Eliminar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&act=ad&term_edit_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $taxonomyId; ?>&term_delete_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este termo?');"><i class="fa fa-trash"></i> Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
-        <a href="taxonomies.php" class="btn btn-secondary">Voltar</a>
+        <a href="taxonomies.php" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
     <?php endif; ?>
 
 <?php else: ?>
@@ -138,13 +138,13 @@ require_once __DIR__ . '/header.php';
                     <label class="form-label" for="label">Rótulo</label>
                     <input type="text" class="form-control" id="label" name="label" value="<?php echo htmlspecialchars($editing['label'] ?? ''); ?>" required>
                 </div>
-                <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Guardar' : 'Criar'; ?></button>
-                <a href="taxonomies.php" class="btn btn-secondary">Voltar</a>
+                <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editing ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editing ? 'Guardar' : 'Criar'; ?></button>
+                <a href="taxonomies.php" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
             </form>
         </div>
     <?php else: ?>
         <h2 class="mt-3">Taxonomias</h2>
-        <a href="taxonomies.php?act=ad" class="btn btn-success mb-3">Adicionar taxonomia</a>
+        <a href="taxonomies.php?act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar taxonomia</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Rótulo</th><th>Slug</th><th>Ações</th></tr></thead>
             <tbody>
@@ -154,9 +154,9 @@ require_once __DIR__ . '/header.php';
                     <td><?php echo htmlspecialchars($tax['label']); ?></td>
                      <td><?php echo htmlspecialchars($tax['name']); ?></td>
                     <td>
-                        <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info">Gerir termos</a>
-                        <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
-                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta taxonomia?');">Eliminar</a>
+                        <a href="taxonomies.php?taxonomy_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-tags"></i> Gerir termos</a>
+                        <a href="taxonomies.php?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                        <a href="taxonomies.php?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar esta taxonomia?');"><i class="fa fa-trash"></i> Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>

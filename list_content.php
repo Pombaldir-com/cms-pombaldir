@@ -57,7 +57,7 @@ require_once __DIR__ . '/header.php';
         <div class="col-md-12 col-sm-12">
             <div class="x_panel">
                 <div class="x_content">
-                    <a href="add_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-success mb-3">Add New</a>
+                    <a href="add_content.php?type_id=<?php echo $typeId; ?>" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
                     <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
                         <thead>
                             <tr>
@@ -79,7 +79,7 @@ require_once __DIR__ . '/header.php';
                         </thead>
                         <tbody></tbody>
                     </table>
-                    <a href="dashboard.php" class="btn btn-secondary">Back</a>
+                    <a href="dashboard.php" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
                 </div>
             </div>
         </div>
