@@ -19,7 +19,6 @@
 
 
 
-<script src="https://colorlibhq.github.io/gentelella/build/js/gentelella.min.js"></script>
 <script src="assets/js/custom.js"></script>
 
 </body>
