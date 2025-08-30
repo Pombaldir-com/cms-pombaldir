@@ -159,6 +159,7 @@ require_once __DIR__ . '/header.php';
                             </div>
                         <?php endforeach; ?>
                         <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save</button>
+
                         <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
                     </form>
                 </div>

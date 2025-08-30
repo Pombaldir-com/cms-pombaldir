@@ -73,6 +73,7 @@ foreach ($sidebarTypes as $sidebarType):
                             <li><a><i class="<?php echo htmlspecialchars($sidebarType['icon'] ?? 'fa fa-file-text'); ?>"></i> <?php echo htmlspecialchars($sidebarType['label']); ?> <span class="fa fa-chevron-down"></span></a>
 
                                 <ul class="nav child_menu">
+
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
                                     <li><a href="<?= BASE_URL . $sidebarType['id']; ?>">Campos</a></li>

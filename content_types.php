@@ -69,6 +69,7 @@ require_once __DIR__ . '/header.php';
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
                     <a href="<?= BASE_URL . $type['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-list-alt"></i> Campos</a>
+
                     <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>/add" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
                     <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
                     <a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $type['id']; ?>" class="btn btn-sm btn-warning"><i class="fa fa-tags"></i> Taxonomias</a>
