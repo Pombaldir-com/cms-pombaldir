@@ -1850,18 +1850,22 @@ ul.msg_list li a .message {
     border-top-right-radius: 0
 }
 
+.dropdown-menu.dropdown-menu-end {
+    left: auto;
+    right: 0;
+    float: none;
+}
+
 .dropdown-menu>li>a {
     color: #5A738E
 }
 
-.navbar-nav .open .dropdown-menu {
+.navbar-nav .dropdown-menu.show {
     position: absolute;
     background: #fff;
     margin-top: 0;
     border: 1px solid #D9DEE4;
     -webkit-box-shadow: none;
-    right: 0;
-    left: auto;
     width: 220px
 }
 

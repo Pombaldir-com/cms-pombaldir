@@ -98,6 +98,7 @@ foreach ($sidebarTypes as $sidebarType):
                 <nav class="nav navbar-nav">
                     <ul class="navbar-nav ms-auto">
 
+
                         <li class="nav-item dropdown ms-3">
                             <a href="javascript:;" class="user-profile nav-link dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                 <img src="assets/images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
@@ -105,11 +106,11 @@ foreach ($sidebarTypes as $sidebarType):
                             <div class="dropdown-menu dropdown-menu-end dropdown-usermenu" aria-labelledby="navbarDropdown">
                                 <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil"> Profile</a>
                                 <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
-                                    <span class="badge bg-red pull-right">50%</span>
+                                    <span class="badge bg-red float-end">50%</span>
                                     <span>Settings</span>
                                 </a>
                                 <a class="dropdown-item" href="javascript:;">Help</a>
-                                <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out pull-right"></i> Log Out</a>
+                                <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out float-end"></i> Log Out</a>
                             </div>
                         </li>
 
