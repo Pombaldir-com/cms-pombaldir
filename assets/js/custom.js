@@ -329,6 +329,10 @@ $(document).ready(function() {
         var $table = $(this);
         var source = $table.data('source');
         var options = { responsive: true };
+        if ($table.hasClass('rowreorder')) {
+            options.rowReorder = true;
+            options.order = [];
+        }
         options.language = { url: 'vendors/datatables.net/i18n/pt-PT.json' };
         var nonSortable = [];
         $table.find('thead th').each(function(i){
@@ -353,6 +357,18 @@ $(document).ready(function() {
             };
         }
         var table = $table.DataTable(options);
+        if ($table.hasClass('rowreorder')) {
+            table.on('row-reorder', function() {
+                var order = [];
+                table.rows({ order: 'index' }).every(function() {
+                    order.push($(this.node()).data('id'));
+                });
+                var url = $table.data('reorder-url');
+                if (url) {
+                    $.post(url, { order: order });
+                }
+            });
+        }
         var $toggles = $table.prev('.column-toggler');
         if ($toggles.length) {
             $toggles.find('input[type="checkbox"]').on('change', function() {

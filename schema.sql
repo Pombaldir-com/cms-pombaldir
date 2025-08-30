@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS content_types (
     icon VARCHAR(100) NOT NULL DEFAULT 'fa fa-file-text',
     show_author TINYINT(1) NOT NULL DEFAULT 0,
     show_date TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
