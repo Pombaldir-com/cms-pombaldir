@@ -4,10 +4,12 @@
  *
  * Esta página permite criar novas taxonomias e gerir os termos de cada
  * taxonomia seleccionada. Se um parâmetro `taxonomy_id` for passado via rota
- * `taxonomies/edit/{ID}`, a interface apresenta os termos dessa taxonomia. Para
- * adicionar novos termos, utilizar `taxonomies/edit/{ID}?act=ad`. Caso
- * contrário, lista-se todas as taxonomias existentes. Para criar uma nova
- * taxonomia, utilizar `taxonomies/add`.
+ * `taxonomies/edit-terms/{ID}`, a interface apresenta os termos dessa taxonomia.
+ * Para adicionar ou editar termos utilizar `taxonomies/edit-terms/{ID}/add` ou
+ * `taxonomies/edit-terms/{ID}/edit/{TERM_ID}`. Caso contrário, lista-se todas
+ * as taxonomias existentes. Para criar uma nova taxonomia, utilizar
+ * `taxonomies/add`; para editar uma taxonomia existente utilizar
+ * `taxonomies/edit/{ID}`.
  */
 
 require_once __DIR__ . '/functions.php';
@@ -29,7 +31,7 @@ if ($taxonomyId) {
 
     if ($termDeleteId) {
         deleteTerm($termDeleteId);
-        header('Location: taxonomies/edit/' . $taxonomyId);
+        header('Location: taxonomies/edit-terms/' . $taxonomyId);
         exit;
     }
 
@@ -41,7 +43,7 @@ if ($taxonomyId) {
             } else {
                 createTerm($taxonomyId, $termName);
             }
-            header('Location: taxonomies/edit/' . $taxonomyId);
+            header('Location: taxonomies/edit-terms/' . $taxonomyId);
             exit;
         }
     }
@@ -100,18 +102,18 @@ require_once __DIR__ . '/header.php';
     <?php if ($act === 'ad'): ?>
         <h2 class="mt-3"><?php echo $editingTerm ? 'Editar termo' : 'Adicionar novo termo a ' . htmlspecialchars($taxonomy['label']); ?></h2>
         <div class="card p-3 mt-4">
-            <form method="post" action="?act=ad<?php echo $editingTerm ? '&term_edit_id=' . $editingTerm['id'] : ''; ?>">
+            <form method="post" action="">
                 <div class="mb-3">
                     <label class="form-label" for="term_name">Nome</label>
                     <input type="text" class="form-control" id="term_name" name="term_name" value="<?php echo htmlspecialchars($editingTerm['name'] ?? ''); ?>" required>
                 </div>
                 <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editingTerm ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editingTerm ? 'Guardar' : 'Adicionar'; ?></button>
-                <a href="taxonomies/edit/<?php echo $taxonomyId; ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+                <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
             </form>
         </div>
     <?php else: ?>
         <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
-        <a href="taxonomies/edit/<?php echo $taxonomyId; ?>?act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar termo</a>
+        <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar termo</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
             <tbody>
@@ -119,8 +121,8 @@ require_once __DIR__ . '/header.php';
                 <tr>
                     <td><?php echo htmlspecialchars($term['name']); ?></td>
                     <td>
-                        <a href="taxonomies/edit/<?php echo $taxonomyId; ?>?act=ad&term_edit_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
-                        <a href="taxonomies/edit/<?php echo $taxonomyId; ?>?term_delete_id=<?php echo $term['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este termo?');"><i class="fa fa-trash"></i> Eliminar</a>
+                        <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>/edit/<?php echo $term['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
+                        <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>/delete/<?php echo $term['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar este termo?');"><i class="fa fa-trash"></i> Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>
@@ -136,7 +138,7 @@ require_once __DIR__ . '/header.php';
             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
         <div class="card p-3 mt-4">
-            <form method="post" action="<?php echo $editing ? '?edit_id=' . $editing['id'] : '?act=ad'; ?>">
+            <form method="post" action="">
                 <div class="mb-3">
                     <label class="form-label" for="name">Slug</label>
                     <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editing['name'] ?? ''); ?>" required>
@@ -173,9 +175,9 @@ require_once __DIR__ . '/header.php';
                     <td><?php echo htmlspecialchars($tax['label']); ?></td>
                     <td><?php echo htmlspecialchars($tax['name']); ?></td>
                     <td>
-                        <a href="taxonomies/edit/<?php echo $tax['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-tags"></i> Gerir termos</a>
-                        <a href="taxonomies?edit_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
-                        <a href="taxonomies?delete_id=<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
+                        <a href="taxonomies/edit-terms/<?php echo $tax['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-tags"></i> Gerir termos</a>
+                        <a href="taxonomies/edit/<?php echo $tax['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                        <a href="taxonomies/delete/<?php echo $tax['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
                     </td>
                 </tr>
             <?php endforeach; ?>

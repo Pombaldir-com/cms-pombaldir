@@ -29,14 +29,46 @@ switch (true) {
         require __DIR__ . '/content_types.php';
         break;
     case $path === 'taxonomies/add':
+        // Create a new taxonomy
         $_GET['act'] = 'ad';
         require __DIR__ . '/taxonomies.php';
         break;
-    case preg_match('#^taxonomies/edit/([0-9]+)$#', $path, $m):
+    case preg_match('#^taxonomies/edit-terms/([0-9]+)/add$#', $path, $m):
+        // Add a term to a taxonomy
+        $_GET['taxonomy_id'] = $m[1];
+        $_GET['act'] = 'ad';
+        require __DIR__ . '/taxonomies.php';
+        break;
+    case preg_match('#^taxonomies/edit-terms/([0-9]+)/edit/([0-9]+)$#', $path, $m):
+        // Edit a specific term
+        $_GET['taxonomy_id'] = $m[1];
+        $_GET['term_edit_id'] = $m[2];
+        $_GET['act'] = 'ad';
+        require __DIR__ . '/taxonomies.php';
+        break;
+    case preg_match('#^taxonomies/edit-terms/([0-9]+)/delete/([0-9]+)$#', $path, $m):
+        // Delete a specific term
+        $_GET['taxonomy_id'] = $m[1];
+        $_GET['term_delete_id'] = $m[2];
+        require __DIR__ . '/taxonomies.php';
+        break;
+    case preg_match('#^taxonomies/edit-terms/([0-9]+)$#', $path, $m):
+        // List terms for a taxonomy
         $_GET['taxonomy_id'] = $m[1];
         require __DIR__ . '/taxonomies.php';
         break;
+    case preg_match('#^taxonomies/edit/([0-9]+)$#', $path, $m):
+        // Edit an existing taxonomy
+        $_GET['edit_id'] = $m[1];
+        require __DIR__ . '/taxonomies.php';
+        break;
+    case preg_match('#^taxonomies/delete/([0-9]+)$#', $path, $m):
+        // Delete a taxonomy
+        $_GET['delete_id'] = $m[1];
+        require __DIR__ . '/taxonomies.php';
+        break;
     case $path === 'taxonomies':
+        // List all taxonomies
         require __DIR__ . '/taxonomies.php';
         break;
     case preg_match('#^tipode-conteudo/([^/]+)/add$#', $path, $m):
