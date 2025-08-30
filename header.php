@@ -76,7 +76,7 @@ foreach ($sidebarTypes as $sidebarType):
 
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
-                                    <li><a href="<?= BASE_URL . 'campos/' . $sidebarType['id']; ?>">Campos</a></li>
+                                    <li><a href="<?= BASE_URL . 'fields/' . $sidebarType['id']; ?>">Campos</a></li>
                                     <li><a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
                                 </ul>
                             </li>
@@ -97,11 +97,12 @@ foreach ($sidebarTypes as $sidebarType):
                 </div>
                 <nav class="nav navbar-nav">
                     <ul class="navbar-right">
-                        <li class="nav-item dropdown" style="padding-left: 15px;">
-                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+
+                        <li class="nav-item dropdown open" style="padding-left: 15px;">
+                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-toggle="dropdown" aria-expanded="false">
                                 <img src="images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
                             </a>
-                            <div class="dropdown-menu dropdown-usermenu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                            <div class="dropdown-menu dropdown-usermenu pull-right" aria-labelledby="navbarDropdown">
                                 <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil"> Profile</a>
                                 <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
                                     <span class="badge bg-red pull-right">50%</span>
