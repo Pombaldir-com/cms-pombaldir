@@ -78,6 +78,11 @@ switch (true) {
         // List all taxonomies
         require __DIR__ . '/taxonomies.php';
         break;
+    case preg_match('#^([0-9]+)$#', $path, $m):
+        // Custom fields of a content type by numeric ID, e.g. "/cms/3"
+        $_GET['type_id'] = $m[1];
+        require __DIR__ . '/custom_fields.php';
+        break;
     case preg_match('#^tipode-conteudo/([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/add_content.php';

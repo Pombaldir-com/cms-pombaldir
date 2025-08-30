@@ -29,7 +29,7 @@ if ($deleteId) {
     if ($field && (int) $field['content_type_id'] === $typeId) {
         deleteCustomField($deleteId);
     }
-    header('Location: custom_fields.php?type_id=' . $typeId);
+    header('Location: ' . BASE_URL . $typeId);
     exit;
 }
 
@@ -70,7 +70,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
         } else {
             createCustomField($typeId, $name, $label, $fieldType, $options, $required, $showInList, $sortable);
         }
-        header('Location: custom_fields.php?type_id=' . $typeId);
+        header('Location: ' . BASE_URL . $typeId);
         exit;
     } else {
         $error = 'Nome, rótulo e tipo são obrigatórios.';
@@ -90,7 +90,7 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
 
     <div class="card p-3 mt-4">
-        <form method="post" action="<?php echo $editField ? '?type_id=' . $typeId . '&edit_id=' . $editField['id'] : '?type_id=' . $typeId . '&act=ad'; ?>">
+        <form method="post" action="<?php echo $editField ? BASE_URL . $typeId . '?edit_id=' . $editField['id'] : BASE_URL . $typeId . '?act=ad'; ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
@@ -152,12 +152,12 @@ require_once __DIR__ . '/header.php';
                 <label class="form-check-label" for="sortable">Permitir ordenação</label>
             </div>
             <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editField ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
-            <a href="custom_fields.php?type_id=<?php echo $typeId; ?>" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+            <a href="<?= BASE_URL . $typeId; ?>" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
         </form>
     </div>
 <?php else: ?>
     <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
-    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar campo</a>
+    <a href="<?= BASE_URL . $typeId; ?>?act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar campo</a>
     <table class="table table-striped datatable">
         <thead>
             <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
@@ -192,8 +192,8 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
                 <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
                 <td>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&edit_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
-                    <a href="custom_fields.php?type_id=<?php echo $typeId; ?>&delete_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');"><i class="fa fa-trash"></i> Apagar</a>
+                    <a href="<?= BASE_URL . $typeId; ?>?edit_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                    <a href="<?= BASE_URL . $typeId; ?>?delete_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');"><i class="fa fa-trash"></i> Apagar</a>
                 </td>
             </tr>
         <?php endforeach; ?>
