@@ -151,9 +151,11 @@ function getContentTypes(): array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
-    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types ORDER BY id ASC");
+    $orderBy    = $hasOrder ? 'sort_order, id' : 'id';
+    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types ORDER BY $orderBy ASC");
     return $stmt->fetchAll();
 }
 
@@ -204,6 +206,11 @@ function createContentType(string $name, string $label, string $icon, bool $show
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    if (!$hasOrder) {
+        $pdo->exec("ALTER TABLE content_types ADD COLUMN sort_order INT NOT NULL DEFAULT 0");
+        $hasOrder = true;
+    }
     if ($hasAuthor && $hasDate) {
         $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, show_author, show_date) VALUES (?, ?, ?, ?, ?)');
         $stmt->execute([$name, $label, $icon, $show_author ? 1 : 0, $show_date ? 1 : 0]);
@@ -217,7 +224,12 @@ function createContentType(string $name, string $label, string $icon, bool $show
         $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon) VALUES (?, ?, ?)');
         $stmt->execute([$name, $label, $icon]);
     }
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    if ($hasOrder) {
+        $stmt = $pdo->prepare('UPDATE content_types SET sort_order = ? WHERE id = ?');
+        $stmt->execute([$id, $id]);
+    }
+    return $id;
 }
 
 /**
@@ -258,6 +270,23 @@ function deleteContentType(int $id): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('DELETE FROM content_types WHERE id = ?');
     $stmt->execute([$id]);
+}
+
+/**
+ * Update the ordering of content types based on a list of ids.
+ *
+ * @param array $ids Ordered list of content type ids
+ */
+function reorderContentTypes(array $ids): void {
+    $pdo = getPDO();
+    $hasOrder = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    if (!$hasOrder) {
+        $pdo->exec("ALTER TABLE content_types ADD COLUMN sort_order INT NOT NULL DEFAULT 0");
+    }
+    $stmt = $pdo->prepare('UPDATE content_types SET sort_order = ? WHERE id = ?');
+    foreach ($ids as $position => $id) {
+        $stmt->execute([$position + 1, (int)$id]);
+    }
 }
 
 /**
