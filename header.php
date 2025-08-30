@@ -96,13 +96,14 @@ foreach ($sidebarTypes as $sidebarType):
                     <a id="menu_toggle"><i class="fa fa-bars"></i></a>
                 </div>
                 <nav class="nav navbar-nav">
-                    <ul class="navbar-right">
+                    <ul class="navbar-nav ms-auto">
 
-                        <li class="nav-item dropdown" style="padding-left: 15px;">
-                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+
+                        <li class="nav-item dropdown ms-3">
+                            <a href="javascript:;" class="user-profile nav-link dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                 <img src="assets/images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
                             </a>
-                            <div class="dropdown-menu dropdown-usermenu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                            <div class="dropdown-menu dropdown-menu-end dropdown-usermenu" aria-labelledby="navbarDropdown">
                                 <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil"> Profile</a>
                                 <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
                                     <span class="badge bg-red float-end">50%</span>
@@ -113,13 +114,10 @@ foreach ($sidebarTypes as $sidebarType):
                             </div>
                         </li>
 
-
-
-
                     </ul>
 
 
-                    
+
                 </nav>
             </div>
         </div>

@@ -56,7 +56,7 @@ require_once __DIR__ . '/header.php';
         <a class="btn btn-primary" href="<?= BASE_URL ?>content-type/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
  
     <table class="table table-striped datatable" data-no-sort-last="true">
-        <thead><tr><th>Rótulo</th><th>Slug</th><th>Ícone</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <?php
