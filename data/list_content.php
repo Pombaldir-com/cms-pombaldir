@@ -71,7 +71,7 @@ foreach ($contents as $content) {
         $row[] = htmlspecialchars(implode(', ', $termsList));
     }
 
-    $baseUrl = BASE_URL . 'tipode-conteudo/' . rawurlencode($typeSlug);
+    $baseUrl = BASE_URL . rawurlencode($typeSlug);
     $actions = '<a href="' . $baseUrl . '/' . $content['id'] . '" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a> ';
     $actions .= '<a href="' . $baseUrl . '?delete=' . $content['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Apagar este conteúdo?\');"><i class="fa fa-trash"></i> Apagar</a>';
     $row[] = $actions;
