@@ -113,9 +113,33 @@ function currentUser(): ?array {
         return null;
     }
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, username FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     return $stmt->fetch() ?: null;
+}
+
+/**
+ * Update the basic profile information for a user.
+ *
+ * @param int $id
+ * @param string|null $name
+ * @param string|null $email
+ * @param string|null $phone
+ * @param string|null $photoPath
+ * @return void
+ */
+function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phone, ?string $photoPath = null): void {
+    $pdo = getPDO();
+    $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
+    $params = [$name, $email, $phone];
+    if ($photoPath !== null) {
+        $sql .= ', photo = ?';
+        $params[] = $photoPath;
+    }
+    $sql .= ' WHERE id = ?';
+    $params[] = $id;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 }
 
 /**
