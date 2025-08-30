@@ -55,7 +55,7 @@ require_once __DIR__ . '/header.php';
         <h2>Tipos de Conteúdo</h2>
         <a class="btn btn-primary" href="<?= BASE_URL ?>content-type/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
  
-    <table class="table table-striped datatable" data-no-sort-last="true">
+    <table class="table table-striped datatable rowreorder" data-reorder-url="reorder_content_types.php" data-no-sort-last="true">
         <thead><tr><th>Rótulo</th><th>Slug</th><th>Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
@@ -63,7 +63,7 @@ require_once __DIR__ . '/header.php';
                 $cnt = countContentByContentType($type['id']);
                 $confirmMsg = $cnt ? "Eliminar este tipo? Existem $cnt conteúdos associados." : 'Eliminar este tipo?';
             ?>
-            <tr>
+            <tr data-id="<?php echo $type['id']; ?>">
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
