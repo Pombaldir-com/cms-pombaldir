@@ -329,6 +329,7 @@ $(document).ready(function() {
         var $table = $(this);
         var source = $table.data('source');
         var options = { responsive: true };
+        options.language = { url: 'vendors/datatables.net/i18n/pt-PT.json' };
         var nonSortable = [];
         $table.find('thead th').each(function(i){
             if ($(this).data('orderable') === false){

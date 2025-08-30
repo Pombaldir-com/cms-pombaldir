@@ -60,7 +60,7 @@ require_once __DIR__ . '/header.php';
             <input class="form-check-input" type="checkbox" id="show_date" name="show_date" <?php echo !empty($editing['show_date']) ? 'checked' : ''; ?>>
             <label class="form-check-label" for="show_date">Mostrar data na listagem</label>
         </div>
-        <button type="submit" class="btn btn-primary"><?php echo $editing ? 'Atualizar' : 'Criar'; ?></button>
+        <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editing ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editing ? 'Atualizar' : 'Criar'; ?></button>
     </form>
 </div>
 <?php
