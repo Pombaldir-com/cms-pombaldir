@@ -66,7 +66,8 @@ require_once __DIR__ . '/header.php';
         <div class="col-md-12 col-sm-12">
             <div class="x_panel">
                 <div class="x_content">
-                    <a href="<?= BASE_URL . htmlspecialchars(rawurlencode($typeSlug)) ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
+
+                    <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
                     <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
                         <thead>
                             <tr>
