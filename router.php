@@ -104,12 +104,15 @@ switch (true) {
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/add_content.php';
         break;
-    case preg_match('#^([^/]+)/([0-9]+)$#', $path, $m):
-        $_GET['id'] = $m[2];
-        // Optional slug is $m[1] if needed in the script
+    case preg_match('#^([^/]+)/edit/([0-9]+)$#', $path, $m):
         $_GET['type_slug'] = $m[1];
+        $_GET['id'] = $m[2];
         require __DIR__ . '/edit_content.php';
         break;
+    case preg_match('#^([^/]+)/([0-9]+)$#', $path, $m):
+        // Support legacy URLs like "/tipo/3" by redirecting to "/tipo/edit/3"
+        header('Location: ' . $base . '/' . rawurlencode($m[1]) . '/edit/' . $m[2]);
+        exit;
     case preg_match('#^([^/]+)$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/list_content.php';

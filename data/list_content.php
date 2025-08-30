@@ -71,9 +71,12 @@ foreach ($contents as $content) {
         $row[] = htmlspecialchars(implode(', ', $termsList));
     }
 
-    $baseUrl = BASE_URL . rawurlencode($typeSlug);
-    $actions = '<a href="' . $baseUrl . '/' . $content['id'] . '" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a> ';
-    $actions .= '<a href="' . $baseUrl . '?delete=' . $content['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Apagar este conteúdo?\');"><i class="fa fa-trash"></i> Apagar</a>';
+    $cmsBase  = rtrim(dirname(BASE_URL), '/') . '/';
+    $typeBase = $cmsBase . rawurlencode($typeSlug);
+    $editUrl  = $typeBase . '/edit/' . $content['id'];
+    $deleteUrl = $typeBase . '?delete=' . $content['id'];
+    $actions = '<a href="' . $editUrl . '" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a> ';
+    $actions .= '<a href="' . $deleteUrl . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Apagar este conteúdo?\');"><i class="fa fa-trash"></i> Apagar</a>';
     $row[] = $actions;
 
     $data[] = $row;
