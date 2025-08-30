@@ -91,33 +91,28 @@ foreach ($sidebarTypes as $sidebarType):
 
         <!-- Top navigation -->
         <div class="top_nav">
-
-            <div class="nav_menu w-100 d-flex">
+            <div class="nav_menu">
                 <div class="nav toggle">
-                    <button id="menu_toggle" class="navbar-toggler border-0" type="button" aria-label="Alternar navegação">
-                        <span class="navbar-toggler-icon"></span>
-                    </button>
+                    <a id="menu_toggle"><i class="fa fa-bars"></i></a>
                 </div>
-                 <nav class="navbar navbar-expand w-100 navbar-light" role="navigation">
-                     <ul class="navbar-nav ms-auto">
-                         <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fa fa-user"></i>
+                <nav class="nav navbar-nav">
+                    <ul class="navbar-right">
+                        <li class="nav-item dropdown open" style="padding-left: 15px;">
+                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-toggle="dropdown" aria-expanded="false">
+                                <img src="images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
                             </a>
-                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
-                                <li><a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil">Editar perfil</a></li>
-                                <li><a class="dropdown-item" href="<?= BASE_URL ?>definicoes">Definições</a></li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out"></i> Terminar sessão</a></li>
-                            </ul>
+                            <div class="dropdown-menu dropdown-usermenu pull-right" aria-labelledby="navbarDropdown">
+                                <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil"> Profile</a>
+                                <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
+                                    <span class="badge bg-red pull-right">50%</span>
+                                    <span>Settings</span>
+                                </a>
+                                <a class="dropdown-item" href="javascript:;">Help</a>
+                                <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out pull-right"></i> Log Out</a>
+                            </div>
                         </li>
                     </ul>
                 </nav>
-                <div class="nav toggle ms-3 navbar-light">
-                    <button id="menu_toggle" class="navbar-toggler border-0" type="button" aria-label="Alternar navegação">
-                        <span class="navbar-toggler-icon"></span>
-                    </button>
-                </div>
             </div>
         </div>
         <!-- /Top navigation -->
