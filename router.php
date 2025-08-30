@@ -85,20 +85,20 @@ switch (true) {
         // List all taxonomies
         require __DIR__ . '/taxonomies.php';
         break;
-    case preg_match('#^campos/([0-9]+)/ad$#', $path, $m):
-        // Add a custom field to a content type, e.g. "/cms/campos/3/ad"
+    case preg_match('#^fields/([0-9]+)/ad$#', $path, $m):
+        // Add a custom field to a content type, e.g. "/cms/fields/3/ad"
         $_GET['type_id'] = $m[1];
         $_GET['act'] = 'ad';
 
         require __DIR__ . '/custom_fields.php';
         break;
-    case preg_match('#^campos/edit-field/([0-9]+)$#', $path, $m):
-        // Edit a custom field, e.g. "/cms/campos/edit-field/10"
+    case preg_match('#^fields/edit-field/([0-9]+)$#', $path, $m):
+        // Edit a custom field, e.g. "/cms/fields/edit-field/10"
         $_GET['edit_id'] = $m[1];
         require __DIR__ . '/custom_fields.php';
         break;
-    case preg_match('#^campos/([0-9]+)$#', $path, $m):
-        // Custom fields of a content type by numeric ID, e.g. "/cms/campos/3"
+    case preg_match('#^fields/([0-9]+)$#', $path, $m):
+        // Custom fields of a content type by numeric ID, e.g. "/cms/fields/3"
         $_GET['type_id'] = $m[1];
         require __DIR__ . '/custom_fields.php';
         break;
