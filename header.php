@@ -91,6 +91,7 @@ foreach ($sidebarTypes as $sidebarType):
 
         <!-- Top navigation -->
         <div class="top_nav">
+
             <div class="nav_menu w-100 d-flex">
                 <div class="nav toggle">
                     <button id="menu_toggle" class="navbar-toggler border-0" type="button" aria-label="Alternar navegação">
@@ -112,6 +113,11 @@ foreach ($sidebarTypes as $sidebarType):
                         </li>
                     </ul>
                 </nav>
+                <div class="nav toggle ms-3 navbar-light">
+                    <button id="menu_toggle" class="navbar-toggler border-0" type="button" aria-label="Alternar navegação">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                </div>
             </div>
         </div>
         <!-- /Top navigation -->
