@@ -98,8 +98,8 @@ foreach ($sidebarTypes as $sidebarType):
                 <nav class="nav navbar-nav">
                     <ul class="navbar-right">
 
-                        <li class="nav-item dropdown open" style="padding-left: 15px;">
-                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-toggle="dropdown" aria-expanded="false">
+                        <li class="nav-item dropdown" style="padding-left: 15px;">
+                            <a href="javascript:;" class="user-profile dropdown-toggle" aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                                 <img src="assets/images/img.jpg" alt=""><?php echo htmlspecialchars($user['username']); ?>
                             </a>
                             <div class="dropdown-menu dropdown-usermenu pull-right" aria-labelledby="navbarDropdown">
