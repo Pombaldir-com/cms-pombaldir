@@ -3,7 +3,14 @@
 // Requests are rewritten here by .htaccess. We inspect the
 // request path and include the appropriate script.
 
-$path = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/'); // → "/cms"
+
+if ($base && strpos($path, $base) === 0) {
+    $path = substr($path, strlen($base)); // remove "/cms" do início
+}
+$path = trim($path, '/'); // agora $path vira "dashboard", "login", etc.
+
 
 switch (true) {
     case $path === '':
@@ -39,6 +46,7 @@ switch (true) {
         require __DIR__ . '/list_content.php';
         break;
     default:
+    print_r($path);
         http_response_code(404);
         echo 'Page not found';
 }
