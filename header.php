@@ -93,11 +93,16 @@ foreach ($sidebarTypes as $sidebarType):
             <div class="nav_menu w-100">
                 <nav class="navbar navbar-expand w-100" role="navigation">
                     <ul class="navbar-nav w-100">
-                        <!-- Explicit logout button for better visibility -->
-                        <li class="nav-item ms-auto">
-                            <a href="<?= BASE_URL ?>logout" class="btn btn-sm btn-danger"><i class="fa fa-sign-out"></i>
-                                Terminar sessão (<?php echo htmlspecialchars($user['username']); ?>)
+                        <li class="nav-item dropdown ms-auto">
+                            <a class="nav-link dropdown-toggle" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fa fa-user"></i> <?php echo htmlspecialchars($user['username']); ?>
                             </a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
+                                <li><a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil">Editar perfil</a></li>
+                                <li><a class="dropdown-item" href="<?= BASE_URL ?>definicoes">Definições</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item text-danger" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out"></i> Terminar sessão</a></li>
+                            </ul>
                         </li>
                     </ul>
                 </nav>

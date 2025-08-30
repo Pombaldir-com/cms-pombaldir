@@ -19,8 +19,15 @@ switch (true) {
     case $path === 'login':
         require __DIR__ . '/login.php';
         break;
+    case $path === 'terminar-sessao':
     case $path === 'logout':
         require __DIR__ . '/logout.php';
+        break;
+    case $path === 'editar-perfil':
+        require __DIR__ . '/editar_perfil.php';
+        break;
+    case $path === 'definicoes':
+        require __DIR__ . '/definicoes.php';
         break;
     case $path === 'dashboard':
         require __DIR__ . '/dashboard.php';
