@@ -90,7 +90,8 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
 
     <div class="card p-3 mt-4">
-        <form method="post" action="<?php echo $editField ? BASE_URL . $typeId . '/edit-field/' . $editField['id'] : BASE_URL . $typeId . '?act=ad'; ?>">
+
+        <form method="post" action="<?php echo $editField ? BASE_URL . $typeId . '?edit_id=' . $editField['id'] : BASE_URL . $typeId . '/ad'; ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
@@ -157,7 +158,7 @@ require_once __DIR__ . '/header.php';
     </div>
 <?php else: ?>
     <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
-    <a href="<?= BASE_URL . $typeId; ?>?act=ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar campo</a>
+    <a href="<?= BASE_URL . $typeId; ?>/ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar campo</a>
     <table class="table table-striped datatable">
         <thead>
             <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>

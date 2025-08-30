@@ -78,10 +78,12 @@ switch (true) {
         // List all taxonomies
         require __DIR__ . '/taxonomies.php';
         break;
-    case preg_match('#^([0-9]+)/edit-field/([0-9]+)$#', $path, $m):
-        // Edit a specific custom field
+
+    case preg_match('#^([0-9]+)/ad$#', $path, $m):
+        // Add a custom field to a content type, e.g. "/cms/3/ad"
         $_GET['type_id'] = $m[1];
-        $_GET['edit_id'] = $m[2];
+        $_GET['act'] = 'ad';
+
         require __DIR__ . '/custom_fields.php';
         break;
     case preg_match('#^([0-9]+)$#', $path, $m):
