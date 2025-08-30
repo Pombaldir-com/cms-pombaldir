@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate);
         }
-        header('Location: content_types.php');
+        header('Location: ' . BASE_URL . 'content-types');
         exit;
     } else {
         $error = 'Nome e rótulo são obrigatórios.';
@@ -39,7 +39,7 @@ require_once __DIR__ . '/header.php';
     <?php if ($error): ?>
         <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
     <?php endif; ?>
-    <form method="post" action="<?php echo $editing ? '?id=' . $editing['id'] : ''; ?>">
+    <form method="post" action="<?php echo $editing ? BASE_URL . 'content-type/edit/' . $editing['id'] : BASE_URL . 'content-type/add'; ?>">
         <div class="mb-3">
             <label class="form-label" for="name">Slug</label>
             <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editing['name'] ?? ''); ?>" required>

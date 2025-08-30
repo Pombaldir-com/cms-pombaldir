@@ -44,7 +44,7 @@ require_once __DIR__ . '/header.php';
             </div>
         <?php endforeach; ?>
         <button type="submit" class="btn btn-primary mt-3"><i class="fa fa-save"></i> Guardar</button>
-        <a href="content_types.php" class="btn btn-secondary mt-3 ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+        <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary mt-3 ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
     </form>
 </div>
 <?php require_once __DIR__ . '/footer.php'; ?>

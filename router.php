@@ -35,6 +35,13 @@ switch (true) {
     case $path === 'content-types':
         require __DIR__ . '/content_types.php';
         break;
+    case $path === 'content-type/add':
+        require __DIR__ . '/content_type_form.php';
+        break;
+    case preg_match('#^content-type/edit/([0-9]+)$#', $path, $m):
+        $_GET['id'] = $m[1];
+        require __DIR__ . '/content_type_form.php';
+        break;
     case $path === 'taxonomies/add':
         // Create a new taxonomy
         $_GET['act'] = 'ad';
