@@ -112,11 +112,22 @@ foreach ($sidebarTypes as $sidebarType):
                                 <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao"><i class="fa fa-sign-out pull-right"></i> Log Out</a>
                             </div>
                         </li>
+
+
+
+
                     </ul>
+
+
+                    
                 </nav>
             </div>
         </div>
         <!-- /Top navigation -->
+
+
+
+       
 
         <!-- Page content -->
         <div class="right_col" role="main">
