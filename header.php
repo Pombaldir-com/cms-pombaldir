@@ -76,7 +76,7 @@ foreach ($sidebarTypes as $sidebarType):
 
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
-                                    <li><a href="<?= BASE_URL . $sidebarType['id']; ?>">Campos</a></li>
+                                    <li><a href="<?= BASE_URL . 'campos/' . $sidebarType['id']; ?>">Campos</a></li>
                                     <li><a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
                                 </ul>
                             </li>
