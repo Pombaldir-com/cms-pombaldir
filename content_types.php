@@ -14,7 +14,7 @@ requireLogin();
 // Redirect to the creation form when requested via act=ad for backward compatibility
 $action = isset($_GET['act']) ? $_GET['act'] : '';
 if ($action === 'ad') {
-    header('Location: content_type_form.php');
+    header('Location: ' . BASE_URL . 'content-type/add');
     exit;
 }
 
@@ -28,7 +28,7 @@ if ($delId) {
     if ($associated) {
         $params .= '&associated=' . $associated;
     }
-    header('Location: content_types.php?' . $params);
+    header('Location: ' . BASE_URL . 'content-types?' . $params);
     exit;
 }
 
@@ -53,7 +53,7 @@ require_once __DIR__ . '/header.php';
             </div>
         <?php endif; ?>
         <h2>Tipos de Conteúdo</h2>
-        <a class="btn btn-primary" href="content_type_form.php"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
+        <a class="btn btn-primary" href="<?= BASE_URL ?>content-type/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
  
     <table class="table table-striped datatable" data-no-sort-last="true">
         <thead><tr><th>Rótulo</th><th>Slug</th><th>Ícone</th><th>Ações</th></tr></thead>
@@ -74,8 +74,8 @@ require_once __DIR__ . '/header.php';
                     <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>/add" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
                     <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
                     <a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $type['id']; ?>" class="btn btn-sm btn-warning"><i class="fa fa-tags"></i> Taxonomias</a>
-                    <a href="content_type_form.php?id=<?php echo $type['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
-                    <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
+                    <a href="<?= BASE_URL ?>content-type/edit/<?php echo $type['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
+                    <a href="<?= BASE_URL ?>content-types?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
                 </td>
             </tr>
         <?php endforeach; ?>
