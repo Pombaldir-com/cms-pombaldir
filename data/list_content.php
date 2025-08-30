@@ -71,7 +71,10 @@ foreach ($contents as $content) {
         $row[] = htmlspecialchars(implode(', ', $termsList));
     }
 
-    $cmsBase  = rtrim(dirname(BASE_URL), '/') . '/';
+    // BASE_URL inside this script may include a trailing "/data" segment
+    // because the file lives in a subdirectory. Remove any trailing
+    // "/data" so that generated links point to the CMS root.
+    $cmsBase  = preg_replace('#/data/?$#', '', rtrim(BASE_URL, '/')) . '/';
     $typeBase = $cmsBase . rawurlencode($typeSlug);
     $editUrl  = $typeBase . '/edit/' . $content['id'];
     $deleteUrl = $typeBase . '?delete=' . $content['id'];
