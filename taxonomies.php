@@ -31,7 +31,7 @@ if ($taxonomyId) {
 
     if ($termDeleteId) {
         deleteTerm($termDeleteId);
-        header('Location: taxonomies/edit-terms/' . $taxonomyId);
+        header('Location: ' . BASE_URL . 'taxonomies/edit-terms/' . $taxonomyId);
         exit;
     }
 
@@ -43,7 +43,7 @@ if ($taxonomyId) {
             } else {
                 createTerm($taxonomyId, $termName);
             }
-            header('Location: taxonomies/edit-terms/' . $taxonomyId);
+            header('Location: ' . BASE_URL . 'taxonomies/edit-terms/' . $taxonomyId);
             exit;
         }
     }
@@ -68,7 +68,7 @@ if ($taxonomyId) {
         if ($associated) {
             $params .= '&associated=' . $associated;
         }
-        header('Location: taxonomies?' . $params);
+        header('Location: ' . BASE_URL . 'taxonomies?' . $params);
         exit;
     }
 
@@ -81,7 +81,7 @@ if ($taxonomyId) {
             } else {
                 createTaxonomy($name, $label);
             }
-            header('Location: taxonomies');
+            header('Location: ' . BASE_URL . 'taxonomies');
             exit;
         } else {
             $error = 'Nome e rótulo são obrigatórios.';
