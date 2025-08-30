@@ -90,7 +90,7 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
 
     <div class="card p-3 mt-4">
-        <form method="post" action="<?php echo $editField ? BASE_URL . $typeId . '?edit_id=' . $editField['id'] : BASE_URL . $typeId . '?act=ad'; ?>">
+        <form method="post" action="<?php echo $editField ? BASE_URL . $typeId . '/edit-field/' . $editField['id'] : BASE_URL . $typeId . '?act=ad'; ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
@@ -192,7 +192,7 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo $field['required'] ? 'Sim' : 'Não'; ?></td>
                 <td><?php echo !empty($field['show_in_list']) ? 'Sim' : 'Não'; ?></td>
                 <td>
-                    <a href="<?= BASE_URL . $typeId; ?>?edit_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                    <a href="<?= BASE_URL . $typeId . '/edit-field/' . $field['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
                     <a href="<?= BASE_URL . $typeId; ?>?delete_id=<?php echo $field['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Apagar este campo?');"><i class="fa fa-trash"></i> Apagar</a>
                 </td>
             </tr>
