@@ -47,10 +47,10 @@ foreach ($contents as $content) {
 
         if ($field['type'] === 'taxonomy' && $fieldValue !== '') {
             $term = getTerm((int)$fieldValue);
-            $fieldValue = $term ? $term['name'] : $fieldValue;
+            $fieldValue = $term ? $term['name'] : 'Removido';
         } elseif ($field['type'] === 'content' && $fieldValue !== '') {
             $related = getContent((int)$fieldValue);
-            $fieldValue = $related ? $related['title'] : $fieldValue;
+            $fieldValue = $related ? $related['title'] : 'Removido';
         }
 
         $row[] = htmlspecialchars($fieldValue);
@@ -60,7 +60,7 @@ foreach ($contents as $content) {
         $termsList = [];
         foreach ($content['taxonomies'] as $assoc) {
             if ($assoc['taxonomy_id'] == $tax['id']) {
-                $termsList[] = $assoc['term_name'];
+                $termsList[] = $assoc['term_name'] !== null ? $assoc['term_name'] : 'Removido';
             }
         }
         $row[] = htmlspecialchars(implode(', ', $termsList));
