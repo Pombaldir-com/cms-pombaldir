@@ -94,9 +94,9 @@ foreach ($sidebarTypes as $sidebarType):
                 <div class="nav toggle">
                     <a id="menu_toggle"><i class="fa fa-bars"></i></a>
                 </div>
-                <nav class="navbar navbar-expand w-100" role="navigation">
-                    <ul class="navbar-nav w-100">
-                        <li class="nav-item dropdown ms-auto">
+                 <nav class="navbar navbar-expand w-100" role="navigation">
+                     <ul class="navbar-nav ms-auto">
+                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 <i class="fa fa-user"></i> <?php echo htmlspecialchars($user['username']); ?>
                             </a>
