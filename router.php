@@ -28,6 +28,14 @@ switch (true) {
     case $path === 'content-types':
         require __DIR__ . '/content_types.php';
         break;
+    case $path === 'taxonomies/add':
+        $_GET['act'] = 'ad';
+        require __DIR__ . '/taxonomies.php';
+        break;
+    case preg_match('#^taxonomies/edit/([0-9]+)$#', $path, $m):
+        $_GET['taxonomy_id'] = $m[1];
+        require __DIR__ . '/taxonomies.php';
+        break;
     case $path === 'taxonomies':
         require __DIR__ . '/taxonomies.php';
         break;
