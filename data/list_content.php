@@ -53,7 +53,11 @@ foreach ($contents as $content) {
             $fieldValue = $related ? $related['title'] : $fieldValue;
         }
 
-        $row[] = htmlspecialchars($fieldValue);
+        if ($field['type'] === 'image' && $fieldValue !== '') {
+            $row[] = '<img src="' . htmlspecialchars($fieldValue) . '" style="max-width:100px;">';
+        } else {
+            $row[] = htmlspecialchars($fieldValue);
+        }
     }
 
     foreach ($allTaxonomies as $tax) {
