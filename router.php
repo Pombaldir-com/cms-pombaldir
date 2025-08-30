@@ -96,17 +96,21 @@ switch (true) {
         $_GET['type_id'] = $m[1];
         require __DIR__ . '/custom_fields.php';
         break;
-    case preg_match('#^tipode-conteudo/([^/]+)/add$#', $path, $m):
+    case preg_match('#^content-type-taxonomies/([0-9]+)$#', $path, $m):
+        $_GET['type_id'] = $m[1];
+        require __DIR__ . '/content_type_taxonomies.php';
+        break;
+    case preg_match('#^([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/add_content.php';
         break;
-    case preg_match('#^tipode-conteudo/([^/]+)/([0-9]+)$#', $path, $m):
+    case preg_match('#^([^/]+)/([0-9]+)$#', $path, $m):
         $_GET['id'] = $m[2];
         // Optional slug is $m[1] if needed in the script
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/edit_content.php';
         break;
-    case preg_match('#^tipode-conteudo/([^/]+)$#', $path, $m):
+    case preg_match('#^([^/]+)$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         require __DIR__ . '/list_content.php';
         break;

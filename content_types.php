@@ -68,9 +68,10 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
                 <td>
-                    <a href="<?= BASE_URL . 'campos/cam/' . $type['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-list-alt"></i> Campos</a>
-                    <a href="<?= BASE_URL ?>tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($type['name'])); ?>/add" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
-                    <a href="<?= BASE_URL ?>tipode-conteudo/<?php echo htmlspecialchars(rawurlencode($type['name'])); ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
+
+                    <a href="<?= BASE_URL . $type['id']; ?>" class="btn btn-sm btn-info"><i class="fa fa-list-alt"></i> Campos</a>
+                    <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>/add" class="btn btn-sm btn-success"><i class="fa fa-plus"></i> Adicionar</a>
+                    <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($type['name'])); ?>" class="btn btn-sm btn-secondary"><i class="fa fa-list"></i> Listar</a>
                     <a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $type['id']; ?>" class="btn btn-sm btn-warning"><i class="fa fa-tags"></i> Taxonomias</a>
                     <a href="content_type_form.php?id=<?php echo $type['id']; ?>" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a>
                     <a href="content_types.php?delete_id=<?php echo $type['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('<?php echo htmlspecialchars($confirmMsg, ENT_QUOTES); ?>');"><i class="fa fa-trash"></i> Eliminar</a>
