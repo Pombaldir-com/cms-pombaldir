@@ -18,6 +18,7 @@ if (!$contentType) {
     echo json_encode(['data' => []]);
     exit;
 }
+$typeSlug = $contentType['name'];
 
 $customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
     return !empty($f['show_in_list']);
@@ -66,8 +67,9 @@ foreach ($contents as $content) {
         $row[] = htmlspecialchars(implode(', ', $termsList));
     }
 
-    $actions = '<a href="edit_content.php?id=' . $content['id'] . '" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a> ';
-    $actions .= '<a href="list_content.php?type_id=' . $typeId . '&delete=' . $content['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Apagar este conteúdo?\');"><i class="fa fa-trash"></i> Apagar</a>';
+    $baseUrl = '/tipode-conteudo/' . rawurlencode($typeSlug);
+    $actions = '<a href="' . $baseUrl . '/' . $content['id'] . '" class="btn btn-sm btn-primary"><i class="fa fa-pencil"></i> Editar</a> ';
+    $actions .= '<a href="' . $baseUrl . '?delete=' . $content['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Apagar este conteúdo?\');"><i class="fa fa-trash"></i> Apagar</a>';
     $row[] = $actions;
 
     $data[] = $row;

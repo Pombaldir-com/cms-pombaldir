@@ -4,6 +4,6 @@ require_once 'functions.php';
 startSession();
 logoutUser();
 // Redirect back to the login page
-header('Location: login.php');
+header('Location: /login');
 exit;
 ?>

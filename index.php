@@ -11,11 +11,11 @@ startSession();
 
 // If the user is already authenticated redirect them to the dashboard.
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    header('Location: /dashboard');
     exit;
 }
 
 // Otherwise go to the login page.  We include an optional redirect
 // parameter so that after logging in the user is returned here.
-header('Location: login.php');
+header('Location: /login');
 exit;

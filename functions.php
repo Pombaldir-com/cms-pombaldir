@@ -143,6 +143,23 @@ function getContentType(int $id): ?array {
 }
 
 /**
+ * Retrieve a content type using its slug (name).
+ *
+ * @param string $slug
+ * @return array|null
+ */
+function getContentTypeBySlug(string $slug): ?array {
+    $pdo = getPDO();
+    $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
+    $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
+    $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types WHERE name = ?");
+    $stmt->execute([$slug]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
  * Create a new content type.  Returns the id of the new row.
  *
  * @param string $name Slug used internally
