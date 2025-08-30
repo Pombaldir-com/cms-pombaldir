@@ -53,11 +53,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Save custom field values
         foreach ($customFields as $field) {
             $fieldName = 'field_' . $field['id'];
-            $value = $_POST[$fieldName] ?? null;
-            if ($value !== null) {
-                if ($field['type'] === 'datetime' && $value !== '') {
+            $value = null;
+            if ($field['type'] === 'image') {
+                if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
+                    $year = date('Y');
+                    $uploadDir = __DIR__ . '/uploads/' . $year . '/';
+                    if (!is_dir($uploadDir)) {
+                        mkdir($uploadDir, 0777, true);
+                    }
+                    $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
+                    $targetPath = $uploadDir . $filename;
+                    if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
+                        $value = 'uploads/' . $year . '/' . $filename;
+                    }
+                }
+            } else {
+                $value = $_POST[$fieldName] ?? null;
+                if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
                     $value = str_replace('T', ' ', substr($value, 0, 16));
                 }
+            }
+            if ($value !== null) {
                 saveCustomValue($contentId, $field['id'], $value);
             }
         }
@@ -88,7 +104,7 @@ require_once __DIR__ . '/header.php';
                     <?php if (!empty($error)): ?>
                         <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                     <?php endif; ?>
-                    <form method="post">
+                    <form method="post" enctype="multipart/form-data">
                         <div class="mb-3">
                             <label for="title" class="form-label">Title</label>
                             <input type="text" id="title" name="title" class="form-control" required>
@@ -115,6 +131,8 @@ require_once __DIR__ . '/header.php';
                                     <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
                                 <?php elseif ($field['type'] === 'datetime'): ?>
                                     <input type="datetime-local" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
+                                <?php elseif ($field['type'] === 'image'): ?>
+                                    <input type="file" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" accept="image/*" <?php echo $isRequired; ?>>
                                 <?php elseif ($field['type'] === 'select'): ?>
                                     <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
                                         <option value="">-- Select --</option>
