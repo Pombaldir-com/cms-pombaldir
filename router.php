@@ -78,6 +78,11 @@ switch (true) {
         // List all taxonomies
         require __DIR__ . '/taxonomies.php';
         break;
+    case preg_match('#^content-type-taxonomies/([0-9]+)$#', $path, $m):
+        // Manage taxonomies associated with a content type
+        $_GET['type_id'] = $m[1];
+        require __DIR__ . '/content_type_taxonomies.php';
+        break;
     case preg_match('#^([0-9]+)/ad$#', $path, $m):
         // Add a custom field to a content type, e.g. "/cms/3/ad"
         $_GET['type_id'] = $m[1];
