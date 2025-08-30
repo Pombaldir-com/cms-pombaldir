@@ -28,7 +28,7 @@ $current = array_map(fn($t) => (int)$t['id'], getTaxonomiesForContentType($typeI
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selected = isset($_POST['taxonomies']) ? array_map('intval', (array)$_POST['taxonomies']) : [];
     setContentTypeTaxonomies($typeId, $selected);
-    header('Location: content_type_taxonomies.php?type_id=' . $typeId);
+    header('Location: ' . BASE_URL . 'content-type-taxonomies/' . $typeId);
     exit;
 }
 
