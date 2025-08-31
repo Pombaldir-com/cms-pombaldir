@@ -8,12 +8,23 @@ requireLogin();
 
 $user = currentUser();
 $success = '';
+$errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+    $confirmPassword = trim($_POST['password_confirm'] ?? '');
     $photoPath = null;
+
+    if ($password !== '') {
+        if ($password !== $confirmPassword) {
+            $errors[] = 'As passwords não coincidem.';
+        } elseif (!isStrongPassword($password)) {
+            $errors[] = 'A password deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.';
+        }
+    }
 
     if (!empty($_FILES['photo']['tmp_name'])) {
         $uploadDir = __DIR__ . '/assets/uploads/';
@@ -27,15 +38,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    updateUserProfile($user['id'], $name, $email, $phone, $photoPath);
-    $success = 'Perfil atualizado com sucesso.';
-    $user = currentUser();
+    if (!$errors) {
+        $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
+        updateUserProfile($user['id'], $name, $email, $phone, $hash, $photoPath);
+        $success = 'Perfil atualizado com sucesso.';
+        $user = currentUser();
+    }
 }
 
 require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid">
     <h2>Editar Perfil</h2>
+    <?php foreach ($errors as $err): ?>
+        <div class="alert alert-danger" role="alert"><?php echo htmlspecialchars($err); ?></div>
+    <?php endforeach; ?>
     <?php if ($success): ?>
         <div class="alert alert-success" role="alert">
             <?php echo htmlspecialchars($success); ?>
@@ -64,6 +81,14 @@ require_once __DIR__ . '/header.php';
         <div class="mb-3">
             <label for="phone" class="form-label">Telefone</label>
             <input type="text" class="form-control" id="phone" name="phone" value="<?php echo htmlspecialchars($user['phone'] ?? ''); ?>">
+        </div>
+        <div class="mb-3">
+            <label for="password" class="form-label">Password (deixe em branco para manter)</label>
+            <input type="password" class="form-control" id="password" name="password">
+        </div>
+        <div class="mb-3">
+            <label for="password_confirm" class="form-label">Confirmar Password</label>
+            <input type="password" class="form-control" id="password_confirm" name="password_confirm">
         </div>
         <button type="submit" class="btn btn-primary">Guardar</button>
     </form>

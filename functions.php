@@ -168,13 +168,18 @@ function currentUser(): ?array {
  * @param string|null $name
  * @param string|null $email
  * @param string|null $phone
+ * @param string|null $passwordHash
  * @param string|null $photoPath
  * @return void
  */
-function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phone, ?string $photoPath = null): void {
+function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phone, ?string $passwordHash = null, ?string $photoPath = null): void {
     $pdo = getPDO();
     $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
     $params = [$name, $email, $phone];
+    if ($passwordHash !== null) {
+        $sql .= ', password = ?';
+        $params[] = $passwordHash;
+    }
     if ($photoPath !== null) {
         $sql .= ', photo = ?';
         $params[] = $photoPath;
