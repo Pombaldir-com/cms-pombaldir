@@ -102,7 +102,9 @@ foreach ($sidebarTypes as $sidebarType):
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
             <img src="assets/images/img.jpg" alt="">
+
             <?= htmlspecialchars($user['username']); ?>
+
           </a>
           <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
                aria-labelledby="navbarDropdown">
