@@ -88,9 +88,9 @@ require_once __DIR__ . '/header.php';
                         </thead>
                         <tbody></tbody>
                     </table>
-                    <div class="text-end">
+                    <div class="text-start">
                         <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
-                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Add New</a>
+                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Adicionar</a>
                     </div>
                 </div>
             </div>
