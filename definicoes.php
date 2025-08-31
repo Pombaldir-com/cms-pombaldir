@@ -38,9 +38,8 @@ require_once __DIR__ . '/header.php';
                     <label for="app_name" class="form-label">APP Nome</label>
                     <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
                 </div>
-                <div class="text-end mt-3">
-                    <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
-                </div>
+
+                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </form>
         </div>
         <div class="tab-pane fade" id="email" role="tabpanel" aria-labelledby="email-tab">
