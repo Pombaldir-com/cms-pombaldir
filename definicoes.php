@@ -5,6 +5,14 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+ 
+$saved = false;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $appName = trim($_POST['app_name'] ?? '');
+    setSetting('app_name', $appName);
+    $saved = true;
+}
+$currentAppName = getSetting('app_name', '');
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -22,7 +30,18 @@ require_once __DIR__ . '/header.php';
 
     <div class="tab-content" id="settings-tabContent">
         <div class="tab-pane fade show active" id="geral" role="tabpanel" aria-labelledby="geral-tab">
-            <!-- Conteúdo Geral -->
+            <?php if ($saved): ?>
+                <div class="alert alert-success mt-3">Definições guardadas.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="app_name" class="form-label">APP Nome</label>
+                    <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
+                </div>
+                <div class="text-end mt-3">
+                    <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+                </div>
+            </form>
         </div>
         <div class="tab-pane fade" id="email" role="tabpanel" aria-labelledby="email-tab">
             <!-- Conteúdo E-mail -->
