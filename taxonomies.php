@@ -188,7 +188,7 @@ require_once __DIR__ . '/header.php';
         <div class="mt-3">
                         <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
 
-            <a href="taxonomies/add" class="btn btn-success"><i class="fa fa-plus"></i> Adicionar taxonomia</a>
+            <a href="taxonomies/add" class="btn btn-success"><i class="fa fa-plus"></i> Adicionar</a>
         </div>
     <?php endif; ?>
 <?php endif; ?>
