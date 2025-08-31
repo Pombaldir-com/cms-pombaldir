@@ -54,7 +54,7 @@ require_once __DIR__ . '/header.php';
         <?php endif; ?>
         <h2>Tipos de Conteúdo</h2>
     <table class="table table-striped datatable" data-no-sort-last="true">
-        <thead><tr><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ícone</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Ordem</th><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ícone</th><th>Ações</th></tr></thead>
         <tbody>
         <?php foreach ($types as $type): ?>
             <?php
@@ -62,6 +62,7 @@ require_once __DIR__ . '/header.php';
                 $confirmMsg = $cnt ? "Eliminar este tipo? Existem $cnt conteúdos associados." : 'Eliminar este tipo?';
             ?>
             <tr data-id="<?php echo $type['id']; ?>">
+                <td><?php echo htmlspecialchars($type['sort_order']); ?></td>
                 <td><?php echo htmlspecialchars($type['label']); ?></td>
                 <td><?php echo htmlspecialchars($type['name']); ?></td>
                 <td><i class="<?php echo htmlspecialchars($type['icon']); ?>"></i></td>
