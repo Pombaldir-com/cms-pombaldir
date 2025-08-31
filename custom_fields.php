@@ -158,8 +158,9 @@ require_once __DIR__ . '/header.php';
                     echo isset($editField['sortable']) ? (!empty($editField['sortable']) ? 'checked' : '') : 'checked'; ?>>
                 <label class="form-check-label" for="sortable">Permitir ordenação</label>
             </div>
+                        <a href="<?= BASE_URL . 'fields/' . $typeId; ?>" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+
             <button type="submit" class="btn btn-primary"><i class="fa <?php echo $editField ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $editField ? 'Guardar' : 'Adicionar'; ?></button>
-            <a href="<?= BASE_URL . 'fields/' . $typeId; ?>" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
         </form>
     </div>
 <?php else: ?>
