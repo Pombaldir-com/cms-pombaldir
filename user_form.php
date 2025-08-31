@@ -75,13 +75,15 @@ require_once __DIR__ . '/header.php';
             <?php endif; ?>
             <input type="file" class="form-control" id="photo" name="photo">
         </div>
-        <div class="mb-3">
-            <label for="name" class="form-label">Nome</label>
-            <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
-        </div>
-        <div class="mb-3">
-            <label for="email" class="form-label">E-mail</label>
-            <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label for="name" class="form-label">Nome</label>
+                <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
+            </div>
+            <div class="col-md-6 mb-3">
+                <label for="email" class="form-label">E-mail</label>
+                <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
+            </div>
         </div>
         <div class="mb-3">
             <label for="phone" class="form-label">Telefone</label>
