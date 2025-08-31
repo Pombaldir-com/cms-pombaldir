@@ -38,6 +38,7 @@ require_once __DIR__ . '/header.php';
                     <label for="app_name" class="form-label">APP Nome</label>
                     <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
                 </div>
+
                 <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </form>
         </div>
