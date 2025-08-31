@@ -228,11 +228,14 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
 
 /**
  * Update an existing user.
+ *
+ * The username cannot be modified once a user is created, so this function
+ * only updates the remaining profile fields.
  */
-function updateUser(int $id, string $username, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): void {
+function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): void {
     $pdo = getPDO();
-    $sql = 'UPDATE users SET username = ?, name = ?, email = ?, phone = ?';
-    $params = [$username, $name, $email, $phone];
+    $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
+    $params = [$name, $email, $phone];
     if ($id !== 1) {
         $sql .= ', role = ?';
         $params[] = $role;
