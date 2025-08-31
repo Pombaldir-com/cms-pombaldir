@@ -16,13 +16,14 @@ requireLogin();
 
 // Get current user info
 $user = currentUser();
+$appName = getSetting('app_name', 'CMS');
 ?>
 <!DOCTYPE html>
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CMS</title>
+    <title><?= htmlspecialchars($appName); ?></title>
     <base href="<?= BASE_URL ?>">
 <link rel="stylesheet" href="vendors/bootstrap/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
@@ -44,7 +45,7 @@ $user = currentUser();
         <div class="col-md-3 left_col">
             <div class="left_col scroll-view">
                 <div class="navbar nav_title" style="border: 0;">
-                    <a href="<?= BASE_URL ?>dashboard" class="site_title"><i class="fa fa-home"></i> <span>CMS</span></a>
+                    <a href="<?= BASE_URL ?>dashboard" class="site_title"><i class="fa fa-home"></i> <span><?= htmlspecialchars($appName); ?></span></a>
                 </div>
                 <div class="clearfix"></div>
 
