@@ -113,15 +113,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!empty($_FILES['photo']['tmp_name'])) {
-        $uploadDir = __DIR__ . '/assets/uploads/';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-        $filename = uniqid('photo_') . '-' . basename($_FILES['photo']['name']);
-        $targetPath = $uploadDir . $filename;
-        if (move_uploaded_file($_FILES['photo']['tmp_name'], $targetPath)) {
-            $photoPath = 'assets/uploads/' . $filename;
-            $userData['photo'] = $photoPath;
+        $fileTmp  = $_FILES['photo']['tmp_name'];
+        $fileSize = $_FILES['photo']['size'] ?? 0;
+        $extension = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION));
+        $allowedExt = ['png', 'jpg', 'jpeg'];
+
+        if ($fileSize > 2 * 1024 * 1024) {
+            $errors[] = 'A foto excede 2 MB.';
+        } else {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $mimeType = $finfo->file($fileTmp);
+            $allowedMime = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
+
+            if (!in_array($extension, $allowedExt, true) || !array_key_exists($mimeType, $allowedMime)) {
+                $errors[] = 'Formato de imagem inválido.';
+            } else {
+                $uploadDir = __DIR__ . '/assets/uploads/';
+                if (!is_dir($uploadDir)) {
+                    mkdir($uploadDir, 0755, true);
+                }
+                $filename = bin2hex(random_bytes(16)) . '.' . $allowedMime[$mimeType];
+                $targetPath = $uploadDir . $filename;
+
+                $image = ($mimeType === 'image/png') ? imagecreatefrompng($fileTmp) : imagecreatefromjpeg($fileTmp);
+                if ($image !== false) {
+                    $maxDim = 800;
+                    $width = imagesx($image);
+                    $height = imagesy($image);
+                    if ($width > $maxDim || $height > $maxDim) {
+                        $ratio = min($maxDim / $width, $maxDim / $height);
+                        $newWidth = (int)($width * $ratio);
+                        $newHeight = (int)($height * $ratio);
+                        $newImage = imagecreatetruecolor($newWidth, $newHeight);
+                        if ($mimeType === 'image/png') {
+                            imagealphablending($newImage, false);
+                            imagesavealpha($newImage, true);
+                        }
+                        imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+                        imagedestroy($image);
+                        $image = $newImage;
+                    }
+                    $saved = ($mimeType === 'image/png') ? imagepng($image, $targetPath) : imagejpeg($image, $targetPath, 90);
+                    imagedestroy($image);
+                } else {
+                    $saved = false;
+                }
+
+                if ($saved) {
+                    $photoPath = 'assets/uploads/' . $filename;
+                    $userData['photo'] = $photoPath;
+                } else {
+                    $errors[] = 'Erro ao guardar a foto.';
+                }
+            }
         }
     }
 
