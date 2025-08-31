@@ -162,7 +162,6 @@ require_once __DIR__ . '/header.php';
             </div>
         <?php endif; ?>
         <h2 class="mt-3">Taxonomias</h2>
-        <a href="taxonomies/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar taxonomia</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Rótulo</th><th>Slug</th><th>Ações</th></tr></thead>
             <tbody>
@@ -183,6 +182,10 @@ require_once __DIR__ . '/header.php';
             <?php endforeach; ?>
             </tbody>
         </table>
+        <div class="mt-3">
+            <a href="taxonomies/add" class="btn btn-success"><i class="fa fa-plus"></i> Adicionar taxonomia</a>
+            <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+        </div>
     <?php endif; ?>
 <?php endif; ?>
 </div>
