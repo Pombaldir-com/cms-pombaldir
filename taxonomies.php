@@ -16,6 +16,7 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 requireRole(2);
+$csrfToken = generateCsrfToken();
 
  $error = '';
  $taxonomyId = isset($_GET['taxonomy_id']) ? (int)$_GET['taxonomy_id'] : 0;
@@ -37,6 +38,11 @@ if ($taxonomyId) {
     }
 
     if ($act === 'ad' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['term_name'])) {
+        if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            http_response_code(400);
+            exit('Token CSRF inválido');
+        }
+        $csrfToken = generateCsrfToken();
         $termName = trim($_POST['term_name']);
         if ($termName !== '') {
             if ($editingTerm) {
@@ -74,6 +80,11 @@ if ($taxonomyId) {
     }
 
     if (($act === 'ad' || $editing) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['name'])) {
+        if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            http_response_code(400);
+            exit('Token CSRF inválido');
+        }
+        $csrfToken = generateCsrfToken();
         $name  = trim($_POST['name']);
         $label = trim($_POST['label'] ?? '');
         if ($name !== '' && $label !== '') {
@@ -104,6 +115,7 @@ require_once __DIR__ . '/header.php';
         <h2 class="mt-3"><?php echo $editingTerm ? 'Editar termo' : 'Adicionar novo termo a ' . htmlspecialchars($taxonomy['label']); ?></h2>
         <div class="card p-3 mt-4">
             <form method="post" action="">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                 <div class="mb-3">
                     <label class="form-label" for="term_name">Nome</label>
                     <input type="text" class="form-control" id="term_name" name="term_name" value="<?php echo htmlspecialchars($editingTerm['name'] ?? ''); ?>" required>
@@ -142,6 +154,7 @@ require_once __DIR__ . '/header.php';
         <?php endif; ?>
         <div class="card p-3 mt-4">
             <form method="post" action="">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                 <div class="mb-3">
                     <label class="form-label" for="name">Slug</label>
                     <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editing['name'] ?? ''); ?>" required>

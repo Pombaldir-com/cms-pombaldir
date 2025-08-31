@@ -66,6 +66,34 @@ function startSession() {
 }
 
 /**
+ * Generate a CSRF token and store it in the session.
+ *
+ * @return string
+ */
+function generateCsrfToken(): string {
+    startSession();
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Validate a CSRF token against the session and invalidate it.
+ *
+ * @param string $token
+ * @return bool
+ */
+function validateCsrfToken(string $token): bool {
+    startSession();
+    if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
+        return false;
+    }
+    unset($_SESSION['csrf_token']);
+    return true;
+}
+
+/**
  * Check whether the current request is associated with a logged in user.
  *
  * @return bool

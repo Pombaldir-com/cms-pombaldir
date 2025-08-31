@@ -7,6 +7,7 @@ require_once __DIR__ . '/data/db.php';
 require_once __DIR__ . '/functions.php';
 
 startSession();
+$csrfToken = generateCsrfToken();
 
 if (($_GET['action'] ?? '') === 'logout') {
     logoutUser();
@@ -17,6 +18,11 @@ if (($_GET['action'] ?? '') === 'logout') {
 $error = '';
 // If the form is posted attempt to authenticate the user.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        http_response_code(400);
+        exit('Token CSRF inválido');
+    }
+    $csrfToken = generateCsrfToken();
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     if ($username !== '' && $password !== '') {
@@ -56,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="animate form login_form">
           <section class="login_content">
             <form method="post" action="">
+              <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
               <h1>Login</h1>
               <?php if ($error): ?>
                 <div class="alert alert-danger" role="alert">

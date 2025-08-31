@@ -7,6 +7,7 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 requireRole(2);
+$csrfToken = generateCsrfToken();
 
 // Obtém parâmetros básicos
 $typeId = isset($_GET['type_id']) ? (int) $_GET['type_id'] : 0;
@@ -51,6 +52,11 @@ if ($deleteId) {
 // Processa submissão do formulário para criar ou atualizar um campo
 $error = '';
 if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
+    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        http_response_code(400);
+        exit('Token CSRF inválido');
+    }
+    $csrfToken = generateCsrfToken();
     $fieldId   = isset($_POST['field_id']) ? (int) $_POST['field_id'] : 0;
     $name      = isset($_POST['name']) ? trim($_POST['name']) : '';
     $label     = isset($_POST['label']) ? trim($_POST['label']) : '';
@@ -98,6 +104,7 @@ require_once __DIR__ . '/header.php';
     <div class="card p-3 mt-4">
 
         <form method="post" action="<?php echo $editField ? BASE_URL . 'fields/edit-field/' . $editField['id'] : BASE_URL . 'fields/' . $typeId . '/ad'; ?>">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
             <?php if ($editField): ?>
                 <input type="hidden" name="field_id" value="<?php echo $editField['id']; ?>">
             <?php endif; ?>
