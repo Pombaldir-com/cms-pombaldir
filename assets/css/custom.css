@@ -3071,6 +3071,8 @@ span.right {
 
 a.user-profile {
     color: #5E6974 !important;
+    display: flex;
+    align-items: center;
 }
 
 .user-profile img {
@@ -3078,6 +3080,10 @@ a.user-profile {
     height: 29px;
     border-radius: 50%;
     margin-right: 10px;
+}
+
+.user-profile .user-name {
+    margin-left: 0;
 }
 
 ul.top_profiles {

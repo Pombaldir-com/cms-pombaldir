@@ -99,12 +99,10 @@ foreach ($sidebarTypes as $sidebarType):
 
       <ul class="navbar-nav ms-auto d-flex align-items-center">
         <li class="nav-item dropdown ms-3">
-          <a href="javascript:;" class="user-profile nav-link dropdown-toggle"
+          <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
             <img src="assets/images/img.jpg" alt="">
-
-            <?= htmlspecialchars($user['username']); ?>
-
+            <span class="user-name"><?= htmlspecialchars($user['username']); ?></span>
           </a>
           <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
                aria-labelledby="navbarDropdown">
