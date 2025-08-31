@@ -16,10 +16,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '');
     $role = (int)($_POST['role'] ?? 3);
     $password = trim($_POST['password'] ?? '');
+    $confirmPassword = trim($_POST['password_confirm'] ?? '');
     $photoPath = $userData['photo'] ?? null;
 
     if (!$editing && $password === '') {
         $errors[] = 'A password é obrigatória.';
+    }
+
+    if ($password !== '') {
+        if ($password !== $confirmPassword) {
+            $errors[] = 'As passwords não coincidem.';
+        } elseif (!isStrongPassword($password)) {
+            $errors[] = 'A password deve ter pelo menos 8 caracteres e incluir letras maiúsculas, minúsculas e números.';
+        }
     }
 
     if (!empty($_FILES['photo']['tmp_name'])) {
@@ -80,15 +89,24 @@ require_once __DIR__ . '/header.php';
         </div>
         <div class="mb-3">
             <label for="role" class="form-label">Nível</label>
-            <select class="form-control" id="role" name="role">
-                <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
-                <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
-                <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
-            </select>
+            <?php if ($editing && $id == 1): ?>
+                <input type="text" class="form-control" value="Superadmin" disabled>
+                <input type="hidden" name="role" value="1">
+            <?php else: ?>
+                <select class="form-control" id="role" name="role">
+                    <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
+                    <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
+                    <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
+                </select>
+            <?php endif; ?>
         </div>
         <div class="mb-3">
             <label for="password" class="form-label">Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
             <input type="password" class="form-control" id="password" name="password" <?= $editing ? '' : 'required'; ?>>
+        </div>
+        <div class="mb-3">
+            <label for="password_confirm" class="form-label">Confirmar Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
+            <input type="password" class="form-control" id="password_confirm" name="password_confirm" <?= $editing ? '' : 'required'; ?>>
         </div>
         <button type="submit" class="btn btn-primary">Guardar</button>
     </form>
