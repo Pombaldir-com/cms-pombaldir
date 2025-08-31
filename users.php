@@ -14,12 +14,17 @@ if (isset($_GET['delete_id'])) {
     exit;
 }
 
+// Fetch users and hide superadmin (ID 1) for non-superadmin accounts
+$user = currentUser();
 $users = getUsers();
+if (($user['id'] ?? 0) !== 1) {
+    $users = array_filter($users, fn($u) => $u['id'] !== 1);
+}
+
 require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid">
     <h2>Utilizadores</h2>
-    <a href="<?= BASE_URL ?>user/add" class="btn btn-primary mb-3"><i class="fa fa-plus"></i> Adicionar Utilizador</a>
     <table class="table table-striped">
         <thead>
             <tr>
@@ -53,5 +58,6 @@ require_once __DIR__ . '/header.php';
         <?php endforeach; ?>
         </tbody>
     </table>
+    <a href="<?= BASE_URL ?>user/add" class="btn btn-primary mt-3"><i class="fa fa-plus"></i> Adicionar Utilizador</a>
 </div>
 <?php require_once __DIR__ . '/footer.php'; ?>
