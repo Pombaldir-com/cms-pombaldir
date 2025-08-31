@@ -2,11 +2,20 @@
 // Form to add or edit a user.
 require_once __DIR__ . '/functions.php';
 startSession();
-requireRole(2);
 
-$id = isset($_GET['id']) ? (int)$_GET['id'] : null;
+// When "profile" is set we are editing the logged in user's own profile.
+$profileMode = isset($_GET['profile']);
+if ($profileMode) {
+    requireLogin();
+    $id = $_SESSION['user_id'] ?? null;
+} else {
+    requireRole(2);
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : null;
+}
+
 $editing = $id !== null;
 $userData = $editing ? getUserById($id) : ['username' => '', 'name' => '', 'email' => '', 'phone' => '', 'role' => 3, 'photo' => ''];
+$selfEdit = $profileMode;
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -14,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
-    $role = (int)($_POST['role'] ?? 3);
+    $role = $selfEdit ? $userData['role'] : (int)($_POST['role'] ?? 3);
     $password = trim($_POST['password'] ?? '');
     $confirmPassword = trim($_POST['password_confirm'] ?? '');
     $photoPath = $userData['photo'] ?? null;
@@ -62,7 +71,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $hash = password_hash($password, PASSWORD_DEFAULT);
             createUser($username, $hash, $name, $email, $phone, $role, $photoPath);
         }
-        header('Location: ' . BASE_URL . 'users');
+        $redirect = $profileMode ? 'editar-perfil' : 'users';
+        header('Location: ' . BASE_URL . $redirect);
         exit;
     }
 }
@@ -100,6 +110,7 @@ require_once __DIR__ . '/header.php';
             <label for="phone" class="form-label">Telefone</label>
             <input type="text" class="form-control" id="phone" name="phone" value="<?= htmlspecialchars($userData['phone']); ?>">
         </div>
+        <?php if (!$selfEdit): ?>
         <div class="mb-3">
             <label for="role" class="form-label">Nível</label>
             <?php if ($editing && $id == 1): ?>
@@ -113,6 +124,7 @@ require_once __DIR__ . '/header.php';
                 </select>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
         <div class="mb-3">
             <label for="password" class="form-label">Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
             <input type="password" class="form-control" id="password" name="password" <?= $editing ? '' : 'required'; ?>>
