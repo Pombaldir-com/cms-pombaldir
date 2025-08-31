@@ -257,7 +257,29 @@ function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $emai
 /**
  * Delete a user by id.
  */
+/**
+ * Delete a user if the current user has a higher privilege.
+ * Users with an equal or lower privilege level (numerically higher value)
+ * cannot delete accounts with greater privileges.
+ *
+ * @param int $id
+ * @return void
+ */
 function deleteUser(int $id): void {
+    $current = currentUser();
+    $target  = getUserById($id);
+    if (!$current || !$target) {
+        return;
+    }
+    // Prevent deletion if current user role is >= target user's role (less privileged or same level)
+    if ($current['role'] >= $target['role']) {
+        return;
+    }
+    // Prevent deleting oneself for additional safety
+    if ($current['id'] === $id) {
+        return;
+    }
+
     $pdo = getPDO();
     $stmt = $pdo->prepare('DELETE FROM users WHERE id = ?');
     $stmt->execute([$id]);
