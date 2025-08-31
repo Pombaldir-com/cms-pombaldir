@@ -4,7 +4,7 @@
 // directly to the dashboard; otherwise they're sent to the login
 // page.
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/data/db.php';
 require_once __DIR__ . '/functions.php';
 
 startSession();

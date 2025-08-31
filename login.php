@@ -1,13 +1,18 @@
 <?php
-// Login page for the CMS.  Presents a simple form asking for a
-// username and password.  When submitted it attempts to authenticate
-// the user and redirects to the dashboard on success.  Any
-// authentication errors are displayed at the top of the form.
+// Handles login and logout actions for the CMS. When accessed normally it
+// displays the login form; when invoked with "action=logout" it logs out the
+// current user and redirects back to the login page.
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/data/db.php';
 require_once __DIR__ . '/functions.php';
 
 startSession();
+
+if (($_GET['action'] ?? '') === 'logout') {
+    logoutUser();
+    header('Location: ' . BASE_URL . 'login');
+    exit;
+}
 
 $error = '';
 // If the form is posted attempt to authenticate the user.

@@ -7,7 +7,7 @@
 // prepared statements or plain data arrays; they throw exceptions on
 // failure so callers can decide how to handle errors.
 
-require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/data/db.php';
 
 // Determine the base URL for the application (e.g., "/cms/") so links
 // can be generated correctly regardless of the installation directory.
