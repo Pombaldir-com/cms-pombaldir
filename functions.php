@@ -20,6 +20,10 @@ if (!defined('BASE_URL')) {
 /**
  * Retrieve a named setting from the database.
  *
+ * The SMTP password is stored base64 encoded for a little obscurity.
+ * When requesting the `smtp_pass` setting the value is automatically
+ * decoded before being returned.
+ *
  * @param string $name
  * @param string|null $default
  * @return string|null
@@ -29,17 +33,29 @@ function getSetting(string $name, ?string $default = null): ?string {
     $stmt = $pdo->prepare('SELECT value FROM settings WHERE name = ? LIMIT 1');
     $stmt->execute([$name]);
     $row = $stmt->fetch();
-    return $row['value'] ?? $default;
+    $value = $row['value'] ?? $default;
+    if ($name === 'smtp_pass' && $value !== null) {
+        $decoded = base64_decode($value, true);
+        if ($decoded !== false) {
+            $value = $decoded;
+        }
+    }
+    return $value;
 }
 
 /**
  * Save a named setting value in the database.
+ *
+ * The SMTP password is stored base64 encoded before being persisted.
  *
  * @param string $name
  * @param string $value
  * @return void
  */
 function setSetting(string $name, string $value): void {
+    if ($name === 'smtp_pass') {
+        $value = base64_encode($value);
+    }
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)');
     $stmt->execute([$name, $value]);
