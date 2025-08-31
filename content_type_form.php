@@ -7,6 +7,7 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+requireRole(2);
 
 $error = '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;

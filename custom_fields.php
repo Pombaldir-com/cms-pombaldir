@@ -6,6 +6,7 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+requireRole(2);
 
 // Obtém parâmetros básicos
 $typeId = isset($_GET['type_id']) ? (int) $_GET['type_id'] : 0;
