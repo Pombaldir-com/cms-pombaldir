@@ -369,6 +369,21 @@ function getContentTypeBySlug(string $slug): ?array {
 }
 
 /**
+ * Get the next sort order value for content types.
+ *
+ * @return int
+ */
+function getNextContentTypeSortOrder(): int {
+    $pdo = getPDO();
+    $hasOrder = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    if ($hasOrder) {
+        $max = $pdo->query('SELECT COALESCE(MAX(sort_order), 0) FROM content_types')->fetchColumn();
+        return (int)$max + 1;
+    }
+    return 0;
+}
+
+/**
  * Create a new content type.  Returns the id of the new row.
  *
  * @param string $name       Slug used internally
