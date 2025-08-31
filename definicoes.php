@@ -55,12 +55,18 @@ require_once __DIR__ . '/header.php';
                 <div class="alert alert-success mt-3">Definições guardadas.</div>
             <?php endif; ?>
             <form method="post" class="mt-3">
+                <div class="row">
                 <div class="mb-3 col-md-6 col-sm-12">
-                    <label for="app_name" class="form-label">APP Nome</label>
+                    <label for="app_name" class="form-label">Nome da APP</label>
                     <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
                 </div>
-
-                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+                </div>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
+                    </div>
+                </div>
+                
             </form>
         </div>
         <div class="tab-pane fade" id="email" role="tabpanel" aria-labelledby="email-tab">
@@ -68,23 +74,24 @@ require_once __DIR__ . '/header.php';
                 <div class="alert alert-success mt-3">Definições de e-mail guardadas.</div>
             <?php endif; ?>
             <form method="post" class="mt-3">
-                <div class="mb-3 col-md-6 col-sm-12">
+                <div class="row">
+                <div class="mb-3 col-md-3 col-sm-12">
                     <label for="smtp_host" class="form-label">Servidor SMTP</label>
                     <input type="text" class="form-control" id="smtp_host" name="smtp_host" value="<?= htmlspecialchars($currentSmtpHost); ?>">
                 </div>
-                <div class="mb-3 col-md-6 col-sm-12">
+                <div class="mb-3 col-md-1 col-sm-12">
                     <label for="smtp_port" class="form-label">Porta SMTP</label>
                     <input type="text" class="form-control" id="smtp_port" name="smtp_port" value="<?= htmlspecialchars($currentSmtpPort); ?>">
                 </div>
-                <div class="mb-3 col-md-6 col-sm-12">
+                <div class="mb-3 col-md-4 col-sm-12">
                     <label for="smtp_user" class="form-label">Utilizador SMTP</label>
                     <input type="text" class="form-control" id="smtp_user" name="smtp_user" value="<?= htmlspecialchars($currentSmtpUser); ?>">
                 </div>
-                <div class="mb-3 col-md-6 col-sm-12">
+                <div class="mb-3 col-md-3 col-sm-12">
                     <label for="smtp_pass" class="form-label">Senha SMTP</label>
                     <input type="password" class="form-control" id="smtp_pass" name="smtp_pass" value="<?= htmlspecialchars($currentSmtpPass); ?>">
                 </div>
-                <div class="mb-3 col-md-6 col-sm-12">
+                <div class="mb-3 col-md-1 col-sm-12">
                     <label for="smtp_encryption" class="form-label">Encriptação</label>
                     <select class="form-select" id="smtp_encryption" name="smtp_encryption">
                         <option value="" <?= $currentSmtpEncryption === '' ? 'selected' : ''; ?>>Nenhuma</option>
@@ -92,8 +99,10 @@ require_once __DIR__ . '/header.php';
                         <option value="tls" <?= $currentSmtpEncryption === 'tls' ? 'selected' : ''; ?>>TLS</option>
                     </select>
                 </div>
-
-                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+                </div>
+            
+                <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
+                </div>
             </form>
         </div>
     </div>
