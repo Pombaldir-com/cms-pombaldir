@@ -85,12 +85,13 @@ if ($action === 'ad' || $id) {
         $icon  = trim($_POST['icon'] ?? 'fa fa-file-text');
         $showAuthor = isset($_POST['show_author']);
         $showDate   = isset($_POST['show_date']);
-        $sortOrder  = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 0;
 
         if ($name !== '' && $label !== '') {
             if ($id) {
+                $sortOrder = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 0;
                 updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
             } else {
+                $sortOrder = getNextContentTypeSortOrder();
                 createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
             }
             header('Location: ' . BASE_URL . 'content-types');
@@ -120,10 +121,12 @@ if ($action === 'ad' || $id) {
                 <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
                 <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>" placeholder="fa fa-file-text">
             </div>
+            <?php if ($id): ?>
             <div class="mb-3">
                 <label class="form-label" for="sort_order">Ordem no menu</label>
                 <input type="number" class="form-control" id="sort_order" name="sort_order" value="<?php echo htmlspecialchars($editing['sort_order'] ?? 0); ?>">
             </div>
+            <?php endif; ?>
             <div class="form-check mb-3">
                 <input class="form-check-input" type="checkbox" id="show_author" name="show_author" <?php echo !empty($editing['show_author']) ? 'checked' : ''; ?>>
                 <label class="form-check-label" for="show_author">Mostrar autor na listagem</label>
