@@ -164,7 +164,6 @@ require_once __DIR__ . '/header.php';
     </div>
 <?php else: ?>
     <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
-    <a href="<?= BASE_URL . 'fields/' . $typeId; ?>/ad" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar campo</a>
     <table class="table table-striped datatable">
         <thead>
             <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
@@ -206,6 +205,10 @@ require_once __DIR__ . '/header.php';
         <?php endforeach; ?>
         </tbody>
     </table>
+    <div class="mt-3">
+        <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+        <a href="<?= BASE_URL . 'fields/' . $typeId; ?>/ad" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Adicionar campo</a>
+    </div>
 <?php endif; ?>
 </div>
 <?php if ($act === 'ad' || $editField): ?>
