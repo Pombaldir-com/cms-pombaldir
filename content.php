@@ -27,7 +27,7 @@ if (isset($_GET['type_slug'])) {
     }
 }
 $typeSlug = $contentType['name'];
-$action = $_GET['action'] ?? 'list';
+$action = $_GET['action'] ?? '';
 $error = '';
 
 if ($action === 'add') {
@@ -82,7 +82,7 @@ if ($action === 'add') {
     <div class="container-fluid">
         <div class="page-title">
             <div class="title_left">
-                <h3>Add <?php echo htmlspecialchars($contentType['label']); ?></h3>
+                <h3>Adicionar <?php echo htmlspecialchars($contentType['label']); ?></h3>
             </div>
         </div>
         <div class="clearfix"></div>
@@ -159,9 +159,10 @@ if ($action === 'add') {
                                     </select>
                                 </div>
                             <?php endforeach; ?>
-                            <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save</button>
+                                                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancelar</a>
 
-                            <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
+                            <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
+
                         </form>
                     </div>
                 </div>
@@ -319,9 +320,10 @@ if ($action === 'edit') {
                                     </select>
                                 </div>
                             <?php endforeach; ?>
-                            <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Save</button>
+                                                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancelar</a>
 
-                            <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancel</a>
+                            <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
+
                         </form>
                     </div>
                 </div>
@@ -352,7 +354,7 @@ require_once __DIR__ . '/header.php';
 <div class="container-fluid">
     <div class="page-title">
         <div class="title_left">
-            <h3><?php echo htmlspecialchars($contentType['label']); ?> List</h3>
+            <h3><?php echo htmlspecialchars($contentType['label']); ?> </h3>
         </div>
     </div>
     <div class="clearfix"></div>
@@ -382,9 +384,9 @@ require_once __DIR__ . '/header.php';
                         </thead>
                         <tbody></tbody>
                     </table>
-                    <div class="text-end">
-                        <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
-                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Add New</a>
+                    <div class="mt-3">
+                        <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Adicionar</a>
                     </div>
                 </div>
             </div>

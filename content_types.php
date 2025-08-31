@@ -184,8 +184,9 @@ require_once __DIR__ . '/header.php';
         </tbody>
     </table>
     <div class="mt-3">
+                <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+
         <a class="btn btn-success" href="<?= BASE_URL ?>content-types/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
-        <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
     </div>
 </div>
 <?php
