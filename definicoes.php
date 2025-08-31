@@ -5,10 +5,16 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+$csrfToken = generateCsrfToken();
 
 $generalSaved = false;
 $emailSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        http_response_code(400);
+        exit('Token CSRF inválido');
+    }
+    $csrfToken = generateCsrfToken();
     if (isset($_POST['app_name'])) {
         $appName = trim($_POST['app_name'] ?? '');
         setSetting('app_name', $appName);
@@ -55,6 +61,7 @@ require_once __DIR__ . '/header.php';
                 <div class="alert alert-success mt-3">Definições guardadas.</div>
             <?php endif; ?>
             <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row">
                 <div class="mb-3 col-md-6 col-sm-12">
                     <label for="app_name" class="form-label">Nome da APP</label>
@@ -74,6 +81,7 @@ require_once __DIR__ . '/header.php';
                 <div class="alert alert-success mt-3">Definições de e-mail guardadas.</div>
             <?php endif; ?>
             <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row">
                 <div class="mb-3 col-md-3 col-sm-12">
                     <label for="smtp_host" class="form-label">Servidor SMTP</label>

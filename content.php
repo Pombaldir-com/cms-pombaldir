@@ -4,6 +4,7 @@ require_once __DIR__ . '/functions.php';
 
 startSession();
 requireLogin();
+$csrfToken = generateCsrfToken();
 
 // If the request is for content type management (formerly handled by
 // content_types.php) delegate to that logic and exit early.
@@ -47,6 +48,11 @@ if (isset($_GET['manage_types'])) {
         $current = array_map(fn($t) => (int)$t['id'], getTaxonomiesForContentType($typeTax));
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+                http_response_code(400);
+                exit('Token CSRF inválido');
+            }
+            $csrfToken = generateCsrfToken();
             $selected = isset($_POST['taxonomies']) ? array_map('intval', (array)$_POST['taxonomies']) : [];
             setContentTypeTaxonomies($typeTax, $selected);
             header('Location: ' . BASE_URL . 'content-types/taxonomies/' . $typeTax);
@@ -58,6 +64,7 @@ if (isset($_GET['manage_types'])) {
         <div class="container-fluid">
             <h2 class="mt-3">Taxonomias para <?php echo htmlspecialchars($type['label']); ?></h2>
             <form method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                 <?php foreach ($allTaxonomies as $tax): ?>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="tax_<?php echo $tax['id']; ?>" name="taxonomies[]" value="<?php echo $tax['id']; ?>" <?php echo in_array($tax['id'], $current) ? 'checked' : ''; ?>>
@@ -79,6 +86,11 @@ if (isset($_GET['manage_types'])) {
         $editing = $id ? getContentType($id) : null;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+                http_response_code(400);
+                exit('Token CSRF inválido');
+            }
+            $csrfToken = generateCsrfToken();
             $name  = trim($_POST['name'] ?? '');
             $label = trim($_POST['label'] ?? '');
             $icon  = trim($_POST['icon'] ?? 'fa fa-file-text');
@@ -108,6 +120,7 @@ if (isset($_GET['manage_types'])) {
                 <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
             <form method="post" action="">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                 <div class="mb-3">
                     <label class="form-label" for="name">Slug</label>
                     <input type="text" class="form-control" id="name" name="name" value="<?php echo htmlspecialchars($editing['name'] ?? ''); ?>" required>
@@ -228,6 +241,11 @@ if ($action === 'add') {
     $allTaxonomies = getTaxonomiesForContentType($typeId);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            http_response_code(400);
+            exit('Token CSRF inválido');
+        }
+        $csrfToken = generateCsrfToken();
         $title = trim($_POST['title'] ?? '');
         $body  = trim($_POST['body'] ?? '');
         if ($title === '') {
@@ -287,6 +305,7 @@ if ($action === 'add') {
                             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                         <?php endif; ?>
                         <form method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                             <div class="mb-3">
                                 <label for="title" class="form-label">Title</label>
                                 <input type="text" id="title" name="title" class="form-control" required>
@@ -380,6 +399,11 @@ if ($action === 'edit') {
     $taxonomyMap = getContentTaxonomy($contentId);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            http_response_code(400);
+            exit('Token CSRF inválido');
+        }
+        $csrfToken = generateCsrfToken();
         $title = trim($_POST['title'] ?? '');
         $body  = trim($_POST['body'] ?? '');
         if ($title === '') {
@@ -443,6 +467,7 @@ if ($action === 'edit') {
                             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
                         <?php endif; ?>
                         <form method="post" enctype="multipart/form-data">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                             <div class="mb-3">
                                 <label for="title" class="form-label">Title</label>
                                 <input type="text" id="title" name="title" class="form-control" value="<?php echo htmlspecialchars($content['title']); ?>" required>

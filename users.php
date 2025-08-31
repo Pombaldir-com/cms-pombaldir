@@ -2,6 +2,7 @@
 // Unified user management: list users, add/edit users, and edit profile.
 require_once __DIR__ . '/functions.php';
 startSession();
+$csrfToken = generateCsrfToken();
 
 $profileMode = isset($_GET['profile']);
 $action = $_GET['action'] ?? 'list';
@@ -82,6 +83,11 @@ $editing = $id !== null;
 $userData = $editing ? getUserById($id) : ['username' => '', 'name' => '', 'email' => '', 'phone' => '', 'role' => 3, 'photo' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        http_response_code(400);
+        exit('Token CSRF inválido');
+    }
+    $csrfToken = generateCsrfToken();
     $username = $editing ? $userData['username'] : trim($_POST['username'] ?? '');
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
@@ -191,6 +197,7 @@ require_once __DIR__ . '/header.php';
         <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
     <?php endforeach; ?>
     <form method="post" enctype="multipart/form-data" class="w-50">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
         <div class="mb-3">
             <label for="username" class="form-label">Utilizador</label>
             <?php if ($editing): ?>
