@@ -65,8 +65,9 @@ if ($typeTax) {
                     <label class="form-check-label" for="tax_<?php echo $tax['id']; ?>"><?php echo htmlspecialchars($tax['label']); ?></label>
                 </div>
             <?php endforeach; ?>
+                        <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary mt-3 ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+
             <button type="submit" class="btn btn-primary mt-3"><i class="fa fa-save"></i> Guardar</button>
-            <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary mt-3 ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
         </form>
     </div>
     <?php
@@ -131,8 +132,9 @@ if ($action === 'ad' || $id) {
                 <input class="form-check-input" type="checkbox" id="show_date" name="show_date" <?php echo !empty($editing['show_date']) ? 'checked' : ''; ?>>
                 <label class="form-check-label" for="show_date">Mostrar data na listagem</label>
             </div>
+                        <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+
             <button type="submit" class="btn btn-primary"><i class="fa <?php echo $id ? 'fa-save' : 'fa-plus'; ?>"></i> <?php echo $id ? 'Atualizar' : 'Criar'; ?></button>
-            <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
         </form>
     </div>
     <?php
