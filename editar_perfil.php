@@ -43,6 +43,10 @@ require_once __DIR__ . '/header.php';
     <?php endif; ?>
     <form method="post" enctype="multipart/form-data" class="w-50">
         <div class="mb-3">
+            <label for="username" class="form-label">Utilizador</label>
+            <input type="text" class="form-control" id="username" value="<?php echo htmlspecialchars($user['username'] ?? ''); ?>" disabled>
+        </div>
+        <div class="mb-3">
             <label for="photo" class="form-label">Foto</label><br>
             <?php if (!empty($user['photo'])): ?>
                 <img src="<?php echo htmlspecialchars($user['photo']); ?>" alt="Foto de perfil" class="img-thumbnail mb-2" style="max-width: 150px;">
