@@ -62,8 +62,10 @@ $user = currentUser();
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
+<?php if (($user['role'] ?? 3) <= 2): ?>
                             <li><a href="<?= BASE_URL ?>content-types"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
                             <li><a href="<?= BASE_URL ?>taxonomies"><i class="fa fa-tags"></i> Taxonomias</a></li>
+<?php endif; ?>
 <?php
 // Dynamically list each content type with shortcuts to common actions.
 $sidebarTypes = getContentTypes();
@@ -76,8 +78,10 @@ foreach ($sidebarTypes as $sidebarType):
 
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>/add">Adicionar</a></li>
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
+<?php if (($user['role'] ?? 3) <= 2): ?>
                                     <li><a href="<?= BASE_URL . 'fields/' . $sidebarType['id']; ?>">Campos</a></li>
                                     <li><a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
+<?php endif; ?>
                                 </ul>
                             </li>
 <?php endforeach; ?>

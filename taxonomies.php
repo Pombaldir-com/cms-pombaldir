@@ -15,6 +15,7 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+requireRole(2);
 
  $error = '';
  $taxonomyId = isset($_GET['taxonomy_id']) ? (int)$_GET['taxonomy_id'] : 0;

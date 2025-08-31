@@ -10,6 +10,7 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
+requireRole(2);
 
 // Redirect to the creation form when requested via act=ad for backward compatibility
 $action = isset($_GET['act']) ? $_GET['act'] : '';
