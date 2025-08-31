@@ -112,6 +112,21 @@ function loginUser(string $username, string $password): bool {
 }
 
 /**
+ * Validate password strength.
+ * A strong password has at least 8 characters and includes
+ * uppercase and lowercase letters plus at least one number.
+ *
+ * @param string $password
+ * @return bool
+ */
+function isStrongPassword(string $password): bool {
+    return strlen($password) >= 8
+        && preg_match('/[A-Z]/', $password)
+        && preg_match('/[a-z]/', $password)
+        && preg_match('/\d/', $password);
+}
+
+/**
  * Log out the current user by destroying the session and clearing
  * cookies.  After calling this function you should redirect the
  * browser to a public page.
@@ -211,8 +226,12 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
  */
 function updateUser(int $id, string $username, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): void {
     $pdo = getPDO();
-    $sql = 'UPDATE users SET username = ?, name = ?, email = ?, phone = ?, role = ?';
-    $params = [$username, $name, $email, $phone, $role];
+    $sql = 'UPDATE users SET username = ?, name = ?, email = ?, phone = ?';
+    $params = [$username, $name, $email, $phone];
+    if ($id !== 1) {
+        $sql .= ', role = ?';
+        $params[] = $role;
+    }
     if ($passwordHash !== null) {
         $sql .= ', password = ?';
         $params[] = $passwordHash;
