@@ -21,7 +21,8 @@ switch (true) {
         break;
     case $path === 'terminar-sessao':
     case $path === 'logout':
-        require __DIR__ . '/logout.php';
+        $_GET['action'] = 'logout';
+        require __DIR__ . '/login.php';
         break;
     case $path === 'definicoes':
         require __DIR__ . '/definicoes.php';
