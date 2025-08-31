@@ -1735,12 +1735,14 @@ a:focus {
 .top_nav .navbar-right {
     margin: 13px;
     width: auto;
-    float: right;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 15px;
 }
 
 .top_nav .navbar-right li {
-    display: inline-block;
-    float: right;
+    list-style: none;
     position: static;
 }
 
@@ -1748,18 +1750,29 @@ a:focus {
     .top_nav .navbar-right li {
         position: relative;
     }
-    .item {
-        display: block;
+}
+
+@media (max-width: 480px) {
+    .top_nav .navbar-right {
+        flex-direction: column;
+        align-items: flex-end;
+    }
+    .top_nav .navbar-right li {
+        margin: 5px 0;
+    }
+    .top_nav li a i {
+        font-size: 13px;
     }
 }
 
 .top_nav .dropdown-menu li {
     width: 100%;
+    max-width: 220px;
 }
 
 .dropdown-item {
     width: 100%;
-    padding: 12px 20px;
+    padding: 10px 15px;
 }
 
 .top_nav li a i {
