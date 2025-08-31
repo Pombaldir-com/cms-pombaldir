@@ -19,6 +19,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $confirmPassword = trim($_POST['password_confirm'] ?? '');
     $photoPath = $userData['photo'] ?? null;
 
+    // Preserve submitted data to repopulate the form in case of errors
+    $userData = [
+        'username' => $username,
+        'name' => $name,
+        'email' => $email,
+        'phone' => $phone,
+        'role' => $role,
+        'photo' => $photoPath,
+    ];
+
     if (!$editing && $password === '') {
         $errors[] = 'A password é obrigatória.';
     }
@@ -40,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $targetPath = $uploadDir . $filename;
         if (move_uploaded_file($_FILES['photo']['tmp_name'], $targetPath)) {
             $photoPath = 'assets/uploads/' . $filename;
+            $userData['photo'] = $photoPath;
         }
     }
 
