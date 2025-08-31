@@ -67,7 +67,6 @@ require_once __DIR__ . '/header.php';
             <div class="x_panel">
                 <div class="x_content">
 
-                    <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Add New</a>
                     <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
                         <thead>
                             <tr>
@@ -89,7 +88,10 @@ require_once __DIR__ . '/header.php';
                         </thead>
                         <tbody></tbody>
                     </table>
-                    <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+                    <div class="text-end">
+                        <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Back</a>
+                        <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>/add" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Add New</a>
+                    </div>
                 </div>
             </div>
         </div>
