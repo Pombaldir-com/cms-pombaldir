@@ -49,12 +49,13 @@ switch (true) {
     case $path === 'content-types':
         require __DIR__ . '/content_types.php';
         break;
-    case $path === 'content-type/add':
-        require __DIR__ . '/content_type_form.php';
+    case $path === 'content-types/add':
+        $_GET['act'] = 'ad';
+        require __DIR__ . '/content_types.php';
         break;
-    case preg_match('#^content-type/edit/([0-9]+)$#', $path, $m):
+    case preg_match('#^content-types/edit/([0-9]+)$#', $path, $m):
         $_GET['id'] = $m[1];
-        require __DIR__ . '/content_type_form.php';
+        require __DIR__ . '/content_types.php';
         break;
     case $path === 'taxonomies/add':
         // Create a new taxonomy
@@ -116,9 +117,9 @@ switch (true) {
         $_GET['type_id'] = $m[1];
         require __DIR__ . '/custom_fields.php';
         break;
-    case preg_match('#^content-type-taxonomies/([0-9]+)$#', $path, $m):
+    case preg_match('#^content-types/taxonomies/([0-9]+)$#', $path, $m):
         $_GET['type_id'] = $m[1];
-        require __DIR__ . '/content_type_taxonomies.php';
+        require __DIR__ . '/content_types.php';
         break;
     case preg_match('#^([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
