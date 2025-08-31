@@ -13,7 +13,6 @@ body {
 
 
 /* Ensure the main container spans the full width of the viewport */
-
 .container.body {
     max-width: 100%;
 }
@@ -25,8 +24,7 @@ body {
      width: 100%;
      display: flex;
      align-items: center;
-     float: none;
-     border-bottom: 0;
+
  }
 
  .top_nav .nav_menu .navbar-nav {

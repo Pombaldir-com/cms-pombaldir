@@ -89,42 +89,39 @@ foreach ($sidebarTypes as $sidebarType):
         </div>
         <!-- /Sidebar -->
 
-        <!-- Top navigation -->
-        <div class="top_nav">
-    <div class="nav_menu">
-        <div class="nav toggle">
-            <a id="menu_toggle"><i class="fa fa-bars"></i></a>
-        </div>
-
-        <!-- Barra de navegação -->
-        <nav class="d-flex w-100 align-items-center">
-            <ul class="navbar-nav ms-auto">
-                <li class="nav-item dropdown ms-3">
-                    <a href="javascript:;" class="user-profile nav-link dropdown-toggle"
-                       aria-haspopup="true" id="navbarDropdown" data-bs-toggle="dropdown"
-                       aria-expanded="false">
-                        <img src="assets/images/img.jpg" alt="">
-                        <?php echo htmlspecialchars($user['username']); ?>
-                    </a>
-                    <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
-                         aria-labelledby="navbarDropdown">
-                        <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil">Profile</a>
-                        <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
-                            <span class="badge bg-red float-end">50%</span>
-                            <span>Settings</span>
-                        </a>
-                        <a class="dropdown-item" href="javascript:;">Help</a>
-                        <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao">
-                            <i class="fa fa-sign-out float-end"></i> Log Out
-                        </a>
-                    </div>
-                </li>
-            </ul>
-        </nav>
+ <!-- Top navigation -->
+<div class="top_nav">
+  <div class="nav_menu d-flex align-items-center w-100">
+    <div class="nav toggle">
+      <a id="menu_toggle"><i class="fa fa-bars"></i></a>
     </div>
-</div>
 
-        <!-- /Top navigation -->
+    <ul class="navbar-nav ms-auto d-flex align-items-center">
+      <li class="nav-item dropdown ms-3">
+        <a href="javascript:;" class="user-profile nav-link dropdown-toggle"
+           id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+          <img src="assets/images/img.jpg" alt="">
+          <?= htmlspecialchars($user['username']); ?>
+        </a>
+        <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
+             aria-labelledby="navbarDropdown">
+          <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil">Profile</a>
+          <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
+            <span class="badge bg-red float-end">50%</span>
+            <span>Settings</span>
+          </a>
+          <a class="dropdown-item" href="javascript:;">Help</a>
+          <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao">
+            <i class="fa fa-sign-out float-end"></i> Log Out
+          </a>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>
+<!-- /Top navigation -->
+
+
 
 
 
