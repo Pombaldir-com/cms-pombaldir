@@ -13,7 +13,6 @@ body {
 
 
 /* Ensure the main container spans the full width of the viewport */
-
 .container.body {
     max-width: 100%;
 }
