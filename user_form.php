@@ -19,7 +19,7 @@ $selfEdit = $profileMode;
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
+    $username = $editing ? $userData['username'] : trim($_POST['username'] ?? '');
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$errors) {
         if ($editing) {
             $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
-            updateUser($id, $username, $hash, $name, $email, $phone, $role, $photoPath);
+            updateUser($id, $hash, $name, $email, $phone, $role, $photoPath);
         } else {
             $hash = password_hash($password, PASSWORD_DEFAULT);
             createUser($username, $hash, $name, $email, $phone, $role, $photoPath);
@@ -87,7 +87,11 @@ require_once __DIR__ . '/header.php';
     <form method="post" enctype="multipart/form-data" class="w-50">
         <div class="mb-3">
             <label for="username" class="form-label">Utilizador</label>
-            <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required>
+            <?php if ($editing): ?>
+                <input type="text" class="form-control" id="username" value="<?= htmlspecialchars($userData['username']); ?>" disabled>
+            <?php else: ?>
+                <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required>
+            <?php endif; ?>
         </div>
         <div class="mb-3">
             <label for="photo" class="form-label">Foto</label><br>
