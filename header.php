@@ -111,7 +111,7 @@ foreach ($sidebarTypes as $sidebarType):
           </a>
           <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
                aria-labelledby="navbarDropdown">
-            <a class="dropdown-item" href="<?= BASE_URL ?>editar-perfil"><i class="fa fa-user"></i> Perfil</a>
+            <a class="dropdown-item" href="<?= BASE_URL ?>users/profile"><i class="fa fa-user"></i> Perfil</a>
 
         <?php if (($user['role'] ?? 3) <= 2): ?>
       

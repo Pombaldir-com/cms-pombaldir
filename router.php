@@ -23,24 +23,27 @@ switch (true) {
     case $path === 'logout':
         require __DIR__ . '/logout.php';
         break;
-    case $path === 'editar-perfil':
-        require __DIR__ . '/editar_perfil.php';
-        break;
     case $path === 'definicoes':
         require __DIR__ . '/definicoes.php';
         break;
     case $path === 'users':
         require __DIR__ . '/users.php';
         break;
-    case $path === 'user/add':
-        require __DIR__ . '/user_form.php';
+    case $path === 'users/add':
+        $_GET['action'] = 'add';
+        require __DIR__ . '/users.php';
         break;
-    case preg_match('#^user/edit/([0-9]+)$#', $path, $m):
+    case preg_match('#^users/edit/([0-9]+)$#', $path, $m):
+        $_GET['action'] = 'edit';
         $_GET['id'] = $m[1];
-        require __DIR__ . '/user_form.php';
+        require __DIR__ . '/users.php';
         break;
-    case preg_match('#^user/delete/([0-9]+)$#', $path, $m):
+    case preg_match('#^users/delete/([0-9]+)$#', $path, $m):
         $_GET['delete_id'] = $m[1];
+        require __DIR__ . '/users.php';
+        break;
+    case $path === 'users/profile':
+        $_GET['profile'] = 1;
         require __DIR__ . '/users.php';
         break;
     case $path === 'dashboard':
