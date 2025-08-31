@@ -101,7 +101,7 @@ foreach ($sidebarTypes as $sidebarType):
         <li class="nav-item dropdown ms-3">
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-            <img src="assets/images/img.jpg" alt="">
+            <img src="<?= !empty($user['photo']) ? htmlspecialchars($user['photo']) : 'assets/images/img.jpg'; ?>" alt="">
             <span class="user-name"><?= htmlspecialchars($user['username']); ?></span>
           </a>
           <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"
