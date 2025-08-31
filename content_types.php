@@ -53,8 +53,6 @@ require_once __DIR__ . '/header.php';
             </div>
         <?php endif; ?>
         <h2>Tipos de Conteúdo</h2>
-        <a class="btn btn-primary" href="<?= BASE_URL ?>content-type/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
- 
     <table class="table table-striped datatable" data-no-sort-last="true">
         <thead><tr><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ícone</th><th>Ações</th></tr></thead>
         <tbody>
@@ -81,6 +79,10 @@ require_once __DIR__ . '/header.php';
         <?php endforeach; ?>
         </tbody>
     </table>
+    <div class="mt-3">
+        <a class="btn btn-success" href="<?= BASE_URL ?>content-type/add"><i class="fa fa-plus"></i> Criar novo tipo de conteúdo</a>
+        <a href="<?= BASE_URL ?>dashboard" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
+    </div>
 </div>
 
 <?php
