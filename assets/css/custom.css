@@ -21,10 +21,16 @@ body {
 
 /* Make the top navigation menu span the full width */
 
-.top_nav .nav_menu,
-.top_nav .nav_menu .navbar-nav {
-    width: 100%;
-}
+ .top_nav .nav_menu {
+     width: 100%;
+     display: flex;
+     align-items: center;
+ }
+
+ .top_nav .nav_menu .navbar-nav {
+     width: auto;
+     margin-left: auto;
+ }
 
 .daterangepicker .ranges li {
     color: #73879C
@@ -400,7 +406,7 @@ body {
 }
 
 .nav_menu {
-    float: left;
+    float: none;
     background: #EDEDED;
     border-bottom: 1px solid #D9DEE4;
     margin-bottom: 10px;
@@ -823,17 +829,17 @@ a:focus {
     margin-right: 0
 }
 
-.top_nav .navbar-right {
-    margin: 0;
-    width: 70%;
-    float: right
-}
+ .top_nav .navbar-right {
+     margin-left: auto;
+     width: auto;
+     float: none;
+ }
 
-.top_nav .navbar-right li {
-    display: inline-block;
-    float: right;
-    position: static
-}
+ .top_nav .navbar-right li {
+     display: inline-block;
+     float: none;
+     position: static;
+ }
 
 @media (min-width: 480px) {
     .top_nav .navbar-right li {
