@@ -167,7 +167,7 @@ require_once __DIR__ . '/header.php';
     <h2 class="mt-3">Campos personalizados para <?php echo htmlspecialchars($type['label']); ?></h2>
     <table class="table table-striped datatable">
         <thead>
-            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th>Ações</th></tr>
+            <tr><th>Slug</th><th>Rótulo</th><th>Tipo</th><th>Opções</th><th>Obrigatório</th><th>Listagem</th><th data-orderable="false">Ações</th></tr>
         </thead>
         <tbody>
         <?php foreach ($fields as $field): ?>
