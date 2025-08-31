@@ -150,7 +150,7 @@ if ($action === 'add') {
                             <?php endforeach; ?>
                             <?php foreach ($allTaxonomies as $taxonomy): ?>
                                 <div class="mb-3">
-                                    <label class="form-label">Select <?php echo htmlspecialchars($taxonomy['label']); ?></label>
+                                    <label class="form-label"><?php echo htmlspecialchars($taxonomy['label']); ?></label>
                                     <?php $terms = getTerms($taxonomy['id']); ?>
                                     <select name="taxonomy_<?php echo htmlspecialchars($taxonomy['id']); ?>[]" class="form-select" multiple>
                                         <?php foreach ($terms as $term): ?>
@@ -312,7 +312,7 @@ if ($action === 'edit') {
                             <?php foreach ($allTaxonomies as $taxonomy): ?>
                                 <?php $terms = getTerms($taxonomy['id']); $selected = $taxonomyMap[$taxonomy['id']] ?? []; ?>
                                 <div class="mb-3">
-                                    <label class="form-label">Select <?php echo htmlspecialchars($taxonomy['label']); ?></label>
+                                    <label class="form-label"><?php echo htmlspecialchars($taxonomy['label']); ?></label>
                                     <select name="taxonomy_<?php echo htmlspecialchars($taxonomy['id']); ?>[]" class="form-select" multiple>
                                         <?php foreach ($terms as $term): ?>
                                             <option value="<?php echo htmlspecialchars($term['id']); ?>" <?php echo in_array($term['id'], $selected) ? 'selected' : ''; ?>><?php echo htmlspecialchars($term['name']); ?></option>
