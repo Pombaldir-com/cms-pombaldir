@@ -22,12 +22,15 @@ body {
 
  .top_nav .nav_menu {
      width: 100%;
-     display: flex;
-     align-items: center;
-
  }
 
- .top_nav .nav_menu .navbar-nav {
+ .top_nav .nav_menu nav {
+     width: 100%;
+     display: flex;
+     align-items: center;
+ }
+
+ .top_nav .nav_menu nav .navbar-nav {
      width: auto;
      margin-left: auto;
  }
