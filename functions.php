@@ -18,6 +18,34 @@ if (!defined('BASE_URL')) {
 }
 
 /**
+ * Retrieve a named setting from the database.
+ *
+ * @param string $name
+ * @param string|null $default
+ * @return string|null
+ */
+function getSetting(string $name, ?string $default = null): ?string {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT value FROM settings WHERE name = ? LIMIT 1');
+    $stmt->execute([$name]);
+    $row = $stmt->fetch();
+    return $row['value'] ?? $default;
+}
+
+/**
+ * Save a named setting value in the database.
+ *
+ * @param string $name
+ * @param string $value
+ * @return void
+ */
+function setSetting(string $name, string $value): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('INSERT INTO settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)');
+    $stmt->execute([$name, $value]);
+}
+
+/**
  * Start a session if it hasn't been started yet.  This helper uses
  * session cookies with the HttpOnly flag for security.  It does not
  * change existing session behaviour if a session is already active.
