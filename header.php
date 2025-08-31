@@ -80,7 +80,7 @@ foreach ($sidebarTypes as $sidebarType):
                                     <li><a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($sidebarType['name'])); ?>">Listar</a></li>
 <?php if (($user['role'] ?? 3) <= 2): ?>
                                     <li><a href="<?= BASE_URL . 'fields/' . $sidebarType['id']; ?>">Campos</a></li>
-                                    <li><a href="<?= BASE_URL ?>content-type-taxonomies/<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
+                                    <li><a href="<?= BASE_URL ?>content-types/taxonomies/<?php echo $sidebarType['id']; ?>">Taxonomias</a></li>
 <?php endif; ?>
                                 </ul>
                             </li>
