@@ -114,7 +114,6 @@ require_once __DIR__ . '/header.php';
         </div>
     <?php else: ?>
         <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
-        <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>/add" class="btn btn-success mb-3"><i class="fa fa-plus"></i> Adicionar termo</a>
         <table class="table table-striped datatable">
             <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
             <tbody>
@@ -129,7 +128,10 @@ require_once __DIR__ . '/header.php';
             <?php endforeach; ?>
             </tbody>
         </table>
-        <a href="taxonomies" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+        <div class="d-flex justify-content-between">
+            <a href="taxonomies" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+            <a href="taxonomies/edit-terms/<?php echo $taxonomyId; ?>/add" class="btn btn-success"><i class="fa fa-plus"></i> Adicionar termo</a>
+        </div>
     <?php endif; ?>
 
 <?php else: ?>
