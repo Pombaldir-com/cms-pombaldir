@@ -5,14 +5,35 @@
 require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
- 
-$saved = false;
+
+$generalSaved = false;
+$emailSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $appName = trim($_POST['app_name'] ?? '');
-    setSetting('app_name', $appName);
-    $saved = true;
+    if (isset($_POST['app_name'])) {
+        $appName = trim($_POST['app_name'] ?? '');
+        setSetting('app_name', $appName);
+        $generalSaved = true;
+    }
+    if (isset($_POST['smtp_host'])) {
+        $smtpHost = trim($_POST['smtp_host'] ?? '');
+        $smtpPort = trim($_POST['smtp_port'] ?? '');
+        $smtpUser = trim($_POST['smtp_user'] ?? '');
+        $smtpPass = trim($_POST['smtp_pass'] ?? '');
+        $smtpEncryption = trim($_POST['smtp_encryption'] ?? '');
+        setSetting('smtp_host', $smtpHost);
+        setSetting('smtp_port', $smtpPort);
+        setSetting('smtp_user', $smtpUser);
+        setSetting('smtp_pass', $smtpPass);
+        setSetting('smtp_encryption', $smtpEncryption);
+        $emailSaved = true;
+    }
 }
 $currentAppName = getSetting('app_name', '');
+$currentSmtpHost = getSetting('smtp_host', '');
+$currentSmtpPort = getSetting('smtp_port', '');
+$currentSmtpUser = getSetting('smtp_user', '');
+$currentSmtpPass = getSetting('smtp_pass', '');
+$currentSmtpEncryption = getSetting('smtp_encryption', '');
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -30,7 +51,7 @@ require_once __DIR__ . '/header.php';
 
     <div class="tab-content" id="settings-tabContent">
         <div class="tab-pane fade show active" id="geral" role="tabpanel" aria-labelledby="geral-tab">
-            <?php if ($saved): ?>
+            <?php if ($generalSaved): ?>
                 <div class="alert alert-success mt-3">Definições guardadas.</div>
             <?php endif; ?>
             <form method="post" class="mt-3">
@@ -43,9 +64,40 @@ require_once __DIR__ . '/header.php';
             </form>
         </div>
         <div class="tab-pane fade" id="email" role="tabpanel" aria-labelledby="email-tab">
-            <!-- Conteúdo E-mail -->
+            <?php if ($emailSaved): ?>
+                <div class="alert alert-success mt-3">Definições de e-mail guardadas.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="smtp_host" class="form-label">Servidor SMTP</label>
+                    <input type="text" class="form-control" id="smtp_host" name="smtp_host" value="<?= htmlspecialchars($currentSmtpHost); ?>">
+                </div>
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="smtp_port" class="form-label">Porta SMTP</label>
+                    <input type="text" class="form-control" id="smtp_port" name="smtp_port" value="<?= htmlspecialchars($currentSmtpPort); ?>">
+                </div>
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="smtp_user" class="form-label">Utilizador SMTP</label>
+                    <input type="text" class="form-control" id="smtp_user" name="smtp_user" value="<?= htmlspecialchars($currentSmtpUser); ?>">
+                </div>
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="smtp_pass" class="form-label">Senha SMTP</label>
+                    <input type="password" class="form-control" id="smtp_pass" name="smtp_pass" value="<?= htmlspecialchars($currentSmtpPass); ?>">
+                </div>
+                <div class="mb-3 col-md-6 col-sm-12">
+                    <label for="smtp_encryption" class="form-label">Encriptação</label>
+                    <select class="form-select" id="smtp_encryption" name="smtp_encryption">
+                        <option value="" <?= $currentSmtpEncryption === '' ? 'selected' : ''; ?>>Nenhuma</option>
+                        <option value="ssl" <?= $currentSmtpEncryption === 'ssl' ? 'selected' : ''; ?>>SSL</option>
+                        <option value="tls" <?= $currentSmtpEncryption === 'tls' ? 'selected' : ''; ?>>TLS</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </form>
         </div>
     </div>
 </div>
 <?php
 require_once __DIR__ . '/footer.php';
+
