@@ -122,12 +122,14 @@ switch (true) {
         break;
     case preg_match('#^([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
-        require __DIR__ . '/add_content.php';
+        $_GET['action'] = 'add';
+        require __DIR__ . '/content.php';
         break;
     case preg_match('#^([^/]+)/edit/([0-9]+)$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         $_GET['id'] = $m[2];
-        require __DIR__ . '/edit_content.php';
+        $_GET['action'] = 'edit';
+        require __DIR__ . '/content.php';
         break;
     case preg_match('#^([^/]+)/([0-9]+)$#', $path, $m):
         // Support legacy URLs like "/tipo/3" by redirecting to "/tipo/edit/3"
@@ -135,7 +137,8 @@ switch (true) {
         exit;
     case preg_match('#^([^/]+)$#', $path, $m):
         $_GET['type_slug'] = $m[1];
-        require __DIR__ . '/list_content.php';
+        $_GET['action'] = 'list';
+        require __DIR__ . '/content.php';
         break;
     default:
     print_r($path);
