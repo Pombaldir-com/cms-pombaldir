@@ -29,6 +29,20 @@ switch (true) {
     case $path === 'definicoes':
         require __DIR__ . '/definicoes.php';
         break;
+    case $path === 'users':
+        require __DIR__ . '/users.php';
+        break;
+    case $path === 'user/add':
+        require __DIR__ . '/user_form.php';
+        break;
+    case preg_match('#^user/edit/([0-9]+)$#', $path, $m):
+        $_GET['id'] = $m[1];
+        require __DIR__ . '/user_form.php';
+        break;
+    case preg_match('#^user/delete/([0-9]+)$#', $path, $m):
+        $_GET['delete_id'] = $m[1];
+        require __DIR__ . '/users.php';
+        break;
     case $path === 'dashboard':
         require __DIR__ . '/dashboard.php';
         break;

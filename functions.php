@@ -62,6 +62,29 @@ function requireLogin() {
 }
 
 /**
+ * Ensure the current user has a role equal or lower (more privileged) than
+ * the provided level. Roles: 1=superadmin, 2=administrator, 3=user.
+ * If the user does not meet the requirement, execution stops with a 403.
+ *
+ * @param int $maxRole
+ * @return void
+ */
+function requireRole(int $maxRole): void {
+    startSession();
+    requireLogin();
+    $role = $_SESSION['user_role'] ?? null;
+    if ($role === null) {
+        $u = currentUser();
+        $role = $u['role'] ?? 3;
+    }
+    if ($role > $maxRole) {
+        http_response_code(403);
+        echo 'Acesso negado.';
+        exit;
+    }
+}
+
+/**
  * Authenticate a user with username and password.  On success the
  * user's id is stored in the session.  Returns true on success or
  * false on failure.  Passwords are stored hashed using PHP's
@@ -75,13 +98,14 @@ function requireLogin() {
 function loginUser(string $username, string $password): bool {
     startSession();
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, password FROM users WHERE username = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, password, role FROM users WHERE username = ? LIMIT 1');
     $stmt->execute([$username]);
     $user = $stmt->fetch();
     if ($user && password_verify($password, $user['password'])) {
         // Regenerate session ID to prevent fixation attacks
         session_regenerate_id(true);
         $_SESSION['user_id'] = (int)$user['id'];
+        $_SESSION['user_role'] = (int)$user['role'];
         return true;
     }
     return false;
@@ -113,9 +137,13 @@ function currentUser(): ?array {
         return null;
     }
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
-    return $stmt->fetch() ?: null;
+    $user = $stmt->fetch() ?: null;
+    if ($user) {
+        $_SESSION['user_role'] = (int)$user['role'];
+    }
+    return $user;
 }
 
 /**
@@ -140,6 +168,72 @@ function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phon
     $params[] = $id;
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
+}
+
+/**
+ * Retrieve all users ordered by id.
+ *
+ * @return array
+ */
+function getUsers(): array {
+    $pdo = getPDO();
+    $stmt = $pdo->query('SELECT id, username, name, email, phone, role FROM users ORDER BY id ASC');
+    return $stmt->fetchAll();
+}
+
+/**
+ * Fetch a single user by id.
+ *
+ * @param int $id
+ * @return array|null
+ */
+function getUserById(int $id): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
+ * Create a new user and return its ID.
+ *
+ * @return int
+ */
+function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath]);
+    return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Update an existing user.
+ */
+function updateUser(int $id, string $username, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): void {
+    $pdo = getPDO();
+    $sql = 'UPDATE users SET username = ?, name = ?, email = ?, phone = ?, role = ?';
+    $params = [$username, $name, $email, $phone, $role];
+    if ($passwordHash !== null) {
+        $sql .= ', password = ?';
+        $params[] = $passwordHash;
+    }
+    if ($photoPath !== null) {
+        $sql .= ', photo = ?';
+        $params[] = $photoPath;
+    }
+    $sql .= ' WHERE id = ?';
+    $params[] = $id;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+}
+
+/**
+ * Delete a user by id.
+ */
+function deleteUser(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM users WHERE id = ?');
+    $stmt->execute([$id]);
 }
 
 /**

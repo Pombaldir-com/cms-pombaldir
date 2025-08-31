@@ -98,6 +98,11 @@ foreach ($sidebarTypes as $sidebarType):
       </div>
 
       <ul class="navbar-nav ms-auto d-flex align-items-center">
+        <?php if (($user['role'] ?? 3) <= 2): ?>
+        <li class="nav-item">
+          <a class="nav-link" href="<?= BASE_URL ?>users"><i class="fa fa-users"></i> Utilizadores</a>
+        </li>
+        <?php endif; ?>
         <li class="nav-item dropdown ms-3">
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
