@@ -18,12 +18,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $icon  = isset($_POST['icon']) ? trim($_POST['icon']) : 'fa fa-file-text';
     $showAuthor = isset($_POST['show_author']);
     $showDate   = isset($_POST['show_date']);
+    $sortOrder  = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 0;
 
     if ($name !== '' && $label !== '') {
         if ($id) {
-            updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate);
+            updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
         } else {
-            createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate);
+            createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
         }
         header('Location: ' . BASE_URL . 'content-types');
         exit;
@@ -51,6 +52,10 @@ require_once __DIR__ . '/header.php';
         <div class="mb-3">
             <label class="form-label" for="icon">Ícone (classe Font Awesome)</label>
             <input type="text" class="form-control" id="icon" name="icon" value="<?php echo htmlspecialchars($editing['icon'] ?? ''); ?>" placeholder="fa fa-file-text">
+        </div>
+        <div class="mb-3">
+            <label class="form-label" for="sort_order">Ordem no menu</label>
+            <input type="number" class="form-control" id="sort_order" name="sort_order" value="<?php echo htmlspecialchars($editing['sort_order'] ?? 0); ?>">
         </div>
         <div class="form-check mb-3">
             <input class="form-check-input" type="checkbox" id="show_author" name="show_author" <?php echo !empty($editing['show_author']) ? 'checked' : ''; ?>>

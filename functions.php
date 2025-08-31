@@ -151,9 +151,11 @@ function getContentTypes(): array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
-    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types ORDER BY id ASC");
+    $orderExpr  = $hasOrder ? 'sort_order' : 'id';
+    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr AS sort_order FROM content_types ORDER BY $orderExpr ASC, id ASC");
     return $stmt->fetchAll();
 }
 
@@ -167,9 +169,11 @@ function getContentType(int $id): ?array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types WHERE id = ?");
+    $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr FROM content_types WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -184,9 +188,11 @@ function getContentTypeBySlug(string $slug): ?array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr FROM content_types WHERE name = ?");
+    $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr FROM content_types WHERE name = ?");
     $stmt->execute([$slug]);
     return $stmt->fetch() ?: null;
 }
@@ -194,17 +200,31 @@ function getContentTypeBySlug(string $slug): ?array {
 /**
  * Create a new content type.  Returns the id of the new row.
  *
- * @param string $name Slug used internally
- * @param string $label Human-readable label
- * @param string $icon  CSS class for an icon
+ * @param string $name       Slug used internally
+ * @param string $label      Human-readable label
+ * @param string $icon       CSS class for an icon
+ * @param int    $sort_order Order used in navigation
  * @return int
  */
 
-function createContentType(string $name, string $label, string $icon, bool $show_author = false, bool $show_date = false): int {
+function createContentType(string $name, string $label, string $icon, bool $show_author = false, bool $show_date = false, int $sort_order = 0): int {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
-    if ($hasAuthor && $hasDate) {
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    if ($hasAuthor && $hasDate && $hasOrder) {
+        $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, sort_order, show_author, show_date) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_author ? 1 : 0, $show_date ? 1 : 0]);
+    } elseif ($hasAuthor && $hasOrder) {
+        $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, sort_order, show_author) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_author ? 1 : 0]);
+    } elseif ($hasDate && $hasOrder) {
+        $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, sort_order, show_date) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_date ? 1 : 0]);
+    } elseif ($hasOrder) {
+        $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, sort_order) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$name, $label, $icon, $sort_order]);
+    } elseif ($hasAuthor && $hasDate) {
         $stmt = $pdo->prepare('INSERT INTO content_types (name, label, icon, show_author, show_date) VALUES (?, ?, ?, ?, ?)');
         $stmt->execute([$name, $label, $icon, $show_author ? 1 : 0, $show_date ? 1 : 0]);
     } elseif ($hasAuthor) {
@@ -223,17 +243,33 @@ function createContentType(string $name, string $label, string $icon, bool $show
 /**
  * Update an existing content type.
  *
- * @param int $id
- * @param string $name
- * @param string $label
+ * @param int         $id
+ * @param string      $name
+ * @param string      $label
  * @param string|null $icon
+ * @param bool        $show_author
+ * @param bool        $show_date
+ * @param int         $sort_order
  * @return void
  */
-function updateContentType(int $id, string $name, string $label, ?string $icon = null, bool $show_author = false, bool $show_date = false): void {
+function updateContentType(int $id, string $name, string $label, ?string $icon = null, bool $show_author = false, bool $show_date = false, int $sort_order = 0): void {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
-    if ($hasAuthor && $hasDate) {
+    $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    if ($hasAuthor && $hasDate && $hasOrder) {
+        $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ?, sort_order = ?, show_author = ?, show_date = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_author ? 1 : 0, $show_date ? 1 : 0, $id]);
+    } elseif ($hasAuthor && $hasOrder) {
+        $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ?, sort_order = ?, show_author = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_author ? 1 : 0, $id]);
+    } elseif ($hasDate && $hasOrder) {
+        $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ?, sort_order = ?, show_date = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $icon, $sort_order, $show_date ? 1 : 0, $id]);
+    } elseif ($hasOrder) {
+        $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ?, sort_order = ? WHERE id = ?');
+        $stmt->execute([$name, $label, $icon, $sort_order, $id]);
+    } elseif ($hasAuthor && $hasDate) {
         $stmt = $pdo->prepare('UPDATE content_types SET name = ?, label = ?, icon = ?, show_author = ?, show_date = ? WHERE id = ?');
         $stmt->execute([$name, $label, $icon, $show_author ? 1 : 0, $show_date ? 1 : 0, $id]);
     } elseif ($hasAuthor) {
