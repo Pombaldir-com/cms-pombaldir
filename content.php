@@ -776,7 +776,7 @@ require_once __DIR__ . '/header.php';
             <div class="x_panel">
                 <div class="x_content">
 
-                    <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>">
+                    <table class="table table-striped datatable" data-source="data/list_content.php" data-type-id="<?php echo $typeId; ?>" data-no-sort-last="true">
                         <thead>
                             <tr>
                                 <th>Title</th>
@@ -792,7 +792,7 @@ require_once __DIR__ . '/header.php';
                                 <?php foreach ($allTaxonomies as $tax): ?>
                                     <th><?php echo htmlspecialchars($tax['label']); ?></th>
                                 <?php endforeach; ?>
-                                <th>Ações</th>
+                                <th data-orderable="false">Ações</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
