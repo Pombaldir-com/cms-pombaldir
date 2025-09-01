@@ -114,6 +114,16 @@ switch (true) {
 
         require __DIR__ . '/custom_fields.php';
         break;
+    case preg_match('#^fields/layout/([0-9]+)$#', $path, $m):
+        $_GET['type_id'] = $m[1];
+        require __DIR__ . '/field_layout.php';
+        break;
+    case $path === 'fields/save-layout':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            updateFieldLayout((int)($_POST['field_id'] ?? 0), (int)($_POST['row'] ?? 0), (int)($_POST['col'] ?? 0), (int)($_POST['width'] ?? 1));
+            echo 'ok';
+        }
+        break;
     case preg_match('#^fields/edit-field/([0-9]+)$#', $path, $m):
         // Edit a custom field, e.g. "/cms/fields/edit-field/10"
         $_GET['edit_id'] = $m[1];

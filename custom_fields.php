@@ -215,6 +215,7 @@ require_once __DIR__ . '/header.php';
     </table>
     <div class="mt-3">
         <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+        <a href="<?= BASE_URL . 'fields/layout/' . $typeId; ?>" class="btn btn-warning ms-2"><i class="fa fa-th"></i> Layout</a>
         <a href="<?= BASE_URL . 'fields/' . $typeId; ?>/ad" class="btn btn-success ms-2"><i class="fa fa-plus"></i> Adicionar campo</a>
     </div>
 <?php endif; ?>

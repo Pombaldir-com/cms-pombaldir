@@ -557,8 +557,14 @@ function getCustomFields(int $content_type_id): array {
     $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
     $sortableExpr = $hasSortable ? 'sortable' : '1 AS sortable';
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $rowExpr = $hasRow ? 'grid_row' : '0 AS grid_row';
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $colExpr = $hasCol ? 'grid_col' : '0 AS grid_col';
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+    $widthExpr = $hasWidth ? 'grid_width' : '1 AS grid_width';
 
-    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr, $sortableExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
+    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr, $sortableExpr, $rowExpr, $colExpr, $widthExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
     $stmt->execute([$content_type_id]);
     return $stmt->fetchAll();
 }
@@ -635,7 +641,13 @@ function getCustomField(int $id): ?array {
     $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
     $sortableExpr = $hasSortable ? 'sortable' : '1 AS sortable';
-    $stmt = $pdo->prepare("SELECT id, content_type_id, name, label, type, options, required, $listExpr, $sortableExpr FROM custom_fields WHERE id = ?");
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $rowExpr = $hasRow ? 'grid_row' : '0 AS grid_row';
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $colExpr = $hasCol ? 'grid_col' : '0 AS grid_col';
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+    $widthExpr = $hasWidth ? 'grid_width' : '1 AS grid_width';
+    $stmt = $pdo->prepare("SELECT id, content_type_id, name, label, type, options, required, $listExpr, $sortableExpr, $rowExpr, $colExpr, $widthExpr FROM custom_fields WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -697,6 +709,20 @@ function deleteCustomField(int $id): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('DELETE FROM custom_fields WHERE id = ?');
     $stmt->execute([$id]);
+}
+
+/**
+ * Update grid layout info for a custom field if columns exist.
+ */
+function updateFieldLayout(int $id, int $row, int $col, int $width): void {
+    $pdo = getPDO();
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+    if ($hasRow && $hasCol && $hasWidth) {
+        $stmt = $pdo->prepare('UPDATE custom_fields SET grid_row = ?, grid_col = ?, grid_width = ? WHERE id = ?');
+        $stmt->execute([$row, $col, $width, $id]);
+    }
 }
 
 /**
