@@ -6436,3 +6436,8 @@ ul.notifications {
 .calendar-exibit .calendar-table {
     padding: 0 0 4px 0;
 }
+/* Grid layout spacing for custom fields */
+.custom-field-row:not(:last-child) {
+    margin-bottom: 1rem;
+}
+

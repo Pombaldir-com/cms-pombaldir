@@ -29,6 +29,9 @@ require_once __DIR__ . '/header.php';
     </div>
     <a href="<?= BASE_URL . 'fields/' . $typeId; ?>" class="btn btn-secondary mt-3"><i class="fa fa-arrow-left"></i> Voltar</a>
 </div>
+
+<script src="<?= BASE_URL ?>vendors/gridstack/gridstack.js"></script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const grid = GridStack.init({float: true});
