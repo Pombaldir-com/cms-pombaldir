@@ -438,15 +438,23 @@ if ($action === 'add') {
                                 }
                                 if ($hasGrid) {
                                     $currentRow = null;
+                                    $currentCol = 0;
                                     foreach ($fields as $field) {
-                                        $row = $field['grid_row'] ?? null;
+                                        $row = $field['grid_row'] ?? 0;
+                                        $col = $field['grid_col'] ?? 0;
                                         $width = $field['grid_width'] ?? 12;
                                         if ($row !== $currentRow) {
                                             if ($currentRow !== null) { echo '</div>'; }
                                             echo '<div class="row custom-field-row">';
-        $currentRow = $row;
+                                            $currentRow = $row;
+                                            $currentCol = 0;
                                         }
-                                        echo '<div class="col-md-' . (int)$width . ' mb-3">';
+                                        $offset = max(0, $col - $currentCol);
+                                        $classes = 'col-md-' . (int)$width . ' mb-3';
+                                        if ($offset > 0) {
+                                            $classes .= ' offset-md-' . $offset;
+                                        }
+                                        echo '<div class="' . $classes . '">';
                                         if ($field['id'] === 'title') {
                                             echo '<label for="title" class="form-label">Título</label>';
                                             echo '<input type="text" id="title" name="title" class="form-control" required>';
@@ -458,6 +466,7 @@ if ($action === 'add') {
                                             renderFieldInput($field, $inputName);
                                         }
                                         echo '</div>';
+                                        $currentCol = $col + $width;
                                     }
                                     if ($currentRow !== null) { echo '</div>'; }
                                 } else {
@@ -611,18 +620,26 @@ if ($action === 'edit') {
                                 }
                                 if ($hasGrid) {
                                     $currentRow = null;
+                                    $currentCol = 0;
                                     foreach ($fields as $field) {
-                                        $row = $field['grid_row'] ?? null;
+                                        $row = $field['grid_row'] ?? 0;
+                                        $col = $field['grid_col'] ?? 0;
                                         $width = $field['grid_width'] ?? 12;
                                         if ($row !== $currentRow) {
                                             if ($currentRow !== null) { echo '</div>'; }
                                             echo '<div class="row custom-field-row">';
                                             $currentRow = $row;
+                                            $currentCol = 0;
                                         }
-                                        echo '<div class="col-md-' . (int)$width . ' mb-3">';
+                                        $offset = max(0, $col - $currentCol);
+                                        $classes = 'col-md-' . (int)$width . ' mb-3';
+                                        if ($offset > 0) {
+                                            $classes .= ' offset-md-' . $offset;
+                                        }
+                                        echo '<div class="' . $classes . '">';
                                         if ($field['id'] === 'title') {
                                             echo '<label for="title" class="form-label">Título</label>';
-                                            echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
+                        echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
                                         } elseif ($field['id'] === 'body') {
                                             echo '<label for="body" class="form-label">Texto</label>';
                                             echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
@@ -632,6 +649,7 @@ if ($action === 'edit') {
                                             renderFieldInput($field, $inputName, $value);
                                         }
                                         echo '</div>';
+                                        $currentCol = $col + $width;
                                     }
                                     if ($currentRow !== null) { echo '</div>'; }
                                 } else {
