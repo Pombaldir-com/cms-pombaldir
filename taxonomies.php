@@ -127,7 +127,7 @@ require_once __DIR__ . '/header.php';
     <?php else: ?>
         <h2 class="mt-3">Termos de <?php echo htmlspecialchars($taxonomy['label']); ?></h2>
         <table class="table table-striped datatable">
-            <thead><tr><th>Nome</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Nome</th><th data-orderable="false">Ações</th></tr></thead>
             <tbody>
             <?php foreach ($terms as $term): ?>
                 <tr>
@@ -179,7 +179,7 @@ require_once __DIR__ . '/header.php';
         <?php endif; ?>
         <h2 class="mt-3">Taxonomias</h2>
         <table class="table table-striped datatable">
-            <thead><tr><th>Rótulo</th><th>Slug</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ações</th></tr></thead>
             <tbody>
             <?php foreach ($taxonomies as $tax): ?>
                 <?php
