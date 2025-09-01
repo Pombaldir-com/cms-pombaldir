@@ -557,8 +557,14 @@ function getCustomFields(int $content_type_id): array {
     $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
     $sortableExpr = $hasSortable ? 'sortable' : '1 AS sortable';
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $rowExpr = $hasRow ? 'grid_row' : '0 AS grid_row';
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $colExpr = $hasCol ? 'grid_col' : '0 AS grid_col';
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+    $widthExpr = $hasWidth ? 'grid_width' : '12 AS grid_width';
 
-    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr, $sortableExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
+    $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr, $sortableExpr, $rowExpr, $colExpr, $widthExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
     $stmt->execute([$content_type_id]);
     return $stmt->fetchAll();
 }
@@ -574,13 +580,16 @@ function getCustomFields(int $content_type_id): array {
  * @param bool $required Whether the field is mandatory
  * @return int
  */
-function createCustomField(int $content_type_id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false, bool $sortable = true): int {
+function createCustomField(int $content_type_id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false, bool $sortable = true, int $grid_row = 0, int $grid_col = 0, int $grid_width = 12): int {
     $pdo = getPDO();
 
     // Detect optional columns to keep compatibility with older schemas.
     $hasLabel    = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'label'")->fetch();
     $hasList     = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
+    $hasRow      = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $hasCol      = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $hasWidth    = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
 
     $columns = ['content_type_id', 'name'];
     $placeholders = ['?', '?'];
@@ -616,6 +625,24 @@ function createCustomField(int $content_type_id, string $name, string $label, st
         $params[] = $sortable ? 1 : 0;
     }
 
+    if ($hasRow) {
+        $columns[] = 'grid_row';
+        $placeholders[] = '?';
+        $params[] = $grid_row;
+    }
+
+    if ($hasCol) {
+        $columns[] = 'grid_col';
+        $placeholders[] = '?';
+        $params[] = $grid_col;
+    }
+
+    if ($hasWidth) {
+        $columns[] = 'grid_width';
+        $placeholders[] = '?';
+        $params[] = $grid_width;
+    }
+
     $sql = 'INSERT INTO custom_fields (' . implode(', ', $columns) . ') VALUES (' . implode(', ', $placeholders) . ')';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -635,7 +662,13 @@ function getCustomField(int $id): ?array {
     $listExpr = $hasList ? 'show_in_list' : '0 AS show_in_list';
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
     $sortableExpr = $hasSortable ? 'sortable' : '1 AS sortable';
-    $stmt = $pdo->prepare("SELECT id, content_type_id, name, label, type, options, required, $listExpr, $sortableExpr FROM custom_fields WHERE id = ?");
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $rowExpr = $hasRow ? 'grid_row' : '0 AS grid_row';
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $colExpr = $hasCol ? 'grid_col' : '0 AS grid_col';
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+    $widthExpr = $hasWidth ? 'grid_width' : '12 AS grid_width';
+    $stmt = $pdo->prepare("SELECT id, content_type_id, name, label, type, options, required, $listExpr, $sortableExpr, $rowExpr, $colExpr, $widthExpr FROM custom_fields WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -651,10 +684,13 @@ function getCustomField(int $id): ?array {
  * @param bool $required
  * @return void
  */
-function updateCustomField(int $id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false, bool $sortable = true): void {
+function updateCustomField(int $id, string $name, string $label, string $type, string $options = '', bool $required = false, bool $show_in_list = false, bool $sortable = true, int $grid_row = 0, int $grid_col = 0, int $grid_width = 12): void {
     $pdo = getPDO();
     $hasList = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'show_in_list'")->fetch();
     $hasSortable = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'sortable'")->fetch();
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
 
     $sets = ['name = ?'];
     $params = [$name];
@@ -679,6 +715,21 @@ function updateCustomField(int $id, string $name, string $label, string $type, s
     if ($hasSortable) {
         $sets[] = 'sortable = ?';
         $params[] = $sortable ? 1 : 0;
+    }
+
+    if ($hasRow) {
+        $sets[] = 'grid_row = ?';
+        $params[] = $grid_row;
+    }
+
+    if ($hasCol) {
+        $sets[] = 'grid_col = ?';
+        $params[] = $grid_col;
+    }
+
+    if ($hasWidth) {
+        $sets[] = 'grid_width = ?';
+        $params[] = $grid_width;
     }
 
     $params[] = $id;
