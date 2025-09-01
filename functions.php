@@ -563,8 +563,8 @@ function getCustomFields(int $content_type_id): array {
     $colExpr = $hasCol ? 'grid_col' : '0 AS grid_col';
     $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
 
-    $widthExpr = $hasWidth ? 'grid_width' : '12 AS grid_width';
 
+    $widthExpr = $hasWidth ? 'grid_width' : '12 AS grid_width';
 
     $stmt = $pdo->prepare("SELECT id, name, $labelExpr, type, options, required, $listExpr, $sortableExpr, $rowExpr, $colExpr, $widthExpr FROM custom_fields WHERE content_type_id = ? ORDER BY id ASC");
     $stmt->execute([$content_type_id]);
