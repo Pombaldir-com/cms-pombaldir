@@ -119,8 +119,18 @@ switch (true) {
         require __DIR__ . '/field_layout.php';
         break;
     case $path === 'fields/save-layout':
+        require_once __DIR__ . '/functions.php';
+        startSession();
+        requireLogin();
+        requireRole(2);
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            updateFieldLayout($_POST['field_id'] ?? 0, (int)($_POST['type_id'] ?? 0), (int)($_POST['row'] ?? 0), (int)($_POST['col'] ?? 0), (int)($_POST['width'] ?? 1));
+            updateFieldLayout(
+                $_POST['field_id'] ?? 0,
+                (int) ($_POST['type_id'] ?? 0),
+                (int) ($_POST['row'] ?? 0),
+                (int) ($_POST['col'] ?? 0),
+                (int) ($_POST['width'] ?? 1)
+            );
             echo 'ok';
         }
         break;
