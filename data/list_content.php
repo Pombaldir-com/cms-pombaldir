@@ -37,6 +37,22 @@ foreach ($contents as $content) {
     }
 
     foreach ($customFields as $field) {
+        // Taxonomy-type custom fields store their selections in the
+        // content_taxonomy table rather than custom_values. Fetch the
+        // term name from the preloaded taxonomy assignments.
+        if ($field['type'] === 'taxonomy') {
+            $termName = '';
+            $taxonomyId = (int)$field['options'];
+            foreach ($content['taxonomies'] as $assoc) {
+                if ($assoc['taxonomy_id'] == $taxonomyId) {
+                    $termName = $assoc['term_name'] !== null ? $assoc['term_name'] : 'Removido';
+                    break;
+                }
+            }
+            $row[] = htmlspecialchars($termName);
+            continue;
+        }
+
         $fieldId = $field['id'];
         $fieldValue = '';
         foreach ($content['fields'] as $cv) {
@@ -46,10 +62,7 @@ foreach ($contents as $content) {
             }
         }
 
-        if ($field['type'] === 'taxonomy' && $fieldValue !== '') {
-            $term = getTerm((int)$fieldValue);
-            $fieldValue = $term ? $term['name'] : 'Removido';
-        } elseif ($field['type'] === 'content' && $fieldValue !== '') {
+        if ($field['type'] === 'content' && $fieldValue !== '') {
             $related = getContent((int)$fieldValue);
             $fieldValue = $related ? $related['title'] : 'Removido';
         }
