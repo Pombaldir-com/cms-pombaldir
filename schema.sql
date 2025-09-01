@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     sortable TINYINT(1) NOT NULL DEFAULT 1,
     grid_row INT NOT NULL DEFAULT 0,
     grid_col INT NOT NULL DEFAULT 0,
-    grid_width INT NOT NULL DEFAULT 1,
+
+    grid_width INT NOT NULL DEFAULT 12,
+
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (content_type_id) REFERENCES content_types(id) ON DELETE CASCADE
 );
