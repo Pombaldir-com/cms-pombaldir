@@ -116,7 +116,8 @@ switch (true) {
         break;
     case preg_match('#^fields/layout/([0-9]+)$#', $path, $m):
         $_GET['type_id'] = $m[1];
-        require __DIR__ . '/field_layout.php';
+        $_GET['layout'] = 1;
+        require __DIR__ . '/custom_fields.php';
         break;
     case $path === 'fields/save-layout':
         require_once __DIR__ . '/functions.php';
