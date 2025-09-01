@@ -344,6 +344,22 @@ $error = '';
 
 if ($action === 'add') {
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
+    $fields = sortFieldsByGrid(array_merge([
+        [
+            'id' => 'title',
+            'label' => 'Título',
+            'grid_row' => $contentType['title_grid_row'] ?? 0,
+            'grid_col' => $contentType['title_grid_col'] ?? 0,
+            'grid_width' => $contentType['title_grid_width'] ?? 12,
+        ],
+        [
+            'id' => 'body',
+            'label' => 'Texto',
+            'grid_row' => $contentType['body_grid_row'] ?? 0,
+            'grid_col' => $contentType['body_grid_col'] ?? 0,
+            'grid_width' => $contentType['body_grid_width'] ?? 12,
+        ],
+    ], $customFields));
     $allTaxonomies = getTaxonomiesForContentType($typeId);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -412,17 +428,9 @@ if ($action === 'add') {
                         <?php endif; ?>
                         <form method="post" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
-                            <div class="mb-3">
-                                <label for="title" class="form-label">Título</label>
-                                <input type="text" id="title" name="title" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="body" class="form-label">Texto</label>
-                                <textarea id="body" name="body" class="form-control" rows="4"></textarea>
-                            </div>
                             <?php
                                 $hasGrid = false;
-                                foreach ($customFields as $f) {
+                                foreach ($fields as $f) {
                                     if (!empty($f['grid_row']) || !empty($f['grid_width'])) {
                                         $hasGrid = true;
                                         break;
@@ -430,25 +438,41 @@ if ($action === 'add') {
                                 }
                                 if ($hasGrid) {
                                     $currentRow = null;
-                                    foreach ($customFields as $field) {
-                                        $inputName = 'field_' . $field['id'];
+                                    foreach ($fields as $field) {
                                         $row = $field['grid_row'] ?? null;
                                         $width = $field['grid_width'] ?? 12;
                                         if ($row !== $currentRow) {
                                             if ($currentRow !== null) { echo '</div>'; }
                                             echo '<div class="row custom-field-row">';
-                                            $currentRow = $row;
+        $currentRow = $row;
                                         }
                                         echo '<div class="col-md-' . (int)$width . ' mb-3">';
-                                        renderFieldInput($field, $inputName);
+                                        if ($field['id'] === 'title') {
+                                            echo '<label for="title" class="form-label">Título</label>';
+                                            echo '<input type="text" id="title" name="title" class="form-control" required>';
+                                        } elseif ($field['id'] === 'body') {
+                                            echo '<label for="body" class="form-label">Texto</label>';
+                                            echo '<textarea id="body" name="body" class="form-control" rows="4"></textarea>';
+                                        } else {
+                                            $inputName = 'field_' . $field['id'];
+                                            renderFieldInput($field, $inputName);
+                                        }
                                         echo '</div>';
                                     }
                                     if ($currentRow !== null) { echo '</div>'; }
                                 } else {
-                                    foreach ($customFields as $field) {
-                                        $inputName = 'field_' . $field['id'];
+                                    foreach ($fields as $field) {
                                         echo '<div class="mb-3">';
-                                        renderFieldInput($field, $inputName);
+                                        if ($field['id'] === 'title') {
+                                            echo '<label for="title" class="form-label">Título</label>';
+                                            echo '<input type="text" id="title" name="title" class="form-control" required>';
+                                        } elseif ($field['id'] === 'body') {
+                                            echo '<label for="body" class="form-label">Texto</label>';
+                                            echo '<textarea id="body" name="body" class="form-control" rows="4"></textarea>';
+                                        } else {
+                                            $inputName = 'field_' . $field['id'];
+                                            renderFieldInput($field, $inputName);
+                                        }
                                         echo '</div>';
                                     }
                                 }
@@ -487,6 +511,22 @@ if ($action === 'edit') {
     }
 
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
+    $fields = sortFieldsByGrid(array_merge([
+        [
+            'id' => 'title',
+            'label' => 'Título',
+            'grid_row' => $contentType['title_grid_row'] ?? 0,
+            'grid_col' => $contentType['title_grid_col'] ?? 0,
+            'grid_width' => $contentType['title_grid_width'] ?? 12,
+        ],
+        [
+            'id' => 'body',
+            'label' => 'Texto',
+            'grid_row' => $contentType['body_grid_row'] ?? 0,
+            'grid_col' => $contentType['body_grid_col'] ?? 0,
+            'grid_width' => $contentType['body_grid_width'] ?? 12,
+        ],
+    ], $customFields));
     $allTaxonomies = getTaxonomiesForContentType($typeId);
     $customValues = getCustomValuesForContent($contentId);
     $taxonomyMap = getContentTaxonomy($contentId);
@@ -561,17 +601,9 @@ if ($action === 'edit') {
                         <?php endif; ?>
                         <form method="post" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
-                            <div class="mb-3">
-                                <label for="title" class="form-label">Título</label>
-                                <input type="text" id="title" name="title" class="form-control" value="<?php echo htmlspecialchars($content['title']); ?>" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="body" class="form-label">Texto</label>
-                                <textarea id="body" name="body" class="form-control" rows="4"><?php echo htmlspecialchars($content['body']); ?></textarea>
-                            </div>
                             <?php
                                 $hasGrid = false;
-                                foreach ($customFields as $f) {
+                                foreach ($fields as $f) {
                                     if (!empty($f['grid_row']) || !empty($f['grid_width'])) {
                                         $hasGrid = true;
                                         break;
@@ -579,9 +611,7 @@ if ($action === 'edit') {
                                 }
                                 if ($hasGrid) {
                                     $currentRow = null;
-                                    foreach ($customFields as $field) {
-                                        $inputName = 'field_' . $field['id'];
-                                        $value = $customValues[$field['id']] ?? '';
+                                    foreach ($fields as $field) {
                                         $row = $field['grid_row'] ?? null;
                                         $width = $field['grid_width'] ?? 12;
                                         if ($row !== $currentRow) {
@@ -590,16 +620,34 @@ if ($action === 'edit') {
                                             $currentRow = $row;
                                         }
                                         echo '<div class="col-md-' . (int)$width . ' mb-3">';
-                                        renderFieldInput($field, $inputName, $value);
+                                        if ($field['id'] === 'title') {
+                                            echo '<label for="title" class="form-label">Título</label>';
+                                            echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
+                                        } elseif ($field['id'] === 'body') {
+                                            echo '<label for="body" class="form-label">Texto</label>';
+                                            echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
+                                        } else {
+                                            $inputName = 'field_' . $field['id'];
+                                            $value = $customValues[$field['id']] ?? '';
+                                            renderFieldInput($field, $inputName, $value);
+                                        }
                                         echo '</div>';
                                     }
                                     if ($currentRow !== null) { echo '</div>'; }
                                 } else {
-                                    foreach ($customFields as $field) {
-                                        $inputName = 'field_' . $field['id'];
-                                        $value = $customValues[$field['id']] ?? '';
+                                    foreach ($fields as $field) {
                                         echo '<div class="mb-3">';
-                                        renderFieldInput($field, $inputName, $value);
+                                        if ($field['id'] === 'title') {
+                                            echo '<label for="title" class="form-label">Título</label>';
+                                            echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
+                                        } elseif ($field['id'] === 'body') {
+                                            echo '<label for="body" class="form-label">Texto</label>';
+                                            echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
+                                        } else {
+                                            $inputName = 'field_' . $field['id'];
+                                            $value = $customValues[$field['id']] ?? '';
+                                            renderFieldInput($field, $inputName, $value);
+                                        }
                                         echo '</div>';
                                     }
                                 }

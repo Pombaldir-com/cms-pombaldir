@@ -385,10 +385,22 @@ function getContentType(int $id): ?array {
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    $hasTitleRow   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_row'")->fetch();
+    $hasTitleCol   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_col'")->fetch();
+    $hasTitleWidth = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_width'")->fetch();
+    $hasBodyRow    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_row'")->fetch();
+    $hasBodyCol    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_col'")->fetch();
+    $hasBodyWidth  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_width'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
     $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr FROM content_types WHERE id = ?");
+    $titleRowExpr   = $hasTitleRow ? 'title_grid_row' : '0 AS title_grid_row';
+    $titleColExpr   = $hasTitleCol ? 'title_grid_col' : '0 AS title_grid_col';
+    $titleWidthExpr = $hasTitleWidth ? 'title_grid_width' : '12 AS title_grid_width';
+    $bodyRowExpr    = $hasBodyRow ? 'body_grid_row' : '0 AS body_grid_row';
+    $bodyColExpr    = $hasBodyCol ? 'body_grid_col' : '0 AS body_grid_col';
+    $bodyWidthExpr  = $hasBodyWidth ? 'body_grid_width' : '12 AS body_grid_width';
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -404,10 +416,22 @@ function getContentTypeBySlug(string $slug): ?array {
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
+    $hasTitleRow   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_row'")->fetch();
+    $hasTitleCol   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_col'")->fetch();
+    $hasTitleWidth = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_width'")->fetch();
+    $hasBodyRow    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_row'")->fetch();
+    $hasBodyCol    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_col'")->fetch();
+    $hasBodyWidth  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_width'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
     $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr FROM content_types WHERE name = ?");
+    $titleRowExpr   = $hasTitleRow ? 'title_grid_row' : '0 AS title_grid_row';
+    $titleColExpr   = $hasTitleCol ? 'title_grid_col' : '0 AS title_grid_col';
+    $titleWidthExpr = $hasTitleWidth ? 'title_grid_width' : '12 AS title_grid_width';
+    $bodyRowExpr    = $hasBodyRow ? 'body_grid_row' : '0 AS body_grid_row';
+    $bodyColExpr    = $hasBodyCol ? 'body_grid_col' : '0 AS body_grid_col';
+    $bodyWidthExpr  = $hasBodyWidth ? 'body_grid_width' : '12 AS body_grid_width';
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE name = ?");
     $stmt->execute([$slug]);
     return $stmt->fetch() ?: null;
 }
@@ -757,14 +781,25 @@ function deleteCustomField(int $id): void {
 /**
  * Update grid layout info for a custom field if columns exist.
  */
-function updateFieldLayout(int $id, int $row, int $col, int $width): void {
+function updateFieldLayout(int|string $id, int $typeId, int $row, int $col, int $width): void {
     $pdo = getPDO();
-    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
-    $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
-    $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
-    if ($hasRow && $hasCol && $hasWidth) {
-        $stmt = $pdo->prepare('UPDATE custom_fields SET grid_row = ?, grid_col = ?, grid_width = ? WHERE id = ?');
-        $stmt->execute([$row, $col, $width, $id]);
+    if (is_numeric($id)) {
+        $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+        $hasCol = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_col'")->fetch();
+        $hasWidth = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_width'")->fetch();
+        if ($hasRow && $hasCol && $hasWidth) {
+            $stmt = $pdo->prepare('UPDATE custom_fields SET grid_row = ?, grid_col = ?, grid_width = ? WHERE id = ?');
+            $stmt->execute([$row, $col, $width, (int)$id]);
+        }
+    } elseif ($id === 'title' || $id === 'body') {
+        $prefix = $id === 'title' ? 'title' : 'body';
+        $hasRow = $pdo->query("SHOW COLUMNS FROM content_types LIKE '{$prefix}_grid_row'")->fetch();
+        $hasCol = $pdo->query("SHOW COLUMNS FROM content_types LIKE '{$prefix}_grid_col'")->fetch();
+        $hasWidth = $pdo->query("SHOW COLUMNS FROM content_types LIKE '{$prefix}_grid_width'")->fetch();
+        if ($hasRow && $hasCol && $hasWidth) {
+            $stmt = $pdo->prepare("UPDATE content_types SET {$prefix}_grid_row = ?, {$prefix}_grid_col = ?, {$prefix}_grid_width = ? WHERE id = ?");
+            $stmt->execute([$row, $col, $width, $typeId]);
+        }
     }
 }
 
