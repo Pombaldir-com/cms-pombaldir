@@ -6,6 +6,111 @@ startSession();
 requireLogin();
 $csrfToken = generateCsrfToken();
 
+/**
+ * Sort custom fields by grid_row and grid_col while preserving the
+ * original order for fields without layout information.
+ */
+function sortFieldsByGrid(array $fields): array
+{
+    foreach ($fields as $index => &$field) {
+        $field['_index'] = $index;
+    }
+    usort($fields, function ($a, $b) {
+        $rowA = $a['grid_row'] ?? PHP_INT_MAX;
+        $rowB = $b['grid_row'] ?? PHP_INT_MAX;
+        if ($rowA === $rowB) {
+            $colA = $a['grid_col'] ?? PHP_INT_MAX;
+            $colB = $b['grid_col'] ?? PHP_INT_MAX;
+            if ($colA === $colB) {
+                return $a['_index'] <=> $b['_index'];
+            }
+            return $colA <=> $colB;
+        }
+        return $rowA <=> $rowB;
+    });
+    foreach ($fields as &$field) {
+        unset($field['_index']);
+    }
+    return $fields;
+}
+
+/**
+ * Render an individual custom field input.
+ *
+ * @param array $field Field definition.
+ * @param string $inputName Name attribute for the field.
+ * @param mixed $value Current value (if any).
+ */
+function renderFieldInput(array $field, string $inputName, $value = null): void
+{
+    $options = $field['options'];
+    $isRequired = $field['required'] ? 'required' : '';
+    echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+    switch ($field['type']) {
+        case 'text':
+            echo '<input type="text" name="' . htmlspecialchars($inputName) . '" class="form-control" ' . $isRequired .
+                 ' value="' . htmlspecialchars($value ?? '') . '">';
+            break;
+        case 'textarea':
+            echo '<textarea name="' . htmlspecialchars($inputName) . '" class="form-control" ' . $isRequired . '>' .
+                 htmlspecialchars($value ?? '') . '</textarea>';
+            break;
+        case 'number':
+            echo '<input type="number" name="' . htmlspecialchars($inputName) . '" class="form-control" ' . $isRequired .
+                 ' value="' . htmlspecialchars($value ?? '') . '">';
+            break;
+        case 'date':
+            echo '<input type="date" name="' . htmlspecialchars($inputName) . '" class="form-control" ' . $isRequired .
+                 ' value="' . htmlspecialchars($value ?? '') . '">';
+            break;
+        case 'datetime':
+            $val = $value ? str_replace(' ', 'T', substr($value, 0, 16)) : '';
+            echo '<input type="datetime-local" name="' . htmlspecialchars($inputName) . '" class="form-control" ' . $isRequired .
+                 ' value="' . htmlspecialchars($val) . '">';
+            break;
+        case 'image':
+            if ($value) {
+                echo '<div class="mb-2"><img src="' . htmlspecialchars($value) . '" style="max-width:100px;" alt=""></div>';
+            }
+            $req = $field['required'] && !$value ? 'required' : '';
+            echo '<input type="file" name="' . htmlspecialchars($inputName) . '" class="form-control" accept="image/*" ' . $req . '>';
+            break;
+        case 'select':
+            echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
+            echo '<option value="">-- Select --</option>';
+            foreach (explode(',', $options) as $opt) {
+                $optTrim = trim($opt);
+                $selected = ($value !== null && $value === $optTrim) ? ' selected' : '';
+                echo '<option value="' . htmlspecialchars($optTrim) . '"' . $selected . '>' .
+                     htmlspecialchars($optTrim) . '</option>';
+            }
+            echo '</select>';
+            break;
+        case 'taxonomy':
+            $terms = getTerms((int)$options);
+            echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
+            echo '<option value="">-- Select --</option>';
+            foreach ($terms as $term) {
+                $selected = ($value !== null && $value == $term['id']) ? ' selected' : '';
+                echo '<option value="' . htmlspecialchars($term['id']) . '"' . $selected . '>' .
+                     htmlspecialchars($term['name']) . '</option>';
+            }
+            echo '</select>';
+            break;
+        case 'content':
+            $entries = getContentList((int)$options);
+            echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
+            echo '<option value="">-- Select --</option>';
+            foreach ($entries as $entry) {
+                $selected = ($value !== null && $value == $entry['id']) ? ' selected' : '';
+                echo '<option value="' . htmlspecialchars($entry['id']) . '"' . $selected . '>' .
+                     htmlspecialchars($entry['title']) . '</option>';
+            }
+            echo '</select>';
+            break;
+    }
+}
+
 // If the request is for content type management (formerly handled by
 // content_types.php) delegate to that logic and exit early.
 if (isset($_GET['manage_types'])) {
@@ -37,7 +142,7 @@ if (isset($_GET['manage_types'])) {
         }
 
         $allTaxonomies = getTaxonomies();
-        $fields = getCustomFields($typeTax);
+        $fields = sortFieldsByGrid(getCustomFields($typeTax));
         $usedTaxonomies = [];
         foreach ($fields as $field) {
             if ($field['type'] === 'taxonomy') {
@@ -238,7 +343,7 @@ $action = $_GET['action'] ?? '';
 $error = '';
 
 if ($action === 'add') {
-    $customFields = getCustomFields($typeId);
+    $customFields = sortFieldsByGrid(getCustomFields($typeId));
     $allTaxonomies = getTaxonomiesForContentType($typeId);
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -315,52 +420,39 @@ if ($action === 'add') {
                                 <label for="body" class="form-label">Texto</label>
                                 <textarea id="body" name="body" class="form-control" rows="4"></textarea>
                             </div>
-                            <?php foreach ($customFields as $field): ?>
-                                <?php
-                                    $inputName = 'field_' . $field['id'];
-                                    $options   = $field['options'];
-                                    $isRequired = $field['required'] ? 'required' : '';
-                                ?>
-                                <div class="mb-3">
-                                    <label class="form-label"><?php echo htmlspecialchars($field['label']); ?></label>
-                                    <?php if ($field['type'] === 'text'): ?>
-                                        <input type="text" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'textarea'): ?>
-                                        <textarea name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>></textarea>
-                                    <?php elseif ($field['type'] === 'number'): ?>
-                                        <input type="number" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'date'): ?>
-                                        <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'datetime'): ?>
-                                        <input type="datetime-local" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'image'): ?>
-                                        <input type="file" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" accept="image/*" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'select'): ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach (explode(',', $options) as $opt): ?>
-                                                <option value="<?php echo htmlspecialchars(trim($opt)); ?>"><?php echo htmlspecialchars(trim($opt)); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php elseif ($field['type'] === 'taxonomy'): ?>
-                                        <?php $terms = getTerms((int)$options); ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach ($terms as $term): ?>
-                                                <option value="<?php echo htmlspecialchars($term['id']); ?>"><?php echo htmlspecialchars($term['name']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php elseif ($field['type'] === 'content'): ?>
-                                        <?php $entries = getContentList((int)$options); ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach ($entries as $entry): ?>
-                                                <option value="<?php echo htmlspecialchars($entry['id']); ?>"><?php echo htmlspecialchars($entry['title']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endforeach; ?>
+                            <?php
+                                $hasGrid = false;
+                                foreach ($customFields as $f) {
+                                    if (!empty($f['grid_row']) || !empty($f['grid_width'])) {
+                                        $hasGrid = true;
+                                        break;
+                                    }
+                                }
+                                if ($hasGrid) {
+                                    $currentRow = null;
+                                    foreach ($customFields as $field) {
+                                        $inputName = 'field_' . $field['id'];
+                                        $row = $field['grid_row'] ?? null;
+                                        $width = $field['grid_width'] ?? 12;
+                                        if ($row !== $currentRow) {
+                                            if ($currentRow !== null) { echo '</div>'; }
+                                            echo '<div class="row custom-field-row">';
+                                            $currentRow = $row;
+                                        }
+                                        echo '<div class="col-md-' . (int)$width . ' mb-3">';
+                                        renderFieldInput($field, $inputName);
+                                        echo '</div>';
+                                    }
+                                    if ($currentRow !== null) { echo '</div>'; }
+                                } else {
+                                    foreach ($customFields as $field) {
+                                        $inputName = 'field_' . $field['id'];
+                                        echo '<div class="mb-3">';
+                                        renderFieldInput($field, $inputName);
+                                        echo '</div>';
+                                    }
+                                }
+                            ?>
                             <?php foreach ($allTaxonomies as $taxonomy): ?>
                                 <div class="mb-3">
                                     <label class="form-label"><?php echo htmlspecialchars($taxonomy['label']); ?></label>
@@ -394,7 +486,7 @@ if ($action === 'edit') {
         exit;
     }
 
-    $customFields = getCustomFields($typeId);
+    $customFields = sortFieldsByGrid(getCustomFields($typeId));
     $allTaxonomies = getTaxonomiesForContentType($typeId);
     $customValues = getCustomValuesForContent($contentId);
     $taxonomyMap = getContentTaxonomy($contentId);
@@ -477,57 +569,41 @@ if ($action === 'edit') {
                                 <label for="body" class="form-label">Texto</label>
                                 <textarea id="body" name="body" class="form-control" rows="4"><?php echo htmlspecialchars($content['body']); ?></textarea>
                             </div>
-                            <?php foreach ($customFields as $field): ?>
-                                <?php
-                                    $inputName = 'field_' . $field['id'];
-                                    $options   = $field['options'];
-                                    $isRequired = $field['required'] ? 'required' : '';
-                                    $value = $customValues[$field['id']] ?? '';
-                                ?>
-                                <div class="mb-3">
-                                    <label class="form-label"><?php echo htmlspecialchars($field['label']); ?></label>
-                                    <?php if ($field['type'] === 'text'): ?>
-                                        <input type="text" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($value); ?>" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'textarea'): ?>
-                                        <textarea name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" <?php echo $isRequired; ?>><?php echo htmlspecialchars($value); ?></textarea>
-                                    <?php elseif ($field['type'] === 'number'): ?>
-                                        <input type="number" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($value); ?>" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'date'): ?>
-                                        <input type="date" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($value); ?>" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'datetime'): ?>
-                                        <?php $formatted = $value ? str_replace(' ', 'T', substr($value, 0, 16)) : ''; ?>
-                                        <input type="datetime-local" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" value="<?php echo htmlspecialchars($formatted); ?>" <?php echo $isRequired; ?>>
-                                    <?php elseif ($field['type'] === 'image'): ?>
-                                        <?php if ($value): ?>
-                                            <div class="mb-2"><img src="<?php echo htmlspecialchars($value); ?>" style="max-width:100px;" alt=""></div>
-                                        <?php endif; ?>
-                                        <input type="file" name="<?php echo htmlspecialchars($inputName); ?>" class="form-control" accept="image/*" <?php echo $field['required'] && !$value ? 'required' : ''; ?>>
-                                    <?php elseif ($field['type'] === 'select'): ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach (explode(',', $options) as $opt): $optTrim = trim($opt); ?>
-                                                <option value="<?php echo htmlspecialchars($optTrim); ?>" <?php echo $value === $optTrim ? 'selected' : ''; ?>><?php echo htmlspecialchars($optTrim); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php elseif ($field['type'] === 'taxonomy'): ?>
-                                        <?php $terms = getTerms((int)$options); ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach ($terms as $term): ?>
-                                                <option value="<?php echo htmlspecialchars($term['id']); ?>" <?php echo $value == $term['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($term['name']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php elseif ($field['type'] === 'content'): ?>
-                                        <?php $entries = getContentList((int)$options); ?>
-                                        <select name="<?php echo htmlspecialchars($inputName); ?>" class="form-select" <?php echo $isRequired; ?>>
-                                            <option value="">-- Select --</option>
-                                            <?php foreach ($entries as $entry): ?>
-                                                <option value="<?php echo htmlspecialchars($entry['id']); ?>" <?php echo $value == $entry['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($entry['title']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endforeach; ?>
+                            <?php
+                                $hasGrid = false;
+                                foreach ($customFields as $f) {
+                                    if (!empty($f['grid_row']) || !empty($f['grid_width'])) {
+                                        $hasGrid = true;
+                                        break;
+                                    }
+                                }
+                                if ($hasGrid) {
+                                    $currentRow = null;
+                                    foreach ($customFields as $field) {
+                                        $inputName = 'field_' . $field['id'];
+                                        $value = $customValues[$field['id']] ?? '';
+                                        $row = $field['grid_row'] ?? null;
+                                        $width = $field['grid_width'] ?? 12;
+                                        if ($row !== $currentRow) {
+                                            if ($currentRow !== null) { echo '</div>'; }
+                                            echo '<div class="row custom-field-row">';
+                                            $currentRow = $row;
+                                        }
+                                        echo '<div class="col-md-' . (int)$width . ' mb-3">';
+                                        renderFieldInput($field, $inputName, $value);
+                                        echo '</div>';
+                                    }
+                                    if ($currentRow !== null) { echo '</div>'; }
+                                } else {
+                                    foreach ($customFields as $field) {
+                                        $inputName = 'field_' . $field['id'];
+                                        $value = $customValues[$field['id']] ?? '';
+                                        echo '<div class="mb-3">';
+                                        renderFieldInput($field, $inputName, $value);
+                                        echo '</div>';
+                                    }
+                                }
+                            ?>
                             <?php foreach ($allTaxonomies as $taxonomy): ?>
                                 <?php $terms = getTerms($taxonomy['id']); $selected = $taxonomyMap[$taxonomy['id']] ?? []; ?>
                                 <div class="mb-3">
@@ -563,7 +639,7 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
-$customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
+$customFields = array_values(array_filter(sortFieldsByGrid(getCustomFields($typeId)), function ($f) {
     return !empty($f['show_in_list']);
 }));
 $allTaxonomies = getTaxonomiesForContentType($typeId);
