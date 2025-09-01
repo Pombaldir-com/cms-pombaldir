@@ -90,8 +90,12 @@ if ($isLayout) {
         const grid = GridStack.init({float: true});
         grid.on('change', function(event, items) {
             items.forEach(item => {
+                const fieldId = item.id || (item.el ? item.el.getAttribute('gs-id') : '');
+                if (!fieldId) {
+                    return;
+                }
                 const params = new URLSearchParams();
-                params.append('field_id', item.id);
+                params.append('field_id', fieldId);
                 params.append('type_id', <?= $typeId ?>);
                 params.append('row', item.y);
                 params.append('col', item.x);
