@@ -15,7 +15,7 @@ $fields = getCustomFields($typeId);
 
 require_once __DIR__ . '/header.php';
 ?>
-<link rel="stylesheet" href="<?= BASE_URL ?>vendors/gridstack/gridstack.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@9.2.2/dist/gridstack.min.css">
 <div class="container-fluid">
     <h2 class="mt-3">Layout de campos para <?= htmlspecialchars($type['label']) ?></h2>
     <div class="grid-stack">
@@ -30,7 +30,7 @@ require_once __DIR__ . '/header.php';
     <a href="<?= BASE_URL . 'fields/' . $typeId; ?>" class="btn btn-secondary mt-3"><i class="fa fa-arrow-left"></i> Voltar</a>
 </div>
 
-<script src="<?= BASE_URL ?>vendors/gridstack/gridstack.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridstack@9.2.2/dist/gridstack-all.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
