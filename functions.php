@@ -596,6 +596,36 @@ function getCustomFields(int $content_type_id): array {
 }
 
 /**
+ * Sort custom fields by grid position while preserving original order
+ * for fields without layout information.
+ *
+ * @param array $fields
+ * @return array
+ */
+function sortFieldsByGrid(array $fields): array {
+    foreach ($fields as $index => &$field) {
+        $field['_index'] = $index;
+    }
+    usort($fields, function ($a, $b) {
+        $rowA = $a['grid_row'] ?? PHP_INT_MAX;
+        $rowB = $b['grid_row'] ?? PHP_INT_MAX;
+        if ($rowA === $rowB) {
+            $colA = $a['grid_col'] ?? PHP_INT_MAX;
+            $colB = $b['grid_col'] ?? PHP_INT_MAX;
+            if ($colA === $colB) {
+                return $a['_index'] <=> $b['_index'];
+            }
+            return $colA <=> $colB;
+        }
+        return $rowA <=> $rowB;
+    });
+    foreach ($fields as &$field) {
+        unset($field['_index']);
+    }
+    return $fields;
+}
+
+/**
  * Create a custom field for a content type.
  *
  * @param int $content_type_id

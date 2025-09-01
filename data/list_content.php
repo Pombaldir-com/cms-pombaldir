@@ -20,9 +20,12 @@ if (!$contentType) {
 }
 $typeSlug = $contentType['name'];
 
-$customFields = array_values(array_filter(getCustomFields($typeId), function ($f) {
-    return !empty($f['show_in_list']);
-}));
+$customFields = array_values(array_filter(
+    sortFieldsByGrid(getCustomFields($typeId)),
+    function ($f) {
+        return !empty($f['show_in_list']);
+    }
+));
 $allTaxonomies = getTaxonomiesForContentType($typeId);
 $contents = getContentList($typeId);
 
