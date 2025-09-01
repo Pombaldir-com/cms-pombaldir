@@ -40,6 +40,21 @@ if (!$type) {
 if ($isLayout) {
     $fields = getCustomFields($typeId);
     $taxonomies = getTaxonomiesForContentType($typeId);
+
+    // Excluir taxonomias que já estejam como campos adicionais
+    $taxonomyFieldIds = array_map(
+        function ($f) {
+            return (int) $f['options'];
+        },
+        array_filter($fields, function ($f) {
+            return $f['type'] === 'taxonomy' && !empty($f['options']);
+        })
+    );
+
+    $taxonomies = array_filter($taxonomies, function ($tax) use ($taxonomyFieldIds) {
+        return !in_array((int) $tax['id'], $taxonomyFieldIds, true);
+    });
+
     $taxonomyFields = array_map(function ($tax) {
         return [
             'id' => 'tax_' . $tax['id'],
@@ -49,6 +64,7 @@ if ($isLayout) {
             'grid_width' => $tax['grid_width'] ?? 12,
         ];
     }, $taxonomies);
+
     $fields = array_merge([
         [
             'id' => 'title',
