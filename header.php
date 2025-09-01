@@ -120,10 +120,12 @@ foreach ($sidebarTypes as $sidebarType):
       
         <?php endif; ?>
 
+        <?php if (($user['role'] ?? 3) <= 2): ?>
             <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
               <span class="badge bg-red float-end">50%</span>
               <i class="fa fa-cog"></i> <span>Definições</span>
-            </a>    
+            </a>
+        <?php endif; ?>
             <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao">
               <i class="fa fa-sign-out float-end"></i> Terminar Sessão
             </a>
