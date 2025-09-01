@@ -1,0 +1,43 @@
+# CMS Pombaldir
+
+Sistema de gestão de conteúdos simples escrito em PHP. O objetivo é fornecer uma base mínima para criar e gerir tipos de conteúdo, campos personalizados e taxonomias através de uma interface baseada no tema [Gentelella](https://colorlibhq.github.io/gentelella/).
+
+## Funcionalidades
+- Gestão de utilizadores com diferentes níveis de permissão (superadmin, administrador e utilizador).
+- Criação de tipos de conteúdo com campos personalizados.
+- Definição de taxonomias e termos.
+- Interface de administração responsiva usando Bootstrap e Gentelella.
+- Sistema de autenticação com proteção CSRF.
+
+## Requisitos
+- PHP \>= 7.4
+- MySQL ou MariaDB
+- Servidor web com suporte a reescrita de URL (Apache, Nginx ou `php -S`).
+
+## Instalação
+1. Clone o repositório:
+   ```bash
+   git clone https://github.com/Pombaldir-com/cms-pombaldir.git
+   cd cms-pombaldir
+   ```
+2. Crie a base de dados e importe o esquema:
+   ```bash
+   mysql -u root -p < schema.sql
+   ```
+   O script cria um utilizador de exemplo `admin` com a palavra‑passe `admin123`.
+3. Configure as credenciais da base de dados em [`data/db.php`](data/db.php).
+4. Inicie o servidor de desenvolvimento:
+   ```bash
+   php -S localhost:8000 router.php
+   ```
+   Ou configure o seu servidor web para apontar para a pasta do projeto e ativar a reescrita de URL com o ficheiro `.htaccess` fornecido.
+5. Aceda a `http://localhost:8000/login` e autentique-se com as credenciais de administrador.
+
+## Estrutura
+- `assets/` – ficheiros CSS e JS adicionais.
+- `data/` – configuração de base de dados e scripts auxiliares.
+- `vendors/` – dependências front-end (Bootstrap, jQuery, etc.).
+- `*.php` – páginas e endpoints principais do CMS.
+
+## Licença
+Distribuído sob a licença MIT. Consulte o ficheiro [`LICENSE`](LICENSE) se existir ou adapte conforme necessário.
