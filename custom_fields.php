@@ -39,6 +39,16 @@ if (!$type) {
 
 if ($isLayout) {
     $fields = getCustomFields($typeId);
+    $taxonomies = getTaxonomiesForContentType($typeId);
+    $taxonomyFields = array_map(function ($tax) {
+        return [
+            'id' => 'tax_' . $tax['id'],
+            'label' => $tax['label'],
+            'grid_row' => $tax['grid_row'] ?? 0,
+            'grid_col' => $tax['grid_col'] ?? 0,
+            'grid_width' => $tax['grid_width'] ?? 12,
+        ];
+    }, $taxonomies);
     $fields = array_merge([
         [
             'id' => 'title',
@@ -54,7 +64,7 @@ if ($isLayout) {
             'grid_col' => $type['body_grid_col'] ?? 0,
             'grid_width' => $type['body_grid_width'] ?? 12,
         ],
-    ], $fields);
+    ], $fields, $taxonomyFields);
 
     require_once __DIR__ . '/header.php';
     ?>

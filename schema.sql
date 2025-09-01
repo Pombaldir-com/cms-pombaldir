@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS custom_values (
 CREATE TABLE IF NOT EXISTS content_type_taxonomy (
     content_type_id INT NOT NULL,
     taxonomy_id INT NOT NULL,
+    grid_row INT NOT NULL DEFAULT 0,
+    grid_col INT NOT NULL DEFAULT 0,
+    grid_width INT NOT NULL DEFAULT 12,
     PRIMARY KEY (content_type_id, taxonomy_id),
     FOREIGN KEY (content_type_id) REFERENCES content_types(id) ON DELETE CASCADE,
     FOREIGN KEY (taxonomy_id) REFERENCES taxonomies(id) ON DELETE CASCADE

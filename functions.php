@@ -800,6 +800,15 @@ function updateFieldLayout(int|string $id, int $typeId, int $row, int $col, int 
             $stmt = $pdo->prepare("UPDATE content_types SET {$prefix}_grid_row = ?, {$prefix}_grid_col = ?, {$prefix}_grid_width = ? WHERE id = ?");
             $stmt->execute([$row, $col, $width, $typeId]);
         }
+    } elseif (is_string($id) && str_starts_with($id, 'tax_')) {
+        $taxId = (int) substr($id, 4);
+        $hasRow = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_row'")->fetch();
+        $hasCol = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_col'")->fetch();
+        $hasWidth = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_width'")->fetch();
+        if ($hasRow && $hasCol && $hasWidth) {
+            $stmt = $pdo->prepare('UPDATE content_type_taxonomy SET grid_row = ?, grid_col = ?, grid_width = ? WHERE taxonomy_id = ? AND content_type_id = ?');
+            $stmt->execute([$row, $col, $width, $taxId, $typeId]);
+        }
     }
 }
 
@@ -953,7 +962,13 @@ function deleteTerm(int $term_id): void {
  */
 function getTaxonomiesForContentType(int $content_type_id): array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT t.id, t.name, t.label FROM taxonomies t JOIN content_type_taxonomy ctt ON t.id = ctt.taxonomy_id WHERE ctt.content_type_id = ? ORDER BY t.id ASC');
+    $hasRow = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_row'")->fetch();
+    $hasCol = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_col'")->fetch();
+    $hasWidth = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_width'")->fetch();
+    $rowExpr = $hasRow ? 'ctt.grid_row' : '0 AS grid_row';
+    $colExpr = $hasCol ? 'ctt.grid_col' : '0 AS grid_col';
+    $widthExpr = $hasWidth ? 'ctt.grid_width' : '12 AS grid_width';
+    $stmt = $pdo->prepare("SELECT t.id, t.name, t.label, $rowExpr, $colExpr, $widthExpr FROM taxonomies t JOIN content_type_taxonomy ctt ON t.id = ctt.taxonomy_id WHERE ctt.content_type_id = ? ORDER BY t.id ASC");
     $stmt->execute([$content_type_id]);
     return $stmt->fetchAll();
 }

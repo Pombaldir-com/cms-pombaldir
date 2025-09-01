@@ -344,6 +344,17 @@ $error = '';
 
 if ($action === 'add') {
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
+    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    $taxonomyFields = array_map(function ($tax) {
+        return [
+            'id' => 'tax_' . $tax['id'],
+            'label' => $tax['label'],
+            'taxonomy_id' => $tax['id'],
+            'grid_row' => $tax['grid_row'] ?? 0,
+            'grid_col' => $tax['grid_col'] ?? 0,
+            'grid_width' => $tax['grid_width'] ?? 12,
+        ];
+    }, $allTaxonomies);
     $fields = sortFieldsByGrid(array_merge([
         [
             'id' => 'title',
@@ -359,8 +370,7 @@ if ($action === 'add') {
             'grid_col' => $contentType['body_grid_col'] ?? 0,
             'grid_width' => $contentType['body_grid_width'] ?? 12,
         ],
-    ], $customFields));
-    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    ], $customFields, $taxonomyFields));
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -461,6 +471,14 @@ if ($action === 'add') {
                                         } elseif ($field['id'] === 'body') {
                                             echo '<label for="body" class="form-label">Texto</label>';
                                             echo '<textarea id="body" name="body" class="form-control" rows="4"></textarea>';
+                                        } elseif (isset($field['taxonomy_id'])) {
+                                            $terms = getTerms($field['taxonomy_id']);
+                                            echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+                                            echo '<select name="taxonomy_' . htmlspecialchars($field['taxonomy_id']) . '[]" class="form-select" multiple>';
+                                            foreach ($terms as $term) {
+                                                echo '<option value="' . htmlspecialchars($term['id']) . '">' . htmlspecialchars($term['name']) . '</option>';
+                                            }
+                                            echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
                                             renderFieldInput($field, $inputName);
@@ -478,6 +496,14 @@ if ($action === 'add') {
                                         } elseif ($field['id'] === 'body') {
                                             echo '<label for="body" class="form-label">Texto</label>';
                                             echo '<textarea id="body" name="body" class="form-control" rows="4"></textarea>';
+                                        } elseif (isset($field['taxonomy_id'])) {
+                                            $terms = getTerms($field['taxonomy_id']);
+                                            echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+                                            echo '<select name="taxonomy_' . htmlspecialchars($field['taxonomy_id']) . '[]" class="form-select" multiple>';
+                                            foreach ($terms as $term) {
+                                                echo '<option value="' . htmlspecialchars($term['id']) . '">' . htmlspecialchars($term['name']) . '</option>';
+                                            }
+                                            echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
                                             renderFieldInput($field, $inputName);
@@ -486,17 +512,6 @@ if ($action === 'add') {
                                     }
                                 }
                             ?>
-                            <?php foreach ($allTaxonomies as $taxonomy): ?>
-                                <div class="mb-3">
-                                    <label class="form-label"><?php echo htmlspecialchars($taxonomy['label']); ?></label>
-                                    <?php $terms = getTerms($taxonomy['id']); ?>
-                                    <select name="taxonomy_<?php echo htmlspecialchars($taxonomy['id']); ?>[]" class="form-select" multiple>
-                                        <?php foreach ($terms as $term): ?>
-                                            <option value="<?php echo htmlspecialchars($term['id']); ?>"><?php echo htmlspecialchars($term['name']); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                            <?php endforeach; ?>
                                                         <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancelar</a>
 
                             <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
@@ -520,6 +535,17 @@ if ($action === 'edit') {
     }
 
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
+    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    $taxonomyFields = array_map(function ($tax) {
+        return [
+            'id' => 'tax_' . $tax['id'],
+            'label' => $tax['label'],
+            'taxonomy_id' => $tax['id'],
+            'grid_row' => $tax['grid_row'] ?? 0,
+            'grid_col' => $tax['grid_col'] ?? 0,
+            'grid_width' => $tax['grid_width'] ?? 12,
+        ];
+    }, $allTaxonomies);
     $fields = sortFieldsByGrid(array_merge([
         [
             'id' => 'title',
@@ -535,8 +561,7 @@ if ($action === 'edit') {
             'grid_col' => $contentType['body_grid_col'] ?? 0,
             'grid_width' => $contentType['body_grid_width'] ?? 12,
         ],
-    ], $customFields));
-    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    ], $customFields, $taxonomyFields));
     $customValues = getCustomValuesForContent($contentId);
     $taxonomyMap = getContentTaxonomy($contentId);
 
@@ -628,8 +653,8 @@ if ($action === 'edit') {
                                         if ($row !== $currentRow) {
                                             if ($currentRow !== null) { echo '</div>'; }
                                             echo '<div class="row custom-field-row">';
-                                            $currentRow = $row;
-                                            $currentCol = 0;
+                        $currentRow = $row;
+                        $currentCol = 0;
                                         }
                                         $offset = max(0, $col - $currentCol);
                                         $classes = 'col-md-' . (int)$width . ' mb-3';
@@ -639,10 +664,20 @@ if ($action === 'edit') {
                                         echo '<div class="' . $classes . '">';
                                         if ($field['id'] === 'title') {
                                             echo '<label for="title" class="form-label">Título</label>';
-                        echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
+                                            echo '<input type="text" id="title" name="title" class="form-control" value="' . htmlspecialchars($content['title']) . '" required>';
                                         } elseif ($field['id'] === 'body') {
                                             echo '<label for="body" class="form-label">Texto</label>';
                                             echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
+                                        } elseif (isset($field['taxonomy_id'])) {
+                                            $terms = getTerms($field['taxonomy_id']);
+                                            $selected = $taxonomyMap[$field['taxonomy_id']] ?? [];
+                                            echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+                                            echo '<select name="taxonomy_' . htmlspecialchars($field['taxonomy_id']) . '[]" class="form-select" multiple>';
+                                            foreach ($terms as $term) {
+                                                $sel = in_array($term['id'], $selected) ? ' selected' : '';
+                                                echo '<option value="' . htmlspecialchars($term['id']) . '"' . $sel . '>' . htmlspecialchars($term['name']) . '</option>';
+                                            }
+                                            echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
                                             $value = $customValues[$field['id']] ?? '';
@@ -661,6 +696,16 @@ if ($action === 'edit') {
                                         } elseif ($field['id'] === 'body') {
                                             echo '<label for="body" class="form-label">Texto</label>';
                                             echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
+                                        } elseif (isset($field['taxonomy_id'])) {
+                                            $terms = getTerms($field['taxonomy_id']);
+                        $selected = $taxonomyMap[$field['taxonomy_id']] ?? [];
+                        echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+                        echo '<select name="taxonomy_' . htmlspecialchars($field['taxonomy_id']) . '[]" class="form-select" multiple>';
+                        foreach ($terms as $term) {
+                            $sel = in_array($term['id'], $selected) ? ' selected' : '';
+                            echo '<option value="' . htmlspecialchars($term['id']) . '"' . $sel . '>' . htmlspecialchars($term['name']) . '</option>';
+                        }
+                        echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
                                             $value = $customValues[$field['id']] ?? '';
@@ -670,17 +715,6 @@ if ($action === 'edit') {
                                     }
                                 }
                             ?>
-                            <?php foreach ($allTaxonomies as $taxonomy): ?>
-                                <?php $terms = getTerms($taxonomy['id']); $selected = $taxonomyMap[$taxonomy['id']] ?? []; ?>
-                                <div class="mb-3">
-                                    <label class="form-label"><?php echo htmlspecialchars($taxonomy['label']); ?></label>
-                                    <select name="taxonomy_<?php echo htmlspecialchars($taxonomy['id']); ?>[]" class="form-select" multiple>
-                                        <?php foreach ($terms as $term): ?>
-                                            <option value="<?php echo htmlspecialchars($term['id']); ?>" <?php echo in_array($term['id'], $selected) ? 'selected' : ''; ?>><?php echo htmlspecialchars($term['name']); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                            <?php endforeach; ?>
                                                         <a href="<?= BASE_URL ?><?php echo htmlspecialchars(rawurlencode($typeSlug)); ?>" class="btn btn-secondary"><i class="fa fa-arrow-left"></i> Cancelar</a>
 
                             <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
