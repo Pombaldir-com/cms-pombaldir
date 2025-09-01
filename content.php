@@ -307,11 +307,11 @@ if ($action === 'add') {
                         <form method="post" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                             <div class="mb-3">
-                                <label for="title" class="form-label">Title</label>
+                                <label for="title" class="form-label">Título</label>
                                 <input type="text" id="title" name="title" class="form-control" required>
                             </div>
                             <div class="mb-3">
-                                <label for="body" class="form-label">Body</label>
+                                <label for="body" class="form-label">Texto</label>
                                 <textarea id="body" name="body" class="form-control" rows="4"></textarea>
                             </div>
                             <?php foreach ($customFields as $field): ?>
@@ -469,11 +469,11 @@ if ($action === 'edit') {
                         <form method="post" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
                             <div class="mb-3">
-                                <label for="title" class="form-label">Title</label>
+                                <label for="title" class="form-label">Título</label>
                                 <input type="text" id="title" name="title" class="form-control" value="<?php echo htmlspecialchars($content['title']); ?>" required>
                             </div>
                             <div class="mb-3">
-                                <label for="body" class="form-label">Body</label>
+                                <label for="body" class="form-label">Texto</label>
                                 <textarea id="body" name="body" class="form-control" rows="4"><?php echo htmlspecialchars($content['body']); ?></textarea>
                             </div>
                             <?php foreach ($customFields as $field): ?>
