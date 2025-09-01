@@ -21,7 +21,7 @@ require_once __DIR__ . '/header.php';
     <div class="grid-stack">
         <?php foreach ($fields as $field): ?>
             <div class="grid-stack-item" data-gs-id="<?= $field['id'] ?>" data-gs-x="<?= $field['grid_col'] ?>" data-gs-y="<?= $field['grid_row'] ?>" data-gs-width="<?= $field['grid_width'] ?>" data-gs-height="1">
-                <div class="grid-stack-item-content border bg-light p-2">
+                <div class="grid-stack-item-content">
                     <?= htmlspecialchars($field['label']) ?>
                 </div>
             </div>
