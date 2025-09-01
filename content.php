@@ -344,7 +344,16 @@ $error = '';
 
 if ($action === 'add') {
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
-    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    $usedTaxonomies = [];
+    foreach ($customFields as $field) {
+        if ($field['type'] === 'taxonomy') {
+            $usedTaxonomies[] = (int)$field['options'];
+        }
+    }
+    $allTaxonomies = array_values(array_filter(
+        getTaxonomiesForContentType($typeId),
+        fn($t) => !in_array((int)$t['id'], $usedTaxonomies)
+    ));
     $taxonomyFields = array_map(function ($tax) {
         return [
             'id' => 'tax_' . $tax['id'],
@@ -535,7 +544,16 @@ if ($action === 'edit') {
     }
 
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
-    $allTaxonomies = getTaxonomiesForContentType($typeId);
+    $usedTaxonomies = [];
+    foreach ($customFields as $field) {
+        if ($field['type'] === 'taxonomy') {
+            $usedTaxonomies[] = (int)$field['options'];
+        }
+    }
+    $allTaxonomies = array_values(array_filter(
+        getTaxonomiesForContentType($typeId),
+        fn($t) => !in_array((int)$t['id'], $usedTaxonomies)
+    ));
     $taxonomyFields = array_map(function ($tax) {
         return [
             'id' => 'tax_' . $tax['id'],
