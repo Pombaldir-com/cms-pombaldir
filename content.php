@@ -7,34 +7,6 @@ requireLogin();
 $csrfToken = generateCsrfToken();
 
 /**
- * Sort custom fields by grid_row and grid_col while preserving the
- * original order for fields without layout information.
- */
-function sortFieldsByGrid(array $fields): array
-{
-    foreach ($fields as $index => &$field) {
-        $field['_index'] = $index;
-    }
-    usort($fields, function ($a, $b) {
-        $rowA = $a['grid_row'] ?? PHP_INT_MAX;
-        $rowB = $b['grid_row'] ?? PHP_INT_MAX;
-        if ($rowA === $rowB) {
-            $colA = $a['grid_col'] ?? PHP_INT_MAX;
-            $colB = $b['grid_col'] ?? PHP_INT_MAX;
-            if ($colA === $colB) {
-                return $a['_index'] <=> $b['_index'];
-            }
-            return $colA <=> $colB;
-        }
-        return $rowA <=> $rowB;
-    });
-    foreach ($fields as &$field) {
-        unset($field['_index']);
-    }
-    return $fields;
-}
-
-/**
  * Render an individual custom field input.
  *
  * @param array $field Field definition.
