@@ -377,14 +377,15 @@ if ($action === 'add') {
                 if ($field['type'] === 'image') {
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
-                        $uploadDir = __DIR__ . '/uploads/' . $year . '/';
+                        $month = date('m');
+                        $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
                         if (!is_dir($uploadDir)) {
                             mkdir($uploadDir, 0777, true);
                         }
                         $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
                         $targetPath = $uploadDir . $filename;
                         if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $year . '/' . $filename;
+                            $value = 'uploads/' . $year . '/' . $month . '/' . $filename;
                         }
                     }
                 } else {
@@ -587,14 +588,15 @@ if ($action === 'edit') {
                     $existing = $customValues[$field['id']] ?? '';
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
-                        $uploadDir = __DIR__ . '/uploads/' . $year . '/';
+                        $month = date('m');
+                        $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
                         if (!is_dir($uploadDir)) {
                             mkdir($uploadDir, 0777, true);
                         }
                         $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
                         $targetPath = $uploadDir . $filename;
                         if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $year . '/' . $filename;
+                            $value = 'uploads/' . $year . '/' . $month . '/' . $filename;
                         }
                     } else {
                         $value = $existing;
