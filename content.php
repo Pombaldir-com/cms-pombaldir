@@ -368,6 +368,12 @@ if ($action === 'add') {
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
                 $value = null;
+                if ($field['type'] === 'taxonomy') {
+                    $value = $_POST[$fieldName] ?? '';
+                    $termIds = $value !== '' ? [(int)$value] : [];
+                    setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
+                    continue;
+                }
                 if ($field['type'] === 'image') {
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
@@ -571,6 +577,12 @@ if ($action === 'edit') {
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
                 $value = null;
+                if ($field['type'] === 'taxonomy') {
+                    $value = $_POST[$fieldName] ?? '';
+                    $termIds = $value !== '' ? [(int)$value] : [];
+                    setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
+                    continue;
+                }
                 if ($field['type'] === 'image') {
                     $existing = $customValues[$field['id']] ?? '';
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
@@ -670,7 +682,12 @@ if ($action === 'edit') {
                                             echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
-                                            $value = $customValues[$field['id']] ?? '';
+                                            if ($field['type'] === 'taxonomy') {
+                                                $taxonomyId = (int)$field['options'];
+                                                $value = $taxonomyMap[$taxonomyId][0] ?? '';
+                                            } else {
+                                                $value = $customValues[$field['id']] ?? '';
+                                            }
                                             renderFieldInput($field, $inputName, $value);
                                         }
                                         echo '</div>';
@@ -688,8 +705,8 @@ if ($action === 'edit') {
                                             echo '<textarea id="body" name="body" class="form-control" rows="4">' . htmlspecialchars($content['body']) . '</textarea>';
                                         } elseif (isset($field['taxonomy_id'])) {
                                             $terms = getTerms($field['taxonomy_id']);
-                        $selected = $taxonomyMap[$field['taxonomy_id']] ?? [];
-                        echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
+                                            $selected = $taxonomyMap[$field['taxonomy_id']] ?? [];
+                                            echo '<label class="form-label">' . htmlspecialchars($field['label']) . '</label>';
                         echo '<select name="taxonomy_' . htmlspecialchars($field['taxonomy_id']) . '[]" class="form-select" multiple>';
                         foreach ($terms as $term) {
                             $sel = in_array($term['id'], $selected) ? ' selected' : '';
@@ -698,7 +715,12 @@ if ($action === 'edit') {
                         echo '</select>';
                                         } else {
                                             $inputName = 'field_' . $field['id'];
-                                            $value = $customValues[$field['id']] ?? '';
+                                            if ($field['type'] === 'taxonomy') {
+                                                $taxonomyId = (int)$field['options'];
+                                                $value = $taxonomyMap[$taxonomyId][0] ?? '';
+                                            } else {
+                                                $value = $customValues[$field['id']] ?? '';
+                                            }
                                             renderFieldInput($field, $inputName, $value);
                                         }
                                         echo '</div>';
