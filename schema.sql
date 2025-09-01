@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS content_types (
     sort_order INT NOT NULL DEFAULT 0,
     show_author TINYINT(1) NOT NULL DEFAULT 0,
     show_date TINYINT(1) NOT NULL DEFAULT 0,
+    title_grid_row INT NOT NULL DEFAULT 0,
+    title_grid_col INT NOT NULL DEFAULT 0,
+    title_grid_width INT NOT NULL DEFAULT 12,
+    body_grid_row INT NOT NULL DEFAULT 0,
+    body_grid_col INT NOT NULL DEFAULT 0,
+    body_grid_width INT NOT NULL DEFAULT 12,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

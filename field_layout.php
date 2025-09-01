@@ -12,6 +12,22 @@ if (!$type) {
 }
 
 $fields = getCustomFields($typeId);
+$fields = array_merge([
+    [
+        'id' => 'title',
+        'label' => 'Título',
+        'grid_row' => $type['title_grid_row'] ?? 0,
+        'grid_col' => $type['title_grid_col'] ?? 0,
+        'grid_width' => $type['title_grid_width'] ?? 12,
+    ],
+    [
+        'id' => 'body',
+        'label' => 'Texto',
+        'grid_row' => $type['body_grid_row'] ?? 0,
+        'grid_col' => $type['body_grid_col'] ?? 0,
+        'grid_width' => $type['body_grid_width'] ?? 12,
+    ],
+], $fields);
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -20,7 +36,7 @@ require_once __DIR__ . '/header.php';
     <h2 class="mt-3">Layout de campos para <?= htmlspecialchars($type['label']) ?></h2>
     <div class="grid-stack">
         <?php foreach ($fields as $field): ?>
-            <div class="grid-stack-item" data-gs-id="<?= $field['id'] ?>" data-gs-x="<?= $field['grid_col'] ?>" data-gs-y="<?= $field['grid_row'] ?>" data-gs-width="<?= $field['grid_width'] ?>" data-gs-height="1">
+            <div class="grid-stack-item" gs-id="<?= $field['id'] ?>" gs-x="<?= $field['grid_col'] ?>" gs-y="<?= $field['grid_row'] ?>" gs-w="<?= $field['grid_width'] ?>" gs-h="1">
                 <div class="grid-stack-item-content">
                     <?= htmlspecialchars($field['label']) ?>
                 </div>
@@ -39,6 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {
         items.forEach(item => {
             const params = new URLSearchParams();
             params.append('field_id', item.id);
+            params.append('type_id', <?= $typeId ?>);
             params.append('row', item.y);
             params.append('col', item.x);
             params.append('width', item.w);

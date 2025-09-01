@@ -120,7 +120,7 @@ switch (true) {
         break;
     case $path === 'fields/save-layout':
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            updateFieldLayout((int)($_POST['field_id'] ?? 0), (int)($_POST['row'] ?? 0), (int)($_POST['col'] ?? 0), (int)($_POST['width'] ?? 1));
+            updateFieldLayout($_POST['field_id'] ?? 0, (int)($_POST['type_id'] ?? 0), (int)($_POST['row'] ?? 0), (int)($_POST['col'] ?? 0), (int)($_POST['width'] ?? 1));
             echo 'ok';
         }
         break;
