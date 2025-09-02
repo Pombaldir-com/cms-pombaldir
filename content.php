@@ -117,6 +117,7 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
 
                 if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
 
+
                     $filters[(int)$opts['filter']['field_id']] = $opts['filter']['value'];
 
 

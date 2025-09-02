@@ -450,8 +450,6 @@ document.addEventListener('DOMContentLoaded', function () {
             opt.value = v;
             opt.textContent = v;
             if (String(preFilterValue) === String(v)) {
-
-
                 opt.selected = true;
             }
             filterValueSel.appendChild(opt);
