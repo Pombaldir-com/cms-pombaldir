@@ -445,11 +445,9 @@ document.addEventListener('DOMContentLoaded', function () {
         filterValueSel.innerHTML = '<option value="">-- Selecione --</option>';
         field.options.forEach(v => {
             const opt = document.createElement('option');
-
-
-            opt.value = v;
-            opt.textContent = v;
-            if (String(preFilterValue) === String(v)) {
+            opt.value = v.value;
+            opt.textContent = v.label;
+            if (String(preFilterValue) === String(v.value)) {
                 opt.selected = true;
             }
             filterValueSel.appendChild(opt);
