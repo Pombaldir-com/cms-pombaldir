@@ -17,7 +17,7 @@ if ($apiToken === '' || !hash_equals($apiToken, $providedToken)) {
     exit;
 }
 
-$companySlug = getCompanySlug();
+$companySlug = getConfiguredCompanySlug();
 $slug = trim($_GET['content_type'] ?? '');
 $contentType = $slug !== '' ? getContentTypeBySlug($slug) : null;
 if (!$contentType || (int)($contentType['api_enabled'] ?? 0) !== 1) {
