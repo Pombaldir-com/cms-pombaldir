@@ -62,12 +62,12 @@ function setSetting(string $name, string $value): void {
 }
 
 /**
- * Retrieve the slug identifying the current company.
+ * Retrieve the slug identifying the configured company.
  *
  * This slug is used to isolate uploaded files per company and to expose the
  * company through the public API.
  */
-function getCompanySlug(): string {
+function getConfiguredCompanySlug(): string {
     return getSetting('company_slug', 'default');
 }
 
@@ -117,16 +117,6 @@ function setCompanyContext(array $config): void {
 function getCompanySlug(): ?string {
     startSession();
     return $_SESSION['company']['slug'] ?? null;
-}
-
-/**
- * Clear the company configuration from the session.
- *
- * @return void
- */
-function clearCompanyContext(): void {
-    startSession();
-    unset($_SESSION['company']);
 }
 
 /**

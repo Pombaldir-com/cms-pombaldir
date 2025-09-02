@@ -24,24 +24,3 @@ function getCompanyByNif(string $nif): ?array {
     }
 }
 
-/**
- * Store company information in the session so subsequent requests know the current context.
- *
- * @param array $company
- * @return void
- */
-function setCompanyContext(array $company): void {
-    startSession();
-    $_SESSION['company'] = $company;
-}
-
-/**
- * Remove any company information from the current session.
- *
- * @return void
- */
-function clearCompanyContext(): void {
-    startSession();
-    unset($_SESSION['company']);
-}
-
