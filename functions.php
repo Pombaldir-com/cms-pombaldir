@@ -197,6 +197,24 @@ function isStrongPassword(string $password): bool {
         && preg_match('/[a-z]/', $password)
         && preg_match('/\d/', $password);
 }
+/**
+ * Clear company-related context stored in the session.
+ *
+ * Removes the generic 'company' entry and any other session variables
+ * prefixed with 'company_'.
+ *
+ * @return void
+ */
+function clearCompanyContext(): void {
+    startSession();
+    unset($_SESSION['company']);
+    foreach (array_keys($_SESSION) as $key) {
+        if (strpos($key, 'company_') === 0) {
+            unset($_SESSION[$key]);
+        }
+    }
+}
+
 
 /**
  * Log out the current user by destroying the session and clearing
@@ -205,6 +223,7 @@ function isStrongPassword(string $password): bool {
  */
 function logoutUser() {
     startSession();
+    clearCompanyContext();
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
