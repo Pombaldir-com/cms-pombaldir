@@ -394,12 +394,18 @@ $(document).ready(function() {
         var selected = sel.dataset.selected ? sel.dataset.selected.split(',').filter(Boolean) : [];
 
         function loadOptions(filterValue) {
+            if (filterField && (filterValue === undefined || filterValue === '')) {
+                sel.innerHTML = sel.multiple ? '' : '<option value="">-- Select --</option>';
+                return;
+            }
+
             var params = new URLSearchParams();
             params.append('type_id', targetType);
-            if (filterField && filterValue !== undefined && filterValue !== '') {
+            if (filterField) {
                 params.append('filter_field', filterField);
                 params.append('filter_value', filterValue);
             }
+
             fetch('data/content_options.php?' + params.toString())
                 .then(function(resp) { return resp.json(); })
                 .then(function(data) {
