@@ -5,6 +5,7 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 $csrfToken = generateCsrfToken();
+$slug = getCompanySlug();
 
 /**
  * Render an individual custom field input.
@@ -42,6 +43,10 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             break;
         case 'image':
             if ($value) {
+                $slug = getCompanySlug();
+                if (strpos($value, 'uploads/' . $slug . '/') !== 0) {
+                    $value = 'uploads/' . $slug . '/' . ltrim($value, '/');
+                }
                 echo '<div class="mb-2"><img src="' . htmlspecialchars($value) . '" style="max-width:100px;" alt=""></div>';
             }
             $req = $field['required'] && !$value ? 'required' : '';
@@ -378,14 +383,14 @@ if ($action === 'add') {
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
                         $month = date('m');
-                        $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
+                        $uploadDir = __DIR__ . '/uploads/' . $slug . '/' . $year . '/' . $month . '/';
                         if (!is_dir($uploadDir)) {
-                            mkdir($uploadDir, 0777, true);
+                            mkdir($uploadDir, 0755, true);
                         }
                         $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
                         $targetPath = $uploadDir . $filename;
                         if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $year . '/' . $month . '/' . $filename;
+                            $value = 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename;
                         }
                     }
                 } else {
@@ -589,17 +594,20 @@ if ($action === 'edit') {
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
                         $month = date('m');
-                        $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
+                        $uploadDir = __DIR__ . '/uploads/' . $slug . '/' . $year . '/' . $month . '/';
                         if (!is_dir($uploadDir)) {
-                            mkdir($uploadDir, 0777, true);
+                            mkdir($uploadDir, 0755, true);
                         }
                         $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
                         $targetPath = $uploadDir . $filename;
                         if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $year . '/' . $month . '/' . $filename;
+                            $value = 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename;
                         }
                     } else {
                         $value = $existing;
+                        if ($value !== '' && strpos($value, 'uploads/' . $slug . '/') !== 0) {
+                            $value = 'uploads/' . $slug . '/' . ltrim($value, '/');
+                        }
                     }
                 } else {
                     $value = $_POST[$fieldName] ?? null;

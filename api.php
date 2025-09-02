@@ -10,13 +10,14 @@ if ((int)getSetting('api_enabled', '0') !== 1) {
 }
 
 $providedToken = $_GET['token'] ?? '';
-$apiToken = getSetting('api_token', '');
+$apiToken = getApiToken();
 if ($apiToken === '' || !hash_equals($apiToken, $providedToken)) {
     http_response_code(403);
     echo json_encode(['error' => 'Token inválido']);
     exit;
 }
 
+$companySlug = getCompanySlug();
 $slug = trim($_GET['content_type'] ?? '');
 $contentType = $slug !== '' ? getContentTypeBySlug($slug) : null;
 if (!$contentType || (int)($contentType['api_enabled'] ?? 0) !== 1) {
@@ -55,6 +56,7 @@ foreach ($contents as &$c) {
 unset($c);
 
 $response = [
+    'company_slug' => $companySlug,
     'content_type' => [
         'id' => (int)$contentType['id'],
         'slug' => $contentType['name'],
