@@ -8,6 +8,8 @@ requireLogin();
 requireRole(2);
 $csrfToken = generateCsrfToken();
 
+$contentTypes = getContentTypes();
+
 $generalSaved = false;
 $emailSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -19,6 +21,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['app_name'])) {
         $appName = trim($_POST['app_name'] ?? '');
         setSetting('app_name', $appName);
+
+        $apiEnabled = isset($_POST['api_enabled']) ? '1' : '0';
+        setSetting('api_enabled', $apiEnabled);
+        $apiToken = trim($_POST['api_token'] ?? '');
+        if ($apiEnabled) {
+            if ($apiToken === '') {
+                $apiToken = bin2hex(random_bytes(20));
+            }
+            setSetting('api_token', $apiToken);
+            foreach ($contentTypes as $type) {
+                $enabled = isset($_POST['api_content'][$type['id']]) ? '1' : '0';
+                setSetting('api_content_' . $type['id'], $enabled);
+            }
+        } else {
+            setSetting('api_token', '');
+            foreach ($contentTypes as $type) {
+                setSetting('api_content_' . $type['id'], '0');
+            }
+        }
+
         $generalSaved = true;
     }
     if (isset($_POST['smtp_host'])) {
@@ -36,6 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 $currentAppName = getSetting('app_name', '');
+$currentApiEnabled = (int)getSetting('api_enabled', '0');
+$currentApiToken = getSetting('api_token', '');
+$contentTypeApi = [];
+foreach ($contentTypes as $type) {
+    $contentTypeApi[$type['id']] = (int)getSetting('api_content_' . $type['id'], '0');
+}
 $currentSmtpHost = getSetting('smtp_host', '');
 $currentSmtpPort = getSetting('smtp_port', '');
 $currentSmtpUser = getSetting('smtp_user', '');
@@ -64,10 +92,40 @@ require_once __DIR__ . '/header.php';
             <form method="post" class="mt-3">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row">
-                <div class="mb-3 col-md-6 col-sm-12">
-                    <label for="app_name" class="form-label">Nome da APP</label>
-                    <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="app_name" class="form-label">Nome da APP</label>
+                        <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
+                    </div>
                 </div>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="api_enabled" name="api_enabled" value="1" <?= $currentApiEnabled ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="api_enabled">Ativar API</label>
+                        </div>
+                    </div>
+                </div>
+                <div id="api-settings" style="<?= $currentApiEnabled ? '' : 'display:none;'; ?>">
+                    <div class="row">
+                        <div class="mb-3 col-md-6 col-sm-12">
+                            <label for="api_token" class="form-label">Token</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="api_token" name="api_token" value="<?= htmlspecialchars($currentApiToken); ?>">
+                                <button class="btn btn-outline-secondary" type="button" id="generate_token">Gerar</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="mb-3 col-md-6 col-sm-12">
+                            <label class="form-label">Endpoints</label>
+                            <?php foreach ($contentTypes as $type): ?>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="api_content_<?= $type['id']; ?>" name="api_content[<?= $type['id']; ?>]" value="1" <?= !empty($contentTypeApi[$type['id']]) ? 'checked' : ''; ?>>
+                                    <label class="form-check-label" for="api_content_<?= $type['id']; ?>"><?= htmlspecialchars($type['label']); ?></label>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
                 <div class="row">
                     <div class="mb-3 col-md-6 col-sm-12">
