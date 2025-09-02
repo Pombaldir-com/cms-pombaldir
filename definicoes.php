@@ -109,7 +109,11 @@ require_once __DIR__ . '/header.php';
                     <div class="row">
                         <div class="mb-3 col-md-6 col-sm-12">
                             <label for="api_token" class="form-label">Token</label>
-                            <input type="text" class="form-control" id="api_token" name="api_token" value="<?= htmlspecialchars($currentApiToken); ?>">
+
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="api_token" name="api_token" value="<?= htmlspecialchars($currentApiToken); ?>">
+                                <button class="btn btn-outline-secondary" type="button" id="generate_token">Gerar</button>
+                            </div>
                         </div>
                     </div>
                     <div class="row">

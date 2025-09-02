@@ -162,26 +162,25 @@ $(document).ready(function() {
 });
 
 $(document).ready(function() {
-    function generateToken() {
-        if (window.crypto && window.crypto.getRandomValues) {
-            var array = new Uint8Array(20);
-            window.crypto.getRandomValues(array);
-            return Array.from(array, function(b) {
-                return ('00' + b.toString(16)).slice(-2);
-            }).join('');
-        }
-        return Math.random().toString(36).substring(2);
-    }
 
     function toggleApiSettings() {
         var enabled = $('#api_enabled').is(':checked');
         $('#api-settings').toggle(enabled);
-        if (enabled && !$('#api_token').val()) {
-            $('#api_token').val(generateToken());
-        }
     }
     toggleApiSettings();
     $('#api_enabled').on('change', toggleApiSettings);
+    $('#generate_token').on('click', function () {
+        if (window.crypto && window.crypto.getRandomValues) {
+            var array = new Uint8Array(20);
+            window.crypto.getRandomValues(array);
+            var token = Array.from(array, function (b) {
+                return ('00' + b.toString(16)).slice(-2);
+            }).join('');
+            $('#api_token').val(token);
+        } else {
+            $('#api_token').val(Math.random().toString(36).substring(2));
+        }
+    });
 });
 // /Panel toolbox
 
