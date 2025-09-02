@@ -200,7 +200,19 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
             $existing = getCustomField($fieldId);
 
             if ($existing && (int)$existing['content_type_id'] === $typeId) {
-                updateCustomField($fieldId, $name, $label, $fieldType, $options, $required, $showInList, $sortable);
+                updateCustomField(
+                    $fieldId,
+                    $name,
+                    $label,
+                    $fieldType,
+                    $options,
+                    $required,
+                    $showInList,
+                    $sortable,
+                    (int) $existing['grid_row'],
+                    (int) $existing['grid_col'],
+                    (int) $existing['grid_width']
+                );
             }
         } else {
             createCustomField($typeId, $name, $label, $fieldType, $options, $required, $showInList, $sortable);
