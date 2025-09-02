@@ -178,14 +178,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
     } elseif ($fieldType === 'taxonomy' || $fieldType === 'multitaxonomy') {
         $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
     } elseif ($fieldType === 'content' || $fieldType === 'multicontent') {
-        $typeOpt = isset($_POST['options_content']) ? (int)$_POST['options_content'] : 0;
-        $filterField = isset($_POST['content_filter_field']) ? (int)$_POST['content_filter_field'] : 0;
-        $filterValue = isset($_POST['content_filter_value']) ? trim($_POST['content_filter_value']) : '';
-        $optData = ['type_id' => $typeOpt];
-        if ($filterField && $filterValue !== '') {
-            $optData['filter'] = ['field_id' => $filterField, 'value' => $filterValue];
-        }
-        $options = json_encode($optData);
+
+        $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
+
     }
     $required   = isset($_POST['required']);
     $showInList = isset($_POST['show_in_list']);
@@ -260,6 +255,16 @@ require_once __DIR__ . '/header.php';
                     <option value="">-- Selecione --</option>
                     <?php foreach ($taxonomies as $tax): ?>
                         <option value="<?php echo $tax['id']; ?>" <?php echo isset($editField) && ($editField['type'] === 'taxonomy' || $editField['type'] === 'multitaxonomy') && $editField['options'] == $tax['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($tax['label']); ?></option>
+
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="mb-3" id="options_content_wrapper">
+                <label class="form-label" for="options_content">Tipo de Conteúdo</label>
+                <select class="form-select" id="options_content" name="options_content">
+                    <option value="">-- Selecione --</option>
+                    <?php foreach ($contentTypesAll as $ct): ?>
+                        <option value="<?php echo $ct['id']; ?>" <?php echo isset($editField) && ($editField['type'] === 'content' || $editField['type'] === 'multicontent') && $editField['options'] == $ct['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($ct['label']); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -369,61 +374,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateOpts() {
         textWrap.style.display = typeSel.value === 'select' ? 'block' : 'none';
         taxWrap.style.display = (typeSel.value === 'taxonomy' || typeSel.value === 'multitaxonomy') ? 'block' : 'none';
-        const isContent = (typeSel.value === 'content' || typeSel.value === 'multicontent');
-        contentWrap.style.display = isContent ? 'block' : 'none';
-        if (!isContent) {
-            filterWrap.style.display = 'none';
-        }
-    }
 
-    function populateValues(fieldId, preVal = '') {
-        filterValueSel.innerHTML = '<option value="">-- Selecione --</option>';
-        const field = selectFields.find(f => f.id == fieldId);
-        if (field && field.options.length) {
-            field.options.forEach(v => {
-                const opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
-                filterValueSel.appendChild(opt);
-            });
-            filterValueSel.style.display = 'block';
-            if (preVal) {
-                filterValueSel.value = preVal;
-            }
-        } else {
-            filterValueSel.style.display = 'none';
-        }
-    }
-
-    function loadSelectFields(typeId) {
-        filterFieldSel.innerHTML = '<option value="">-- Sem filtro --</option>';
-        filterValueSel.innerHTML = '<option value="">-- Selecione --</option>';
-        filterValueSel.style.display = 'none';
-        if (!typeId || !(typeSel.value === 'content' || typeSel.value === 'multicontent')) {
-            filterWrap.style.display = 'none';
-            return;
-        }
-        fetch('data/select_fields.php?type_id=' + typeId)
-            .then(r => r.json())
-            .then(data => {
-                selectFields = data.fields || [];
-                if (selectFields.length) {
-                    selectFields.forEach(f => {
-                        const opt = document.createElement('option');
-                        opt.value = f.id;
-                        opt.textContent = f.label;
-                        filterFieldSel.appendChild(opt);
-                    });
-                    filterWrap.style.display = 'block';
-                    if (preFilterField) {
-                        filterFieldSel.value = preFilterField;
-                        populateValues(preFilterField, preFilterValue);
-                        preFilterField = '';
-                    }
-                } else {
-                    filterWrap.style.display = 'none';
-                }
-            });
+        contentWrap.style.display = (typeSel.value === 'content' || typeSel.value === 'multicontent') ? 'block' : 'none';
     }
 
     typeSel.addEventListener('change', function() {
