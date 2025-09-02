@@ -135,14 +135,14 @@ $taxonomies      = getTaxonomies();
 $contentTypesAll = getContentTypes();
 
 $selectedContentType = 0;
-$selectedFilterField = '';
+$selectedFilterField = 0;
 $selectedFilterValue = '';
 if ($editField && ($editField['type'] === 'content' || $editField['type'] === 'multicontent')) {
     $optData = json_decode($editField['options'], true);
     if (is_array($optData)) {
         $selectedContentType = (int)($optData['type_id'] ?? 0);
         if (!empty($optData['filter'])) {
-            $selectedFilterField = (string)($optData['filter']['field_id'] ?? '');
+            $selectedFilterField = (int)($optData['filter']['field_id'] ?? 0);
             $selectedFilterValue = $optData['filter']['value'] ?? '';
         }
     } else {
@@ -179,10 +179,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
         $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
     } elseif ($fieldType === 'content' || $fieldType === 'multicontent') {
         $contentType = isset($_POST['options_content']) ? (int) $_POST['options_content'] : 0;
+
         $filterField = $_POST['content_filter_field'] ?? '';
         $filterValue = $_POST['content_filter_value'] ?? '';
         $optArr = ['type_id' => $contentType];
         if ($filterField !== '' && $filterValue !== '') {
+
             $optArr['filter'] = [
                 'field_id' => $filterField,
                 'value' => $filterValue,
@@ -415,7 +417,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const opt = document.createElement('option');
                 opt.value = f.id;
                 opt.textContent = f.label;
+
                 if (String(preFilterField) === String(f.id)) {
+
                     opt.selected = true;
                 }
                 filterFieldSel.appendChild(opt);
@@ -423,7 +427,9 @@ document.addEventListener('DOMContentLoaded', function () {
             filterWrap.style.display = selectFields.length ? 'block' : 'none';
             if (preFilterField) {
                 populateValues(preFilterField);
+
                 preFilterField = '';
+
             }
         } catch (e) {
             filterWrap.style.display = 'none';
