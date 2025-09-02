@@ -17,26 +17,51 @@ if ($apiToken === '' || !hash_equals($apiToken, $providedToken)) {
     exit;
 }
 
-$slug = $_GET['taxonomy_slug'] ?? '';
-$taxonomy = $slug !== '' ? getTaxonomyBySlug($slug) : null;
-if (!$taxonomy) {
+$slug = trim($_GET['content_type'] ?? '');
+$contentType = $slug !== '' ? getContentTypeBySlug($slug) : null;
+if (!$contentType || (int)($contentType['api_enabled'] ?? 0) !== 1) {
     http_response_code(404);
-    echo json_encode(['error' => 'Taxonomia não encontrada']);
+    echo json_encode(['error' => 'Tipo de conteúdo não encontrado']);
     exit;
 }
 
-$terms = getTerms((int)$taxonomy['id']);
-$terms = array_map(function ($t) {
-    return ['id' => (int)$t['id'], 'name' => $t['name']];
-}, $terms);
+$contents = getContentList((int)$contentType['id']);
+
+$fieldDefs = getCustomFields((int)$contentType['id']);
+$fieldMap = [];
+foreach ($fieldDefs as $f) {
+    $fieldMap[$f['id']] = $f['name'];
+}
+
+$taxDefs = getTaxonomiesForContentType((int)$contentType['id']);
+$taxMap = [];
+foreach ($taxDefs as $t) {
+    $taxMap[$t['id']] = $t['name'];
+}
+
+foreach ($contents as &$c) {
+    $c['fields'] = array_map(function ($f) use ($fieldMap) {
+        return [
+            'name' => $fieldMap[$f['field_id']] ?? $f['field_id'],
+            'value' => $f['value'],
+        ];
+    }, $c['fields']);
+    $c['taxonomies'] = array_map(function ($t) use ($taxMap) {
+        return [
+            'taxonomy' => $taxMap[$t['taxonomy_id']] ?? $t['taxonomy_id'],
+            'term' => $t['term_name'],
+        ];
+    }, $c['taxonomies']);
+}
+unset($c);
 
 $response = [
-    'taxonomy' => [
-        'id' => (int)$taxonomy['id'],
-        'slug' => $taxonomy['name'],
-        'label' => $taxonomy['label'],
-        'terms' => $terms,
+    'content_type' => [
+        'id' => (int)$contentType['id'],
+        'slug' => $contentType['name'],
+        'label' => $contentType['label'],
     ],
+    'content' => $contents,
 ];
 
 echo json_encode($response, JSON_UNESCAPED_UNICODE);

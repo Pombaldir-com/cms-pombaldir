@@ -31,13 +31,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             setSetting('api_token', $apiToken);
             foreach ($contentTypes as $type) {
-                $enabled = isset($_POST['api_content'][$type['id']]) ? '1' : '0';
-                setSetting('api_content_' . $type['id'], $enabled);
+                $enabled = isset($_POST['api_content'][$type['id']]);
+                setContentTypeApi((int)$type['id'], $enabled);
             }
         } else {
             setSetting('api_token', '');
             foreach ($contentTypes as $type) {
-                setSetting('api_content_' . $type['id'], '0');
+                setContentTypeApi((int)$type['id'], false);
             }
         }
 
@@ -60,9 +60,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $currentAppName = getSetting('app_name', '');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
 $currentApiToken = getSetting('api_token', '');
+$contentTypes = getContentTypes();
 $contentTypeApi = [];
 foreach ($contentTypes as $type) {
-    $contentTypeApi[$type['id']] = (int)getSetting('api_content_' . $type['id'], '0');
+    $contentTypeApi[$type['id']] = (int)($type['api_enabled'] ?? 0);
 }
 $currentSmtpHost = getSetting('smtp_host', '');
 $currentSmtpPort = getSetting('smtp_port', '');
