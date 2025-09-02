@@ -55,19 +55,38 @@ foreach ($contents as $content) {
             $row[] = htmlspecialchars($termName);
             continue;
         }
+        if ($field['type'] === 'multitaxonomy') {
+            $taxonomyId = (int)$field['options'];
+            $termsList = [];
+            foreach ($content['taxonomies'] as $assoc) {
+                if ($assoc['taxonomy_id'] == $taxonomyId) {
+                    $termsList[] = $assoc['term_name'] !== null ? $assoc['term_name'] : 'Removido';
+                }
+            }
+            $row[] = htmlspecialchars(implode(', ', $termsList));
+            continue;
+        }
 
         $fieldId = $field['id'];
-        $fieldValue = '';
+        $values = [];
         foreach ($content['fields'] as $cv) {
             if ($cv['field_id'] == $fieldId) {
-                $fieldValue = $cv['value'];
-                break;
+                $values[] = $cv['value'];
             }
         }
+        $fieldValue = $values[0] ?? '';
 
         if ($field['type'] === 'content' && $fieldValue !== '') {
             $related = getContent((int)$fieldValue);
             $fieldValue = $related ? $related['title'] : 'Removido';
+        }
+        if ($field['type'] === 'multicontent' && !empty($values)) {
+            $titles = [];
+            foreach ($values as $val) {
+                $related = getContent((int)$val);
+                $titles[] = $related ? $related['title'] : 'Removido';
+            }
+            $fieldValue = implode(', ', $titles);
         }
 
         if ($field['type'] === 'image' && $fieldValue !== '') {
