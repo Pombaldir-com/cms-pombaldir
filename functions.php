@@ -1317,10 +1317,18 @@ function getContentList(int $content_type_id, array $filters = []): array {
 
     $i = 0;
     foreach ($filters as $fieldId => $value) {
-        $alias = 'cf' . $i++;
-        $sql .= " JOIN custom_values $alias ON $alias.content_id = c.id AND $alias.field_id = ? AND $alias.value = ?";
-        $params[] = $fieldId;
-        $params[] = $value;
+        if (strpos((string)$fieldId, 'tax_') === 0) {
+            $alias = 'ct' . $i++;
+            $taxId = (int)substr($fieldId, 4);
+            $sql .= " JOIN content_taxonomy $alias ON $alias.content_id = c.id AND $alias.taxonomy_id = ? AND $alias.term_id = ?";
+            $params[] = $taxId;
+            $params[] = $value;
+        } else {
+            $alias = 'cf' . $i++;
+            $sql .= " JOIN custom_values $alias ON $alias.content_id = c.id AND $alias.field_id = ? AND $alias.value = ?";
+            $params[] = (int)$fieldId;
+            $params[] = $value;
+        }
     }
 
     $sql .= ' WHERE c.content_type_id = ? ORDER BY c.id DESC';
