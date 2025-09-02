@@ -134,6 +134,22 @@ if ($isLayout) {
 $taxonomies      = getTaxonomies();
 $contentTypesAll = getContentTypes();
 
+$selectedContentType = 0;
+$selectedFilterField = '';
+$selectedFilterValue = '';
+if ($editField && ($editField['type'] === 'content' || $editField['type'] === 'multicontent')) {
+    $optData = json_decode($editField['options'], true);
+    if (is_array($optData)) {
+        $selectedContentType = (int)($optData['type_id'] ?? 0);
+        if (!empty($optData['filter'])) {
+            $selectedFilterField = (string)($optData['filter']['field_id'] ?? '');
+            $selectedFilterValue = $optData['filter']['value'] ?? '';
+        }
+    } else {
+        $selectedContentType = (int)$editField['options'];
+    }
+}
+
 // Ação de apagar
 if ($deleteId) {
     $field = getCustomField($deleteId);
@@ -162,7 +178,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
     } elseif ($fieldType === 'taxonomy' || $fieldType === 'multitaxonomy') {
         $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
     } elseif ($fieldType === 'content' || $fieldType === 'multicontent') {
+
         $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
+
     }
     $required   = isset($_POST['required']);
     $showInList = isset($_POST['show_in_list']);
@@ -237,6 +255,7 @@ require_once __DIR__ . '/header.php';
                     <option value="">-- Selecione --</option>
                     <?php foreach ($taxonomies as $tax): ?>
                         <option value="<?php echo $tax['id']; ?>" <?php echo isset($editField) && ($editField['type'] === 'taxonomy' || $editField['type'] === 'multitaxonomy') && $editField['options'] == $tax['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($tax['label']); ?></option>
+
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -249,6 +268,24 @@ require_once __DIR__ . '/header.php';
                     <?php endforeach; ?>
                 </select>
             </div>
+              <div class="mb-3" id="options_content_wrapper">
+                  <label class="form-label" for="options_content">Tipo de Conteúdo</label>
+                  <select class="form-select" id="options_content" name="options_content">
+                      <option value="">-- Selecione --</option>
+                      <?php foreach ($contentTypesAll as $ct): ?>
+                          <option value="<?php echo $ct['id']; ?>" <?php echo ($selectedContentType == $ct['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($ct['label']); ?></option>
+                      <?php endforeach; ?>
+                  </select>
+              </div>
+              <div class="mb-3" id="content_filter_wrapper" style="display:none;">
+                  <label class="form-label" for="content_filter_field">Filtro por campo</label>
+                  <select class="form-select mb-2" id="content_filter_field" name="content_filter_field">
+                      <option value="">-- Sem filtro --</option>
+                  </select>
+                  <select class="form-select" id="content_filter_value" name="content_filter_value" style="display:none;">
+                      <option value="">-- Selecione --</option>
+                  </select>
+              </div>
             <div class="form-check mb-3">
                 <input class="form-check-input" type="checkbox" id="required" name="required" <?php echo !empty($editField['required']) ? 'checked' : ''; ?>>
                 <label class="form-check-label" for="required">Obrigatório</label>
@@ -291,8 +328,10 @@ require_once __DIR__ . '/header.php';
                     <?php elseif ($field['type'] === 'content' || $field['type'] === 'multicontent'): ?>
                         <?php
                             $opt = '';
+                            $optData = json_decode($field['options'], true);
+                            $typeOpt = is_array($optData) ? ($optData['type_id'] ?? 0) : $field['options'];
                             foreach ($contentTypesAll as $ct) {
-                                if ($ct['id'] == $field['options']) { $opt = $ct['label']; break; }
+                                if ($ct['id'] == $typeOpt) { $opt = $ct['label']; break; }
                             }
                             echo htmlspecialchars($opt);
                         ?>
@@ -324,13 +363,40 @@ document.addEventListener('DOMContentLoaded', function () {
     const textWrap = document.getElementById('options_text_wrapper');
     const taxWrap = document.getElementById('options_taxonomy_wrapper');
     const contentWrap = document.getElementById('options_content_wrapper');
+    const filterWrap = document.getElementById('content_filter_wrapper');
+    const contentTypeSel = document.getElementById('options_content');
+    const filterFieldSel = document.getElementById('content_filter_field');
+    const filterValueSel = document.getElementById('content_filter_value');
+    let selectFields = [];
+    let preFilterField = <?= json_encode($selectedFilterField) ?>;
+    let preFilterValue = <?= json_encode($selectedFilterValue) ?>;
+
     function updateOpts() {
         textWrap.style.display = typeSel.value === 'select' ? 'block' : 'none';
         taxWrap.style.display = (typeSel.value === 'taxonomy' || typeSel.value === 'multitaxonomy') ? 'block' : 'none';
+
         contentWrap.style.display = (typeSel.value === 'content' || typeSel.value === 'multicontent') ? 'block' : 'none';
     }
-    typeSel.addEventListener('change', updateOpts);
+
+    typeSel.addEventListener('change', function() {
+        updateOpts();
+        if (typeSel.value === 'content' || typeSel.value === 'multicontent') {
+            loadSelectFields(contentTypeSel.value);
+        }
+    });
+
+    contentTypeSel.addEventListener('change', function() {
+        loadSelectFields(this.value);
+    });
+
+    filterFieldSel.addEventListener('change', function() {
+        populateValues(this.value);
+    });
+
     updateOpts();
+    if (typeSel.value === 'content' || typeSel.value === 'multicontent') {
+        loadSelectFields(contentTypeSel.value);
+    }
 });
 </script>
 <?php endif; ?>

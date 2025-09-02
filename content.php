@@ -86,7 +86,18 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             echo '</select>';
             break;
         case 'content':
-            $entries = getContentList((int)$options);
+            $opts = json_decode($options, true);
+            if (is_array($opts)) {
+                $targetType = (int)($opts['type_id'] ?? 0);
+                $filters = [];
+                if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
+                    $filters[(int)$opts['filter']['field_id']] = $opts['filter']['value'];
+                }
+            } else {
+                $targetType = (int)$options;
+                $filters = [];
+            }
+            $entries = getContentList($targetType, $filters);
             echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
             echo '<option value="">-- Select --</option>';
             foreach ($entries as $entry) {
@@ -97,7 +108,9 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             echo '</select>';
             break;
         case 'multicontent':
+
             $entries = getContentList((int)$options);
+
             $selected = is_array($value) ? $value : [];
             echo '<select name="' . htmlspecialchars($inputName) . '[]" class="form-select" multiple ' . $isRequired . '>';
             foreach ($entries as $entry) {
