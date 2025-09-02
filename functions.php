@@ -1319,7 +1319,7 @@ function getContentList(int $content_type_id, array $filters = []): array {
     foreach ($filters as $fieldId => $value) {
         $alias = 'cf' . $i++;
         $sql .= " JOIN custom_values $alias ON $alias.content_id = c.id AND $alias.field_id = ? AND $alias.value = ?";
-        $params[] = $fieldId;
+        $params[] = (int)$fieldId;
         $params[] = $value;
     }
 

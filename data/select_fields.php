@@ -15,9 +15,14 @@ if (!$typeId) {
 
 $fields = getCustomFields($typeId);
 $result = [];
+
 foreach ($fields as $field) {
     if ($field['type'] === 'select') {
-        $options = array_map('trim', array_filter(explode(',', $field['options'])));
+        $opts = array_map('trim', array_filter(explode(',', $field['options'])));
+        $options = [];
+        foreach ($opts as $o) {
+            $options[] = ['value' => $o, 'label' => $o];
+        }
         $result[] = [
             'id' => (int)$field['id'],
             'label' => $field['label'],
