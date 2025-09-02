@@ -42,8 +42,7 @@ foreach ($taxDefs as $t) {
 foreach ($contents as &$c) {
     $c['fields'] = array_map(function ($f) use ($fieldMap) {
         return [
-            'name' => $fieldMap[$f['field_id']] ?? $f['field_id'],
-            'value' => $f['value'],
+            $fieldMap[$f['field_id']] ?? $f['field_id'] => $f['value'],
         ];
     }, $c['fields']);
     $c['taxonomies'] = array_map(function ($t) use ($taxMap) {
