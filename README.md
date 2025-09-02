@@ -8,6 +8,7 @@ Sistema de gestão de conteúdos simples escrito em PHP. O objetivo é fornecer 
 - Definição de taxonomias e termos.
 - Interface de administração responsiva usando Bootstrap e Gentelella.
 - Sistema de autenticação com proteção CSRF.
+- Endpoint de API para consulta de taxonomias e termos através de token.
 
 ## Requisitos
 - PHP \>= 7.4
@@ -38,6 +39,19 @@ Sistema de gestão de conteúdos simples escrito em PHP. O objetivo é fornecer 
 - `data/` – configuração de base de dados e scripts auxiliares.
 - `vendors/` – dependências front-end (Bootstrap, jQuery, etc.).
 - `*.php` – páginas e endpoints principais do CMS.
+
+## API
+O projeto disponibiliza um endpoint simples em [`api.php`](api.php) para aceder a taxonomias e respetivos termos em formato JSON.
+
+1. No painel de administração, aceda a **Definições** e ative a opção **Ativar API**.
+2. Defina um token secreto que será usado nas chamadas.
+3. Faça pedidos para `api.php` com os parâmetros `token` e `taxonomy_slug`:
+
+   ```bash
+   curl "http://localhost:8000/api.php?token=SEU_TOKEN&taxonomy_slug=Categorias"
+   ```
+
+O endpoint responde com informação da taxonomia e a lista de termos associados.
 
 ## Licença
 Distribuído sob a licença MIT. Consulte o ficheiro [`LICENSE`](LICENSE) se existir ou adapte conforme necessário.
