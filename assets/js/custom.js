@@ -162,6 +162,7 @@ $(document).ready(function() {
 });
 
 $(document).ready(function() {
+
     function toggleApiSettings() {
         var enabled = $('#api_enabled').is(':checked');
         $('#api-settings').toggle(enabled);
