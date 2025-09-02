@@ -101,5 +101,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="vendors/nprogress/nprogress.js"></script>
     <script src="https://colorlibhq.github.io/gentelella/build/js/custom.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const nifInput = document.querySelector('input[name="nif"]');
+        if (!nifInput) return;
+
+        const savedNif = localStorage.getItem('nif');
+        if (savedNif) {
+          nifInput.value = savedNif;
+
+          const usernameInput = document.querySelector('input[name="username"]');
+          if (usernameInput) {
+            usernameInput.focus();
+          }
+        }
+
+        const form = nifInput.form;
+        if (form) {
+          form.addEventListener('submit', function () {
+            localStorage.setItem('nif', nifInput.value);
+          });
+        }
+      });
+    </script>
 </body>
 </html>
