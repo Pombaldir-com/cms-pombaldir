@@ -28,22 +28,20 @@ foreach ($fields as $field) {
             'label' => $field['label'],
             'options' => $options,
         ];
-    }
-}
-
-$taxonomies = getTaxonomiesForContentType($typeId);
-foreach ($taxonomies as $tax) {
-    $terms = getTerms((int)$tax['id']);
-    if ($terms) {
-        $options = [];
-        foreach ($terms as $term) {
-            $options[] = ['value' => (string)$term['id'], 'label' => $term['name']];
+    } elseif ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
+        $taxId = (int)$field['options'];
+        $terms = getTerms($taxId);
+        if ($terms) {
+            $options = [];
+            foreach ($terms as $term) {
+                $options[] = ['value' => (string)$term['id'], 'label' => $term['name']];
+            }
+            $result[] = [
+                'id' => 'tax_' . $taxId,
+                'label' => $field['label'],
+                'options' => $options,
+            ];
         }
-        $result[] = [
-            'id' => 'tax_' . $tax['id'],
-            'label' => $tax['label'],
-            'options' => $options,
-        ];
     }
 }
 
