@@ -386,3 +386,56 @@ $(document).ready(function() {
         }
     });
 });
+
+$(document).ready(function() {
+    document.querySelectorAll('select.content-select').forEach(function(sel) {
+        var targetType = sel.dataset.targetType;
+        var filterField = sel.dataset.filterField || '';
+        var selected = sel.dataset.selected ? sel.dataset.selected.split(',').filter(Boolean) : [];
+
+        function loadOptions(filterValue) {
+            var params = new URLSearchParams();
+            params.append('type_id', targetType);
+            if (filterField && filterValue !== undefined && filterValue !== '') {
+                params.append('filter_field', filterField);
+                params.append('filter_value', filterValue);
+            }
+            fetch('data/content_options.php?' + params.toString())
+                .then(function(resp) { return resp.json(); })
+                .then(function(data) {
+                    sel.innerHTML = sel.multiple ? '' : '<option value="">-- Select --</option>';
+                    data.entries.forEach(function(entry) {
+                        var opt = document.createElement('option');
+                        opt.value = entry.id;
+                        opt.textContent = entry.title;
+                        if (selected.includes(String(entry.id))) {
+                            opt.selected = true;
+                        }
+                        sel.appendChild(opt);
+                    });
+                });
+        }
+
+        function getFilterInput() {
+            if (!filterField) return null;
+            if (filterField.startsWith('tax_')) {
+                var id = filterField.substring(4);
+                return document.querySelector('[name="taxonomy_' + id + '"],[name="taxonomy_' + id + '[]"]');
+            }
+            return document.querySelector('[name="field_' + filterField + '"],[name="field_' + filterField + '[]"]');
+        }
+
+        var filterInput = getFilterInput();
+        if (filterInput) {
+            var update = function() { loadOptions(filterInput.value); };
+            filterInput.addEventListener('change', update);
+            if (filterInput.value !== '') {
+                update();
+            } else {
+                loadOptions('');
+            }
+        } else {
+            loadOptions('');
+        }
+    });
+});
