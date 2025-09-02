@@ -31,4 +31,20 @@ foreach ($fields as $field) {
     }
 }
 
+$taxonomies = getTaxonomiesForContentType($typeId);
+foreach ($taxonomies as $tax) {
+    $terms = getTerms((int)$tax['id']);
+    if ($terms) {
+        $options = [];
+        foreach ($terms as $term) {
+            $options[] = ['value' => (string)$term['id'], 'label' => $term['name']];
+        }
+        $result[] = [
+            'id' => 'tax_' . $tax['id'],
+            'label' => $tax['label'],
+            'options' => $options,
+        ];
+    }
+}
+
 echo json_encode(['fields' => $result]);
