@@ -425,13 +425,15 @@ function getContentTypes(): array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasTax    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_taxonomies'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $hasApi    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'api_enabled'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
+    $taxExpr    = $hasTax ? 'show_taxonomies' : '1 AS show_taxonomies';
     $apiExpr    = $hasApi ? 'api_enabled' : '0 AS api_enabled';
     $orderExpr  = $hasOrder ? 'sort_order' : 'id';
-    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr, $apiExpr, $orderExpr AS sort_order FROM content_types ORDER BY $orderExpr ASC, id ASC");
+    $stmt = $pdo->query("SELECT id, name, label, icon, $authorExpr, $dateExpr, $taxExpr, $apiExpr, $orderExpr AS sort_order FROM content_types ORDER BY $orderExpr ASC, id ASC");
     return $stmt->fetchAll();
 }
 
@@ -445,6 +447,7 @@ function getContentType(int $id): ?array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasTax    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_taxonomies'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $hasApi    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'api_enabled'")->fetch();
     $hasTitleRow   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_row'")->fetch();
@@ -455,6 +458,7 @@ function getContentType(int $id): ?array {
     $hasBodyWidth  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_width'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
+    $taxExpr    = $hasTax ? 'show_taxonomies' : '1 AS show_taxonomies';
     $apiExpr    = $hasApi ? 'api_enabled' : '0 AS api_enabled';
     $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
     $titleRowExpr   = $hasTitleRow ? 'title_grid_row' : '0 AS title_grid_row';
@@ -463,7 +467,7 @@ function getContentType(int $id): ?array {
     $bodyRowExpr    = $hasBodyRow ? 'body_grid_row' : '0 AS body_grid_row';
     $bodyColExpr    = $hasBodyCol ? 'body_grid_col' : '0 AS body_grid_col';
     $bodyWidthExpr  = $hasBodyWidth ? 'body_grid_width' : '12 AS body_grid_width';
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $apiExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $taxExpr, $apiExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE id = ?");
     $stmt->execute([$id]);
     return $stmt->fetch() ?: null;
 }
@@ -478,6 +482,7 @@ function getContentTypeBySlug(string $slug): ?array {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasTax    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_taxonomies'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $hasApi    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'api_enabled'")->fetch();
     $hasTitleRow   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_row'")->fetch();
@@ -488,6 +493,7 @@ function getContentTypeBySlug(string $slug): ?array {
     $hasBodyWidth  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_width'")->fetch();
     $authorExpr = $hasAuthor ? 'show_author' : '1 AS show_author';
     $dateExpr   = $hasDate ? 'show_date' : '1 AS show_date';
+    $taxExpr    = $hasTax ? 'show_taxonomies' : '1 AS show_taxonomies';
     $apiExpr    = $hasApi ? 'api_enabled' : '0 AS api_enabled';
     $orderExpr  = $hasOrder ? 'sort_order' : '0 AS sort_order';
     $titleRowExpr   = $hasTitleRow ? 'title_grid_row' : '0 AS title_grid_row';
@@ -497,7 +503,7 @@ function getContentTypeBySlug(string $slug): ?array {
     $bodyColExpr    = $hasBodyCol ? 'body_grid_col' : '0 AS body_grid_col';
     $bodyWidthExpr  = $hasBodyWidth ? 'body_grid_width' : '12 AS body_grid_width';
 
-    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $apiExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE name = ?");
+    $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $taxExpr, $apiExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE name = ?");
     $stmt->execute([$slug]);
     return $stmt->fetch() ?: null;
 }
@@ -527,10 +533,11 @@ function getNextContentTypeSortOrder(): int {
  * @return int
  */
 
-function createContentType(string $name, string $label, string $icon, bool $show_author = false, bool $show_date = false, int $sort_order = 0, bool $api_enabled = false): int {
+function createContentType(string $name, string $label, string $icon, bool $show_author = false, bool $show_date = false, bool $show_taxonomies = true, int $sort_order = 0, bool $api_enabled = false): int {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasTax    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_taxonomies'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $hasApi    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'api_enabled'")->fetch();
     $fields = ['name', 'label', 'icon'];
@@ -539,6 +546,7 @@ function createContentType(string $name, string $label, string $icon, bool $show
     if ($hasOrder) { $fields[] = 'sort_order'; $placeholders[] = '?'; $values[] = $sort_order; }
     if ($hasAuthor) { $fields[] = 'show_author'; $placeholders[] = '?'; $values[] = $show_author ? 1 : 0; }
     if ($hasDate) { $fields[] = 'show_date'; $placeholders[] = '?'; $values[] = $show_date ? 1 : 0; }
+    if ($hasTax) { $fields[] = 'show_taxonomies'; $placeholders[] = '?'; $values[] = $show_taxonomies ? 1 : 0; }
     if ($hasApi) { $fields[] = 'api_enabled'; $placeholders[] = '?'; $values[] = $api_enabled ? 1 : 0; }
     $sql = 'INSERT INTO content_types (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')';
     $stmt = $pdo->prepare($sql);
@@ -558,10 +566,11 @@ function createContentType(string $name, string $label, string $icon, bool $show
  * @param int         $sort_order
  * @return void
  */
-function updateContentType(int $id, string $name, string $label, ?string $icon = null, bool $show_author = false, bool $show_date = false, int $sort_order = 0, bool $api_enabled = false): void {
+function updateContentType(int $id, string $name, string $label, ?string $icon = null, bool $show_author = false, bool $show_date = false, bool $show_taxonomies = true, int $sort_order = 0, bool $api_enabled = false): void {
     $pdo = getPDO();
     $hasAuthor = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_author'")->fetch();
     $hasDate   = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_date'")->fetch();
+    $hasTax    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'show_taxonomies'")->fetch();
     $hasOrder  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'sort_order'")->fetch();
     $hasApi    = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'api_enabled'")->fetch();
     $fields = ['name = ?', 'label = ?', 'icon = ?'];
@@ -569,6 +578,7 @@ function updateContentType(int $id, string $name, string $label, ?string $icon =
     if ($hasOrder) { $fields[] = 'sort_order = ?'; $values[] = $sort_order; }
     if ($hasAuthor) { $fields[] = 'show_author = ?'; $values[] = $show_author ? 1 : 0; }
     if ($hasDate) { $fields[] = 'show_date = ?'; $values[] = $show_date ? 1 : 0; }
+    if ($hasTax) { $fields[] = 'show_taxonomies = ?'; $values[] = $show_taxonomies ? 1 : 0; }
     if ($hasApi) { $fields[] = 'api_enabled = ?'; $values[] = $api_enabled ? 1 : 0; }
     $sql = 'UPDATE content_types SET ' . implode(', ', $fields) . ' WHERE id = ?';
     $values[] = $id;
