@@ -135,14 +135,14 @@ $taxonomies      = getTaxonomies();
 $contentTypesAll = getContentTypes();
 
 $selectedContentType = 0;
-$selectedFilterField = 0;
+$selectedFilterField = '';
 $selectedFilterValue = '';
 if ($editField && ($editField['type'] === 'content' || $editField['type'] === 'multicontent')) {
     $optData = json_decode($editField['options'], true);
     if (is_array($optData)) {
         $selectedContentType = (int)($optData['type_id'] ?? 0);
         if (!empty($optData['filter'])) {
-            $selectedFilterField = (int)($optData['filter']['field_id'] ?? 0);
+            $selectedFilterField = $optData['filter']['field_id'] ?? '';
             $selectedFilterValue = $optData['filter']['value'] ?? '';
         }
     } else {
@@ -445,11 +445,9 @@ document.addEventListener('DOMContentLoaded', function () {
         filterValueSel.innerHTML = '<option value="">-- Selecione --</option>';
         field.options.forEach(v => {
             const opt = document.createElement('option');
-
-
-            opt.value = v;
-            opt.textContent = v;
-            if (String(preFilterValue) === String(v)) {
+            opt.value = v.value;
+            opt.textContent = v.label;
+            if (String(preFilterValue) === String(v.value)) {
                 opt.selected = true;
             }
             filterValueSel.appendChild(opt);
