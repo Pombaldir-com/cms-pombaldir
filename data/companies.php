@@ -2,17 +2,17 @@
 return [
     '123456789' => [
         'db_host' => 'localhost',
-        'db_name' => 'cms_empresa1',
+        'db_name' => 'cms',
         'db_user' => 'root',
         'db_pass' => 'root',
-        'slug'    => 'empresa1',
+        'slug'    => 'demo',
     ],
-    '987654321' => [
+    '505854104' => [
         'db_host' => 'localhost',
-        'db_name' => 'cms_empresa2',
+        'db_name' => 'cms_menudigital',
         'db_user' => 'root',
         'db_pass' => 'root',
-        'slug'    => 'empresa2',
+        'slug'    => 'menudigital',
     ],
 ];
 
