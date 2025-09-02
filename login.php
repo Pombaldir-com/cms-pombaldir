@@ -23,19 +23,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit('Token CSRF inválido');
     }
     $csrfToken = generateCsrfToken();
+    $nif = trim($_POST['nif'] ?? '');
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
-    if ($username !== '' && $password !== '') {
-        if (loginUser($username, $password)) {
-            // Redirect to dashboard or to a previously requested page
-            $redirect = $_GET['redirect'] ?? (BASE_URL . 'dashboard');
-            header('Location: ' . $redirect);
-            exit;
+    if ($nif !== '' && $username !== '' && $password !== '') {
+        require_once __DIR__ . '/companies.php';
+        $company = getCompanyByNif($nif);
+        if ($company) {
+            setCompanyContext($company);
+            if (loginUser($username, $password)) {
+                // Redirect to dashboard or to a previously requested page
+                $redirect = $_GET['redirect'] ?? (BASE_URL . 'dashboard');
+                header('Location: ' . $redirect);
+                exit;
+            } else {
+                $error = 'Nome de utilizador ou palavra‑passe inválidos.';
+                clearCompanyContext();
+            }
         } else {
-            $error = 'Nome de utilizador ou palavra‑passe inválidos.';
+            $error = 'Empresa não encontrada.';
         }
     } else {
-        $error = 'Preencha ambos os campos.';
+        $error = 'Preencha todos os campos.';
     }
 }
 
@@ -70,7 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
               <?php endif; ?>
               <div>
-                <input type="text" class="form-control" placeholder="Utilizador" name="username" required autofocus />
+                <input type="text" class="form-control" placeholder="NIF" name="nif" required autofocus />
+              </div>
+              <div>
+                <input type="text" class="form-control" placeholder="Utilizador" name="username" required />
               </div>
               <div>
                 <input type="password" class="form-control" placeholder="Palavra‑passe" name="password" required />
