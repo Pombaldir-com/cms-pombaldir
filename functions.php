@@ -681,6 +681,68 @@ function sortFieldsByGrid(array $fields): array {
 }
 
 /**
+ * Determine the next available grid row for a content type's layout.
+ *
+ * Takes into account existing custom fields, core title/body fields and
+ * taxonomy fields to ensure a new field is appended at the end without
+ * disturbing the current layout.
+ *
+ * @param int $content_type_id
+ * @return int
+ */
+function getNextFieldGridRow(int $content_type_id): int {
+    $pdo = getPDO();
+    $max = -1;
+
+    // Custom fields
+    $hasRow = $pdo->query("SHOW COLUMNS FROM custom_fields LIKE 'grid_row'")->fetch();
+    if ($hasRow) {
+        $stmt = $pdo->prepare('SELECT MAX(grid_row) FROM custom_fields WHERE content_type_id = ?');
+        $stmt->execute([$content_type_id]);
+        $val = $stmt->fetchColumn();
+        if ($val !== false && $val !== null) {
+            $max = max($max, (int) $val);
+        }
+    }
+
+    // Title and body fields
+    $hasTitleRow = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'title_grid_row'")->fetch();
+    $hasBodyRow  = $pdo->query("SHOW COLUMNS FROM content_types LIKE 'body_grid_row'")->fetch();
+    if ($hasTitleRow || $hasBodyRow) {
+        $cols = [];
+        if ($hasTitleRow) {
+            $cols[] = 'title_grid_row';
+        }
+        if ($hasBodyRow) {
+            $cols[] = 'body_grid_row';
+        }
+        $stmt = $pdo->prepare('SELECT ' . implode(', ', $cols) . ' FROM content_types WHERE id = ?');
+        $stmt->execute([$content_type_id]);
+        $rows = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($rows) {
+            foreach ($rows as $row) {
+                if ($row !== null) {
+                    $max = max($max, (int) $row);
+                }
+            }
+        }
+    }
+
+    // Taxonomy fields
+    $hasTaxRow = $pdo->query("SHOW COLUMNS FROM content_type_taxonomy LIKE 'grid_row'")->fetch();
+    if ($hasTaxRow) {
+        $stmt = $pdo->prepare('SELECT MAX(grid_row) FROM content_type_taxonomy WHERE content_type_id = ?');
+        $stmt->execute([$content_type_id]);
+        $val = $stmt->fetchColumn();
+        if ($val !== false && $val !== null) {
+            $max = max($max, (int) $val);
+        }
+    }
+
+    return $max + 1;
+}
+
+/**
  * Create a custom field for a content type.
  *
  * @param int $content_type_id
@@ -737,6 +799,9 @@ function createCustomField(int $content_type_id, string $name, string $label, st
     }
 
     if ($hasRow) {
+        if ($grid_row === 0) {
+            $grid_row = getNextFieldGridRow($content_type_id);
+        }
         $columns[] = 'grid_row';
         $placeholders[] = '?';
         $params[] = $grid_row;
