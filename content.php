@@ -74,13 +74,57 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             }
             echo '</select>';
             break;
+        case 'multitaxonomy':
+            $terms = getTerms((int)$options);
+            $selected = is_array($value) ? $value : [];
+            echo '<select name="' . htmlspecialchars($inputName) . '[]" class="form-select" multiple ' . $isRequired . '>';
+            foreach ($terms as $term) {
+                $sel = in_array($term['id'], $selected) ? ' selected' : '';
+                echo '<option value="' . htmlspecialchars($term['id']) . '"' . $sel . '>' .
+                     htmlspecialchars($term['name']) . '</option>';
+            }
+            echo '</select>';
+            break;
         case 'content':
-            $entries = getContentList((int)$options);
+            $opts = json_decode($options, true);
+            if (is_array($opts)) {
+                $targetType = (int)($opts['type_id'] ?? 0);
+                $filters = [];
+                if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
+                    $filters[(int)$opts['filter']['field_id']] = $opts['filter']['value'];
+                }
+            } else {
+                $targetType = (int)$options;
+                $filters = [];
+            }
+            $entries = getContentList($targetType, $filters);
             echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
             echo '<option value="">-- Select --</option>';
             foreach ($entries as $entry) {
                 $selected = ($value !== null && $value == $entry['id']) ? ' selected' : '';
                 echo '<option value="' . htmlspecialchars($entry['id']) . '"' . $selected . '>' .
+                     htmlspecialchars($entry['title']) . '</option>';
+            }
+            echo '</select>';
+            break;
+        case 'multicontent':
+            $opts = json_decode($options, true);
+            if (is_array($opts)) {
+                $targetType = (int)($opts['type_id'] ?? 0);
+                $filters = [];
+                if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
+                    $filters[(int)$opts['filter']['field_id']] = $opts['filter']['value'];
+                }
+            } else {
+                $targetType = (int)$options;
+                $filters = [];
+            }
+            $entries = getContentList($targetType, $filters);
+            $selected = is_array($value) ? $value : [];
+            echo '<select name="' . htmlspecialchars($inputName) . '[]" class="form-select" multiple ' . $isRequired . '>';
+            foreach ($entries as $entry) {
+                $sel = in_array($entry['id'], $selected) ? ' selected' : '';
+                echo '<option value="' . htmlspecialchars($entry['id']) . '"' . $sel . '>' .
                      htmlspecialchars($entry['title']) . '</option>';
             }
             echo '</select>';
@@ -122,7 +166,7 @@ if (isset($_GET['manage_types'])) {
         $fields = sortFieldsByGrid(getCustomFields($typeTax));
         $usedTaxonomies = [];
         foreach ($fields as $field) {
-            if ($field['type'] === 'taxonomy') {
+            if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
                 $usedTaxonomies[] = (int)$field['options'];
             }
         }
@@ -323,7 +367,7 @@ if ($action === 'add') {
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
     $usedTaxonomies = [];
     foreach ($customFields as $field) {
-        if ($field['type'] === 'taxonomy') {
+        if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
             $usedTaxonomies[] = (int)$field['options'];
         }
     }
@@ -373,9 +417,13 @@ if ($action === 'add') {
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
                 $value = null;
-                if ($field['type'] === 'taxonomy') {
-                    $value = $_POST[$fieldName] ?? '';
-                    $termIds = $value !== '' ? [(int)$value] : [];
+                if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
+                    if ($field['type'] === 'taxonomy') {
+                        $single = $_POST[$fieldName] ?? '';
+                        $termIds = $single !== '' ? [(int)$single] : [];
+                    } else {
+                        $termIds = isset($_POST[$fieldName]) ? array_map('intval', (array)$_POST[$fieldName]) : [];
+                    }
                     setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
                     continue;
                 }
@@ -397,6 +445,12 @@ if ($action === 'add') {
                     $value = $_POST[$fieldName] ?? null;
                     if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
                         $value = str_replace('T', ' ', substr($value, 0, 16));
+                    }
+                    if ($field['type'] === 'multicontent') {
+                        foreach ((array)$value as $val) {
+                            saveCustomValue($contentId, $field['id'], (string)$val);
+                        }
+                        continue;
                     }
                 }
                 if ($value !== null) {
@@ -530,7 +584,7 @@ if ($action === 'edit') {
     $customFields = sortFieldsByGrid(getCustomFields($typeId));
     $usedTaxonomies = [];
     foreach ($customFields as $field) {
-        if ($field['type'] === 'taxonomy') {
+        if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
             $usedTaxonomies[] = (int)$field['options'];
         }
     }
@@ -583,14 +637,18 @@ if ($action === 'edit') {
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
                 $value = null;
-                if ($field['type'] === 'taxonomy') {
-                    $value = $_POST[$fieldName] ?? '';
-                    $termIds = $value !== '' ? [(int)$value] : [];
+                if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
+                    if ($field['type'] === 'taxonomy') {
+                        $single = $_POST[$fieldName] ?? '';
+                        $termIds = $single !== '' ? [(int)$single] : [];
+                    } else {
+                        $termIds = isset($_POST[$fieldName]) ? array_map('intval', (array)$_POST[$fieldName]) : [];
+                    }
                     setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
                     continue;
                 }
                 if ($field['type'] === 'image') {
-                    $existing = $customValues[$field['id']] ?? '';
+                    $existing = $customValues[$field['id']][0] ?? '';
                     if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
                         $year = date('Y');
                         $month = date('m');
@@ -613,6 +671,12 @@ if ($action === 'edit') {
                     $value = $_POST[$fieldName] ?? null;
                     if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
                         $value = str_replace('T', ' ', substr($value, 0, 16));
+                    }
+                    if ($field['type'] === 'multicontent') {
+                        foreach ((array)$value as $val) {
+                            saveCustomValue($contentId, $field['id'], (string)$val);
+                        }
+                        continue;
                     }
                 }
                 if ($value !== null) {
@@ -695,8 +759,12 @@ if ($action === 'edit') {
                                             if ($field['type'] === 'taxonomy') {
                                                 $taxonomyId = (int)$field['options'];
                                                 $value = $taxonomyMap[$taxonomyId][0] ?? '';
+                                            } elseif ($field['type'] === 'multitaxonomy') {
+                                                $taxonomyId = (int)$field['options'];
+                                                $value = $taxonomyMap[$taxonomyId] ?? [];
                                             } else {
-                                                $value = $customValues[$field['id']] ?? '';
+                                                $raw = $customValues[$field['id']] ?? [];
+                                                $value = $field['type'] === 'multicontent' ? $raw : ($raw[0] ?? '');
                                             }
                                             renderFieldInput($field, $inputName, $value);
                                         }
@@ -728,8 +796,12 @@ if ($action === 'edit') {
                                             if ($field['type'] === 'taxonomy') {
                                                 $taxonomyId = (int)$field['options'];
                                                 $value = $taxonomyMap[$taxonomyId][0] ?? '';
+                                            } elseif ($field['type'] === 'multitaxonomy') {
+                                                $taxonomyId = (int)$field['options'];
+                                                $value = $taxonomyMap[$taxonomyId] ?? [];
                                             } else {
-                                                $value = $customValues[$field['id']] ?? '';
+                                                $raw = $customValues[$field['id']] ?? [];
+                                                $value = $field['type'] === 'multicontent' ? $raw : ($raw[0] ?? '');
                                             }
                                             renderFieldInput($field, $inputName, $value);
                                         }

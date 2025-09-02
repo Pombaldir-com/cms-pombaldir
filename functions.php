@@ -1260,7 +1260,11 @@ function getCustomValuesForContent(int $content_id): array {
     $stmt->execute([$content_id]);
     $values = [];
     foreach ($stmt->fetchAll() as $row) {
-        $values[(int)$row['field_id']] = $row['value'];
+        $fid = (int)$row['field_id'];
+        if (!isset($values[$fid])) {
+            $values[$fid] = [];
+        }
+        $values[$fid][] = $row['value'];
     }
     return $values;
 }
@@ -1305,26 +1309,40 @@ function getContentTaxonomy(int $content_id): array {
  * @param int $content_type_id
  * @return array
  */
-function getContentList(int $content_type_id): array {
+function getContentList(int $content_type_id, array $filters = []): array {
     $pdo = getPDO();
-    // Fetch basic content
-    $stmt = $pdo->prepare('SELECT c.id, c.title, c.created_at, u.username AS author_name FROM content c JOIN users u ON c.user_id = u.id WHERE c.content_type_id = ? ORDER BY c.id DESC');
-    $stmt->execute([$content_type_id]);
+
+    $sql = 'SELECT c.id, c.title, c.created_at, u.username AS author_name FROM content c JOIN users u ON c.user_id = u.id';
+    $params = [];
+
+    $i = 0;
+    foreach ($filters as $fieldId => $value) {
+        $alias = 'cf' . $i++;
+        $sql .= " JOIN custom_values $alias ON $alias.content_id = c.id AND $alias.field_id = ? AND $alias.value = ?";
+        $params[] = $fieldId;
+        $params[] = $value;
+    }
+
+    $sql .= ' WHERE c.content_type_id = ? ORDER BY c.id DESC';
+    $params[] = $content_type_id;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
     $contents = $stmt->fetchAll();
-    // Preload fields definitions and taxonomy definitions
+
     $fields = getCustomFields($content_type_id);
     $taxonomies = getTaxonomies();
-    // For each content entry, fetch custom values and terms
+
     foreach ($contents as &$content) {
-        // Fetch custom values
         $cstmt = $pdo->prepare('SELECT cv.field_id, cv.value FROM custom_values cv WHERE cv.content_id = ?');
         $cstmt->execute([$content['id']]);
         $content['fields'] = $cstmt->fetchAll();
-        // Fetch taxonomy assignments, keeping track of missing terms
+
         $tstmt = $pdo->prepare('SELECT ct.taxonomy_id, tt.name AS term_name FROM content_taxonomy ct LEFT JOIN taxonomy_terms tt ON ct.term_id = tt.id WHERE ct.content_id = ?');
         $tstmt->execute([$content['id']]);
         $content['taxonomies'] = $tstmt->fetchAll();
     }
+
     return $contents;
 }
 
