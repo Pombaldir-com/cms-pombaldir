@@ -88,18 +88,28 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
         case 'content':
             $opts = json_decode($options, true);
             if (is_array($opts)) {
-                $targetType = (int)($opts['type_id'] ?? 0);
-                $filters = [];
-
-                if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
-                    $filters[$opts['filter']['field_id']] = $opts['filter']['value'];
+                $targetType  = (int)($opts['type_id'] ?? 0);
+                $filterField = $opts['filter']['field_id'] ?? '';
+                $filterValue = $opts['filter']['value'] ?? '';
+                $filters     = [];
+                if ($filterField !== '' && $filterValue !== '') {
+                    $filters[$filterField] = $filterValue;
                 }
             } else {
-                $targetType = (int)$options;
-                $filters = [];
+                $targetType  = (int)$options;
+                $filterField = '';
+                $filters     = [];
             }
-            $entries = getContentList($targetType, $filters);
-            echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select" ' . $isRequired . '>';
+            $entries    = getContentList($targetType, $filters);
+            $selectedId = $value !== null ? (string)$value : '';
+            $dataAttr   = ' data-target-type="' . htmlspecialchars($targetType) . '"';
+            if ($filterField !== '') {
+                $dataAttr .= ' data-filter-field="' . htmlspecialchars($filterField) . '"';
+            }
+            if ($selectedId !== '') {
+                $dataAttr .= ' data-selected="' . htmlspecialchars($selectedId) . '"';
+            }
+            echo '<select name="' . htmlspecialchars($inputName) . '" class="form-select content-select" ' . $isRequired . $dataAttr . '>';
             echo '<option value="">-- Select --</option>';
             foreach ($entries as $entry) {
                 $selected = ($value !== null && $value == $entry['id']) ? ' selected' : '';
@@ -109,23 +119,30 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             echo '</select>';
             break;
         case 'multicontent':
-
             $opts = json_decode($options, true);
             if (is_array($opts)) {
-                $targetType = (int)($opts['type_id'] ?? 0);
-                $filters = [];
-
-                if (!empty($opts['filter']['field_id']) && isset($opts['filter']['value'])) {
-                    $filters[$opts['filter']['field_id']] = $opts['filter']['value'];
+                $targetType  = (int)($opts['type_id'] ?? 0);
+                $filterField = $opts['filter']['field_id'] ?? '';
+                $filterValue = $opts['filter']['value'] ?? '';
+                $filters     = [];
+                if ($filterField !== '' && $filterValue !== '') {
+                    $filters[$filterField] = $filterValue;
                 }
             } else {
-                $targetType = (int)$options;
-                $filters = [];
+                $targetType  = (int)$options;
+                $filterField = '';
+                $filters     = [];
             }
-            $entries = getContentList($targetType, $filters);
-
+            $entries  = getContentList($targetType, $filters);
             $selected = is_array($value) ? $value : [];
-            echo '<select name="' . htmlspecialchars($inputName) . '[]" class="form-select" multiple ' . $isRequired . '>';
+            $dataAttr = ' data-target-type="' . htmlspecialchars($targetType) . '"';
+            if ($filterField !== '') {
+                $dataAttr .= ' data-filter-field="' . htmlspecialchars($filterField) . '"';
+            }
+            if ($selected) {
+                $dataAttr .= ' data-selected="' . htmlspecialchars(implode(',', $selected)) . '"';
+            }
+            echo '<select name="' . htmlspecialchars($inputName) . '[]" class="form-select content-select" multiple ' . $isRequired . $dataAttr . '>';
             foreach ($entries as $entry) {
                 $sel = in_array($entry['id'], $selected) ? ' selected' : '';
                 echo '<option value="' . htmlspecialchars($entry['id']) . '"' . $sel . '>' .
