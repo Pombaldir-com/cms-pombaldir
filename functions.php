@@ -82,6 +82,37 @@ function startSession() {
 }
 
 /**
+ * Store the active company configuration in the session.
+ *
+ * @param array $config
+ * @return void
+ */
+function setCompanyContext(array $config): void {
+    startSession();
+    $_SESSION['company'] = $config;
+}
+
+/**
+ * Retrieve the slug for the currently selected company.
+ *
+ * @return string|null
+ */
+function getCompanySlug(): ?string {
+    startSession();
+    return $_SESSION['company']['slug'] ?? null;
+}
+
+/**
+ * Clear the company configuration from the session.
+ *
+ * @return void
+ */
+function clearCompanyContext(): void {
+    startSession();
+    unset($_SESSION['company']);
+}
+
+/**
  * Generate a CSRF token and store it in the session.
  *
  * @return string
