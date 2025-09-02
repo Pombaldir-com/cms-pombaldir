@@ -47,7 +47,7 @@ if ($isLayout) {
             return (int) $f['options'];
         },
         array_filter($fields, function ($f) {
-            return $f['type'] === 'taxonomy' && !empty($f['options']);
+            return ($f['type'] === 'taxonomy' || $f['type'] === 'multitaxonomy') && !empty($f['options']);
         })
     );
 
@@ -159,9 +159,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
     $options   = '';
     if ($fieldType === 'select') {
         $options = isset($_POST['options_text']) ? trim($_POST['options_text']) : '';
-    } elseif ($fieldType === 'taxonomy') {
+    } elseif ($fieldType === 'taxonomy' || $fieldType === 'multitaxonomy') {
         $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
-    } elseif ($fieldType === 'content') {
+    } elseif ($fieldType === 'content' || $fieldType === 'multicontent') {
         $options = isset($_POST['options_content']) ? trim($_POST['options_content']) : '';
     }
     $required   = isset($_POST['required']);
@@ -222,7 +222,9 @@ require_once __DIR__ . '/header.php';
                     <option value="image" <?php echo isset($editField['type']) && $editField['type'] === 'image' ? 'selected' : ''; ?>>Imagem</option>
                     <option value="select" <?php echo isset($editField['type']) && $editField['type'] === 'select' ? 'selected' : ''; ?>>Select (opções separadas por vírgula)</option>
                     <option value="taxonomy" <?php echo isset($editField['type']) && $editField['type'] === 'taxonomy' ? 'selected' : ''; ?>>Select Taxonomia</option>
+                    <option value="multitaxonomy" <?php echo isset($editField['type']) && $editField['type'] === 'multitaxonomy' ? 'selected' : ''; ?>>Multi-select Taxonomia</option>
                     <option value="content" <?php echo isset($editField['type']) && $editField['type'] === 'content' ? 'selected' : ''; ?>>Select Conteúdo</option>
+                    <option value="multicontent" <?php echo isset($editField['type']) && $editField['type'] === 'multicontent' ? 'selected' : ''; ?>>Multi-select Conteúdo</option>
                 </select>
             </div>
             <div class="mb-3" id="options_text_wrapper">
@@ -234,7 +236,7 @@ require_once __DIR__ . '/header.php';
                 <select class="form-select" id="options_taxonomy" name="options_taxonomy">
                     <option value="">-- Selecione --</option>
                     <?php foreach ($taxonomies as $tax): ?>
-                        <option value="<?php echo $tax['id']; ?>" <?php echo isset($editField) && $editField['type'] === 'taxonomy' && $editField['options'] == $tax['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($tax['label']); ?></option>
+                        <option value="<?php echo $tax['id']; ?>" <?php echo isset($editField) && ($editField['type'] === 'taxonomy' || $editField['type'] === 'multitaxonomy') && $editField['options'] == $tax['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($tax['label']); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -243,7 +245,7 @@ require_once __DIR__ . '/header.php';
                 <select class="form-select" id="options_content" name="options_content">
                     <option value="">-- Selecione --</option>
                     <?php foreach ($contentTypesAll as $ct): ?>
-                        <option value="<?php echo $ct['id']; ?>" <?php echo isset($editField) && $editField['type'] === 'content' && $editField['options'] == $ct['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($ct['label']); ?></option>
+                        <option value="<?php echo $ct['id']; ?>" <?php echo isset($editField) && ($editField['type'] === 'content' || $editField['type'] === 'multicontent') && $editField['options'] == $ct['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($ct['label']); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -278,7 +280,7 @@ require_once __DIR__ . '/header.php';
                 <td><?php echo htmlspecialchars($field['label']); ?></td>
                 <td><?php echo htmlspecialchars($field['type']); ?></td>
                 <td>
-                    <?php if ($field['type'] === 'taxonomy'): ?>
+                    <?php if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy'): ?>
                         <?php
                             $opt = '';
                             foreach ($taxonomies as $tax) {
@@ -286,7 +288,7 @@ require_once __DIR__ . '/header.php';
                             }
                             echo htmlspecialchars($opt);
                         ?>
-                    <?php elseif ($field['type'] === 'content'): ?>
+                    <?php elseif ($field['type'] === 'content' || $field['type'] === 'multicontent'): ?>
                         <?php
                             $opt = '';
                             foreach ($contentTypesAll as $ct) {
@@ -324,8 +326,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const contentWrap = document.getElementById('options_content_wrapper');
     function updateOpts() {
         textWrap.style.display = typeSel.value === 'select' ? 'block' : 'none';
-        taxWrap.style.display = typeSel.value === 'taxonomy' ? 'block' : 'none';
-        contentWrap.style.display = typeSel.value === 'content' ? 'block' : 'none';
+        taxWrap.style.display = (typeSel.value === 'taxonomy' || typeSel.value === 'multitaxonomy') ? 'block' : 'none';
+        contentWrap.style.display = (typeSel.value === 'content' || typeSel.value === 'multicontent') ? 'block' : 'none';
     }
     typeSel.addEventListener('change', updateOpts);
     updateOpts();

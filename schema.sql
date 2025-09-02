@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS custom_fields (
     content_type_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     label VARCHAR(100) NOT NULL,
-    type ENUM('text','textarea','number','date','datetime','select','taxonomy','content','image') NOT NULL,
+    type ENUM('text','textarea','number','date','datetime','select','taxonomy','content','image','multitaxonomy','multicontent') NOT NULL,
     options TEXT,
     required TINYINT(1) NOT NULL DEFAULT 0,
     show_in_list TINYINT(1) NOT NULL DEFAULT 0,

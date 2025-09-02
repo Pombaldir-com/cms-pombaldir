@@ -1260,7 +1260,11 @@ function getCustomValuesForContent(int $content_id): array {
     $stmt->execute([$content_id]);
     $values = [];
     foreach ($stmt->fetchAll() as $row) {
-        $values[(int)$row['field_id']] = $row['value'];
+        $fid = (int)$row['field_id'];
+        if (!isset($values[$fid])) {
+            $values[$fid] = [];
+        }
+        $values[$fid][] = $row['value'];
     }
     return $values;
 }
