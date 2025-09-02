@@ -175,7 +175,6 @@ switch (true) {
         require __DIR__ . '/content.php';
         break;
     default:
-    print_r($path);
         http_response_code(404);
         echo 'Page not found';
 }
