@@ -867,6 +867,19 @@ function getTaxonomy(int $id): ?array {
 }
 
 /**
+ * Fetch a single taxonomy by slug.
+ *
+ * @param string $slug
+ * @return array|null
+ */
+function getTaxonomyBySlug(string $slug): ?array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE name = ?');
+    $stmt->execute([$slug]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
  * Create a taxonomy.  Returns new id.
  *
  * @param string $name Slug
