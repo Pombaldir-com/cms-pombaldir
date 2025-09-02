@@ -179,10 +179,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && ($act === 'ad' || $editField)) {
         $options = isset($_POST['options_taxonomy']) ? trim($_POST['options_taxonomy']) : '';
     } elseif ($fieldType === 'content' || $fieldType === 'multicontent') {
         $contentType = isset($_POST['options_content']) ? (int) $_POST['options_content'] : 0;
-        $filterField = isset($_POST['content_filter_field']) ? (int) $_POST['content_filter_field'] : 0;
+
+        $filterField = $_POST['content_filter_field'] ?? '';
         $filterValue = $_POST['content_filter_value'] ?? '';
         $optArr = ['type_id' => $contentType];
-        if ($filterField && $filterValue !== '') {
+        if ($filterField !== '' && $filterValue !== '') {
+
             $optArr['filter'] = [
                 'field_id' => $filterField,
                 'value' => $filterValue,
@@ -415,7 +417,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const opt = document.createElement('option');
                 opt.value = f.id;
                 opt.textContent = f.label;
-                if (preFilterField == f.id) {
+
+                if (String(preFilterField) === String(f.id)) {
+
                     opt.selected = true;
                 }
                 filterFieldSel.appendChild(opt);
@@ -423,7 +427,9 @@ document.addEventListener('DOMContentLoaded', function () {
             filterWrap.style.display = selectFields.length ? 'block' : 'none';
             if (preFilterField) {
                 populateValues(preFilterField);
-                preFilterField = 0;
+
+                preFilterField = '';
+
             }
         } catch (e) {
             filterWrap.style.display = 'none';
@@ -439,9 +445,13 @@ document.addEventListener('DOMContentLoaded', function () {
         filterValueSel.innerHTML = '<option value="">-- Selecione --</option>';
         field.options.forEach(v => {
             const opt = document.createElement('option');
-            opt.value = v.value;
-            opt.textContent = v.label;
-            if (String(preFilterValue) === String(v.value)) {
+
+
+            opt.value = v;
+            opt.textContent = v;
+            if (String(preFilterValue) === String(v)) {
+
+
                 opt.selected = true;
             }
             filterValueSel.appendChild(opt);
