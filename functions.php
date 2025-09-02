@@ -157,14 +157,16 @@ function isLoggedIn(): bool {
 }
 
 /**
- * Enforce authentication.  If the user is not logged in they will be
- * redirected to the login page.  After successful login they'll be
- * returned to the originally requested page via the `redirect` query
- * parameter.
+ * Enforce authentication and company context.
+ *
+ * Redirects to the login page when the user is not authenticated or when
+ * no company has been selected for the current session. After successful
+ * login the user is returned to the originally requested page via the
+ * `redirect` query parameter.
  */
 function requireLogin() {
     startSession();
-    if (!isLoggedIn()) {
+    if (!isLoggedIn() || empty($_SESSION['company'])) {
         $redirect = urlencode($_SERVER['REQUEST_URI'] ?? '/');
         header('Location: ' . BASE_URL . 'login?redirect=' . $redirect);
         exit;
