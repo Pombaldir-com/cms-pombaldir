@@ -437,6 +437,7 @@ function getContentTypeBySlug(string $slug): ?array {
     $bodyRowExpr    = $hasBodyRow ? 'body_grid_row' : '0 AS body_grid_row';
     $bodyColExpr    = $hasBodyCol ? 'body_grid_col' : '0 AS body_grid_col';
     $bodyWidthExpr  = $hasBodyWidth ? 'body_grid_width' : '12 AS body_grid_width';
+
     $stmt = $pdo->prepare("SELECT id, name, label, icon, $authorExpr, $dateExpr, $apiExpr, $orderExpr, $titleRowExpr, $titleColExpr, $titleWidthExpr, $bodyRowExpr, $bodyColExpr, $bodyWidthExpr FROM content_types WHERE name = ?");
     $stmt->execute([$slug]);
     return $stmt->fetch() ?: null;
@@ -869,7 +870,7 @@ function getTaxonomy(int $id): ?array {
  */
 function getTaxonomyBySlug(string $slug): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE name = ?');
+    $stmt = $pdo->prepare('SELECT id, name, label FROM taxonomies WHERE LOWER(name) = LOWER(?)');
     $stmt->execute([$slug]);
     return $stmt->fetch() ?: null;
 }
