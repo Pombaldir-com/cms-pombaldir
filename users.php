@@ -134,7 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($extension, $allowedExt, true) || !array_key_exists($mimeType, $allowedMime)) {
                 $errors[] = 'Formato de imagem inválido.';
             } else {
-                $uploadDir = __DIR__ . '/assets/uploads/';
+                $year = date('Y');
+                $month = date('m');
+                $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
                 if (!is_dir($uploadDir)) {
                     mkdir($uploadDir, 0755, true);
                 }
@@ -166,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($saved) {
-                    $photoPath = 'assets/uploads/' . $filename;
+                    $photoPath = 'uploads/' . $year . '/' . $month . '/' . $filename;
                     $userData['photo'] = $photoPath;
                 } else {
                     $errors[] = 'Erro ao guardar a foto.';
