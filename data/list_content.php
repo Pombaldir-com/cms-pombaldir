@@ -26,7 +26,8 @@ $customFields = array_values(array_filter(
         return !empty($f['show_in_list']);
     }
 ));
-$allTaxonomies = getTaxonomiesForContentType($typeId);
+$showTax = !empty($contentType['show_taxonomies']);
+$allTaxonomies = $showTax ? getTaxonomiesForContentType($typeId) : [];
 $contents = getContentList($typeId);
 
 $data = [];

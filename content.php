@@ -243,14 +243,15 @@ if (isset($_GET['manage_types'])) {
             $icon  = trim($_POST['icon'] ?? 'fa fa-file-text');
             $showAuthor = isset($_POST['show_author']);
             $showDate   = isset($_POST['show_date']);
+            $showTax    = isset($_POST['show_taxonomies']);
 
             if ($name !== '' && $label !== '') {
                 if ($id) {
                     $sortOrder = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 0;
-                    updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
+                    updateContentType($id, $name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $showTax, $sortOrder);
                 } else {
                     $sortOrder = getNextContentTypeSortOrder();
-                    createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $sortOrder);
+                    createContentType($name, $label, $icon === '' ? 'fa fa-file-text' : $icon, $showAuthor, $showDate, $showTax, $sortOrder);
                 }
                 header('Location: ' . BASE_URL . 'content-types');
                 exit;
@@ -293,6 +294,10 @@ if (isset($_GET['manage_types'])) {
                 <div class="form-check mb-3">
                     <input class="form-check-input" type="checkbox" id="show_date" name="show_date" <?php echo !empty($editing['show_date']) ? 'checked' : ''; ?>>
                     <label class="form-check-label" for="show_date">Mostrar data na listagem</label>
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="show_taxonomies" name="show_taxonomies" <?php echo !isset($editing['show_taxonomies']) || !empty($editing['show_taxonomies']) ? 'checked' : ''; ?>>
+                    <label class="form-check-label" for="show_taxonomies">Mostrar taxonomias na listagem</label>
                 </div>
                 <a href="<?= BASE_URL ?>content-types" class="btn btn-secondary ms-2"><i class="fa fa-arrow-left"></i> Voltar</a>
 
@@ -857,7 +862,8 @@ if (isset($_GET['delete'])) {
 $customFields = array_values(array_filter(sortFieldsByGrid(getCustomFields($typeId)), function ($f) {
     return !empty($f['show_in_list']);
 }));
-$allTaxonomies = getTaxonomiesForContentType($typeId);
+$showTax = !empty($contentType['show_taxonomies']);
+$allTaxonomies = $showTax ? getTaxonomiesForContentType($typeId) : [];
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -886,9 +892,11 @@ require_once __DIR__ . '/header.php';
                                 <?php foreach ($customFields as $field): ?>
                                     <th<?php echo empty($field['sortable']) ? ' data-orderable="false"' : ''; ?>><?php echo htmlspecialchars($field['label']); ?></th>
                                 <?php endforeach; ?>
-                                <?php foreach ($allTaxonomies as $tax): ?>
-                                    <th><?php echo htmlspecialchars($tax['label']); ?></th>
-                                <?php endforeach; ?>
+                                <?php if ($showTax): ?>
+                                    <?php foreach ($allTaxonomies as $tax): ?>
+                                        <th><?php echo htmlspecialchars($tax['label']); ?></th>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                                 <th data-orderable="false">Ações</th>
                             </tr>
                         </thead>
