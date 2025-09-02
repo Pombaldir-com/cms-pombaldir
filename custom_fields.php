@@ -81,6 +81,7 @@ if ($isLayout) {
             'grid_width' => $type['body_grid_width'] ?? 12,
         ],
     ], $fields, $taxonomyFields);
+    $fields = sortFieldsByGrid($fields);
 
     require_once __DIR__ . '/header.php';
     ?>
