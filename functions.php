@@ -1317,6 +1317,7 @@ function getContentList(int $content_type_id, array $filters = []): array {
 
     $i = 0;
     foreach ($filters as $fieldId => $value) {
+
         if (strpos((string)$fieldId, 'tax_') === 0) {
             $alias = 'ct' . $i++;
             $taxId = (int)substr($fieldId, 4);
@@ -1329,6 +1330,7 @@ function getContentList(int $content_type_id, array $filters = []): array {
             $params[] = (int)$fieldId;
             $params[] = $value;
         }
+
     }
 
     $sql .= ' WHERE c.content_type_id = ? ORDER BY c.id DESC';
