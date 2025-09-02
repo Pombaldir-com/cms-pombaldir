@@ -7,6 +7,7 @@ $csrfToken = generateCsrfToken();
 $profileMode = isset($_GET['profile']);
 $action = $_GET['action'] ?? 'list';
 $errors = [];
+$slug = getCompanySlug();
 
 if ($profileMode) {
     requireLogin();
@@ -136,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $year = date('Y');
                 $month = date('m');
-                $uploadDir = __DIR__ . '/uploads/' . $year . '/' . $month . '/';
+                $uploadDir = __DIR__ . '/uploads/' . $slug . '/' . $year . '/' . $month . '/';
                 if (!is_dir($uploadDir)) {
                     mkdir($uploadDir, 0755, true);
                 }
@@ -168,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($saved) {
-                    $photoPath = 'uploads/' . $year . '/' . $month . '/' . $filename;
+                    $photoPath = 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename;
                     $userData['photo'] = $photoPath;
                 } else {
                     $errors[] = 'Erro ao guardar a foto.';
@@ -210,8 +211,13 @@ require_once __DIR__ . '/header.php';
         </div>
         <div class="mb-3">
             <label for="photo" class="form-label">Foto</label><br>
-            <?php if (!empty($userData['photo'])): ?>
-                <img src="<?= htmlspecialchars($userData['photo']); ?>" alt="" class="img-thumbnail mb-2" style="max-width: 150px;">
+            <?php if (!empty($userData['photo'])):
+                $photo = $userData['photo'];
+                if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
+                    $photo = 'uploads/' . $slug . '/' . ltrim($photo, '/');
+                }
+            ?>
+                <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-thumbnail mb-2" style="max-width: 150px;">
             <?php endif; ?>
             <input type="file" class="form-control" id="photo" name="photo">
         </div>

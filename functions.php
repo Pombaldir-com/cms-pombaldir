@@ -62,6 +62,23 @@ function setSetting(string $name, string $value): void {
 }
 
 /**
+ * Retrieve the slug identifying the current company.
+ *
+ * This slug is used to isolate uploaded files per company and to expose the
+ * company through the public API.
+ */
+function getCompanySlug(): string {
+    return getSetting('company_slug', 'default');
+}
+
+/**
+ * Fetch the API token used for authenticating external requests.
+ */
+function getApiToken(): string {
+    return getSetting('api_token', '');
+}
+
+/**
  * Start a session if it hasn't been started yet.  This helper uses
  * session cookies with the HttpOnly flag for security.  It does not
  * change existing session behaviour if a session is already active.
