@@ -87,6 +87,7 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             break;
         case 'content':
             $opts = json_decode($options, true);
+            $filterValue = '';
             if (is_array($opts)) {
                 $targetType  = (int)($opts['type_id'] ?? 0);
                 $filterField = $opts['filter']['field_id'] ?? '';
@@ -106,6 +107,9 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             if ($filterField !== '') {
                 $dataAttr .= ' data-filter-field="' . htmlspecialchars($filterField) . '"';
             }
+            if ($filterValue !== '') {
+                $dataAttr .= ' data-filter-value="' . htmlspecialchars($filterValue) . '"';
+            }
             if ($selectedId !== '') {
                 $dataAttr .= ' data-selected="' . htmlspecialchars($selectedId) . '"';
             }
@@ -120,6 +124,7 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             break;
         case 'multicontent':
             $opts = json_decode($options, true);
+            $filterValue = '';
             if (is_array($opts)) {
                 $targetType  = (int)($opts['type_id'] ?? 0);
                 $filterField = $opts['filter']['field_id'] ?? '';
@@ -138,6 +143,9 @@ function renderFieldInput(array $field, string $inputName, $value = null): void
             $dataAttr = ' data-target-type="' . htmlspecialchars($targetType) . '"';
             if ($filterField !== '') {
                 $dataAttr .= ' data-filter-field="' . htmlspecialchars($filterField) . '"';
+            }
+            if ($filterValue !== '') {
+                $dataAttr .= ' data-filter-value="' . htmlspecialchars($filterValue) . '"';
             }
             if ($selected) {
                 $dataAttr .= ' data-selected="' . htmlspecialchars(implode(',', $selected)) . '"';

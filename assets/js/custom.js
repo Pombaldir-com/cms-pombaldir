@@ -391,19 +391,26 @@ $(document).ready(function() {
     document.querySelectorAll('select.content-select').forEach(function(sel) {
         var targetType = sel.dataset.targetType;
         var filterField = sel.dataset.filterField || '';
+        var staticFilterValue = sel.dataset.filterValue || '';
         var selected = sel.dataset.selected ? sel.dataset.selected.split(',').filter(Boolean) : [];
 
         function loadOptions(filterValue) {
-            if (filterField && (filterValue === undefined || filterValue === '')) {
-                sel.innerHTML = sel.multiple ? '' : '<option value="">-- Select --</option>';
-                return;
+            var fv = filterValue;
+            if (filterField) {
+                if (fv === undefined || fv === '') {
+                    fv = staticFilterValue;
+                    if (fv === '') {
+                        sel.innerHTML = sel.multiple ? '' : '<option value="">-- Select --</option>';
+                        return;
+                    }
+                }
             }
 
             var params = new URLSearchParams();
             params.append('type_id', targetType);
             if (filterField) {
                 params.append('filter_field', filterField);
-                params.append('filter_value', filterValue);
+                params.append('filter_value', fv);
             }
 
             fetch('data/content_options.php?' + params.toString())
@@ -438,10 +445,10 @@ $(document).ready(function() {
             if (filterInput.value !== '') {
                 update();
             } else {
-                loadOptions('');
+                loadOptions(staticFilterValue);
             }
         } else {
-            loadOptions('');
+            loadOptions(staticFilterValue);
         }
     });
 });
