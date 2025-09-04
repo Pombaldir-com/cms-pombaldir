@@ -1,4 +1,4 @@
-<?php 
+<?php
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/functions.php';
@@ -56,22 +56,23 @@ if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
     exit;
 }
 
-// Extract text and invoice fields
-$analysis = extractInvoiceFields($targetPath);
-$text = $analysis['text'];
-unset($analysis['text']);
+$text = '';
+try {
+    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($targetPath);
+    $text = $ocr->run();
+} catch (Throwable $e) {
+    // OCR failed; return empty text
+}
 
 $qrText = extractQrStringFromPdf($targetPath);
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
-
-$fields = array_merge(['qr_code' => $qrText], $analysis);
 
 echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'text' => $text,
     'qr_text' => $qrText,
-    'fields' => $fields,
+    'fields' => ['qr_code' => $qrText],
     'csrf_token' => $newToken,
 ]);
