@@ -149,14 +149,7 @@ require_once __DIR__ . '/header.php';
                         </div>
                     </div>
                 </div>
-                <div class="row">
-                    <div class="mb-3 col-md-6 col-sm-12">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="accounting_enabled" name="accounting_enabled" value="1" <?= $currentAccountingEnabled ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="accounting_enabled">Ativar contabilidade</label>
-                        </div>
-                    </div>
-                </div>
+ 
                 <div class="row">
                     <div class="mb-3 col-md-6 col-sm-12">
                         <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
