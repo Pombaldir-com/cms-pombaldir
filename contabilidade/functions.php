@@ -39,11 +39,14 @@ function extractQrStringFromPdf(string $pdfPath): ?string
                 escapeshellarg($pdfPath),
                 escapeshellarg($tmpDir)
             );
-            exec($cmd, $output, $returnVar);
+            exec($cmd . ' 2>&1', $output, $returnVar);
             if ($returnVar !== 0) {
-                throw new RuntimeException('pdftoppm conversion failed.');
+                throw new RuntimeException('pdftoppm conversion failed: ' . implode("\n", $output));
             }
             $images = glob($tmpDir . '/page*.png');
+            if (!$images) {
+                throw new RuntimeException('pdftoppm did not produce any PNG files.');
+            }
         } else {
             if (!class_exists('Imagick')) {
                 throw new RuntimeException('pdftoppm not found and Imagick extension missing.');
