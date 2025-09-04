@@ -17,5 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.csrf_token && csrfInput) {
             csrfInput.value = data.csrf_token;
         }
+        console.log(data);
     });
 });
