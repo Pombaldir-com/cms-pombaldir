@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
         acceptedFiles: 'application/pdf',
-        parallelUploads: 1
+        parallelUploads: 1,
+        dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
     });
 
     dz.on('success', function(file, response) {
