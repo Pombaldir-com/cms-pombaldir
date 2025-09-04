@@ -56,23 +56,22 @@ if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
     exit;
 }
 
-$text = '';
-try {
-    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($targetPath);
-    $text = $ocr->run();
-} catch (Throwable $e) {
-    // OCR failed; return empty text
-}
+// Extract text and invoice fields
+$analysis = extractInvoiceFields($targetPath);
+$text = $analysis['text'];
+unset($analysis['text']);
 
 $qrText = extractQrStringFromPdf($targetPath);
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
+
+$fields = array_merge(['qr_code' => $qrText], $analysis);
 
 echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'text' => $text,
     'qr_text' => $qrText,
-    'fields' => ['qr_code' => $qrText],
+    'fields' => $fields,
     'csrf_token' => $newToken,
 ]);
