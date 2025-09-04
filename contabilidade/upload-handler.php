@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/functions.php';
 
 startSession();
 header('Content-Type: application/json');
@@ -63,11 +64,15 @@ try {
     // OCR failed; return empty text
 }
 
+$qrText = extractQrStringFromPdf($targetPath);
+
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
 
 echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'text' => $text,
+    'qr_text' => $qrText,
+    'fields' => ['qr_code' => $qrText],
     'csrf_token' => $newToken,
 ]);

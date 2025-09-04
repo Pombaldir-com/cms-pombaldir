@@ -12,6 +12,7 @@
         }
     ],
     "require": {
-        "thiagoalessio/tesseract_ocr": "^2.13"
+        "thiagoalessio/tesseract_ocr": "^2.13",
+        "khanamiryan/qrcode-detector-decoder": "^2.0"
     }
 }
