@@ -32,11 +32,11 @@ function extractQrStringFromPdf(string $pdfPath): ?string
         $pdftoppm = trim(shell_exec('command -v pdftoppm'));
         if ($pdftoppm !== '') {
             $cmd = sprintf(
-                '%s -r %d %s %s/page',
+                '%s -r %d -png %s %s',
                 escapeshellcmd($pdftoppm),
                 150,
                 escapeshellarg($pdfPath),
-                escapeshellarg($tmpDir)
+                escapeshellarg($tmpDir . '/page')
             );
             exec($cmd, $output, $returnVar);
             if ($returnVar !== 0) {
