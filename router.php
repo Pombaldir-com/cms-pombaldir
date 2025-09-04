@@ -154,6 +154,15 @@ switch (true) {
         $_GET['manage_types'] = 1;
         require __DIR__ . '/content.php';
         break;
+    case $path === 'contabilidade/upload':
+        require __DIR__ . '/contabilidade/upload.php';
+        break;
+    case $path === 'contabilidade/upload-handler.php':
+        require __DIR__ . '/contabilidade/upload-handler.php';
+        break;
+    case $path === 'contabilidade/save-analysis.php':
+        require __DIR__ . '/contabilidade/save-analysis.php';
+        break;
     case preg_match('#^([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         $_GET['action'] = 'add';
