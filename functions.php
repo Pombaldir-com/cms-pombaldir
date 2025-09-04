@@ -79,6 +79,29 @@ function getApiToken(): string {
 }
 
 /**
+ * Retrieve the list of active modules.
+ *
+ * The modules are stored as a JSON encoded array in the settings table.
+ *
+ * @return array<string>
+ */
+function getActiveModules(): array {
+    $json = getSetting('active_modules', '[]');
+    $modules = json_decode($json, true);
+    return is_array($modules) ? $modules : [];
+}
+
+/**
+ * Determine whether a specific module is active.
+ *
+ * @param string $module Module identifier
+ * @return bool
+ */
+function isModuleActive(string $module): bool {
+    return in_array($module, getActiveModules(), true);
+}
+
+/**
  * Start a session if it hasn't been started yet.  This helper uses
  * session cookies with the HttpOnly flag for security.  It does not
  * change existing session behaviour if a session is already active.
