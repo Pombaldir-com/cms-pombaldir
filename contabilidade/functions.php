@@ -7,9 +7,8 @@ use Zxing\QrReader;
  * Read a PDF document and extract the text contained in its QR code, if any.
  *
  * Pages of the PDF are converted to temporary PNG images using the
- * `pdftoppm` utility. Each image is scanned for a QR code using the
- * `zbarimg` command line tool when available, falling back to the PHP
- * `QrReader` from the khanamiryan/qrcode-detector-decoder package. All
+ * `pdftoppm` utility. Each image is scanned with the `QrReader` from the
+ * khanamiryan/qrcode-detector-decoder package until a QR code is found. All
  * temporary files are removed after processing.
  *
  * @param string $pdfPath Absolute filesystem path to the PDF document.
@@ -23,63 +22,40 @@ function extractQrStringFromPdf(string $pdfPath): ?string {
     $prefix = $tempBase;
     @unlink($tempBase);
 
-    $images = [];
-
     $cmd = 'pdftoppm -png -r 300 ' . escapeshellarg($pdfPath) . ' ' . escapeshellarg($prefix);
     exec($cmd, $output, $status);
-    if ($status === 0) {
-        $page = 1;
-        while (file_exists($path = sprintf('%s-%d.png', $prefix, $page))) {
-            $images[] = $path;
-            $page++;
-        }
+    if ($status !== 0) {
+        return null;
     }
 
-    if (empty($images)) {
-        try {
-            $imagick = new Imagick();
-            $imagick->setResolution(300, 300);
-            $imagick->readImage($pdfPath);
-            foreach ($imagick as $index => $img) {
-                $img->setImageFormat('png');
-                $imgPath = sprintf('%s-%d.png', $prefix, $index + 1);
-                $img->writeImage($imgPath);
-                $images[] = $imgPath;
-            }
-            $imagick->clear();
-            $imagick->destroy();
-        } catch (Throwable $e) {
-            foreach ($images as $path) {
-                @unlink($path);
-            }
-            return null;
-        }
-    }
-
+    $page = 1;
     $text = null;
-    foreach ($images as $imagePath) {
-        $decoded = [];
-        $status = 1;
-        exec('zbarimg --quiet --raw ' . escapeshellarg($imagePath), $decoded, $status);
-        if ($status === 0 && !empty($decoded[0])) {
-            $text = trim($decoded[0]);
+    while (true) {
+        $imagePath = sprintf('%s-%d.png', $prefix, $page);
+        if (!file_exists($imagePath)) {
             break;
         }
-
         try {
             $qrcode = new QrReader($imagePath);
-            $decodedText = $qrcode->text();
-            if ($decodedText) {
-                $text = $decodedText;
+            $decoded = $qrcode->text();
+            if ($decoded) {
+                $text = $decoded;
+                @unlink($imagePath);
                 break;
             }
         } catch (Throwable $e) {
             // Ignore errors for individual pages
         }
+
+        @unlink($imagePath);
+        $page++;
     }
 
-    foreach ($images as $path) {
-        @unlink($path);
+    // Clean up any remaining generated files
+    $page++;
+    while (file_exists($imagePath = sprintf('%s-%d.png', $prefix, $page))) {
+        @unlink($imagePath);
+        $page++;
     }
 
     return $text ?: null;
