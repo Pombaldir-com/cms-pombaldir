@@ -6,10 +6,11 @@ use Zxing\QrReader;
 /**
  * Read a PDF document and extract the text contained in its QR code, if any.
  *
- * The first page of the PDF is converted to a temporary PNG image using the
- * `pdftoppm` utility. The image is then scanned with the `QrReader` from the
- * khanamiryan/qrcode-detector-decoder package. Temporary files are removed
- * after processing.
+ * Pages of the PDF are converted to temporary PNG images using the
+ * `pdftoppm` utility. Each image is scanned for a QR code using the
+ * `zbarimg` command line tool when available, falling back to the PHP
+ * `QrReader` from the khanamiryan/qrcode-detector-decoder package. All
+ * temporary files are removed after processing.
  *
  * @param string $pdfPath Absolute filesystem path to the PDF document.
  * @return string|null Decoded QR code text or null if not found.
@@ -22,21 +23,51 @@ function extractQrStringFromPdf(string $pdfPath): ?string {
     $prefix = $tempBase;
     @unlink($tempBase);
 
-    $cmd = 'pdftoppm -png -singlefile ' . escapeshellarg($pdfPath) . ' ' . escapeshellarg($prefix);
+    $cmd = 'pdftoppm -png -r 300 ' . escapeshellarg($pdfPath) . ' ' . escapeshellarg($prefix);
     exec($cmd, $output, $status);
-    $imagePath = $prefix . '.png';
-    if ($status !== 0 || !file_exists($imagePath)) {
-        @unlink($imagePath);
+    if ($status !== 0) {
         return null;
     }
 
-    try {
-        $qrcode = new QrReader($imagePath);
-        $text = $qrcode->text();
-    } catch (Throwable $e) {
-        $text = null;
+    $page = 1;
+    $text = null;
+    while (true) {
+        $imagePath = sprintf('%s-%d.png', $prefix, $page);
+        if (!file_exists($imagePath)) {
+            break;
+        }
+
+        $decoded = [];
+        $status = 1;
+        exec('zbarimg --quiet --raw ' . escapeshellarg($imagePath), $decoded, $status);
+        if ($status === 0 && !empty($decoded[0])) {
+            $text = trim($decoded[0]);
+            @unlink($imagePath);
+            break;
+        }
+
+        try {
+            $qrcode = new QrReader($imagePath);
+            $decodedText = $qrcode->text();
+            if ($decodedText) {
+                $text = $decodedText;
+                @unlink($imagePath);
+                break;
+            }
+        } catch (Throwable $e) {
+            // Ignore errors for individual pages
+        }
+
+        @unlink($imagePath);
+        $page++;
     }
 
-    @unlink($imagePath);
+    // Clean up any remaining generated files
+    $page++;
+    while (file_exists($imagePath = sprintf('%s-%d.png', $prefix, $page))) {
+        @unlink($imagePath);
+        $page++;
+    }
+
     return $text ?: null;
 }
