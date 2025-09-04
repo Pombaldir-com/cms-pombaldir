@@ -35,7 +35,6 @@ function extractQrStringFromPdf(string $pdfPath): ?string {
         if (!file_exists($imagePath)) {
             break;
         }
-
         try {
             $qrcode = new QrReader($imagePath);
             $decoded = $qrcode->text();
