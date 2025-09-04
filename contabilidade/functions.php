@@ -4,6 +4,36 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Zxing\QrReader;
 
 /**
+ * Ensure the environment has the required tools to extract QR codes from PDFs.
+ *
+ * The extraction requires either the `pdftoppm` binary or the Imagick
+ * extension to convert PDFs into images, and one of the `imagick` or `gd`
+ * extensions for image processing. Missing requirements are returned as an
+ * array of messages so the caller can alert the user.
+ *
+ * @return string[] List of missing requirements. Empty if all requirements are met.
+ */
+function checkQrRequirements(): array {
+    $missing = [];
+
+    $hasImagick = extension_loaded('imagick');
+    $hasGd = extension_loaded('gd');
+    if (!$hasImagick && !$hasGd) {
+        $missing[] = 'PHP extension imagick or gd';
+    }
+
+    $pdftoppm = '';
+    if (function_exists('shell_exec')) {
+        $pdftoppm = trim((string) shell_exec('which pdftoppm 2>/dev/null'));
+    }
+    if (!$hasImagick && $pdftoppm === '') {
+        $missing[] = 'pdftoppm binary or Imagick extension';
+    }
+
+    return $missing;
+}
+
+/**
  * Read a PDF document and extract the text contained in its QR code, if any.
  *
  * Pages of the PDF are converted to temporary PNG images using the
@@ -15,6 +45,15 @@ use Zxing\QrReader;
  * @return string|null Decoded QR code text or null if not found.
  */
 function extractQrStringFromPdf(string $pdfPath): ?string {
+    $missing = checkQrRequirements();
+    if (!empty($missing)) {
+        trigger_error(
+            'Missing requirements for QR extraction: ' . implode(', ', $missing),
+            E_USER_WARNING
+        );
+        return null;
+    }
+
     $tempBase = tempnam(sys_get_temp_dir(), 'qr_');
     if ($tempBase === false) {
         return null;
