@@ -6,12 +6,18 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 requireRole(2);
+$user = currentUser();
 $csrfToken = generateCsrfToken();
 
 $contentTypes = getContentTypes();
+$availableModules = [
+    'contabilidade' => 'Contabilidade',
+    'faturacao' => 'Faturação',
+];
 
 $generalSaved = false;
 $emailSaved = false;
+$modulesSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
         http_response_code(400);
@@ -56,6 +62,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setSetting('smtp_encryption', $smtpEncryption);
         $emailSaved = true;
     }
+    if (isset($_POST['modules_save']) && ($user['role'] ?? 3) == 1) {
+        $selectedModules = array_keys($_POST['modules'] ?? []);
+        setSetting('active_modules', json_encode($selectedModules));
+        $modulesSaved = true;
+    }
 }
 $currentAppName = getSetting('app_name', '');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
@@ -70,6 +81,7 @@ $currentSmtpPort = getSetting('smtp_port', '');
 $currentSmtpUser = getSetting('smtp_user', '');
 $currentSmtpPass = getSetting('smtp_pass', '');
 $currentSmtpEncryption = getSetting('smtp_encryption', '');
+$currentModules = getActiveModules();
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -83,6 +95,11 @@ require_once __DIR__ . '/header.php';
         <li class="nav-item">
             <a class="nav-link" id="email-tab" data-bs-toggle="tab" href="#email" role="tab" aria-controls="email" aria-selected="false">E-mail</a>
         </li>
+        <?php if (($user['role'] ?? 3) == 1): ?>
+        <li class="nav-item">
+            <a class="nav-link" id="modules-tab" data-bs-toggle="tab" href="#modules" role="tab" aria-controls="modules" aria-selected="false">Módulos</a>
+        </li>
+        <?php endif; ?>
     </ul>
 
     <div class="tab-content" id="settings-tabContent">
@@ -171,9 +188,30 @@ require_once __DIR__ . '/header.php';
                 </div>
             
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
-                </div>
             </form>
         </div>
+        <?php if (($user['role'] ?? 3) == 1): ?>
+        <div class="tab-pane fade" id="modules" role="tabpanel" aria-labelledby="modules-tab">
+            <?php if ($modulesSaved): ?>
+                <div class="alert alert-success mt-3">Módulos guardados.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                <input type="hidden" name="modules_save" value="1">
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <?php foreach ($availableModules as $key => $label): ?>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="module_<?= $key; ?>" name="modules[<?= $key; ?>]" value="1" <?= in_array($key, $currentModules, true) ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="module_<?= $key; ?>"><?= htmlspecialchars($label); ?></label>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </form>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php
