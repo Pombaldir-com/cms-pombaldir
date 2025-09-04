@@ -14,5 +14,12 @@ return [
         'db_pass' => 'root',
         'slug'    => 'menudigital',
     ],
+    '500735794' => [
+        'db_host' => 'localhost',
+        'db_name' => 'cms_zcontas',
+        'db_user' => 'root',
+        'db_pass' => 'root',
+        'slug'    => 'zcontas',
+    ],
 ];
 
