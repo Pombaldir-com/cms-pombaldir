@@ -45,7 +45,12 @@ $year = date('Y');
 $month = date('m');
 $uploadDir = dirname(__DIR__) . '/uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/';
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    if (!mkdir($uploadDir, 0755, true)) {
+        error_log('Failed to create upload directory: ' . $uploadDir);
+        http_response_code(500);
+        echo json_encode(['error' => 'Erro ao criar diretório de upload']);
+        exit;
+    }
 }
 
 $filename = bin2hex(random_bytes(16)) . '.pdf';
