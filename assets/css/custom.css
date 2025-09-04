@@ -6272,7 +6272,27 @@ ul.notifications {
 
 .dropzone {
     min-height: 300px;
-    border: 1px solid #e5e5e5;
+    border: 2px dashed #d9d9d9;
+    border-radius: 6px;
+    background: #f7f7f7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    color: #6c757d;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.dropzone .dz-message {
+    font-size: 1.2rem;
+    font-weight: 500;
+}
+
+.dropzone.dz-drag-hover {
+    background: #e6f4ff;
+    border-color: #007bff;
+    color: #007bff;
 }
 
 

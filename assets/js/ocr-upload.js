@@ -2,7 +2,9 @@
 Dropzone.autoDiscover = false;
 
 function initOcrUpload(selector) {
-    var dz = new Dropzone(selector);
+    var dz = new Dropzone(selector, {
+        dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
+    });
     var queue = [];
 
     function showNext() {
