@@ -63,10 +63,6 @@ $appName = getSetting('app_name', 'CMS');
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
-<?php if (($user['role'] ?? 3) <= 2): ?>
-                            <li><a href="<?= BASE_URL ?>content-types"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a></li>
-                            <li><a href="<?= BASE_URL ?>taxonomies"><i class="fa fa-tags"></i> Taxonomias</a></li>
-<?php endif; ?>
 <?php
 // Dynamically list each content type with shortcuts to common actions.
 $sidebarTypes = getContentTypes();
@@ -118,18 +114,15 @@ foreach ($sidebarTypes as $sidebarType):
             <a class="dropdown-item" href="<?= BASE_URL ?>users/profile"><i class="fa fa-user"></i> Perfil</a>
 
         <?php if (($user['role'] ?? 3) <= 2): ?>
-      
           <a class="dropdown-item" href="<?= BASE_URL ?>users"><i class="fa fa-users"></i> Utilizadores</a>
-      
+          <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
+            <span class="badge bg-red float-end">50%</span>
+            <i class="fa fa-cog"></i> <span>Definições</span>
+          </a>
+          <a class="dropdown-item" href="<?= BASE_URL ?>content-types"><i class="fa fa-cubes"></i> Tipos de Conteúdo</a>
+          <a class="dropdown-item" href="<?= BASE_URL ?>taxonomies"><i class="fa fa-tags"></i> Taxonomias</a>
         <?php endif; ?>
-
-        <?php if (($user['role'] ?? 3) <= 2): ?>
-            <a class="dropdown-item" href="<?= BASE_URL ?>definicoes">
-              <span class="badge bg-red float-end">50%</span>
-              <i class="fa fa-cog"></i> <span>Definições</span>
-            </a>
-        <?php endif; ?>
-            <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao">
+        <a class="dropdown-item" href="<?= BASE_URL ?>terminar-sessao">
               <i class="fa fa-sign-out float-end"></i> Terminar Sessão
             </a>
           </div>
