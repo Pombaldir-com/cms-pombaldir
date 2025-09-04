@@ -349,42 +349,44 @@ function updtCliParam(cliente, params) {
 }
 
 $(document).ready(function() {
-    $('table.datatable').each(function() {
-        var $table = $(this);
-        var source = $table.data('source');
-        var options = { responsive: true };
-        options.language = { url: 'vendors/datatables.net/i18n/pt-PT.json' };
-        var nonSortable = [];
-        $table.find('thead th').each(function(i) {
-            if ($(this).data('orderable') === false) {
-                nonSortable.push(i);
+    if ($.fn.DataTable) {
+        $('table.datatable').each(function() {
+            var $table = $(this);
+            var source = $table.data('source');
+            var options = { responsive: true };
+            options.language = { url: 'vendors/datatables.net/i18n/pt-PT.json' };
+            var nonSortable = [];
+            $table.find('thead th').each(function(i) {
+                if ($(this).data('orderable') === false) {
+                    nonSortable.push(i);
+                }
+            });
+            if (nonSortable.length) {
+                options.columnDefs = options.columnDefs || [];
+                options.columnDefs.push({ targets: nonSortable, orderable: false });
+            }
+            if ($table.data('no-sort-last')) {
+                options.columnDefs = options.columnDefs || [];
+                options.columnDefs.push({ targets: -1, orderable: false });
+            }
+            if (source) {
+                var typeId = $table.data('type-id');
+                options.ajax = {
+                    url: source,
+                    type: 'POST',
+                    data: { type_id: typeId }
+                };
+            }
+            var table = $table.DataTable(options);
+            var $toggles = $table.prev('.column-toggler');
+            if ($toggles.length) {
+                $toggles.find('input[type="checkbox"]').on('change', function() {
+                    var column = table.column($(this).data('column'));
+                    column.visible(this.checked);
+                });
             }
         });
-        if (nonSortable.length) {
-            options.columnDefs = options.columnDefs || [];
-            options.columnDefs.push({ targets: nonSortable, orderable: false });
-        }
-        if ($table.data('no-sort-last')) {
-            options.columnDefs = options.columnDefs || [];
-            options.columnDefs.push({ targets: -1, orderable: false });
-        }
-        if (source) {
-            var typeId = $table.data('type-id');
-            options.ajax = {
-                url: source,
-                type: 'POST',
-                data: { type_id: typeId }
-            };
-        }
-        var table = $table.DataTable(options);
-        var $toggles = $table.prev('.column-toggler');
-        if ($toggles.length) {
-            $toggles.find('input[type="checkbox"]').on('change', function() {
-                var column = table.column($(this).data('column'));
-                column.visible(this.checked);
-            });
-        }
-    });
+    }
 });
 
 $(document).ready(function() {

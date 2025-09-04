@@ -17,6 +17,10 @@ requireLogin();
 // Get current user info
 $user = currentUser();
 $appName = getSetting('app_name', 'CMS');
+
+// Flags to control optional assets
+$useDataTables = $useDataTables ?? false;
+$useDropzone   = $useDropzone ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -27,8 +31,14 @@ $appName = getSetting('app_name', 'CMS');
     <base href="<?= BASE_URL ?>">
 <link rel="stylesheet" href="vendors/bootstrap/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
+<?php if ($useDataTables): ?>
 <link rel="stylesheet" href="vendors/datatables.net-bs5/css/dataTables.bootstrap5.min.css">
 <link rel="stylesheet" href="vendors/datatables.net-responsive-bs5/css/responsive.bootstrap5.min.css">
+<?php endif; ?>
+
+<?php if ($useDropzone): ?>
+<link rel="stylesheet" href="vendors/dropzone/dist/dropzone.css">
+<?php endif; ?>
 
 <link rel="stylesheet" href="assets/css/custom.css">
 
