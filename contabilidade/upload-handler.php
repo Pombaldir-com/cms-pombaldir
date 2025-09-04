@@ -17,6 +17,8 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
     exit;
 }
 
+$newToken = generateCsrfToken();
+
 if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
     http_response_code(400);
     echo json_encode(['error' => 'Ficheiro não enviado']);
@@ -67,4 +69,5 @@ echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'text' => $text,
+    'csrf_token' => $newToken,
 ]);
