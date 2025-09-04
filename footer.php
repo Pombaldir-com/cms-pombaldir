@@ -40,7 +40,7 @@
 <script src="vendors/datatables.net-responsive/js/dataTables.responsive.min.js"></script>
 <script src="vendors/datatables.net-responsive-bs5/js/responsive.bootstrap5.min.js"></script>
 
-<script src="vendors/dropzone/src/dropzone.js"></script>
+<script src="vendors/dropzone/dist/dropzone-min.js"></script>
 <script src="assets/js/custom.js"></script>
 <script src="assets/js/ocr-upload.js"></script>
 
