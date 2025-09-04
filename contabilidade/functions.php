@@ -36,7 +36,7 @@ function extractQrStringFromPdf(string $pdfPath): ?string
                 escapeshellcmd($pdftoppm),
                 150,
                 escapeshellarg($pdfPath),
-                escapeshellarg($tmpDir)
+                escapeshellarg($tmpDir . '/page')
             );
             exec($cmd, $output, $returnVar);
             if ($returnVar !== 0) {
