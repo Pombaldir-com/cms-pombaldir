@@ -9,6 +9,8 @@ requireLogin();
 requireRole(2);
 $csrfToken = generateCsrfToken();
 
+$useDataTables = true;
+
 // Obtém parâmetros básicos
 $typeId = isset($_GET['type_id']) ? (int) $_GET['type_id'] : 0;
 $act    = $_GET['act'] ?? '';

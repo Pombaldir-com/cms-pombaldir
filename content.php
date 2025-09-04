@@ -7,6 +7,8 @@ requireLogin();
 $csrfToken = generateCsrfToken();
 $slug = getCompanySlug();
 
+$useDataTables = true;
+
 /**
  * Render an individual custom field input.
  *

@@ -35,14 +35,19 @@
 
 <script src="vendors/jquery/dist/jquery.min.js"></script>
 <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+<?php if ($useDataTables): ?>
 <script src="vendors/datatables.net/js/dataTables.min.js"></script>
 <script src="vendors/datatables.net-bs5/js/dataTables.bootstrap5.min.js"></script>
 <script src="vendors/datatables.net-responsive/js/dataTables.responsive.min.js"></script>
 <script src="vendors/datatables.net-responsive-bs5/js/responsive.bootstrap5.min.js"></script>
+<?php endif; ?>
 
+<?php if ($useDropzone): ?>
 <script src="vendors/dropzone/dist/dropzone-min.js"></script>
-<script src="assets/js/custom.js"></script>
 <script src="assets/js/ocr-upload.js"></script>
+<?php endif; ?>
+
+<script src="assets/js/custom.js"></script>
 
 </body>
 </html>

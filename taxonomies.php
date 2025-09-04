@@ -18,6 +18,8 @@ requireLogin();
 requireRole(2);
 $csrfToken = generateCsrfToken();
 
+$useDataTables = true;
+
  $error = '';
  $taxonomyId = isset($_GET['taxonomy_id']) ? (int)$_GET['taxonomy_id'] : 0;
  $act = $_GET['act'] ?? '';
