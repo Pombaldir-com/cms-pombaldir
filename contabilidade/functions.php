@@ -20,43 +20,71 @@ function extractQrStringFromPdf(string $pdfPath): ?string {
         return null;
     }
     $prefix = $tempBase;
-    @unlink($tempBase);
+    if (is_file($tempBase)) {
+        unlink($tempBase);
+    }
+    $images = [];
 
+    // Try converting pages using pdftoppm. Fall back to Imagick if pdftoppm is
+    // unavailable or fails (e.g. exec disabled).
     $cmd = 'pdftoppm -png -r 300 ' . escapeshellarg($pdfPath) . ' ' . escapeshellarg($prefix);
-    exec($cmd, $output, $status);
-    if ($status !== 0) {
-        return null;
+    $status = 1;
+    if (function_exists('exec')) {
+        exec($cmd, $output, $status);
+    }
+    if ($status === 0) {
+        $page = 1;
+        while (file_exists($imagePath = sprintf('%s-%d.png', $prefix, $page))) {
+            $images[] = $imagePath;
+            $page++;
+        }
+    } elseif (extension_loaded('imagick')) {
+        try {
+            $imagick = new Imagick();
+            $imagick->setResolution(300, 300);
+            $imagick->readImage($pdfPath);
+            foreach ($imagick as $i => $page) {
+                $imagePath = sprintf('%s-%d.png', $prefix, $i + 1);
+                $page->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+                $page->setImageBackgroundColor('white');
+                $flattened = $page->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+                $flattened->setImageFormat('png');
+                $flattened->writeImage($imagePath);
+                $images[] = $imagePath;
+            }
+            $imagick->clear();
+            $imagick->destroy();
+        } catch (Throwable $e) {
+            // If conversion fails, no images will be scanned.
+        }
     }
 
-    $page = 1;
     $text = null;
-    while (true) {
-        $imagePath = sprintf('%s-%d.png', $prefix, $page);
-        if (!file_exists($imagePath)) {
-            break;
-        }
+    $processed = [];
+    foreach ($images as $imagePath) {
         try {
             $qrcode = new QrReader($imagePath);
             $decoded = $qrcode->text();
             if ($decoded) {
                 $text = $decoded;
-                @unlink($imagePath);
                 break;
             }
         } catch (Throwable $e) {
-            // Ignore errors for individual pages
+            // Ignore errors for individual pages.
+        } finally {
+            if (file_exists($imagePath)) {
+                unlink($imagePath);
+            }
+            $processed[] = $imagePath;
         }
-
-        @unlink($imagePath);
-        $page++;
     }
 
-    // Clean up any remaining generated files
-    $page++;
-    while (file_exists($imagePath = sprintf('%s-%d.png', $prefix, $page))) {
-        @unlink($imagePath);
-        $page++;
+    // Clean up any remaining images that were not processed due to early break.
+    foreach ($images as $imagePath) {
+        if (!in_array($imagePath, $processed, true) && file_exists($imagePath)) {
+            unlink($imagePath);
+        }
     }
 
-    return $text ?: null;
+    return $text;
 }
