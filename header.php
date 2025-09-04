@@ -82,7 +82,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endforeach; ?>
-<?php if (getSetting('accounting_enabled', '0') === '1'): ?>
+<?php if (isModuleActive('contabilidade')): ?>
                             <li><a href="<?= BASE_URL ?>contabilidade/upload"><i class="fa fa-upload"></i> Multi Upload</a></li>
 <?php endif; ?>
                         </ul>
