@@ -1,4 +1,16 @@
 {
+    "name": "pombaldir/cms",
+    "autoload": {
+        "psr-4": {
+            "Pombaldir\\Cms\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Nelson Santos",
+            "email": "nsantos@pombaldir.com"
+        }
+    ],
     "require": {
         "thiagoalessio/tesseract_ocr": "^2.13"
     }
