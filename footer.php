@@ -10,6 +10,29 @@
     </div> <!-- /main_container -->
 </div> <!-- /container body -->
 
+<!-- OCR Review Modal -->
+<div class="modal fade" id="ocrModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Revisar OCR</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Texto</label>
+                    <textarea class="form-control" name="ocr_text" rows="5"></textarea>
+                </div>
+                <div class="analysis-fields"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="analysisCancel" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="analysisConfirm">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="vendors/jquery/dist/jquery.min.js"></script>
 <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
 <script src="vendors/datatables.net/js/dataTables.min.js"></script>
@@ -17,9 +40,9 @@
 <script src="vendors/datatables.net-responsive/js/dataTables.responsive.min.js"></script>
 <script src="vendors/datatables.net-responsive-bs5/js/responsive.bootstrap5.min.js"></script>
 
-
-
+<script src="vendors/dropzone/src/dropzone.js"></script>
 <script src="assets/js/custom.js"></script>
+<script src="assets/js/ocr-upload.js"></script>
 
 </body>
 </html>

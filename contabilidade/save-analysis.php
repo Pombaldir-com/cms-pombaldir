@@ -1,19 +1,23 @@
 <?php
-require_once __DIR__ . '/../data/db.php';
 
-$filePath = $_POST['file_path'] ?? null;
-$field1   = $_POST['field1'] ?? null;
-$field2   = $_POST['field2'] ?? null;
+require_once __DIR__ . '/../functions.php';
 
-if ($filePath === null || $field1 === null || $field2 === null) {
-    http_response_code(400);
-    echo 'Missing data';
+startSession();
+requireLogin();
+
+header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Método inválido']);
     exit;
 }
 
-$pdo = getPDO();
-$stmt = $pdo->prepare('INSERT INTO accounting_documents (file_path, field1, field2, created_at) VALUES (?, ?, ?, NOW())');
-$stmt->execute([$filePath, $field1, $field2]);
+$text = $_POST['text'] ?? '';
+$fields = $_POST['fields'] ?? [];
+$filename = $_POST['filename'] ?? '';
 
-echo 'ok';
+// Placeholder: persist analysis data as needed.
+// For now, simply return success.
 
+echo json_encode(['success' => true]);
