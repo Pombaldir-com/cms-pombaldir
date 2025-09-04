@@ -20,7 +20,8 @@ use Zxing\QrReader;
  */
 function extractQrStringFromPdf(string $pdfPath): ?string
 {
-    $tmpDir = sys_get_temp_dir() . '/qr_' . uniqid();
+    //$tmpDir = sys_get_temp_dir() . '/qr_' . uniqid();
+    $tmpDir = dirname($pdfPath) . '/tmp_' . uniqid();
     if (!mkdir($concurrentDirectory = $tmpDir) && !is_dir($concurrentDirectory)) {
         throw new RuntimeException('Unable to create temporary directory.');
     }
