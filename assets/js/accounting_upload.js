@@ -69,7 +69,8 @@ window.addEventListener('load', function() {
     });
 
     dz.on('error', function(file, errorMessage, xhr) {
-        var msg = errorMessage || ('Erro ao processar o ficheiro: ' + file.name);
+        var msg = 'Erro ao processar o ficheiro ' + file.name;
+        var tokenUpdated = false;
         if (xhr && xhr.responseText) {
             try {
                 var errData = JSON.parse(xhr.responseText);
@@ -78,8 +79,22 @@ window.addEventListener('load', function() {
                 }
                 if (errData.csrf_token && csrfInput) {
                     csrfInput.value = errData.csrf_token;
+                    tokenUpdated = true;
                 }
             } catch (e) {}
+        }
+        if (!tokenUpdated && csrfInput) {
+            $.ajax({
+                type: 'POST',
+                url: 'contabilidade/upload-handler.php',
+                data: { csrf_token: csrfInput.value },
+                dataType: 'json',
+                success: function(res) {
+                    if (res.csrf_token) {
+                        csrfInput.value = res.csrf_token;
+                    }
+                }
+            });
         }
         alert(msg);
         dz.removeFile(file);
