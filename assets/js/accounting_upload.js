@@ -69,19 +69,20 @@ window.addEventListener('load', function() {
     });
 
     dz.on('error', function(file, errorMessage, xhr) {
-        if (xhr && xhr.status === 500) {
-            var msg = 'Erro ao processar o ficheiro: ' + file.name;
-            if (xhr.responseText) {
-                try {
-                    var errData = JSON.parse(xhr.responseText);
-                    if (errData.error) {
-                        msg = errData.error;
-                    }
-                } catch (e) {}
-            }
-            alert(msg);
-            dz.removeFile(file);
+        var msg = errorMessage || ('Erro ao processar o ficheiro: ' + file.name);
+        if (xhr && xhr.responseText) {
+            try {
+                var errData = JSON.parse(xhr.responseText);
+                if (errData.error) {
+                    msg = errData.error;
+                }
+                if (errData.csrf_token && csrfInput) {
+                    csrfInput.value = errData.csrf_token;
+                }
+            } catch (e) {}
         }
+        alert(msg);
+        dz.removeFile(file);
     });
 
     $('#qr-table').on('click', '.delete-row', function() {
