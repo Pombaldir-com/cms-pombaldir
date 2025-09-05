@@ -2,7 +2,9 @@ window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
 
+
     var table = $('#qr-table').DataTable();
+
 
 
     var dz = new Dropzone('#multi-upload', {
@@ -22,6 +24,7 @@ window.addEventListener('load', function() {
         }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
+
 
 
             var bValue = qrData['B'] || '';

@@ -13,12 +13,13 @@ $csrfToken = generateCsrfToken();
         <thead>
 
 
+
             <tr><th>[B]</th></tr>
+
         </thead>
         <tbody></tbody>
     </table>
 </div>
-
 
 
 
