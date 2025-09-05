@@ -30,7 +30,7 @@ def decode_file(path: str) -> Optional[str]:
     if ext == ".pdf":
         if convert_from_path is None:
             raise RuntimeError("pdf2image not available")
-        pages = convert_from_path(path, dpi=200)
+        pages = convert_from_path(path, dpi=200, poppler_path="/usr/local/bin" )
         for page in pages:
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
             text = _decode_cv(img)
