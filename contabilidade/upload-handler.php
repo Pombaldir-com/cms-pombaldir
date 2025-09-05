@@ -69,7 +69,7 @@ try {
     // OCR failed; return empty text
 }
 
-$qrText = extractQrStringFromPdf($targetPath);
+$qrText = detectarQr_safe($targetPath);
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
 
