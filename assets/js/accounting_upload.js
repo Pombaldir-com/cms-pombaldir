@@ -20,22 +20,10 @@ window.addEventListener('load', function() {
         }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
-            var rowData = [
-                qrData['A'] || '',
-                qrData['B'] || '',
-                qrData['C'] || '',
-                qrData['D'] || '',
-                qrData['E'] || '',
-                qrData['F'] || '',
-                qrData['G'] || '',
-                qrData['H'] || '',
-                qrData['I1'] || '',
-                qrData['I7'] || '',
-                qrData['I8'] || '',
-                qrData['N'] || '',
-                qrData['O'] || ''
-            ];
-            table.row.add(rowData).draw();
+
+            var bValue = qrData['B'] || '';
+            table.row.add([bValue]).draw();
+
         }
     });
 });

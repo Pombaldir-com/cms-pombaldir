@@ -11,25 +11,13 @@ $csrfToken = generateCsrfToken();
 <div id="qr-results">
     <table id="qr-table" class="datatable table table-striped">
         <thead>
-            <tr>
-                <th>[A]</th>
-                <th>[B]</th>
-                <th>[C]</th>
-                <th>[D]</th>
-                <th>[E]</th>
-                <th>[F]</th>
-                <th>[G]</th>
-                <th>[H]</th>
-                <th>[I1]</th>
-                <th>[I7]</th>
-                <th>[I8]</th>
-                <th>[N]</th>
-                <th>[O]</th>
-            </tr>
+
+            <tr><th>[B]</th></tr>
         </thead>
         <tbody></tbody>
     </table>
-    </div>
+</div>
+
 
 
 
