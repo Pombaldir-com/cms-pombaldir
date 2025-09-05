@@ -191,6 +191,7 @@ window.addEventListener('load', function() {
                     alert('Importação concluída');
                     importBtn.style.display = 'none';
                     table.clear().draw();
+                    dz.removeAllFiles(true);
                 } else {
                     alert(res.error || 'Falha na importação');
                 }
