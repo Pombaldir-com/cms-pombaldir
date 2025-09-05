@@ -93,6 +93,14 @@ window.addEventListener('load', function() {
                     if (res.csrf_token) {
                         csrfInput.value = res.csrf_token;
                     }
+                },
+                error: function(xhr) {
+                    try {
+                        var errData = JSON.parse(xhr.responseText);
+                        if (errData.csrf_token) {
+                            csrfInput.value = errData.csrf_token;
+                        }
+                    } catch (e) {}
                 }
             });
         }
