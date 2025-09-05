@@ -9,7 +9,8 @@ window.addEventListener('load', function() {
         table = $('#qr-table').DataTable({
             orderCellsTop: true,
             columnDefs: [
-                { targets: [ 2, 4, 7, 8, 13, 14], visible: false }
+                { targets: [ 2, 4, 7, 8, 13, 14], visible: false },
+                { targets: [0, 1], className: 'text-start' }
             ]
         });
     }
@@ -33,7 +34,11 @@ window.addEventListener('load', function() {
             var qrData = extractQR(data.qr_text);
             var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
             var row = keys.map(function(key) {
-                return qrData[key] || '';
+                var value = qrData[key] || '';
+                if (key === 'F') {
+                    value = formatDate(value);
+                }
+                return value;
             });
             table.row.add(row).draw();
         }
@@ -54,4 +59,19 @@ function extractQR(str) {
         }
     });
     return obj;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    if (/^\d{8}$/.test(dateStr)) {
+        return dateStr.slice(0, 4) + '-' + dateStr.slice(4, 6) + '-' + dateStr.slice(6, 8);
+    }
+    var date = new Date(dateStr);
+    if (!isNaN(date)) {
+        var y = date.getFullYear();
+        var m = ('0' + (date.getMonth() + 1)).slice(-2);
+        var d = ('0' + date.getDate()).slice(-2);
+        return y + '-' + m + '-' + d;
+    }
+    return dateStr;
 }
