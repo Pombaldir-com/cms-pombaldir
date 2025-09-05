@@ -7,7 +7,6 @@ on success. Non‑zero exit codes indicate failure to read or decode the file.
 """
 import sys
 import os
-import io
 from typing import Optional
 
 try:
@@ -17,13 +16,29 @@ except Exception:  # pragma: no cover - library missing
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
-from PIL import Image  # type: ignore
 
 def _decode_cv(image) -> Optional[str]:
-    """Return decoded text from a cv2 image array or None."""
+    """Return decoded text from a cv2 image array or ``None``.
+
+    The standard :func:`detectAndDecode` call fails with certain QR codes,
+    especially when multiple codes are present or the image is in color.
+    To make the detection more robust we convert the frame to grayscale and
+    fall back to :func:`detectAndDecodeMulti` when the first attempt returns
+    nothing.
+    """
     detector = cv2.QRCodeDetector()
-    data, _, _ = detector.detectAndDecode(image)
-    return data or None
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    data, _, _ = detector.detectAndDecode(gray)
+    if data:
+        return data
+
+    ok, decoded_info, _, _ = detector.detectAndDecodeMulti(gray)
+    if ok and decoded_info:
+        for text in decoded_info:
+            if text:
+                return text
+    return None
 
 def decode_file(path: str) -> Optional[str]:
     ext = os.path.splitext(path)[1].lower()
@@ -38,7 +53,7 @@ def decode_file(path: str) -> Optional[str]:
                 return text
         return None
     else:
-        img = cv2.imread(path)
+        img = cv2.imread(path, cv2.IMREAD_COLOR)
         if img is None:
             raise RuntimeError("unable to read image")
         return _decode_cv(img)
