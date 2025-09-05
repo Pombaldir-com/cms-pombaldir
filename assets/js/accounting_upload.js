@@ -125,6 +125,14 @@ window.addEventListener('load', function() {
                         }
                     }
                 }
+            },
+            error: function(xhr) {
+                var errData = {};
+                try { errData = JSON.parse(xhr.responseText); } catch (e) {}
+                if (errData.csrf_token && csrfInput) {
+                    csrfInput.value = errData.csrf_token;
+                }
+                alert(errData.error || 'Erro ao eliminar ficheiro');
             }
         });
     });
