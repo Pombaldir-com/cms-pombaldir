@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/functions.php';
-
+//ini_set('max_execution_time', 120); set_time_limit(120);
 startSession();
 header('Content-Type: application/json');
 
