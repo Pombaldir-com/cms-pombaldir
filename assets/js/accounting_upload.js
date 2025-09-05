@@ -1,3 +1,5 @@
+Dropzone.autoDiscover = false;
+
 window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
@@ -21,6 +23,12 @@ window.addEventListener('load', function() {
         acceptedFiles: 'application/pdf',
         parallelUploads: 1,
         dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
+    });
+
+    dz.on('sending', function(file, xhr, formData) {
+        if (csrfInput) {
+            formData.append('csrf_token', csrfInput.value);
+        }
     });
 
     dz.on('success', function(file, response) {
