@@ -337,7 +337,7 @@ if (isset($_GET['manage_types'])) {
             </div>
         <?php endif; ?>
         <h2>Tipos de Conteúdo</h2>
-        <table class="table table-striped datatable" data-no-sort-last="true" data-only-second="true">
+        <table class="table table-striped datatable" data-no-sort-last="true">
             <thead><tr><th>Ordem</th><th>Rótulo</th><th>Slug</th><th data-orderable="false">Ícone</th><th>Ações</th></tr></thead>
             <tbody>
             <?php foreach ($types as $type): ?>

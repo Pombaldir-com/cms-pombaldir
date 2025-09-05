@@ -369,14 +369,6 @@ $(document).ready(function() {
                 options.columnDefs = options.columnDefs || [];
                 options.columnDefs.push({ targets: -1, orderable: false });
             }
-            if ($table.data('only-second')) {
-                options.columnDefs = options.columnDefs || [];
-                $table.find('thead th').each(function(i) {
-                    if (i !== 1) {
-                        options.columnDefs.push({ targets: i, visible: false });
-                    }
-                });
-            }
             if (source) {
                 var typeId = $table.data('type-id');
                 options.ajax = {
