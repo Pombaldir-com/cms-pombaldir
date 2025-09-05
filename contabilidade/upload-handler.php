@@ -13,6 +13,7 @@ if (!isLoggedIn()) {
 }
 
 if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+    $newToken = generateCsrfToken(true);
     http_response_code(400);
     echo json_encode([
         'error' => 'Token CSRF inválido',

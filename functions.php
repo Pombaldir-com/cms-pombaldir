@@ -165,6 +165,11 @@ function getCompanySlug(): ?string {
 /**
  * Generate a CSRF token and store it in the session.
  *
+ * Tokens are single-use. Pass `$renew = true` to force generation of a
+ * new token even if one already exists (useful after a failed
+ * validation attempt).
+ *
+ * @param bool $renew Whether to force creation of a fresh token
  * @return string
  */
 function generateCsrfToken(bool $renew = false): string {
@@ -176,10 +181,12 @@ function generateCsrfToken(bool $renew = false): string {
 }
 
 /**
- * Validate a CSRF token against the session and invalidate it.
+ * Validate a CSRF token against the session.
  *
- * @param string $token
- * @return bool
+ * On success the stored token is cleared to enforce single-use.
+ *
+ * @param string $token Token supplied by the client
+ * @return bool True if the token matches the session value
  */
 function validateCsrfToken(string $token): bool {
     startSession();
