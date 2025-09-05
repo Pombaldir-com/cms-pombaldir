@@ -11,16 +11,13 @@ $csrfToken = generateCsrfToken();
 <div id="qr-results">
     <table id="qr-table" class="datatable table table-striped">
         <thead>
-
-
-
             <tr>
                 <th>[A]</th>
                 <th>[B]</th>
                 <th>[C]</th>
                 <th>[D]</th>
                 <th>[E]</th>
-                <th>[F]</th>
+                <th>Dt</th>
                 <th>[G]</th>
                 <th>[H]</th>
                 <th>[I1]</th>
@@ -28,8 +25,26 @@ $csrfToken = generateCsrfToken();
                 <th>[I8]</th>
                 <th>[N]</th>
                 <th>[O]</th>
+                <th>[Q]</th>
+                <th>[R]</th>
             </tr>
-
+            <tr>
+                <th>NIF do emitente (quem emite a fatura).</th>
+                <th>NIF do adquirente (cliente).</th>
+                <th>País do emitente (código ISO, ex.: <code>PT</code>).</th>
+                <th>Tipo de documento.<br><strong>FT</strong> – Fatura<br><strong>FS</strong> – Fatura Simplificada<br><strong>FR</strong> – Fatura/Recibo</th>
+                <th>Estado do documento.<br><strong>N</strong> – Normal<br><strong>A</strong> – Anulado</th>
+                <th>Data do documento no formato <code>YYYYMMDD</code>.</th>
+                <th>Identificação única do documento (série + numeração, ex.: <code>FACDG+232122/990</code>).</th>
+                <th>Retenção na fonte; usar <code>0</code> se não houver.</th>
+                <th>País do adquirente (código ISO, ex.: <code>PT</code>, <code>ES</code>).</th>
+                <th>Total com IVA à taxa normal (base tributável).</th>
+                <th>IVA calculado à taxa normal.</th>
+                <th>Valor total de IVA (soma de todos os tipos de IVA).</th>
+                <th>Total do documento (valor global da fatura).</th>
+                <th>Assinatura/Hash do documento gerado pelo software certificado.</th>
+                <th>Código de validação do software certificado atribuído pela AT.</th>
+            </tr>
         </thead>
         <tbody></tbody>
     </table>
