@@ -9,9 +9,10 @@ $csrfToken = generateCsrfToken();
 </form>
 
 <div id="qr-results">
-    <table id="qr-table" class="datatable table table-striped">
+    <table id="qr-table" class="table table-striped">
         <thead>
             <tr>
+
                 <th>NIF</th>
                 <th>NIF do adquirente (cliente).</th>
                 <th>País do emitente (código ISO, ex.: <code>PT</code>).</th>
