@@ -17,7 +17,7 @@ if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
     http_response_code(400);
     echo json_encode([
         'error' => 'Token CSRF inválido',
-        'csrf_token' => generateCsrfToken(true),
+        'csrf_token' => $newToken,
     ]);
     exit;
 }
