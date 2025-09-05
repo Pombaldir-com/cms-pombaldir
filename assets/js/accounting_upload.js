@@ -1,7 +1,11 @@
-document.addEventListener('DOMContentLoaded', function() {
+window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
-    var resultsDiv = document.getElementById('qr-results');
+    var columns = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O'];
+    var table = $('#qr-table').DataTable({
+        scrollX: true,
+        responsive: false
+    });
 
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
@@ -18,36 +22,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (data.csrf_token && csrfInput) {
             csrfInput.value = data.csrf_token;
         }
-        if (data.qr_text && resultsDiv) {
+        if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
-            var table = document.createElement('table');
-            var tbody = document.createElement('tbody');
-
-            if (qrData['B']) {
-                var trB = document.createElement('tr');
-                var thB = document.createElement('th');
-                thB.textContent = '[B]';
-                var tdB = document.createElement('td');
-                tdB.textContent = qrData['B'];
-                trB.appendChild(thB);
-                trB.appendChild(tdB);
-                tbody.appendChild(trB);
-            }
-
-            Object.keys(qrData).forEach(function(key) {
-                if (key === 'B') return;
-                var tr = document.createElement('tr');
-                var th = document.createElement('th');
-                th.textContent = '[' + key + ']';
-                var td = document.createElement('td');
-                td.textContent = qrData[key];
-                tr.appendChild(th);
-                tr.appendChild(td);
-                tbody.appendChild(tr);
+            var rowData = columns.map(function(key) {
+                return qrData[key] || '';
             });
-
-            table.appendChild(tbody);
-            resultsDiv.appendChild(table);
+            table.row.add(rowData).draw();
         }
     });
 });
