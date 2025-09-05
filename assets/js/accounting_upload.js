@@ -48,8 +48,31 @@ window.addEventListener('load', function() {
                 '<a href="' + data.file + '" target="_blank" class="btn btn-sm btn-secondary">Ver PDF</a>';
             row.push(actions);
             table.row.add(row).draw();
+        } else {
+            alert('QR code não encontrado');
+            if (data.file) {
+                $.ajax({
+                    type: 'POST',
+                    url: 'contabilidade/delete-file.php',
+                    data: { file: data.file, csrf_token: csrfInput.value },
+                    dataType: 'json',
+                    success: function(res) {
+                        if (res.csrf_token) {
+                            csrfInput.value = res.csrf_token;
+                        }
+                    }
+                });
+            }
+            dz.removeFile(file);
         }
         console.log(data);
+    });
+
+    dz.on('error', function(file, errorMessage, xhr) {
+        if (xhr && xhr.status === 500) {
+            alert('Erro ao processar o ficheiro');
+            dz.removeFile(file);
+        }
     });
 
     $('#qr-table').on('click', '.delete-row', function() {
