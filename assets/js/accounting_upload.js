@@ -38,6 +38,7 @@ window.addEventListener('load', function() {
             table.row.add(row).draw();
         }
     });
+    console.log(data);
 });
 
 function extractQR(str) {

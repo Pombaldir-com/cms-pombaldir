@@ -22,9 +22,9 @@ $csrfToken = generateCsrfToken();
                 <th>Doc</th>
                 <th>Ret. Fonte</th>
                 <th>País</th>
-                <th>Total c/IVA</th>
-                <th>IVA</th>
-                <th>Total de IVA</th>
+                <th>Total s/IVA</th>
+                <th>IVA 23%</th>
+                <th>Total IVA</th>
                 <th>Total</th>
                 <th>Assinatura/Hash do documento gerado pelo software certificado.</th>
                 <th>Código de validação do software certificado atribuído pela AT.</th>
