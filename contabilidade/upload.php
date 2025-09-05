@@ -1,5 +1,6 @@
 <?php
 $useDropzone = true;
+$useDataTables = true;
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 ?>
@@ -7,7 +8,14 @@ $csrfToken = generateCsrfToken();
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </form>
 
-<div id="qr-results"></div>
+<div id="qr-results">
+    <table id="qr-table" class="datatable table table-striped">
+        <thead>
+            <tr><th>[B]</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
 
 
 
