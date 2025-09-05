@@ -13,3 +13,4 @@ uploads/
 /vendor/
 composer.lock
 contabilidade/test.php
+contabilidade/magick-*
