@@ -109,14 +109,34 @@ function isModuleActive(string $module): bool {
 function startSession() {
     if (session_status() === PHP_SESSION_NONE) {
         $params = session_get_cookie_params();
-        session_set_cookie_params([
+
+        $cookieParams = [
             'lifetime' => $params['lifetime'],
             'path'     => $params['path'],
             'domain'   => $params['domain'],
             'secure'   => isset($_SERVER['HTTPS']),
             'httponly' => true,
-            'samesite' => 'Lax',
-        ]);
+        ];
+
+        if (PHP_VERSION_ID >= 70300) {
+            // PHP 7.3+ supports setting SameSite via array options
+            $cookieParams['samesite'] = 'Lax';
+            session_set_cookie_params($cookieParams);
+        } else {
+            // On older PHP versions append SameSite manually to the path
+            $path = $cookieParams['path'];
+            if (stripos($path, 'samesite=') === false) {
+                $path .= '; samesite=Lax';
+            }
+            session_set_cookie_params(
+                $cookieParams['lifetime'],
+                $path,
+                $cookieParams['domain'],
+                $cookieParams['secure'],
+                $cookieParams['httponly']
+            );
+        }
+
         session_start();
     }
 }
