@@ -10,7 +10,8 @@ window.addEventListener('load', function() {
             orderCellsTop: true,
             columnDefs: [
                 { targets: [ 2, 4, 7, 8, 13, 14], visible: false },
-                { targets: [0, 1], className: 'text-start' }
+                { targets: [0, 1], className: 'text-start' },
+                { targets: -1, orderable: false, searchable: false }
             ]
         });
     }
@@ -40,11 +41,36 @@ window.addEventListener('load', function() {
                 }
                 return value;
             });
+            var actions = '<button type="button" class="btn btn-sm btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
+                '<a href="' + data.file + '" target="_blank" class="btn btn-sm btn-secondary">Ver PDF</a>';
+            row.push(actions);
             table.row.add(row).draw();
         }
         console.log(data);
     });
-    
+
+    $('#qr-table').on('click', '.delete-row', function() {
+        if (!confirm('Eliminar ficheiro?')) {
+            return;
+        }
+        var file = $(this).data('file');
+        var row = table.row($(this).parents('tr'));
+        $.ajax({
+            type: 'POST',
+            url: 'contabilidade/delete-file.php',
+            data: { file: file, csrf_token: csrfInput.value },
+            dataType: 'json',
+            success: function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (res.success) {
+                    row.remove().draw();
+                }
+            }
+        });
+    });
+
 });
 
 function extractQR(str) {
