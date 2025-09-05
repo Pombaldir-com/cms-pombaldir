@@ -117,7 +117,13 @@ function detectarQr_safe(string $arquivo, float $scaleInicial = 1.0, bool $debug
     }
 
     // 2) se $dados vazio, então chama a tua função robusta
-    return detectarQr($arquivo, $scaleInicial, $debug, $maxTentativas);
+    try {
+        return detectarQr($arquivo, $scaleInicial, $debug, $maxTentativas);
+    } catch (Throwable $e) {
+        // log opcional e retorna null se a detecção falhar
+        error_log('detectarQr failed: ' . $e->getMessage());
+        return null;
+    }
 }
 
 

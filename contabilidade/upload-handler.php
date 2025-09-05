@@ -69,7 +69,13 @@ try {
     // OCR failed; return empty text
 }
 
-$qrText = detectarQr_safe($targetPath);
+$qrText = null;
+try {
+    $qrText = detectarQr_safe($targetPath);
+} catch (Throwable $e) {
+    // Se a deteção de QR falhar, continua com qr_text = null
+    error_log('detectarQr_safe failed: ' . $e->getMessage());
+}
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
 
