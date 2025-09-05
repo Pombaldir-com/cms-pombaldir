@@ -339,7 +339,6 @@ function detectarQr(
 }
 
 
-
 function extractQR(string $string): array
 {
     $parts = explode('*', $string);
