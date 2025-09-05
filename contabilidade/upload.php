@@ -8,8 +8,8 @@ $csrfToken = generateCsrfToken();
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </form>
 
-<div id="qr-results">
-    <table id="qr-table" class="table table-striped">
+    <div id="qr-results">
+        <table id="qr-table" class="table table-striped">
         <thead>
             <tr>
 
@@ -32,8 +32,9 @@ $csrfToken = generateCsrfToken();
             </tr>
         </thead>
         <tbody></tbody>
-    </table>
-</div>
+        </table>
+        <button id="import-btn" class="btn btn-success mt-3" style="display: none;">Importar</button>
+    </div>
 
 
 
