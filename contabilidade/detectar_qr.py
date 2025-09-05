@@ -11,7 +11,7 @@ the chances of decoding less than ideal scans.
 """
 import sys
 import os
-from typing import Optional
+from typing import Optional, Dict, Callable
 
 try:
     from pdf2image import convert_from_path
@@ -26,18 +26,80 @@ try:
 except Exception:  # pragma: no cover - optional dependency missing
     pyzbar_decode = None  # type: ignore
 
-def _decode_cv(image) -> Optional[str]:
-    """Return decoded text from a cv2 image array or ``None``.
 
-    The standard :func:`detectAndDecode` call fails with certain QR codes,
-    especially when multiple codes are present or the image is in color.
-    To make the detection more robust we convert the frame to grayscale and
-    fall back to :func:`detectAndDecodeMulti` when the first attempt returns
-    nothing.
-    """
+def _prepare_base(image: np.ndarray) -> np.ndarray:
+    """Return a normalized grayscale version of *image*."""
+    if image.ndim == 3 and image.shape[2] == 4:  # remove alpha channel
+        bgr = image[:, :, :3]
+        alpha = image[:, :, 3]
+        white = np.full_like(bgr, 255)
+        bgr[alpha == 0] = white[alpha == 0]
+        image = bgr
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+    gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+    return gray
+
+
+def _unsharp(img: np.ndarray, sigma: float = 1.0) -> np.ndarray:
+    blurred = cv2.GaussianBlur(img, (0, 0), sigma)
+    return cv2.addWeighted(img, 1.5, blurred, -0.5, 0)
+
+
+def _strategy_clean(img: np.ndarray) -> np.ndarray:
+    return img
+
+
+def _strategy_unsharp(img: np.ndarray) -> np.ndarray:
+    return _unsharp(img)
+
+
+def _strategy_adaptive_threshold_soft(img: np.ndarray) -> np.ndarray:
+    return cv2.adaptiveThreshold(
+        img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 15, 5
+    )
+
+
+def _strategy_adaptive_threshold_strong(img: np.ndarray) -> np.ndarray:
+    return cv2.adaptiveThreshold(
+        img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 25, 10
+    )
+
+
+def _strategy_despeckle_unsharp(img: np.ndarray) -> np.ndarray:
+    despeckled = cv2.medianBlur(img, 3)
+    return _unsharp(despeckled, sigma=1.5)
+
+
+def _strategy_morph_open(img: np.ndarray) -> np.ndarray:
+    kernel = np.ones((3, 3), np.uint8)
+    return cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+
+
+STRATEGIES: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
+    "clean": _strategy_clean,
+    "unsharp": _strategy_unsharp,
+    "adaptive_threshold_soft": _strategy_adaptive_threshold_soft,
+    "adaptive_threshold_strong": _strategy_adaptive_threshold_strong,
+    "despeckle_unsharp": _strategy_despeckle_unsharp,
+    "morph_open": _strategy_morph_open,
+}
+
+ANGLES = [0, 5]
+
+def _decode_cv(image: np.ndarray) -> Optional[str]:
+    """Return decoded text from a cv2 image array or ``None``."""
+
     detector = cv2.QRCodeDetector()
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if image.ndim == 2:
+        gray = image
+    else:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     data, _, _ = detector.detectAndDecode(gray)
     if data:
         return data
@@ -61,17 +123,61 @@ def _decode_cv(image) -> Optional[str]:
 
     # final fallback: use pyzbar if available
     if pyzbar_decode is not None:
-        decoded = pyzbar_decode(thresh)
-        if not decoded:
-            decoded = pyzbar_decode(image)
-        for item in decoded:
-            data_bytes = getattr(item, "data", b"")
-            if data_bytes:
-                try:
-                    return data_bytes.decode("utf-8")
-                except Exception:
-                    return data_bytes.decode("latin-1")
+        for candidate in (thresh, gray, image):
+            try:
+                decoded = pyzbar_decode(candidate)
+            except Exception:
+                continue
+            for item in decoded:
+                data_bytes = getattr(item, "data", b"")
+                if data_bytes:
+                    try:
+                        return data_bytes.decode("utf-8")
+                    except Exception:
+                        return data_bytes.decode("latin-1")
+            if decoded:
+                break
 
+    return None
+
+
+def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> Optional[str]:
+    base = _prepare_base(image)
+    h, w = base.shape[:2]
+    min_side = min(h, w)
+    scale_boost = 1.0
+    if min_side < 900:
+        scale_boost = 900 / max(1, min_side)
+    escala_inicial = max(1.0, scale_boost)
+    scales = []
+    for m in (1.0, 1.5):
+        val = min(3.5, escala_inicial * m)
+        scales.append(round(val, 2))
+    # remove duplicates preserving order
+    seen = set()
+    scales = [s for s in scales if not (s in seen or seen.add(s))]
+
+    attempts = 0
+    for scale in scales:
+        resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
+        for fn in STRATEGIES.values():
+            if attempts >= max_attempts:
+                return None
+            proc = fn(resized.copy())
+            for ang in ANGLES:
+                if attempts >= max_attempts:
+                    return None
+                if ang != 0:
+                    h2, w2 = proc.shape[:2]
+                    m = cv2.getRotationMatrix2D((w2 / 2, h2 / 2), ang, 1.0)
+                    rotated = cv2.warpAffine(proc, m, (w2, h2), borderValue=255)
+                else:
+                    rotated = proc
+                bordered = cv2.copyMakeBorder(rotated, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
+                text = _decode_cv(bordered)
+                attempts += 1
+                if text:
+                    return text
     return None
 
 def decode_file(path: str) -> Optional[str]:
@@ -95,15 +201,15 @@ def decode_file(path: str) -> Optional[str]:
         pages = convert_from_path(path, **kwargs)
         for page in pages:
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
-            text = _decode_cv(img)
+            text = _decode_with_strategies(img)
             if text:
                 return text
         return None
     else:
-        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise RuntimeError("unable to read image")
-        return _decode_cv(img)
+        return _decode_with_strategies(img)
 
 def main() -> int:
     if len(sys.argv) != 2:
