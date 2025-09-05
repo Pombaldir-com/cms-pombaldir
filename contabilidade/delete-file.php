@@ -39,5 +39,5 @@ if ($success) {
     echo json_encode(['success' => true, 'csrf_token' => $newToken]);
 } else {
     http_response_code(500);
-    echo json_encode(['error' => 'Falha ao eliminar o ficheiro', 'csrf_token' => $newToken]);
+    echo json_encode(['error' => 'Falha ao eliminar o ficheiro ' . $file, 'csrf_token' => $newToken]);
 }

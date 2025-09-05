@@ -37,7 +37,8 @@ if ($mime !== 'application/pdf') {
 $slug = getCompanySlug();
 if (!$slug) {
     http_response_code(500);
-    echo json_encode(['error' => 'Empresa não selecionada']);
+    $fileName = $_FILES['file']['name'] ?? 'desconhecido';
+    echo json_encode(['error' => 'Empresa não selecionada para o ficheiro ' . $fileName]);
     exit;
 }
 
@@ -48,7 +49,8 @@ if (!is_dir($uploadDir)) {
     if (!mkdir($uploadDir, 0755, true)) {
         error_log('Failed to create upload directory: ' . $uploadDir);
         http_response_code(500);
-        echo json_encode(['error' => 'Erro ao criar diretório de upload']);
+        $fileName = $_FILES['file']['name'] ?? 'desconhecido';
+        echo json_encode(['error' => 'Erro ao criar diretório de upload para o ficheiro ' . $fileName]);
         exit;
     }
 }
@@ -57,7 +59,8 @@ $filename = bin2hex(random_bytes(16)) . '.pdf';
 $targetPath = $uploadDir . $filename;
 if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
     http_response_code(500);
-    echo json_encode(['error' => 'Erro ao guardar o ficheiro']);
+    $fileName = $_FILES['file']['name'] ?? 'desconhecido';
+    echo json_encode(['error' => 'Erro ao guardar o ficheiro ' . $fileName]);
     exit;
 }
 
