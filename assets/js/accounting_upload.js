@@ -20,8 +20,10 @@ window.addEventListener('load', function() {
         }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
+
             var bValue = qrData['B'] || '';
             table.row.add([bValue]).draw();
+
         }
     });
 });
