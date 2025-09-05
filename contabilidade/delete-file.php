@@ -10,16 +10,6 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
-    $newToken = generateCsrfToken(true);
-    http_response_code(400);
-    echo json_encode([
-        'error' => 'Token CSRF inválido',
-        'csrf_token' => generateCsrfToken(true),
-    ]);
-    exit;
-}
-
 $file = $_POST['file'] ?? '';
 $slug = getCompanySlug();
 $baseDir = realpath(dirname(__DIR__) . '/uploads/' . $slug . '/accounting/');
