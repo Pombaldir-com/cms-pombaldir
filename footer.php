@@ -44,7 +44,7 @@
 
 <?php if ($useDropzone): ?>
 <script src="vendors/dropzone/dist/dropzone-min.js"></script>
-<script src="assets/js/ocr-upload.js"></script>
+<script src="assets/js/accounting_upload.js"></script>
 <?php endif; ?>
 
 <script src="assets/js/custom.js"></script>
