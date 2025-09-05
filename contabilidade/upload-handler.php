@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
-require_once __DIR__ . '/functions.php';
 //ini_set('max_execution_time', 120); set_time_limit(120);
 startSession();
 header('Content-Type: application/json');
@@ -82,11 +81,13 @@ try {
 }
 
 $qrText = null;
-try {
-    $qrText = detectarQr_safe($targetPath);
-} catch (Throwable $e) {
-    // Se a deteção de QR falhar, continua com qr_text = null
-    error_log('detectarQr_safe failed: ' . $e->getMessage());
+$script = __DIR__ . '/detectar_qr.py';
+$cmd = escapeshellcmd("python3 {$script}") . ' ' . escapeshellarg($targetPath);
+$output = [];
+$ret = 0;
+exec($cmd, $output, $ret);
+if ($ret === 0 && !empty($output)) {
+    $qrText = trim($output[0]);
 }
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
