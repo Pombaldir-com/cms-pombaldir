@@ -2,10 +2,12 @@ window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
 
-
-    var table = $('#qr-table').DataTable();
-
-
+    var table = $('#qr-table').DataTable({
+        orderCellsTop: true,
+        columnDefs: [
+            { targets: [1, 2, 4, 8, 13, 14], visible: false }
+        ]
+    });
 
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
@@ -24,7 +26,7 @@ window.addEventListener('load', function() {
         }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
-            var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O'];
+            var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
             var row = keys.map(function(key) {
                 return qrData[key] || '';
             });
