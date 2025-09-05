@@ -2,12 +2,17 @@ window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
 
-    var table = $('#qr-table').DataTable({
-        orderCellsTop: true,
-        columnDefs: [
-            { targets: [1, 2, 4, 8, 13, 14], visible: false }
-        ]
-    });
+    var table;
+    if ($.fn.dataTable.isDataTable('#qr-table')) {
+        table = $('#qr-table').DataTable();
+    } else {
+        table = $('#qr-table').DataTable({
+            orderCellsTop: true,
+            columnDefs: [
+                { targets: [1, 2, 4, 8, 13, 14], visible: false }
+            ]
+        });
+    }
 
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
