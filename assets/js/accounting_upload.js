@@ -3,6 +3,7 @@ Dropzone.autoDiscover = false;
 window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
+    var importBtn = document.getElementById('import-btn');
 
     var table;
     if ($.fn.dataTable.isDataTable('#qr-table')) {
@@ -116,6 +117,12 @@ window.addEventListener('load', function() {
         dz.removeFile(file);
     });
 
+    dz.on('queuecomplete', function() {
+        if (importBtn && table.rows().data().length) {
+            importBtn.style.display = 'inline-block';
+        }
+    });
+
     $('#qr-table').on('click', '.delete-row', function() {
         if (!confirm('Eliminar ficheiro?')) {
             return;
@@ -152,6 +159,47 @@ window.addEventListener('load', function() {
             }
         });
     });
+
+    if (importBtn) {
+        importBtn.addEventListener('click', function() {
+            var rows = table.rows().data().toArray();
+            if (!rows.length) {
+                alert('Não há dados para importar');
+                return;
+            }
+            var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
+            var payload = rows.map(function(row) {
+                var obj = {};
+                for (var i = 0; i < keys.length; i++) {
+                    obj[keys[i]] = row[i] || '';
+                }
+                return obj;
+            });
+            fetch('contabilidade/import.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ rows: payload, csrf_token: csrfInput.value })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (res.success) {
+                    alert('Importação concluída');
+                    importBtn.style.display = 'none';
+                    table.clear().draw();
+                } else {
+                    alert(res.error || 'Falha na importação');
+                }
+            })
+            .catch(function() {
+                alert('Falha na importação');
+            });
+        });
+    }
 
 });
 
