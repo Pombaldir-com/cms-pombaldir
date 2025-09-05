@@ -160,6 +160,12 @@ switch (true) {
     case $path === 'contabilidade/upload-handler.php':
         require __DIR__ . '/contabilidade/upload-handler.php';
         break;
+    case $path === 'contabilidade/saft':
+        require __DIR__ . '/contabilidade/saft.php';
+        break;
+    case $path === 'contabilidade/saft-handler.php':
+        require __DIR__ . '/contabilidade/saft-handler.php';
+        break;
     case $path === 'contabilidade/save-analysis.php':
         require __DIR__ . '/contabilidade/save-analysis.php';
         break;

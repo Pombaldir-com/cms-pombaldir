@@ -97,6 +97,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 <a><i class="fa fa-upload"></i> Multi Upload <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
                                     <li><a href="<?= BASE_URL ?>contabilidade/upload">Compras</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/saft">SAF-T</a></li>
                                 </ul>
                             </li>
 <?php endif; ?>
