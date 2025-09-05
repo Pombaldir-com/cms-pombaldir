@@ -93,7 +93,12 @@ foreach ($sidebarTypes as $sidebarType):
                             </li>
 <?php endforeach; ?>
 <?php if (isModuleActive('contabilidade')): ?>
-                            <li><a href="<?= BASE_URL ?>contabilidade/upload"><i class="fa fa-upload"></i> Multi Upload</a></li>
+                            <li>
+                                <a><i class="fa fa-upload"></i> Multi Upload <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/upload">Compras</a></li>
+                                </ul>
+                            </li>
 <?php endif; ?>
                         </ul>
                     </div>
