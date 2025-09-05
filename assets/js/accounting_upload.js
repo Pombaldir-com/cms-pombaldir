@@ -31,6 +31,9 @@ window.addEventListener('load', function() {
         if (data.csrf_token && csrfInput) {
             csrfInput.value = data.csrf_token;
         }
+        if (data.file) {
+            file.serverFile = data.file;
+        }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
             var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
@@ -66,6 +69,13 @@ window.addEventListener('load', function() {
                 }
                 if (res.success) {
                     row.remove().draw();
+                    var dzFiles = dz.files;
+                    for (var i = 0; i < dzFiles.length; i++) {
+                        if (dzFiles[i].serverFile === file) {
+                            dz.removeFile(dzFiles[i]);
+                            break;
+                        }
+                    }
                 }
             }
         });
