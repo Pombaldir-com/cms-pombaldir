@@ -9,7 +9,7 @@ window.addEventListener('load', function() {
         table = $('#qr-table').DataTable({
             orderCellsTop: true,
             columnDefs: [
-                { targets: [1, 2, 4, 8, 13, 14], visible: false }
+                { targets: [ 2, 4, 7, 8, 13, 14], visible: false }
             ]
         });
     }
