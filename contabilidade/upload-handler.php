@@ -14,7 +14,10 @@ if (!isLoggedIn()) {
 
 if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
     http_response_code(400);
-    echo json_encode(['error' => 'Token CSRF inválido']);
+    echo json_encode([
+        'error' => 'Token CSRF inválido',
+        'csrf_token' => generateCsrfToken(),
+    ]);
     exit;
 }
 
@@ -22,7 +25,10 @@ $newToken = generateCsrfToken();
 
 if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
     http_response_code(400);
-    echo json_encode(['error' => 'Ficheiro não enviado']);
+    echo json_encode([
+        'error' => 'Ficheiro não enviado',
+        'csrf_token' => $newToken,
+    ]);
     exit;
 }
 
@@ -30,7 +36,10 @@ $finfo = new finfo(FILEINFO_MIME_TYPE);
 $mime = $finfo->file($_FILES['file']['tmp_name']);
 if ($mime !== 'application/pdf') {
     http_response_code(400);
-    echo json_encode(['error' => 'Apenas ficheiros PDF são permitidos']);
+    echo json_encode([
+        'error' => 'Apenas ficheiros PDF são permitidos',
+        'csrf_token' => $newToken,
+    ]);
     exit;
 }
 
@@ -38,7 +47,10 @@ $slug = getCompanySlug();
 if (!$slug) {
     http_response_code(500);
     $fileName = $_FILES['file']['name'] ?? 'desconhecido';
-    echo json_encode(['error' => 'Empresa não selecionada para o ficheiro ' . $fileName]);
+    echo json_encode([
+        'error' => 'Empresa não selecionada para o ficheiro ' . $fileName,
+        'csrf_token' => $newToken,
+    ]);
     exit;
 }
 
@@ -50,7 +62,10 @@ if (!is_dir($uploadDir)) {
         error_log('Failed to create upload directory: ' . $uploadDir);
         http_response_code(500);
         $fileName = $_FILES['file']['name'] ?? 'desconhecido';
-        echo json_encode(['error' => 'Erro ao criar diretório de upload para o ficheiro ' . $fileName]);
+        echo json_encode([
+            'error' => 'Erro ao criar diretório de upload para o ficheiro ' . $fileName,
+            'csrf_token' => $newToken,
+        ]);
         exit;
     }
 }
@@ -60,7 +75,10 @@ $targetPath = $uploadDir . $filename;
 if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
     http_response_code(500);
     $fileName = $_FILES['file']['name'] ?? 'desconhecido';
-    echo json_encode(['error' => 'Erro ao guardar o ficheiro ' . $fileName]);
+    echo json_encode([
+        'error' => 'Erro ao guardar o ficheiro ' . $fileName,
+        'csrf_token' => $newToken,
+    ]);
     exit;
 }
 
