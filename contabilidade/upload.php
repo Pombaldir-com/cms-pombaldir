@@ -20,7 +20,7 @@ $csrfToken = generateCsrfToken();
                 <th>Estado</th>
                 <th>Data</th>
                 <th>Doc</th>
-                <th>Ret. Fonte</th>
+                <th>ATCUD</th>
                 <th>País</th>
                 <th>Total s/IVA</th>
                 <th>IVA 23%</th>
