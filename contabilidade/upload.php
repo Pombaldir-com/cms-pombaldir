@@ -28,6 +28,7 @@ $csrfToken = generateCsrfToken();
                 <th width="8%">Total</th>
                 <th></th>
                 <th></th>
+                <th data-orderable="false">Ações</th>
             </tr>
         </thead>
         <tbody></tbody>
