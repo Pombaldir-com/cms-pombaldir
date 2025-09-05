@@ -44,7 +44,11 @@
 
 <?php if ($useDropzone): ?>
 <script src="vendors/dropzone/dist/dropzone-min.js"></script>
+<?php if (!empty($dropzoneScript)): ?>
+<script src="assets/js/<?= htmlspecialchars($dropzoneScript); ?>"></script>
+<?php else: ?>
 <script src="assets/js/accounting_upload.js"></script>
+<?php endif; ?>
 <?php endif; ?>
 
 <script src="assets/js/custom.js"></script>
