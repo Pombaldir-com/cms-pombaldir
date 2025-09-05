@@ -13,8 +13,8 @@ $csrfToken = generateCsrfToken();
         <thead>
             <tr>
 
-                <th>Emitente</th>
-                <th>Adquirente</th>
+                <th class="text-start">Emitente</th>
+                <th class="text-start">Adquirente</th>
                 <th></th>
                 <th width="5%">TP</th>
                 <th></th>
