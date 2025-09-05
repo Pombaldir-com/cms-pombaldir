@@ -116,14 +116,18 @@ function detectarQr_safe(string $arquivo, float $scaleInicial = 1.0, bool $debug
         return $dados; // sucesso logo aqui
     }
 
-    // 2) se $dados vazio, então chama a tua função robusta
-    try {
-        return detectarQr($arquivo, $scaleInicial, $debug, $maxTentativas);
-    } catch (Throwable $e) {
-        // log opcional e retorna null se a detecção falhar
-        error_log('detectarQr failed: ' . $e->getMessage());
-        return null;
+    // 2) se $dados vazio, tenta via script Python externo
+    $script = __DIR__ . '/detectar_qr.py';
+    $cmd = escapeshellcmd("python3 {$script}") . ' ' . escapeshellarg($arquivo);
+    exec($cmd, $output, $ret);
+    if ($ret === 0 && !empty($output)) {
+        return trim($output[0]);
     }
+    if ($ret !== 0) {
+        // log opcional e retorna null se a detecção falhar
+        error_log('detectar_qr.py failed: ' . $ret);
+    }
+    return null;
 }
 
 
