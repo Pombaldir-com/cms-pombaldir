@@ -6480,3 +6480,10 @@ ul.notifications {
     text-align: center;
 }
 
+/* Extra small button size */
+.btn-xs {
+    padding: .125rem .25rem;
+    font-size: .75rem;
+    border-radius: .2rem;
+}
+
