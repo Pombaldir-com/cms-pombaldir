@@ -16,9 +16,9 @@ $csrfToken = generateCsrfToken();
                 <th class="text-start">Emitente</th>
                 <th class="text-start">Adquirente</th>
                 <th></th>
-                <th width="5%">TP</th>
+                <th width="5%" class="text-middle">TP</th>
                 <th></th>
-                <th width="8%">Data</th>
+                <th width="8%" class="text-middle">Data</th>
                 <th width="12%">Doc</th>
                 <th></th>
                 <th>País</th>
