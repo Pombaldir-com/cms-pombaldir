@@ -90,5 +90,4 @@ if (!checkQrRequirements($messages)) {
 
 ?>
 
-<script src="assets/js/accounting_upload.js"></script>
 <?php require_once __DIR__ . '/../footer.php'; ?>
