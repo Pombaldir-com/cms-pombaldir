@@ -76,9 +76,9 @@ try {
     if ($xml !== false) {
         if (isset($xml->SourceDocuments->Payments->Payment)) {
             foreach ($xml->SourceDocuments->Payments->Payment as $payment) {
-                $date = (string) $payment->SystemEntryDate;
-                $desc = (string) ($payment->Description ?? '');
-                $amount = (string) ($payment->DocumentTotals->PaidAmount ?? '');
+                $date = (string) $payment->TransactionDate;
+                $desc = (string) ($payment->PaymentRefNo ?? '');
+                $amount = (string) ($payment->DocumentTotals->GrossTotal ?? '');
                 $transactions[] = [
                     'date' => $date,
                     'description' => $desc,
