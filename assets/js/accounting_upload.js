@@ -60,17 +60,17 @@ window.addEventListener('load', function() {
         } else {
             alert('QR code não encontrado');
             if (data.file) {
-                $.ajax({
-                    type: 'POST',
-                    url: 'contabilidade/delete-file.php',
-                    data: { file: data.file, csrf_token: csrfInput.value },
-                    dataType: 'json',
-                    success: function(res) {
-                        if (res.csrf_token) {
-                            csrfInput.value = res.csrf_token;
+                    $.ajax({
+                        type: 'POST',
+                        url: 'contabilidade/upload.php?action=delete',
+                        data: { file: data.file, csrf_token: csrfInput.value },
+                        dataType: 'json',
+                        success: function(res) {
+                            if (res.csrf_token) {
+                                csrfInput.value = res.csrf_token;
+                            }
                         }
-                    }
-                });
+                    });
             }
             dz.removeFile(file);
         }
@@ -131,7 +131,7 @@ window.addEventListener('load', function() {
         var row = table.row($(this).parents('tr'));
         $.ajax({
             type: 'POST',
-            url: 'contabilidade/delete-file.php',
+            url: 'contabilidade/upload.php?action=delete',
             data: { file: file, csrf_token: csrfInput.value },
             dataType: 'json',
             success: function(res) {
@@ -175,7 +175,7 @@ window.addEventListener('load', function() {
                 }
                 return obj;
             });
-            fetch('contabilidade/import.php', {
+            fetch('contabilidade/upload.php?action=import', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
