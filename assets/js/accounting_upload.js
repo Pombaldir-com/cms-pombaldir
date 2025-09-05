@@ -1,11 +1,9 @@
 window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
-    var columns = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O'];
-    var table = $('#qr-table').DataTable({
-        scrollX: true,
-        responsive: false
-    });
+
+    var table = $('#qr-table').DataTable();
+
 
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
@@ -24,10 +22,12 @@ window.addEventListener('load', function() {
         }
         if (data.qr_text) {
             var qrData = extractQR(data.qr_text);
-            var rowData = columns.map(function(key) {
-                return qrData[key] || '';
-            });
-            table.row.add(rowData).draw();
+
+
+            var bValue = qrData['B'] || '';
+            table.row.add([bValue]).draw();
+
+
         }
     });
 });
