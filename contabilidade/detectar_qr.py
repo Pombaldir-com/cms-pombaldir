@@ -4,6 +4,10 @@
 This script reads an image file or a PDF and tries to decode the first QR
 code found. The result is printed to stdout and the process exits with code 0
 on success. Non‑zero exit codes indicate failure to read or decode the file.
+
+The detection relies primarily on OpenCV but applies additional image
+pre‑processing steps and falls back to ``pyzbar`` when available, improving
+the chances of decoding less than ideal scans.
 """
 import sys
 import os
@@ -16,6 +20,11 @@ except Exception:  # pragma: no cover - library missing
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
+
+try:
+    from pyzbar.pyzbar import decode as pyzbar_decode
+except Exception:  # pragma: no cover - optional dependency missing
+    pyzbar_decode = None  # type: ignore
 
 def _decode_cv(image) -> Optional[str]:
     """Return decoded text from a cv2 image array or ``None``.
@@ -38,6 +47,31 @@ def _decode_cv(image) -> Optional[str]:
         for text in decoded_info:
             if text:
                 return text
+
+    # try again with Otsu thresholding to enhance contrast
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    data, _, _ = detector.detectAndDecode(thresh)
+    if data:
+        return data
+    ok, decoded_info, _, _ = detector.detectAndDecodeMulti(thresh)
+    if ok and decoded_info:
+        for text in decoded_info:
+            if text:
+                return text
+
+    # final fallback: use pyzbar if available
+    if pyzbar_decode is not None:
+        decoded = pyzbar_decode(thresh)
+        if not decoded:
+            decoded = pyzbar_decode(image)
+        for item in decoded:
+            data_bytes = getattr(item, "data", b"")
+            if data_bytes:
+                try:
+                    return data_bytes.decode("utf-8")
+                except Exception:
+                    return data_bytes.decode("latin-1")
+
     return None
 
 def decode_file(path: str) -> Optional[str]:
