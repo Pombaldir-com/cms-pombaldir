@@ -4,8 +4,6 @@ window.addEventListener('load', function() {
 
     var table = $('#qr-table').DataTable({
         orderCellsTop: true,
-        responsive: true,
-        language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [
             { targets: [1, 2, 4, 8, 13, 14], visible: false }
         ]

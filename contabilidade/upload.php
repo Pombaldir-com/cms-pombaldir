@@ -12,41 +12,53 @@ $csrfToken = generateCsrfToken();
     <table id="qr-table" class="table table-striped">
         <thead>
             <tr>
-                <th>[A]</th>
-                <th>[B]</th>
-                <th>[C]</th>
-                <th>[D]</th>
-                <th>[E]</th>
-                <th>Dt</th>
-                <th>[G]</th>
-                <th>[H]</th>
-                <th>[I1]</th>
-                <th>[I7]</th>
-                <th>[I8]</th>
-                <th>[N]</th>
-                <th>[O]</th>
-                <th>[Q]</th>
-                <th>[R]</th>
-            </tr>
-            <tr>
-                <th>NIF do emitente (quem emite a fatura).</th>
+
+                <th>NIF</th>
                 <th>NIF do adquirente (cliente).</th>
                 <th>País do emitente (código ISO, ex.: <code>PT</code>).</th>
-                <th>Tipo de documento.<br><strong>FT</strong> – Fatura<br><strong>FS</strong> – Fatura Simplificada<br><strong>FR</strong> – Fatura/Recibo</th>
-                <th>Estado do documento.<br><strong>N</strong> – Normal<br><strong>A</strong> – Anulado</th>
-                <th>Data do documento no formato <code>YYYYMMDD</code>.</th>
-                <th>Identificação única do documento (série + numeração, ex.: <code>FACDG+232122/990</code>).</th>
-                <th>Retenção na fonte; usar <code>0</code> se não houver.</th>
-                <th>País do adquirente (código ISO, ex.: <code>PT</code>, <code>ES</code>).</th>
-                <th>Total com IVA à taxa normal (base tributável).</th>
-                <th>IVA calculado à taxa normal.</th>
-                <th>Valor total de IVA (soma de todos os tipos de IVA).</th>
-                <th>Total do documento (valor global da fatura).</th>
+                <th>TP Doc</th>
+                <th>Estado</th>
+                <th>Data</th>
+                <th>Doc</th>
+                <th>Ret. Fonte</th>
+                <th>País</th>
+                <th>Total c/IVA</th>
+                <th>IVA</th>
+                <th>Total de IVA</th>
+                <th>Total</th>
                 <th>Assinatura/Hash do documento gerado pelo software certificado.</th>
                 <th>Código de validação do software certificado atribuído pela AT.</th>
             </tr>
         </thead>
         <tbody></tbody>
+    </table>
+</div>
+
+<div id="qr-info">
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Coluna</th>
+                <th>Descrição</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>A</td><td>NIF do emitente (quem emite a fatura).</td></tr>
+            <tr><td>B</td><td>NIF do adquirente (cliente).</td></tr>
+            <tr><td>C</td><td>País do emitente (código ISO, ex.: <code>PT</code>).</td></tr>
+            <tr><td>D</td><td>Tipo de documento.<br><strong>FT</strong> – Fatura<br><strong>FS</strong> – Fatura Simplificada<br><strong>FR</strong> – Fatura/Recibo</td></tr>
+            <tr><td>E</td><td>Estado do documento.<br><strong>N</strong> – Normal<br><strong>A</strong> – Anulado</td></tr>
+            <tr><td>F (Dt)</td><td>Data do documento no formato <code>YYYYMMDD</code>.</td></tr>
+            <tr><td>G</td><td>Identificação única do documento (série + numeração, ex.: <code>FACDG+232122/990</code>).</td></tr>
+            <tr><td>H</td><td>Retenção na fonte; usar <code>0</code> se não houver.</td></tr>
+            <tr><td>I1</td><td>País do adquirente (código ISO, ex.: <code>PT</code>, <code>ES</code>).</td></tr>
+            <tr><td>I7</td><td>Total com IVA à taxa normal (base tributável).</td></tr>
+            <tr><td>I8</td><td>IVA calculado à taxa normal.</td></tr>
+            <tr><td>N</td><td>Valor total de IVA (soma de todos os tipos de IVA).</td></tr>
+            <tr><td>O</td><td>Total do documento (valor global da fatura).</td></tr>
+            <tr><td>Q</td><td>Assinatura/Hash do documento gerado pelo software certificado.</td></tr>
+            <tr><td>R</td><td>Código de validação do software certificado atribuído pela AT.</td></tr>
+        </tbody>
     </table>
 </div>
 
