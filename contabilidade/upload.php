@@ -7,6 +7,8 @@ $csrfToken = generateCsrfToken();
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </form>
 
+<div id="qr-results"></div>
+
 
 
 <?php
