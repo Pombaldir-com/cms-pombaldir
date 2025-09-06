@@ -63,15 +63,15 @@ document.addEventListener('DOMContentLoaded', function () {
             method: 'POST',
             body: formData
         })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
+        .then(function (res) {  return res.json(); })
+        .then(function (data) { 
             if (data.csrf_token && csrfInput) {
                 csrfInput.value = data.csrf_token;
             }
             if (data.error) {
                 alert(data.error);
                 return;
-            }
+            } 
             if (data.qr_texts && data.qr_texts.length) {
                 var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
                 data.qr_texts.forEach(function(qrText){
@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         + '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
                     row.push(actions);
                     if (table) {
-                        table.row.add(row).draw();
+                        table.row.add(row).draw(); 
                     }
                 });
                 if (importBtn && table && table.rows().data().length) {

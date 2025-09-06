@@ -48,6 +48,8 @@
 <script src="assets/js/<?= htmlspecialchars($dropzoneScript); ?>"></script>
 <?php else: ?>
 <script src="assets/js/accounting_upload.js"></script>
+<script src="assets/js/mobile_capture.js"></script>
+
 <?php endif; ?>
 <?php endif; ?>
 
