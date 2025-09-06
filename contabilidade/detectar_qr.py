@@ -201,10 +201,24 @@ def decode_file(path: str) -> List[str]:
             kwargs["poppler_path"] = poppler_dir
 
         pages = convert_from_path(path, **kwargs)
-        texts: List[str] = []
-        for page in pages:
+        if not pages:
+            return []
+
+        # decode first page and decide whether to scan further
+        first_img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
+        texts = _decode_with_strategies(first_img)
+
+        if len(texts) == 1:
+            # only one QR on first page -> skip remaining pages
+            return texts
+
+        seen = set(texts)
+        for page in pages[1:]:
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
-            texts.extend(_decode_with_strategies(img))
+            for t in _decode_with_strategies(img):
+                if t not in seen:
+                    texts.append(t)
+                    seen.add(t)
         return texts
     else:
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
