@@ -11,7 +11,7 @@ the chances of decoding less than ideal scans.
 """
 import sys
 import os
-from typing import Optional, Dict, Callable, List
+from typing import Callable, List
 
 try:
     from pdf2image import convert_from_path
@@ -182,13 +182,6 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                         results.append(t)
     return results
 
-def _extract_atcud(text: str) -> str:
-    for part in text.split("*"):
-        if part.startswith("I1:"):
-            return part.split(":", 1)[1].strip()
-    return text
-
-
 def decode_file(path: str) -> List[str]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
@@ -212,24 +205,12 @@ def decode_file(path: str) -> List[str]:
         for page in pages:
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
             texts.extend(_decode_with_strategies(img))
-        # dedupe by ATCUD (I1 field)
-        unique: Dict[str, str] = {}
-        for t in texts:
-            key = _extract_atcud(t)
-            if key not in unique:
-                unique[key] = t
-        return list(unique.values())
+        return texts
     else:
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise RuntimeError("unable to read image")
-        texts = _decode_with_strategies(img)
-        unique: Dict[str, str] = {}
-        for t in texts:
-            key = _extract_atcud(t)
-            if key not in unique:
-                unique[key] = t
-        return list(unique.values())
+        return _decode_with_strategies(img)
 
 def main() -> int:
     if len(sys.argv) != 2:
