@@ -80,14 +80,19 @@ try {
     // OCR failed; return empty text
 }
 
-$qrText = null;
+$qrTexts = [];
 $script = __DIR__ . '/detectar_qr.py';
 $cmd = escapeshellcmd("python3 {$script}") . ' ' . escapeshellarg($targetPath);
 $output = [];
 $ret = 0;
 exec($cmd, $output, $ret);
 if ($ret === 0 && !empty($output)) {
-    $qrText = trim($output[0]);
+    foreach ($output as $line) {
+        $line = trim($line);
+        if ($line !== '') {
+            $qrTexts[] = $line;
+        }
+    }
 }
 
 $relativePath = 'uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/' . $filename;
@@ -96,7 +101,6 @@ echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'text' => $text,
-    'qr_text' => $qrText,
-    'fields' => ['qr_code' => $qrText],
+    'qr_texts' => $qrTexts,
     'csrf_token' => $newToken,
 ]);

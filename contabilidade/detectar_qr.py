@@ -11,7 +11,7 @@ the chances of decoding less than ideal scans.
 """
 import sys
 import os
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, List
 
 try:
     from pdf2image import convert_from_path
@@ -91,10 +91,11 @@ STRATEGIES: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 ANGLES = [0, 5]
 
-def _decode_cv(image: np.ndarray) -> Optional[str]:
-    """Return decoded text from a cv2 image array or ``None``."""
+def _decode_cv(image: np.ndarray) -> List[str]:
+    """Return decoded texts from a cv2 image array."""
 
     detector = cv2.QRCodeDetector()
+    texts: List[str] = []
 
     if image.ndim == 2:
         gray = image
@@ -102,24 +103,20 @@ def _decode_cv(image: np.ndarray) -> Optional[str]:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     data, _, _ = detector.detectAndDecode(gray)
     if data:
-        return data
+        texts.append(data)
 
     ok, decoded_info, _, _ = detector.detectAndDecodeMulti(gray)
     if ok and decoded_info:
-        for text in decoded_info:
-            if text:
-                return text
+        texts.extend([t for t in decoded_info if t])
 
     # try again with Otsu thresholding to enhance contrast
     _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     data, _, _ = detector.detectAndDecode(thresh)
     if data:
-        return data
+        texts.append(data)
     ok, decoded_info, _, _ = detector.detectAndDecodeMulti(thresh)
     if ok and decoded_info:
-        for text in decoded_info:
-            if text:
-                return text
+        texts.extend([t for t in decoded_info if t])
 
     # final fallback: use pyzbar if available
     if pyzbar_decode is not None:
@@ -132,16 +129,19 @@ def _decode_cv(image: np.ndarray) -> Optional[str]:
                 data_bytes = getattr(item, "data", b"")
                 if data_bytes:
                     try:
-                        return data_bytes.decode("utf-8")
+                        texts.append(data_bytes.decode("utf-8"))
                     except Exception:
-                        return data_bytes.decode("latin-1")
+                        texts.append(data_bytes.decode("latin-1"))
             if decoded:
                 break
 
-    return None
+    # remove duplicates preserving order
+    seen = set()
+    unique_texts = [t for t in texts if not (t in seen or seen.add(t))]
+    return unique_texts
 
 
-def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> Optional[str]:
+def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[str]:
     base = _prepare_base(image)
     h, w = base.shape[:2]
     min_side = min(h, w)
@@ -158,15 +158,16 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> Option
     scales = [s for s in scales if not (s in seen or seen.add(s))]
 
     attempts = 0
+    results: List[str] = []
     for scale in scales:
         resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
         for fn in STRATEGIES.values():
             if attempts >= max_attempts:
-                return None
+                return results
             proc = fn(resized.copy())
             for ang in ANGLES:
                 if attempts >= max_attempts:
-                    return None
+                    return results
                 if ang != 0:
                     h2, w2 = proc.shape[:2]
                     m = cv2.getRotationMatrix2D((w2 / 2, h2 / 2), ang, 1.0)
@@ -174,13 +175,21 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> Option
                 else:
                     rotated = proc
                 bordered = cv2.copyMakeBorder(rotated, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-                text = _decode_cv(bordered)
+                texts = _decode_cv(bordered)
                 attempts += 1
-                if text:
-                    return text
-    return None
+                for t in texts:
+                    if t not in results:
+                        results.append(t)
+    return results
 
-def decode_file(path: str) -> Optional[str]:
+def _extract_atcud(text: str) -> str:
+    for part in text.split("*"):
+        if part.startswith("I1:"):
+            return part.split(":", 1)[1].strip()
+    return text
+
+
+def decode_file(path: str) -> List[str]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         if convert_from_path is None:
@@ -199,17 +208,28 @@ def decode_file(path: str) -> Optional[str]:
             kwargs["poppler_path"] = poppler_dir
 
         pages = convert_from_path(path, **kwargs)
+        texts: List[str] = []
         for page in pages:
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
-            text = _decode_with_strategies(img)
-            if text:
-                return text
-        return None
+            texts.extend(_decode_with_strategies(img))
+        # dedupe by ATCUD (I1 field)
+        unique: Dict[str, str] = {}
+        for t in texts:
+            key = _extract_atcud(t)
+            if key not in unique:
+                unique[key] = t
+        return list(unique.values())
     else:
         img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise RuntimeError("unable to read image")
-        return _decode_with_strategies(img)
+        texts = _decode_with_strategies(img)
+        unique: Dict[str, str] = {}
+        for t in texts:
+            key = _extract_atcud(t)
+            if key not in unique:
+                unique[key] = t
+        return list(unique.values())
 
 def main() -> int:
     if len(sys.argv) != 2:
@@ -220,12 +240,13 @@ def main() -> int:
         print("file not found", file=sys.stderr)
         return 2
     try:
-        text = decode_file(file_path)
+        texts = decode_file(file_path)
     except Exception as exc:  # pragma: no cover
         print(str(exc), file=sys.stderr)
         return 3
-    if text:
-        print(text)
+    if texts:
+        for t in texts:
+            print(t)
         return 0
     return 4
 
