@@ -44,20 +44,22 @@ window.addEventListener('load', function() {
         if (data.file) {
             file.serverFile = data.file;
         }
-        if (data.qr_text) {
-            var qrData = extractQR(data.qr_text);
+        if (data.qr_texts && data.qr_texts.length) {
             var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
-            var row = keys.map(function(key) {
-                var value = qrData[key] || '';
-                if (key === 'F') {
-                    value = formatDate(value);
-                }
-                return value;
+            data.qr_texts.forEach(function(qrText) {
+                var qrData = extractQR(qrText);
+                var row = keys.map(function(key) {
+                    var value = qrData[key] || '';
+                    if (key === 'F') {
+                        value = formatDate(value);
+                    }
+                    return value;
+                });
+                var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
+                    '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
+                row.push(actions);
+                table.row.add(row).draw();
             });
-            var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
-                '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
-            row.push(actions);
-            table.row.add(row).draw();
         } else {
             alert('QR code não encontrado');
             if (data.file) {
