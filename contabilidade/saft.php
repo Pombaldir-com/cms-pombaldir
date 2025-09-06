@@ -67,6 +67,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         exit;
     } elseif ($action === 'delete') {
+        $token = $_POST['csrf_token'] ?? '';
+        if (!validateCsrfToken($token)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => $newToken]);
+            exit;
+        }
+
         $file = $_POST['file'] ?? '';
         $slug = getCompanySlug();
         $baseDir = realpath(dirname(__DIR__) . '/uploads/' . $slug . '/saft/');
