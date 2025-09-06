@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
+use setasign\FPDF\FPDF;
 //ini_set('max_execution_time', 120); set_time_limit(120);
 startSession();
 header('Content-Type: application/json');
@@ -24,10 +25,11 @@ if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
 
 $finfo = new finfo(FILEINFO_MIME_TYPE);
 $mime = $finfo->file($_FILES['file']['tmp_name']);
-if ($mime !== 'application/pdf') {
+$allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+if (!in_array($mime, $allowed, true)) {
     http_response_code(400);
     echo json_encode([
-        'error' => 'Apenas ficheiros PDF são permitidos',
+        'error' => 'Tipo de ficheiro inválido',
         'csrf_token' => $newToken,
     ]);
     exit;
@@ -62,14 +64,43 @@ if (!is_dir($uploadDir)) {
 
 $filename = bin2hex(random_bytes(16)) . '.pdf';
 $targetPath = $uploadDir . $filename;
-if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
-    http_response_code(500);
-    $fileName = $_FILES['file']['name'] ?? 'desconhecido';
-    echo json_encode([
-        'error' => 'Erro ao guardar o ficheiro ' . $fileName,
-        'csrf_token' => $newToken,
-    ]);
-    exit;
+
+if ($mime === 'application/pdf') {
+    if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
+        http_response_code(500);
+        $fileName = $_FILES['file']['name'] ?? 'desconhecido';
+        echo json_encode([
+            'error' => 'Erro ao guardar o ficheiro ' . $fileName,
+            'csrf_token' => $newToken,
+        ]);
+        exit;
+    }
+} else {
+    $imgInfo = getimagesize($_FILES['file']['tmp_name']);
+    if ($imgInfo === false) {
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'Imagem inválida',
+            'csrf_token' => $newToken,
+        ]);
+        exit;
+    }
+    $width = $imgInfo[0] * 0.264583; // px to mm
+    $height = $imgInfo[1] * 0.264583;
+    $orientation = $width > $height ? 'L' : 'P';
+    $pdf = new FPDF($orientation, 'mm', [$width, $height]);
+    $pdf->AddPage();
+    $pdf->Image($_FILES['file']['tmp_name'], 0, 0, $width, $height);
+    $pdf->Output('F', $targetPath);
+    if (!file_exists($targetPath)) {
+        http_response_code(500);
+        $fileName = $_FILES['file']['name'] ?? 'desconhecido';
+        echo json_encode([
+            'error' => 'Erro ao converter a imagem ' . $fileName,
+            'csrf_token' => $newToken,
+        ]);
+        exit;
+    }
 }
 
 $text = '';

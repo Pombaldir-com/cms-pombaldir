@@ -105,9 +105,14 @@ $useDataTables = true;
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 ?>
-<form id="multi-upload" class="dropzone">
+<form id="multi-upload" class="dropzone d-none d-md-block">
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </form>
+
+<div id="mobile-upload-actions" class="d-flex gap-2 mb-3 d-md-none">
+    <button id="camera-btn" class="btn btn-secondary">Usar câmara</button>
+    <button id="mobile-file-btn" class="btn btn-primary">Selecionar PDF</button>
+</div>
 
     <div id="qr-results">
         <table id="qr-table" class="table table-striped">
@@ -137,7 +142,6 @@ $csrfToken = generateCsrfToken();
         <button id="import-btn" class="btn btn-success mt-3" style="display: none;">Importar</button>
     </div>
 
-
-
+<script src="assets/js/mobile_capture.js"></script>
 
 <?php require_once __DIR__ . '/../footer.php'; ?>
