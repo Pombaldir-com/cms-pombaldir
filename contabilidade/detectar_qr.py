@@ -11,7 +11,7 @@ the chances of decoding less than ideal scans.
 """
 import sys
 import os
-from typing import Callable, List
+from typing import Callable, Dict, List
 
 try:
     from pdf2image import convert_from_path
