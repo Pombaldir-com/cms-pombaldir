@@ -12,6 +12,17 @@ if (!isLoggedIn()) {
 
 $newToken = generateCsrfToken();
 
+// Validate CSRF token before processing the upload
+$token = $_POST['csrf_token'] ?? '';
+if (!validateCsrfToken($token)) {
+    http_response_code(400);
+    echo json_encode([
+        'error' => 'Token CSRF inválido',
+        'csrf_token' => $newToken,
+    ]);
+    exit;
+}
+
 if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
     http_response_code(400);
     echo json_encode([
