@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($row);
 
         // Inserir linhas na tabela accounting_imports
-        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I7, field_I8, field_N, field_O, field_Q, field_R, account) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         foreach ($rows as $row) {
             $insert->execute([
                 $row['A'] ?? '',
@@ -71,7 +71,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['O'] ?? '',
                 $row['Q'] ?? '',
                 $row['R'] ?? '',
-                $row['account'] ?? ''
+                $row['account'] ?? '',
+                $row['filename'] ?? ''
             ]);
         }
 
@@ -152,7 +153,6 @@ $csrfToken = generateCsrfToken();
                 <th></th>
                 <th></th>
                 <th data-orderable="false">Ações</th>
-                <th data-orderable="false">Classificar</th>
             </tr>
         </thead>
         <tbody></tbody>
