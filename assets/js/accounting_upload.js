@@ -15,7 +15,7 @@ window.addEventListener('load', function() {
             columnDefs: [
                 { targets: [ 2, 4, 7, 8, 13, 14], visible: false },
                 { targets: [0, 1], className: 'text-start' },
-                { targets: [ -1, -2 ], orderable: false, searchable: false }
+                { targets: [ -1 ], orderable: false, searchable: false }
             ]
         });
     }
@@ -59,12 +59,8 @@ window.addEventListener('load', function() {
                 });
                 var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
                     '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
-                var classify = '<button type="button" class="btn btn-xs btn-warning classify-row">Classificar</button>';
                 row.push(actions);
-                row.push(classify);
-                var rowNode = table.row.add(row).draw(false).node();
-                var btn = $(rowNode).find('.classify-row');
-                checkClassification(qrData['A'] || '', qrData['B'] || '', qrData['D'] || '', btn);
+                table.row.add(row).draw(false);
             });
         } else {
             alert('QR code não encontrado');
@@ -132,77 +128,6 @@ window.addEventListener('load', function() {
         }
     });
 
-    function checkClassification(emitter, acquirer, docType, btn) {
-        var params = new URLSearchParams({
-            action: 'get',
-            A: emitter,
-            B: acquirer,
-            D: docType,
-            csrf_token: csrfInput.value
-        });
-        fetch('contabilidade/save-analysis.php?' + params.toString())
-            .then(function(res) { return res.json(); })
-            .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-                if (res.account) {
-                    btn.removeClass('btn-warning').addClass('btn-success');
-                } else {
-                    btn.removeClass('btn-success').addClass('btn-warning');
-                }
-            });
-    }
-
-    $('#qr-table').on('click', '.classify-row', function() {
-        var btn = $(this);
-        var rowData = table.row(btn.parents('tr')).data() || [];
-        var emitter = rowData[0] || '';
-        var acquirer = rowData[1] || '';
-        var docType = rowData[3] || '';
-        var params = new URLSearchParams({
-            action: 'get',
-            A: emitter,
-            B: acquirer,
-            D: docType,
-            csrf_token: csrfInput.value
-        });
-        fetch('contabilidade/save-analysis.php?' + params.toString())
-            .then(function(res) { return res.json(); })
-            .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-                var current = res.account || '';
-                var account = prompt('N\u00ba conta:', current);
-                if (account !== null) {
-                    var body = new URLSearchParams({
-                        A: emitter,
-                        B: acquirer,
-                        D: docType,
-                        account: account,
-                        csrf_token: csrfInput.value
-                    });
-                    fetch('contabilidade/save-analysis.php?action=save', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: body.toString()
-                    })
-                    .then(function(res) { return res.json(); })
-                    .then(function(res) {
-                        if (res.csrf_token) {
-                            csrfInput.value = res.csrf_token;
-                        }
-                        if (res.success) {
-                            checkClassification(emitter, acquirer, docType, btn);
-                        } else {
-                            alert(res.error || 'Erro ao guardar');
-                        }
-                    });
-                }
-            });
-    });
-
     $('#qr-table').on('click', '.delete-row', function() {
         if (!confirm('Eliminar ficheiro?')) {
             return;
@@ -242,17 +167,19 @@ window.addEventListener('load', function() {
 
     if (importBtn) {
         importBtn.addEventListener('click', function() {
-            var rows = table.rows().data().toArray();
-            if (!rows.length) {
+            var nodes = table.rows().nodes().toArray();
+            if (!nodes.length) {
                 alert('Não há dados para importar');
                 return;
             }
             var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
-            var payload = rows.map(function(row) {
+            var payload = nodes.map(function(node) {
+                var data = table.row(node).data() || [];
                 var obj = {};
                 for (var i = 0; i < keys.length; i++) {
-                    obj[keys[i]] = row[i] || '';
+                    obj[keys[i]] = data[i] || '';
                 }
+                obj['filename'] = $(node).find('.delete-row').data('file') || '';
                 return obj;
             });
             fetch('contabilidade/upload.php?action=import', {
