@@ -15,7 +15,7 @@ window.addEventListener('load', function() {
             columnDefs: [
                 { targets: [ 2, 4, 7, 8, 13, 14], visible: false },
                 { targets: [0, 1], className: 'text-start' },
-                { targets: -1, orderable: false, searchable: false }
+                { targets: [ -1, -2 ], orderable: false, searchable: false }
             ]
         });
     }
@@ -57,11 +57,14 @@ window.addEventListener('load', function() {
                     }
                     return value;
                 });
-                var actions = '<button type="button" class="btn btn-xs btn-primary classify-row">Classificar</button> ' +
-                    '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
+                var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
                     '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
+                var classify = '<button type="button" class="btn btn-xs btn-warning classify-row">Classificar</button>';
                 row.push(actions);
-                table.row.add(row).draw();
+                row.push(classify);
+                var rowNode = table.row.add(row).draw(false).node();
+                var btn = $(rowNode).find('.classify-row');
+                checkClassification(qrData['A'] || '', qrData['B'] || '', qrData['D'] || '', btn);
             });
         } else {
             alert('QR code não encontrado');
@@ -129,8 +132,31 @@ window.addEventListener('load', function() {
         }
     });
 
+    function checkClassification(emitter, acquirer, docType, btn) {
+        var params = new URLSearchParams({
+            action: 'get',
+            A: emitter,
+            B: acquirer,
+            D: docType,
+            csrf_token: csrfInput.value
+        });
+        fetch('contabilidade/save-analysis.php?' + params.toString())
+            .then(function(res) { return res.json(); })
+            .then(function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (res.account) {
+                    btn.removeClass('btn-warning').addClass('btn-success');
+                } else {
+                    btn.removeClass('btn-success').addClass('btn-warning');
+                }
+            });
+    }
+
     $('#qr-table').on('click', '.classify-row', function() {
-        var rowData = table.row($(this).parents('tr')).data() || [];
+        var btn = $(this);
+        var rowData = table.row(btn.parents('tr')).data() || [];
         var emitter = rowData[0] || '';
         var acquirer = rowData[1] || '';
         var docType = rowData[3] || '';
@@ -167,7 +193,9 @@ window.addEventListener('load', function() {
                         if (res.csrf_token) {
                             csrfInput.value = res.csrf_token;
                         }
-                        if (!res.success) {
+                        if (res.success) {
+                            checkClassification(emitter, acquirer, docType, btn);
+                        } else {
                             alert(res.error || 'Erro ao guardar');
                         }
                     });

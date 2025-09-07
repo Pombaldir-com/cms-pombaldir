@@ -39,23 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $slug = getCompanySlug();
-        if (!$slug) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Empresa não selecionada', 'csrf_token' => $newToken]);
-            exit;
-        }
-
-        $year = date('Y');
-        $month = date('m');
-        $dir = dirname(__DIR__) . '/uploads/' . $slug . '/accounting/' . $year . '/' . $month . '/';
-        if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-            http_response_code(500);
-            echo json_encode(['error' => 'Erro ao criar diretório de importação', 'csrf_token' => $newToken]);
-            exit;
-        }
-
         $pdo = getPDO();
+
+        // Preencher conta associada, se existir classificação
         $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
         foreach ($rows as &$row) {
             $a = $row['A'] ?? '';
@@ -66,16 +52,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($row);
 
-        $file = $dir . 'import.json';
-        $success = file_put_contents($file, json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
-
-        if ($success) {
-            echo json_encode(['success' => true, 'csrf_token' => $newToken]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['error' => 'Falha ao gravar o ficheiro', 'csrf_token' => $newToken]);
+        // Inserir linhas na tabela accounting_imports
+        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I7, field_I8, field_N, field_O, field_Q, field_R, account) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        foreach ($rows as $row) {
+            $insert->execute([
+                $row['A'] ?? '',
+                $row['B'] ?? '',
+                $row['C'] ?? '',
+                $row['D'] ?? '',
+                $row['E'] ?? '',
+                $row['F'] ?? '',
+                $row['G'] ?? '',
+                $row['H'] ?? '',
+                $row['I1'] ?? '',
+                $row['I7'] ?? '',
+                $row['I8'] ?? '',
+                $row['N'] ?? '',
+                $row['O'] ?? '',
+                $row['Q'] ?? '',
+                $row['R'] ?? '',
+                $row['account'] ?? ''
+            ]);
         }
 
+        echo json_encode(['success' => true, 'csrf_token' => $newToken]);
         exit;
     } elseif ($action === 'delete') {
         $file = $_POST['file'] ?? '';
@@ -152,6 +152,7 @@ $csrfToken = generateCsrfToken();
                 <th></th>
                 <th></th>
                 <th data-orderable="false">Ações</th>
+                <th data-orderable="false">Classificar</th>
             </tr>
         </thead>
         <tbody></tbody>
