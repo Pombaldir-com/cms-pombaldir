@@ -52,9 +52,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($row);
 
-        // Inserir linhas na tabela accounting_imports
+        // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H
         $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? LIMIT 1');
         foreach ($rows as $row) {
+            $fieldH = $row['H'] ?? '';
+            if ($fieldH !== '') {
+                $exists->execute([$fieldH]);
+                if ($exists->fetchColumn()) {
+                    continue; // pular se já existir
+                }
+            }
+
             $insert->execute([
                 $row['A'] ?? '',
                 $row['B'] ?? '',
@@ -63,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['E'] ?? '',
                 $row['F'] ?? '',
                 $row['G'] ?? '',
-                $row['H'] ?? '',
+                $fieldH,
                 $row['I1'] ?? '',
                 $row['I7'] ?? '',
                 $row['I8'] ?? '',
