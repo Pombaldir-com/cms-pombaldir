@@ -57,7 +57,8 @@ window.addEventListener('load', function() {
                     }
                     return value;
                 });
-                var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
+                var actions = '<button type="button" class="btn btn-xs btn-primary classify-row">Classificar</button> ' +
+                    '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
                     '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
                 row.push(actions);
                 table.row.add(row).draw();
@@ -126,6 +127,52 @@ window.addEventListener('load', function() {
         if (importBtn && table.rows().data().length) {
             importBtn.style.display = 'inline-block';
         }
+    });
+
+    $('#qr-table').on('click', '.classify-row', function() {
+        var rowData = table.row($(this).parents('tr')).data() || [];
+        var emitter = rowData[0] || '';
+        var acquirer = rowData[1] || '';
+        var docType = rowData[3] || '';
+        var params = new URLSearchParams({
+            action: 'get',
+            A: emitter,
+            B: acquirer,
+            D: docType,
+            csrf_token: csrfInput.value
+        });
+        fetch('contabilidade/save-analysis.php?' + params.toString())
+            .then(function(res) { return res.json(); })
+            .then(function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                var current = res.account || '';
+                var account = prompt('N\u00ba conta:', current);
+                if (account !== null) {
+                    var body = new URLSearchParams({
+                        A: emitter,
+                        B: acquirer,
+                        D: docType,
+                        account: account,
+                        csrf_token: csrfInput.value
+                    });
+                    fetch('contabilidade/save-analysis.php?action=save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString()
+                    })
+                    .then(function(res) { return res.json(); })
+                    .then(function(res) {
+                        if (res.csrf_token) {
+                            csrfInput.value = res.csrf_token;
+                        }
+                        if (!res.success) {
+                            alert(res.error || 'Erro ao guardar');
+                        }
+                    });
+                }
+            });
     });
 
     $('#qr-table').on('click', '.delete-row', function() {
