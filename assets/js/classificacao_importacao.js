@@ -10,36 +10,18 @@ window.addEventListener('load', function() {
         ]
     });
 
-    function checkClassification(emitter, acquirer, docType, btn) {
-        var params = new URLSearchParams({
-            action: 'get',
-            A: emitter,
-            B: acquirer,
-            D: docType,
-            csrf_token: csrfInput.value
-        });
-        fetch('contabilidade/save-analysis.php?' + params.toString())
-            .then(function(res) { return res.json(); })
-            .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-                if (res.account) {
-                    btn.classList.remove('btn-warning');
-                    btn.classList.add('btn-success');
-                } else {
-                    btn.classList.remove('btn-success');
-                    btn.classList.add('btn-warning');
-                }
-            });
+    function updateButtonClass(btn) {
+        if (btn.getAttribute('data-account')) {
+            btn.classList.remove('btn-warning');
+            btn.classList.add('btn-success');
+        } else {
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-warning');
+        }
     }
 
     $('#classify-table').find('.classify-row').each(function() {
-        var btn = this;
-        var emitter = btn.getAttribute('data-emitter');
-        var acquirer = btn.getAttribute('data-acquirer');
-        var docType = btn.getAttribute('data-doctype');
-        checkClassification(emitter, acquirer, docType, btn);
+        updateButtonClass(this);
     });
 
     $('#classify-table').on('click', '.classify-row', function() {
@@ -47,6 +29,7 @@ window.addEventListener('load', function() {
         var emitter = btn.getAttribute('data-emitter');
         var acquirer = btn.getAttribute('data-acquirer');
         var docType = btn.getAttribute('data-doctype');
+        var current = btn.getAttribute('data-account') || '';
         var params = new URLSearchParams({
             action: 'get',
             A: emitter,
@@ -60,10 +43,13 @@ window.addEventListener('load', function() {
                 if (res.csrf_token) {
                     csrfInput.value = res.csrf_token;
                 }
-                var current = res.account || '';
+                if (!current) {
+                    current = res.account || '';
+                }
                 var account = prompt('N\u00ba conta:', current);
                 if (account !== null) {
                     var body = new URLSearchParams({
+                        id: btn.getAttribute('data-id'),
                         A: emitter,
                         B: acquirer,
                         D: docType,
@@ -81,7 +67,8 @@ window.addEventListener('load', function() {
                             csrfInput.value = res.csrf_token;
                         }
                         if (res.success) {
-                            checkClassification(emitter, acquirer, docType, btn);
+                            btn.setAttribute('data-account', account);
+                            updateButtonClass(btn);
                         } else {
                             alert(res.error || 'Erro ao guardar');
                         }
