@@ -35,14 +35,25 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
         exit;
     }
+    $id = $_POST['id'] ?? '';
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
     $account = $_POST['account'] ?? '';
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
-    $stmt->execute([$a, $b, $d, $account]);
-    echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
+        $stmt->execute([$account, $id]);
+        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
+        $stmt2->execute([$a, $b, $d, $account]);
+        $pdo->commit();
+        echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
+    }
     exit;
 } else {
     http_response_code(400);
