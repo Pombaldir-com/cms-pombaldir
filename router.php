@@ -169,6 +169,9 @@ switch (true) {
     case $path === 'contabilidade/save-analysis.php':
         require __DIR__ . '/contabilidade/save-analysis.php';
         break;
+    case $path === 'contabilidade/classificacao-importacao':
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case preg_match('#^([^/]+)/add$#', $path, $m):
         $_GET['type_slug'] = $m[1];
         $_GET['action'] = 'add';
