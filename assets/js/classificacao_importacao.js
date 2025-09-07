@@ -74,7 +74,34 @@ window.addEventListener('load', function() {
                         }
                     });
                 }
-            });
+        });
+    });
+
+    $('#classify-table').on('click', '.remove-row', function() {
+        var btn = this;
+        if (!confirm('Remover este registo?')) {
+            return;
+        }
+        var body = new URLSearchParams({
+            id: btn.getAttribute('data-id'),
+            csrf_token: csrfInput.value
+        });
+        fetch('contabilidade/save-analysis.php?action=remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (res.csrf_token) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success) {
+                table.row($(btn).closest('tr')).remove().draw();
+            } else {
+                alert(res.error || 'Erro ao remover');
+            }
+        });
     });
 });
 
