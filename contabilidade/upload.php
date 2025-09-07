@@ -55,6 +55,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        $pdo = getPDO();
+        $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+        foreach ($rows as &$row) {
+            $a = $row['A'] ?? '';
+            $b = $row['B'] ?? '';
+            $d = $row['D'] ?? '';
+            $stmt->execute([$a, $b, $d]);
+            $row['account'] = $stmt->fetchColumn() ?: '';
+        }
+        unset($row);
+
         $file = $dir . 'import.json';
         $success = file_put_contents($file, json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false;
 
