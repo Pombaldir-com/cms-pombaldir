@@ -55,6 +55,24 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
     }
     exit;
+} elseif ($action === 'remove') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $id = $_POST['id'] ?? '';
+    $pdo = getPDO();
+    try {
+        $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE id = ?');
+        $stmt->execute([$id]);
+        echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Erro ao remover', 'csrf_token' => generateCsrfToken()]);
+    }
+    exit;
 } else {
     http_response_code(400);
     echo json_encode(['error' => 'Ação inválida', 'csrf_token' => generateCsrfToken()]);
