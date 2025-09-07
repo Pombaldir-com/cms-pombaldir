@@ -12,13 +12,6 @@ if (!isLoggedIn()) {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
-$slug = getCompanySlug();
-if (!$slug) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Empresa não selecionada', 'csrf_token' => generateCsrfToken(true)]);
-    exit;
-}
-
 if ($action === 'get') {
     $token = $_GET['csrf_token'] ?? '';
     if (!validateCsrfToken($token)) {
@@ -30,8 +23,8 @@ if ($action === 'get') {
     $b = $_GET['B'] ?? '';
     $d = $_GET['D'] ?? '';
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE company_slug = ? AND emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
-    $stmt->execute([$slug, $a, $b, $d]);
+    $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+    $stmt->execute([$a, $b, $d]);
     $account = $stmt->fetchColumn() ?: '';
     echo json_encode(['account' => $account, 'csrf_token' => generateCsrfToken()]);
     exit;
@@ -47,8 +40,8 @@ if ($action === 'get') {
     $d = $_POST['D'] ?? '';
     $account = $_POST['account'] ?? '';
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO accounting_classifications (company_slug, emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
-    $stmt->execute([$slug, $a, $b, $d, $account]);
+    $stmt = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
+    $stmt->execute([$a, $b, $d, $account]);
     echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     exit;
 } else {
