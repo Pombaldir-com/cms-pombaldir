@@ -71,6 +71,13 @@ if ($action === 'lines') {
             $inTable = false;
             continue;
         }
+        if (trim($line) === '') {
+            continue;
+        }
+        $tokens = preg_split('/\s+/', trim($line));
+        if (count($tokens) < 10) {
+            continue;
+        }
         fputcsv($output, [$row['id'], $row['filename'], $i + 1, $line]);
     }
     fclose($output);
