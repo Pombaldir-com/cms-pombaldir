@@ -79,7 +79,29 @@ if ($action === 'lines') {
         if (count($tokens) < 10) {
             continue;
         }
-        fputcsv($output, [$row['id'], $row['filename'], $i + 1, $line]);
+        try {
+            $fields = parseInvoiceLineText($line);
+        } catch (RuntimeException $e) {
+            $fields = [
+                'arm' => '',
+                'codigo_artigo' => '',
+                'descricao' => '',
+                'quantidade' => '',
+                'unidade' => '',
+                'preco_unitario' => '',
+                'percentagem_desconto' => '',
+                'desconto_valor' => '',
+                'valor_liquido' => '',
+                'imposto' => '',
+            ];
+        }
+        fputcsv(
+            $output,
+            array_merge(
+                [$row['id'], $row['filename'], $i + 1, $line],
+                array_values($fields)
+            )
+        );
     }
     fclose($output);
     exit;
@@ -134,22 +156,6 @@ if ($action === 'get') {
         $pdo->rollBack();
         http_response_code(500);
         echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
-    }
-    exit;
-} elseif ($action === 'parse-line') {
-    $token = $_POST['csrf_token'] ?? '';
-    if (!validateCsrfToken($token)) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
-        exit;
-    }
-    $text = $_POST['text'] ?? '';
-    try {
-        $fields = parseInvoiceLineText($text);
-        echo json_encode(['fields' => $fields, 'csrf_token' => generateCsrfToken()]);
-    } catch (Exception $e) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Linha inválida', 'csrf_token' => generateCsrfToken()]);
     }
     exit;
 } elseif ($action === 'remove') {
