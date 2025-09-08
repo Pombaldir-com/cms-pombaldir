@@ -71,38 +71,15 @@ if ($action === 'lines') {
             $inTable = false;
             continue;
         }
-        try {
-            $fields = parseInvoiceLineText($line);
-        } catch (RuntimeException $e) {
-            $fields = [
-                'arm' => '',
-                'codigo_artigo' => '',
-                'descricao' => '',
-                'quantidade' => '',
-                'unidade' => '',
-                'preco_unitario' => '',
-                'percentagem_desconto' => '',
-                'desconto_valor' => '',
-                'valor_liquido' => '',
-                'imposto' => '',
-            ];
+
+        if (trim($line) === '') {
+            continue;
         }
-        fputcsv($output, [
-            $row['id'],
-            $row['filename'],
-            $i + 1,
-            $line,
-            $fields['arm'],
-            $fields['codigo_artigo'],
-            $fields['descricao'],
-            $fields['quantidade'],
-            $fields['unidade'],
-            $fields['preco_unitario'],
-            $fields['percentagem_desconto'],
-            $fields['desconto_valor'],
-            $fields['valor_liquido'],
-            $fields['imposto'],
-        ]);
+        $tokens = preg_split('/\s+/', trim($line));
+        if (count($tokens) < 10) {
+            continue;
+        }
+        fputcsv($output, [$row['id'], $row['filename'], $i + 1, $line]);
     }
     fclose($output);
     exit;
