@@ -68,8 +68,14 @@ if ($action === 'lines') {
                 || strpos($norm, 'unidade') !== false
                 || strpos($norm, 'taxa') !== false) {
                 $inTable = true;
+                continue;
             }
-            continue;
+            $tokens = preg_split('/\s+/', trim($line));
+            if (count($tokens) >= 3 && preg_match('/\d/', $line)) {
+                $inTable = true;
+            } else {
+                continue;
+            }
         }
         if (strpos($normalize($line), 'mercadoria') !== false) {
             $inTable = false;
@@ -80,7 +86,7 @@ if ($action === 'lines') {
             continue;
         }
         $tokens = preg_split('/\s+/', trim($line));
-        if (count($tokens) < 5) {
+        if (count($tokens) < 3) {
             continue;
         }
         try {
