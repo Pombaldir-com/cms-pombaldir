@@ -29,7 +29,7 @@ if ($action === 'lines') {
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['id', 'filename', 'line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
+    fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
     $text = '';
@@ -102,7 +102,7 @@ if ($action === 'lines') {
         fputcsv(
             $output,
             array_merge(
-                [$row['id'], $row['filename'], $i + 1, $line],
+                [$i + 1, $line],
                 array_values($fields)
             )
         );
