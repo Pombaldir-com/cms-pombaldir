@@ -25,8 +25,31 @@ if ($action === 'lines') {
     $output = fopen('php://output', 'w');
     fputcsv($output, ['id', 'filename', 'line_number', 'text']);
     $path = dirname(__DIR__) . '/' . $row['filename'];
-    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
-    $text = $ocr->run();
+    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    $text = '';
+    if ($extension === 'pdf') {
+        if (!class_exists('Imagick')) {
+            http_response_code(500);
+            fclose($output);
+            exit;
+        }
+        $imagick = new Imagick();
+        $imagick->setResolution(300, 300);
+        $imagick->readImage($path);
+        $imagick->setImageFormat('png');
+        $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
+        $imagick->writeImages($tmpBase . '.png', false);
+        $imagick->clear();
+        $imagick->destroy();
+        foreach (glob($tmpBase . '-*.png') as $imgFile) {
+            $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
+            $text .= $ocr->run() . PHP_EOL;
+            unlink($imgFile);
+        }
+    } else {
+        $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
+        $text = $ocr->run();
+    }
     $lines = explode(PHP_EOL, $text);
     $inTable = false;
     foreach ($lines as $i => $line) {
