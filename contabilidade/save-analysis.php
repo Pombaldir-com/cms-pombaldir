@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
+require_once __DIR__ . '/functions.php';
 
 startSession();
 
@@ -125,6 +126,22 @@ if ($action === 'get') {
         $pdo->rollBack();
         http_response_code(500);
         echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
+    }
+    exit;
+} elseif ($action === 'parse-line') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $text = $_POST['text'] ?? '';
+    try {
+        $fields = parseInvoiceLineText($text);
+        echo json_encode(['fields' => $fields, 'csrf_token' => generateCsrfToken()]);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Linha inválida', 'csrf_token' => generateCsrfToken()]);
     }
     exit;
 } elseif ($action === 'remove') {
