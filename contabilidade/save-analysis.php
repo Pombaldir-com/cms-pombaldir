@@ -61,6 +61,7 @@ if ($action === 'lines') {
     $normalize = static function (string $str): string {
         return strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $str));
     };
+    $unique = [];
     foreach ($lines as $i => $line) {
         if (! $inTable) {
             $norm = $normalize($line);
@@ -105,6 +106,13 @@ if ($action === 'lines') {
                 'imposto' => '',
             ];
         }
+
+        $key = trim($normalize($line));
+        if (isset($unique[$key])) {
+            continue;
+        }
+        $unique[$key] = true;
+
         fputcsv(
             $output,
             array_merge(
