@@ -1,7 +1,53 @@
 <?php
 require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/../vendor/autoload.php';
 
 startSession();
+
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+if ($action === 'lines') {
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        exit;
+    }
+    $id = $_GET['id'] ?? '';
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, filename FROM accounting_imports WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (! $row) {
+        http_response_code(404);
+        exit;
+    }
+    header('Content-Type: text/csv');
+    header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
+    $output = fopen('php://output', 'w');
+    fputcsv($output, ['id', 'filename', 'line_number', 'text']);
+    $path = dirname(__DIR__) . '/' . $row['filename'];
+    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
+    $text = $ocr->run();
+    $lines = explode(PHP_EOL, $text);
+    $inTable = false;
+    foreach ($lines as $i => $line) {
+        if (! $inTable) {
+            if (stripos($line, 'Descrição') !== false
+                && stripos($line, 'Unidade') !== false
+                && stripos($line, 'Taxa') !== false) {
+                $inTable = true;
+            }
+            continue;
+        }
+        if (stripos($line, 'Subtotal') !== false) {
+            $inTable = false;
+            continue;
+        }
+        fputcsv($output, [$row['id'], $row['filename'], $i + 1, $line]);
+    }
+    fclose($output);
+    exit;
+}
+
 header('Content-Type: application/json');
 
 if (!isLoggedIn()) {
@@ -9,8 +55,6 @@ if (!isLoggedIn()) {
     echo json_encode(['error' => 'Sessão inválida']);
     exit;
 }
-
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 if ($action === 'get') {
     $token = $_GET['csrf_token'] ?? '';
