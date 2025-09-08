@@ -58,16 +58,20 @@ if ($action === 'lines') {
     }
     $lines = explode(PHP_EOL, $text);
     $inTable = false;
+    $normalize = static function (string $str): string {
+        return strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $str));
+    };
     foreach ($lines as $i => $line) {
         if (! $inTable) {
-            if (stripos($line, 'Descrição') !== false
-                || stripos($line, 'Unidade') !== false
-                || stripos($line, 'Taxa') !== false) {
+            $norm = $normalize($line);
+            if (strpos($norm, 'descricao') !== false
+                || strpos($norm, 'unidade') !== false
+                || strpos($norm, 'taxa') !== false) {
                 $inTable = true;
             }
             continue;
         }
-        if (stripos($line, 'Mercadoria') !== false) {
+        if (strpos($normalize($line), 'mercadoria') !== false) {
             $inTable = false;
             continue;
         }
@@ -76,7 +80,7 @@ if ($action === 'lines') {
             continue;
         }
         $tokens = preg_split('/\s+/', trim($line));
-        if (count($tokens) < 10) {
+        if (count($tokens) < 5) {
             continue;
         }
         try {
