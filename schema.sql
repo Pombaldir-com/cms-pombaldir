@@ -128,10 +128,6 @@ CREATE TABLE IF NOT EXISTS accounting_classifications (
     acquirer VARCHAR(255) NOT NULL,
     doc_type VARCHAR(50) NOT NULL,
     account VARCHAR(255) NOT NULL,
-    account_iva6 VARCHAR(255) DEFAULT '',
-    account_iva13 VARCHAR(255) DEFAULT '',
-    account_iva23 VARCHAR(255) DEFAULT '',
-    account_novat VARCHAR(255) DEFAULT '',
     UNIQUE KEY unique_classification (emitter, acquirer, doc_type)
 );
 
@@ -157,10 +153,6 @@ CREATE TABLE IF NOT EXISTS accounting_imports (
     field_Q VARCHAR(255) DEFAULT '',
     field_R VARCHAR(255) DEFAULT '',
     account VARCHAR(255) DEFAULT '',
-    account_iva6 VARCHAR(255) DEFAULT '',
-    account_iva13 VARCHAR(255) DEFAULT '',
-    account_iva23 VARCHAR(255) DEFAULT '',
-    account_novat VARCHAR(255) DEFAULT '',
     filename VARCHAR(255) DEFAULT '',
     dte_add TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
