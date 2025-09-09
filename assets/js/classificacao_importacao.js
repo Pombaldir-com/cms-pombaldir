@@ -26,9 +26,14 @@ window.addEventListener('load', function() {
         btn.classList.toggle('btn-warning', !allFilled);
     }
 
-    $('#classify-table').find('.classify-row').each(function() {
-        updateButtonClass(this);
-    });
+    function refreshButtonClasses() {
+        $('#classify-table').find('.classify-row').each(function() {
+            updateButtonClass(this);
+        });
+    }
+
+    refreshButtonClasses();
+    table.on('draw.dt', refreshButtonClasses);
 
     var classifyModal = new bootstrap.Modal(document.getElementById('classifyModal'));
     var form = document.getElementById('classify-form');
