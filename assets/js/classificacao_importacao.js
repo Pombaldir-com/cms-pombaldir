@@ -16,9 +16,12 @@ window.addEventListener('load', function() {
         var iva13 = parseInt(btn.getAttribute('data-iva13')) || 0;
         var iva23 = parseInt(btn.getAttribute('data-iva23')) || 0;
         var novat = parseInt(btn.getAttribute('data-novat')) || 0;
-        var needIva6 = btn.getAttribute('data-req-iva6') === '1';
-        var needIva13 = btn.getAttribute('data-req-iva13') === '1';
-        var needIva23 = btn.getAttribute('data-req-iva23') === '1';
+        var amtIva6 = parseFloat(btn.getAttribute('data-amt-iva6')) || 0;
+        var amtIva13 = parseFloat(btn.getAttribute('data-amt-iva13')) || 0;
+        var amtIva23 = parseFloat(btn.getAttribute('data-amt-iva23')) || 0;
+        var needIva6 = amtIva6 > 0;
+        var needIva13 = amtIva13 > 0;
+        var needIva23 = amtIva23 > 0;
         var needNovat = btn.getAttribute('data-req-novat') === '1';
         var allFilled = true;
         if (needIva6) { allFilled = allFilled && iva6 > 0; }
