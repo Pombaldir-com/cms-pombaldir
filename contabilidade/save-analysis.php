@@ -208,16 +208,34 @@ if ($action === 'get') {
     }
     try {
         $pdo->beginTransaction();
-        $serialized = json_encode([
-            'iva6' => $iva6,
-            'iva13' => $iva13,
-            'iva23' => $iva23,
-            'novat' => $novat,
-        ]);
-        $stmt = $pdo->prepare(
-            'UPDATE accounting_imports SET account = ? WHERE id = ?'
+
+        // Load existing classifications so new entries do not wipe out
+        // previously stored tax accounts for the same emitter/acquirer/doc type.
+        $stmtExisting = $pdo->prepare(
+            'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
         );
+        $stmtExisting->execute([$a, $b, $d]);
+        $existingClass = json_decode($stmtExisting->fetchColumn() ?: '', true) ?: [];
+
+        $stmtRow = $pdo->prepare('SELECT account FROM accounting_imports WHERE id = ?');
+        $stmtRow->execute([$id]);
+        $existingRow = json_decode($stmtRow->fetchColumn() ?: '', true) ?: [];
+
+        // Merge existing accounts, giving priority to row-specific values and
+        // any non-empty values submitted in this request.
+        $accounts = array_merge($existingClass, $existingRow);
+        foreach (['iva6', 'iva13', 'iva23', 'novat'] as $key) {
+            $val = ${$key};
+            if ($val !== '') {
+                $accounts[$key] = $val;
+            }
+        }
+
+        $serialized = json_encode($accounts);
+
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
         $stmt->execute([$serialized, $id]);
+
         $stmt2 = $pdo->prepare(
             'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
             . 'VALUES (?, ?, ?, ?) '
