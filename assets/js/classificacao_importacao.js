@@ -13,6 +13,7 @@ window.addEventListener('load', function() {
 
     function updateButtonClass(btn) {
 
+
         var iva6 = parseInt(btn.getAttribute('data-iva6')) || 0;
         var iva13 = parseInt(btn.getAttribute('data-iva13')) || 0;
         var iva23 = parseInt(btn.getAttribute('data-iva23')) || 0;
