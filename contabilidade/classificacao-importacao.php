@@ -85,9 +85,9 @@ require_once __DIR__ . '/../header.php';
                         $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23;
 
                         $allAccounts = (
-                            (!$hasIva6 || (int)($row['account_iva6'] ?? 0) > 0) &&
-                            (!$hasIva13 || (int)($row['account_iva13'] ?? 0) > 0) &&
-                            (!$hasIva23 || (int)($row['account_iva23'] ?? 0) > 0) &&
+                            ($amtIva6 <= 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
+                            ($amtIva13 <= 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
+                            ($amtIva23 <= 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
                             (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
                         );
                         $requires = $hasIva6 || $hasIva13 || $hasIva23 || $needsNovat;

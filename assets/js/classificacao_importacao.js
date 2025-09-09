@@ -12,13 +12,15 @@ window.addEventListener('load', function() {
     });
 
     function updateButtonClass(btn) {
-        var iva6 = (btn.getAttribute('data-iva6') || '').trim();
-        var iva13 = (btn.getAttribute('data-iva13') || '').trim();
-        var iva23 = (btn.getAttribute('data-iva23') || '').trim();
-        var novat = (btn.getAttribute('data-novat') || '').trim();
-        var amtIva6 = parseFloat(btn.getAttribute('data-amt-iva6') || '0');
-        var amtIva13 = parseFloat(btn.getAttribute('data-amt-iva13') || '0');
-        var amtIva23 = parseFloat(btn.getAttribute('data-amt-iva23') || '0');
+
+        var iva6 = parseInt(btn.getAttribute('data-iva6')) || 0;
+        var iva13 = parseInt(btn.getAttribute('data-iva13')) || 0;
+        var iva23 = parseInt(btn.getAttribute('data-iva23')) || 0;
+        var novat = parseInt(btn.getAttribute('data-novat')) || 0;
+        var amtIva6 = parseFloat(btn.getAttribute('data-amt-iva6')) || 0;
+        var amtIva13 = parseFloat(btn.getAttribute('data-amt-iva13')) || 0;
+        var amtIva23 = parseFloat(btn.getAttribute('data-amt-iva23')) || 0;
+
         var needIva6 = amtIva6 > 0;
         var needIva13 = amtIva13 > 0;
         var needIva23 = amtIva23 > 0;
