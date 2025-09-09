@@ -19,25 +19,23 @@ from typing import Callable, Dict, List
 
 try:
     from pdf2image import convert_from_path, pdfinfo_from_path
-except Exception:  # pragma: no cover - library missing
-    convert_from_path = None  # type: ignore
-    pdfinfo_from_path = None  # type: ignore
+except Exception:
+    convert_from_path = None
+    pdfinfo_from_path = None
 
-import cv2  # type: ignore
-import numpy as np  # type: ignore
+import cv2
+import numpy as np
 
 try:
     from pyzbar.pyzbar import decode as pyzbar_decode
-except Exception:  # pragma: no cover - optional dependency missing
-    pyzbar_decode = None  # type: ignore
-
+except Exception:
+    pyzbar_decode = None
 
 DETECTOR = cv2.QRCodeDetector()
 
 
 def _prepare_base(image: np.ndarray) -> np.ndarray:
-    """Return a normalized grayscale version of *image*."""
-    if image.ndim == 3 and image.shape[2] == 4:  # remove alpha channel
+    if image.ndim == 3 and image.shape[2] == 4:
         bgr = image[:, :, :3]
         alpha = image[:, :, 3]
         white = np.full_like(bgr, 255)
@@ -99,16 +97,10 @@ STRATEGIES: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 ANGLES = [0, 5]
 
+
 def _decode_cv(image: np.ndarray) -> List[str]:
-    """Return decoded texts from a cv2 image array."""
-
     texts: List[str] = []
-
-    if image.ndim == 2:
-        gray = image
-    else:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     data, _, _ = DETECTOR.detectAndDecode(gray)
     if data:
         texts.append(data)
@@ -117,7 +109,6 @@ def _decode_cv(image: np.ndarray) -> List[str]:
         texts.extend([t for t in decoded_info if t])
 
     if not texts:
-        # try again with Otsu thresholding to enhance contrast
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         data, _, _ = DETECTOR.detectAndDecode(thresh)
         if data:
@@ -126,7 +117,6 @@ def _decode_cv(image: np.ndarray) -> List[str]:
         if ok and decoded_info:
             texts.extend([t for t in decoded_info if t])
 
-        # final fallback: use pyzbar if available
         if not texts and pyzbar_decode is not None:
             for candidate in (thresh, gray, image):
                 try:
@@ -143,7 +133,6 @@ def _decode_cv(image: np.ndarray) -> List[str]:
                 if decoded:
                     break
 
-    # remove duplicates preserving order
     seen = set()
     unique_texts = [t for t in texts if not (t in seen or seen.add(t))]
     return unique_texts
@@ -161,7 +150,6 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
     for m in (1.0, 1.5):
         val = min(3.5, escala_inicial * m)
         scales.append(round(val, 2))
-    # remove duplicates preserving order
     seen = set()
     scales = [s for s in scales if not (s in seen or seen.add(s))]
 
@@ -190,28 +178,21 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                         results.append(t)
     return results
 
+
 def decode_file(path: str, dpi: int = 300) -> List[str]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         if convert_from_path is None:
             raise RuntimeError("pdf2image not available")
 
-        poppler_path = os.environ.get("POPPLER_PATH")
-        candidates = [poppler_path, "/usr/bin", "/usr/local/bin"]
-        poppler_dir = None
-        for candidate in candidates:
-            if candidate and os.path.exists(os.path.join(candidate, "pdftoppm")):
-                poppler_dir = candidate
-                break
-
-        kwargs = {"dpi": dpi}
-        if poppler_dir:
-            kwargs["poppler_path"] = poppler_dir
+        # Caminho fixo para o Poppler
+        poppler_dir = "/usr/local/bin"
+        kwargs = {"dpi": dpi, "poppler_path": poppler_dir}
 
         info: Dict[str, int] = {"Pages": 1}
         if pdfinfo_from_path is not None:
             try:
-                info = pdfinfo_from_path(path, **kwargs)
+                info = pdfinfo_from_path(path, poppler_path=poppler_dir)
             except TypeError:
                 info = pdfinfo_from_path(path)  # type: ignore[arg-type]
         total_pages = int(info.get("Pages", 1))
@@ -243,6 +224,7 @@ def decode_file(path: str, dpi: int = 300) -> List[str]:
             raise RuntimeError("unable to read image")
         return _decode_with_strategies(img)
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Decode QR codes from images or PDFs")
     parser.add_argument("file", help="path to image or PDF")
@@ -260,7 +242,7 @@ def main() -> int:
         return 2
     try:
         texts = decode_file(file_path, dpi=args.dpi)
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 3
     if texts:
@@ -268,6 +250,7 @@ def main() -> int:
             print(t)
         return 0
     return 4
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

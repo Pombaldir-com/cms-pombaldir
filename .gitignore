@@ -15,3 +15,4 @@ composer.lock
 contabilidade/test.php
 contabilidade/magick-*
 .history/*
+contabilidade/debug_qr.txt
