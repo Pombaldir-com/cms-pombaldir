@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Decode QR codes from images or PDFs.
 
-This script reads an image file or a PDF and tries to decode the first QR
-code found. The result is printed to stdout and the process exits with code 0
-on success. Non‑zero exit codes indicate failure to read or decode the file.
+This script reads an image file or a PDF and outputs every QR code detected.
+The result is printed to stdout and the process exits with code 0 on success.
+Non‑zero exit codes indicate failure to read or decode the file.
 
 The detection relies primarily on OpenCV but applies additional image
 pre‑processing steps and falls back to ``pyzbar`` when available, improving
@@ -170,11 +170,11 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
     for scale in scales:
         resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
         for fn in STRATEGIES.values():
-            if attempts >= max_attempts or len(results) >= 2:
+            if attempts >= max_attempts:
                 return results
             proc = fn(resized.copy())
             for ang in ANGLES:
-                if attempts >= max_attempts or len(results) >= 2:
+                if attempts >= max_attempts:
                     return results
                 if ang != 0:
                     h2, w2 = proc.shape[:2]
@@ -188,8 +188,6 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                 for t in texts:
                     if t not in results:
                         results.append(t)
-                        if len(results) >= 2:
-                            return results
     return results
 
 def decode_file(path: str, dpi: int = 300) -> List[str]:
