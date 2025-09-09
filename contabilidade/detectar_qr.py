@@ -14,9 +14,10 @@ import os
 from typing import Callable, Dict, List
 
 try:
-    from pdf2image import convert_from_path
+    from pdf2image import convert_from_path, pdfinfo_from_path
 except Exception:  # pragma: no cover - library missing
     convert_from_path = None  # type: ignore
+    pdfinfo_from_path = None  # type: ignore
 
 import cv2  # type: ignore
 import numpy as np  # type: ignore
@@ -25,6 +26,9 @@ try:
     from pyzbar.pyzbar import decode as pyzbar_decode
 except Exception:  # pragma: no cover - optional dependency missing
     pyzbar_decode = None  # type: ignore
+
+
+DETECTOR = cv2.QRCodeDetector()
 
 
 def _prepare_base(image: np.ndarray) -> np.ndarray:
@@ -94,46 +98,46 @@ ANGLES = [0, 5]
 def _decode_cv(image: np.ndarray) -> List[str]:
     """Return decoded texts from a cv2 image array."""
 
-    detector = cv2.QRCodeDetector()
     texts: List[str] = []
 
     if image.ndim == 2:
         gray = image
     else:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    data, _, _ = detector.detectAndDecode(gray)
+
+    data, _, _ = DETECTOR.detectAndDecode(gray)
     if data:
         texts.append(data)
-
-    ok, decoded_info, _, _ = detector.detectAndDecodeMulti(gray)
+    ok, decoded_info, _, _ = DETECTOR.detectAndDecodeMulti(gray)
     if ok and decoded_info:
         texts.extend([t for t in decoded_info if t])
 
-    # try again with Otsu thresholding to enhance contrast
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    data, _, _ = detector.detectAndDecode(thresh)
-    if data:
-        texts.append(data)
-    ok, decoded_info, _, _ = detector.detectAndDecodeMulti(thresh)
-    if ok and decoded_info:
-        texts.extend([t for t in decoded_info if t])
+    if not texts:
+        # try again with Otsu thresholding to enhance contrast
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        data, _, _ = DETECTOR.detectAndDecode(thresh)
+        if data:
+            texts.append(data)
+        ok, decoded_info, _, _ = DETECTOR.detectAndDecodeMulti(thresh)
+        if ok and decoded_info:
+            texts.extend([t for t in decoded_info if t])
 
-    # final fallback: use pyzbar if available
-    if pyzbar_decode is not None:
-        for candidate in (thresh, gray, image):
-            try:
-                decoded = pyzbar_decode(candidate)
-            except Exception:
-                continue
-            for item in decoded:
-                data_bytes = getattr(item, "data", b"")
-                if data_bytes:
-                    try:
-                        texts.append(data_bytes.decode("utf-8"))
-                    except Exception:
-                        texts.append(data_bytes.decode("latin-1"))
-            if decoded:
-                break
+        # final fallback: use pyzbar if available
+        if not texts and pyzbar_decode is not None:
+            for candidate in (thresh, gray, image):
+                try:
+                    decoded = pyzbar_decode(candidate)
+                except Exception:
+                    continue
+                for item in decoded:
+                    data_bytes = getattr(item, "data", b"")
+                    if data_bytes:
+                        try:
+                            texts.append(data_bytes.decode("utf-8"))
+                        except Exception:
+                            texts.append(data_bytes.decode("latin-1"))
+                if decoded:
+                    break
 
     # remove duplicates preserving order
     seen = set()
@@ -162,11 +166,11 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
     for scale in scales:
         resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
         for fn in STRATEGIES.values():
-            if attempts >= max_attempts:
+            if attempts >= max_attempts or len(results) >= 2:
                 return results
             proc = fn(resized.copy())
             for ang in ANGLES:
-                if attempts >= max_attempts:
+                if attempts >= max_attempts or len(results) >= 2:
                     return results
                 if ang != 0:
                     h2, w2 = proc.shape[:2]
@@ -180,6 +184,8 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                 for t in texts:
                     if t not in results:
                         results.append(t)
+                        if len(results) >= 2:
+                            return results
     return results
 
 def decode_file(path: str) -> List[str]:
@@ -200,20 +206,22 @@ def decode_file(path: str) -> List[str]:
         if poppler_dir:
             kwargs["poppler_path"] = poppler_dir
 
-        pages = convert_from_path(path, **kwargs)
+        info = pdfinfo_from_path(path, **kwargs) if pdfinfo_from_path else {"Pages": 1}
+        total_pages = int(info.get("Pages", 1))
+
+        pages = convert_from_path(path, first_page=1, last_page=1, **kwargs)
         if not pages:
             return []
 
-        # decode first page and decide whether to scan further
         first_img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
         texts = _decode_with_strategies(first_img)
 
-        if len(texts) == 1:
-            # only one QR on first page -> skip remaining pages
+        if len(texts) == 1 or total_pages == 1:
             return texts
 
         seen = set(texts)
-        for page in pages[1:]:
+        for page_num in range(2, total_pages + 1):
+            page = convert_from_path(path, first_page=page_num, last_page=page_num, **kwargs)[0]
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
             for t in _decode_with_strategies(img):
                 if t not in seen:
