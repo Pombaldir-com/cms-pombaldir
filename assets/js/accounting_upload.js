@@ -13,7 +13,7 @@ window.addEventListener('load', function() {
             orderCellsTop: true,
             language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
             columnDefs: [
-                { targets: [ 2, 4, 7, 8, 13, 14], visible: false },
+                { targets: [ 2, 4, 7, 8, 17, 18], visible: false },
                 { targets: [0, 1], className: 'text-start' },
                 { targets: [ -1 ], orderable: false, searchable: false }
             ]
@@ -47,7 +47,7 @@ window.addEventListener('load', function() {
             file.serverFile = data.file;
         }
         if (data.qr_texts && data.qr_texts.length) {
-            var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
+            var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
             data.qr_texts.forEach(function(qrText) {
                 var qrData = extractQR(qrText);
                 var row = keys.map(function(key) {
@@ -172,7 +172,7 @@ window.addEventListener('load', function() {
                 alert('Não há dados para importar');
                 return;
             }
-            var keys = ['A','B','C','D','E','F','G','H','I1','I7','I8','N','O','Q','R'];
+            var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
             var payload = nodes.map(function(node) {
                 var data = table.row(node).data() || [];
                 var obj = {};

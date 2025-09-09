@@ -4,7 +4,7 @@ window.addEventListener('load', function() {
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [
-            { targets: [ 2, 4, 7, 8, 13, 14 ], visible: false },
+            { targets: [ 2, 4, 7, 8, 17, 18 ], visible: false },
             { targets: [0, 1], className: 'text-start' },
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
