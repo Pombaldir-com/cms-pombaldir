@@ -94,6 +94,7 @@ window.addEventListener('load', function() {
                 updateButtonClass(currentBtn);
                 classifyModal.hide();
             } else {
+                console.log(res);
                 alert(res.error || 'Erro ao guardar');
             }
         });

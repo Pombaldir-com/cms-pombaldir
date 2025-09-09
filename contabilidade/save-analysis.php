@@ -180,8 +180,13 @@ if ($action === 'get') {
     $id = $_POST['id'] ?? '';
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
-    $d = $_POST['D'] ?? '';
-    $account = $_POST['account'] ?? '';
+    $d = $_POST['D'] ?? '';    
+    $iva6 = $_POST['iva6'] ?? '';
+    $iva13 = $_POST['iva13'] ?? '';
+    $iva23 = $_POST['iva23'] ?? '';
+    $novat = $_POST['novat'] ?? '';
+    $actarr=serialize(array("iva6"=>$iva6,"iva13"=>$iva13,"iva23"=>$iva23,"novat"=>$novat));
+
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -192,9 +197,9 @@ if ($action === 'get') {
     try {
         $pdo->beginTransaction();
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
-        $stmt->execute([$account, $id]);
-        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
-        $stmt2->execute([$a, $b, $d, $account]);
+        $stmt->execute([$actarr, $id]);
+        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account_iva6, account_iva13, account_iva23, account_novat) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
+        $stmt2->execute([$a, $b, $d, $iva6, $iva13, $iva23, $novat]);
         $pdo->commit();
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
