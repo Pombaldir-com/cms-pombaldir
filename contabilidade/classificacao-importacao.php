@@ -77,6 +77,7 @@ require_once __DIR__ . '/../header.php';
                     <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
                     <?php
 
+
                         $amtIva6 = (float)($row['field_I1'] ?? 0) + (float)($row['field_I3'] ?? 0);
                         $amtIva13 = (float)($row['field_I4'] ?? 0) + (float)($row['field_I5'] ?? 0);
                         $amtIva23 = (float)($row['field_I6'] ?? 0) + (float)($row['field_I7'] ?? 0);

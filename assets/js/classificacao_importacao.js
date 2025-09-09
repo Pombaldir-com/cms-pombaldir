@@ -14,6 +14,7 @@ window.addEventListener('load', function() {
     function updateButtonClass(btn) {
 
 
+
         var iva6 = parseInt(btn.getAttribute('data-iva6')) || 0;
         var iva13 = parseInt(btn.getAttribute('data-iva13')) || 0;
         var iva23 = parseInt(btn.getAttribute('data-iva23')) || 0;
@@ -32,6 +33,8 @@ window.addEventListener('load', function() {
         if (needIva13 && iva13 === '') { allFilled = false; }
         if (needIva23 && iva23 === '') { allFilled = false; }
         if (needNovat && novat === '') { allFilled = false; }
+
+      
         if (!requires) { allFilled = false; }
         btn.classList.toggle('btn-success', allFilled);
         btn.classList.toggle('btn-warning', !allFilled);
