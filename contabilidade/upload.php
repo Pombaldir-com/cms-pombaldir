@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($row);
 
         // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H
-        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? LIMIT 1');
         foreach ($rows as $row) {
             $fieldH = $row['H'] ?? '';
@@ -74,6 +74,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['G'] ?? '',
                 $fieldH,
                 $row['I1'] ?? '',
+                $row['I3'] ?? '',
+                $row['I4'] ?? '',
+                $row['I5'] ?? '',
+                $row['I6'] ?? '',
                 $row['I7'] ?? '',
                 $row['I8'] ?? '',
                 $row['N'] ?? '',
@@ -155,7 +159,11 @@ $csrfToken = generateCsrfToken();
                 <th width="12%">Doc</th>
                 <th></th>
                 <th>País</th>
-                <th width="8%">Total s/IVA</th>
+                <th width="8%">Base 6%</th>
+                <th width="8%">IVA 6%</th>
+                <th width="8%">Base 13%</th>
+                <th width="8%">IVA 13%</th>
+                <th width="8%">Base 23%</th>
                 <th width="8%">IVA 23%</th>
                 <th width="8%">Total IVA</th>
                 <th width="8%">Total</th>

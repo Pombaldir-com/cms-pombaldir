@@ -28,7 +28,11 @@ require_once __DIR__ . '/../header.php';
                     <th width="12%">Doc</th>
                     <th></th>
                     <th>País</th>
-                    <th width="8%">Total s/IVA</th>
+                    <th width="8%">Base 6%</th>
+                    <th width="8%">IVA 6%</th>
+                    <th width="8%">Base 13%</th>
+                    <th width="8%">IVA 13%</th>
+                    <th width="8%">Base 23%</th>
                     <th width="8%">IVA 23%</th>
                     <th width="8%">Total IVA</th>
                     <th width="8%">Total</th>
@@ -50,6 +54,10 @@ require_once __DIR__ . '/../header.php';
                     <td><?= htmlspecialchars($row['field_G']); ?></td>
                     <td><?= htmlspecialchars($row['field_H']); ?></td>
                     <td><?= htmlspecialchars($row['field_I1']); ?></td>
+                    <td><?= htmlspecialchars($row['field_I3']); ?></td>
+                    <td><?= htmlspecialchars($row['field_I4']); ?></td>
+                    <td><?= htmlspecialchars($row['field_I5']); ?></td>
+                    <td><?= htmlspecialchars($row['field_I6']); ?></td>
                     <td><?= htmlspecialchars($row['field_I7']); ?></td>
                     <td><?= htmlspecialchars($row['field_I8']); ?></td>
                     <td><?= htmlspecialchars($row['field_N']); ?></td>
