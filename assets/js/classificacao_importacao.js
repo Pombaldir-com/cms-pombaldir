@@ -33,9 +33,31 @@ window.addEventListener('load', function() {
             }
         }
 
-        var isComplete = requires && allFilled;
-        btn.classList.toggle('btn-success', isComplete);
-        btn.classList.toggle('btn-warning', !isComplete);
+
+        var iva6 = btn.getAttribute('data-iva6') || '';
+        var iva13 = btn.getAttribute('data-iva13') || '';
+        var iva23 = btn.getAttribute('data-iva23') || '';
+        var novat = btn.getAttribute('data-novat') || '';
+        var amtIva6 = parseFloat(btn.getAttribute('data-amt-iva6')) || 0;
+        var amtIva13 = parseFloat(btn.getAttribute('data-amt-iva13')) || 0;
+        var amtIva23 = parseFloat(btn.getAttribute('data-amt-iva23')) || 0;
+
+      
+        var needNovat = btn.getAttribute('data-req-novat') === '1';
+
+        var requires = needIva6 || needIva13 || needIva23 || needNovat;
+        var allFilled = true;
+        if (needIva6 && !iva6) { allFilled = false; }
+        if (needIva13 && !iva13) { allFilled = false; }
+        if (needIva23 && !iva23) { allFilled = false; }
+        if (needNovat && !novat) { allFilled = false; }
+
+
+        if (!requires) { allFilled = false; }
+
+        btn.classList.toggle('btn-success', allFilled);
+        btn.classList.toggle('btn-warning', !allFilled);
+
     }
 
     function refreshButtonClasses() {
