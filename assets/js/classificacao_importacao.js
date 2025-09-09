@@ -12,7 +12,26 @@ window.addEventListener('load', function() {
     });
 
     function updateButtonClass(btn) {
+        var rates = [6, 13, 23];
+        var requires = false;
+        var allFilled = true;
 
+        rates.forEach(function(rate) {
+            var amount = parseFloat(btn.getAttribute('data-amt-iva' + rate)) || 0;
+            if (amount > 0) {
+                requires = true;
+                if (!(btn.getAttribute('data-iva' + rate) || '')) {
+                    allFilled = false;
+                }
+            }
+        });
+
+        if (btn.getAttribute('data-req-novat') === '1') {
+            requires = true;
+            if (!(btn.getAttribute('data-novat') || '')) {
+                allFilled = false;
+            }
+        }
 
 
         var iva6 = btn.getAttribute('data-iva6') || '';
@@ -38,6 +57,7 @@ window.addEventListener('load', function() {
 
         btn.classList.toggle('btn-success', allFilled);
         btn.classList.toggle('btn-warning', !allFilled);
+
     }
 
     function refreshButtonClasses() {
