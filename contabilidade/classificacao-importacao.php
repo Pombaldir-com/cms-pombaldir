@@ -78,18 +78,18 @@ require_once __DIR__ . '/../header.php';
                     <?php
 
 
-                        $amtIva6 = (float)($row['field_I1'] ?? 0) + (float)($row['field_I3'] ?? 0);
-                        $amtIva13 = (float)($row['field_I4'] ?? 0) + (float)($row['field_I5'] ?? 0);
-                        $amtIva23 = (float)($row['field_I6'] ?? 0) + (float)($row['field_I7'] ?? 0);
+                        $amtIva6 = abs((float)($row['field_I1'] ?? 0)) + abs((float)($row['field_I3'] ?? 0));
+                        $amtIva13 = abs((float)($row['field_I4'] ?? 0)) + abs((float)($row['field_I5'] ?? 0));
+                        $amtIva23 = abs((float)($row['field_I6'] ?? 0)) + abs((float)($row['field_I7'] ?? 0));
                         $hasIva6 = $amtIva6 > 0;
                         $hasIva13 = $amtIva13 > 0;
                         $hasIva23 = $amtIva23 > 0;
                         $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23;
 
                         $allAccounts = (
-                            ($amtIva6 <= 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
-                            ($amtIva13 <= 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
-                            ($amtIva23 <= 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
+                            ($amtIva6 == 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
+                            ($amtIva13 == 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
+                            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
                             (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
                         );
                         $requires = $hasIva6 || $hasIva13 || $hasIva23 || $needsNovat;
