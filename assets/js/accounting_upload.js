@@ -58,8 +58,8 @@ window.addEventListener('load', function() {
                     }
                     return value;
                 });
-                var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +
-                    '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a>';
+                var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '"><i class="fa fa-trash"></i></button> ' +
+                    '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
                 row.push(actions);
                 table.row.add(row).draw(false);
             });

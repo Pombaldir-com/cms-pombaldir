@@ -164,12 +164,12 @@ $csrfToken = generateCsrfToken();
                 <th width="8%">Base 13%</th>
                 <th width="8%">IVA 13%</th>
                 <th width="8%">Base 23%</th>
-                <th width="8%">IVA 23%</th>
+                <th width="6%">IVA 23%</th>
                 <th width="8%">Total IVA</th>
                 <th width="8%">Total</th>
                 <th></th>
                 <th></th>
-                <th data-orderable="false">Ações</th>
+                <th data-orderable="false" width="8%" class="text-middle">Ações</th>
             </tr>
         </thead>
         <tbody></tbody>
