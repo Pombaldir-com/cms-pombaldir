@@ -8,6 +8,7 @@ $useDataTables = true;
 $useDropzone = false;
 
 $pdo = getPDO();
+dropLegacyAccountColumns($pdo);
 $stmt = $pdo->query('SELECT * FROM accounting_imports');
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
