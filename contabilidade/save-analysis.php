@@ -13,12 +13,19 @@ error_reporting(E_ALL);
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 if ($action === 'lines') {
-    if (!isLoggedIn()) {
+    if (!isLoggedIn() || getCompanySlug() === null) {
         http_response_code(403);
         exit;
     }
     $id = $_GET['id'] ?? '';
-    $pdo = getPDO();
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
     $stmt = $pdo->prepare('SELECT id, filename FROM accounting_imports WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -132,7 +139,7 @@ if ($action === 'lines') {
 
 header('Content-Type: application/json');
 
-if (!isLoggedIn()) {
+if (!isLoggedIn() || getCompanySlug() === null) {
     http_response_code(403);
     echo json_encode(['error' => 'Sessão inválida']);
     exit;
@@ -148,7 +155,13 @@ if ($action === 'get') {
     $a = $_GET['A'] ?? '';
     $b = $_GET['B'] ?? '';
     $d = $_GET['D'] ?? '';
-    $pdo = getPDO();
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
     $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
     $stmt->execute([$a, $b, $d]);
     $account = $stmt->fetchColumn() ?: '';
@@ -166,7 +179,13 @@ if ($action === 'get') {
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
     $account = $_POST['account'] ?? '';
-    $pdo = getPDO();
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
     try {
         $pdo->beginTransaction();
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
@@ -189,7 +208,13 @@ if ($action === 'get') {
         exit;
     }
     $id = $_POST['id'] ?? '';
-    $pdo = getPDO();
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
     try {
         $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE id = ?');
         $stmt->execute([$id]);
