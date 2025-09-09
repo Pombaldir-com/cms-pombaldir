@@ -2,7 +2,13 @@
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 use setasign\FPDF\FPDF;
-//ini_set('max_execution_time', 120); set_time_limit(120);
+
+// Allow more time and resources for large file uploads
+ini_set('max_execution_time', 300);
+ini_set('max_input_time', 300);
+ini_set('upload_max_filesize', '20M');
+ini_set('post_max_size', '20M');
+set_time_limit(300);
 startSession();
 header('Content-Type: application/json');
 
@@ -14,10 +20,17 @@ if (!isLoggedIn()) {
 
 $newToken = generateCsrfToken();
 
-if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+    $errorMessage = 'Ficheiro não enviado';
+    if (isset($_FILES['file']['error']) && (
+        $_FILES['file']['error'] === UPLOAD_ERR_INI_SIZE ||
+        $_FILES['file']['error'] === UPLOAD_ERR_FORM_SIZE
+    )) {
+        $errorMessage = 'Ficheiro excede o tamanho máximo permitido';
+    }
     http_response_code(400);
     echo json_encode([
-        'error' => 'Ficheiro não enviado',
+        'error' => $errorMessage,
         'csrf_token' => $newToken,
     ]);
     exit;
