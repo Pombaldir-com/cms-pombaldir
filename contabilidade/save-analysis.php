@@ -26,36 +26,41 @@ if ($action === 'lines') {
         http_response_code(404);
         exit;
     }
+    $path = dirname(__DIR__) . '/' . $row['filename'];
+    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    $text = '';
+    try {
+        if ($extension === 'pdf') {
+            if (!class_exists('Imagick')) {
+                throw new RuntimeException('Extensão Imagick não disponível');
+            }
+            $imagick = new Imagick();
+            $imagick->setResolution(300, 300);
+            $imagick->readImage($path);
+            $imagick->setImageFormat('png');
+            $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
+            $imagick->writeImages($tmpBase . '.png', false);
+            $imagick->clear();
+            $imagick->destroy();
+            foreach (glob($tmpBase . '-*.png') as $imgFile) {
+                $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
+                $text .= $ocr->run() . PHP_EOL;
+                unlink($imgFile);
+            }
+        } else {
+            $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
+            $text = $ocr->run();
+        }
+    } catch (Throwable $e) {
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+        exit;
+    }
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
     $output = fopen('php://output', 'w');
     fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
-    $path = dirname(__DIR__) . '/' . $row['filename'];
-    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-    $text = '';
-    if ($extension === 'pdf') {
-        if (!class_exists('Imagick')) {
-            http_response_code(500);
-            fclose($output);
-            exit;
-        }
-        $imagick = new Imagick();
-        $imagick->setResolution(300, 300);
-        $imagick->readImage($path);
-        $imagick->setImageFormat('png');
-        $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
-        $imagick->writeImages($tmpBase . '.png', false);
-        $imagick->clear();
-        $imagick->destroy();
-        foreach (glob($tmpBase . '-*.png') as $imgFile) {
-            $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
-            $text .= $ocr->run() . PHP_EOL;
-            unlink($imgFile);
-        }
-    } else {
-        $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
-        $text = $ocr->run();
-    }
     $lines = explode(PHP_EOL, $text);
     $inTable = false;
     $normalize = static function (string $str): string {
