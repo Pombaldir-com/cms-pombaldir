@@ -8,9 +8,13 @@ on success. Non‑zero exit codes indicate failure to read or decode the file.
 The detection relies primarily on OpenCV but applies additional image
 pre‑processing steps and falls back to ``pyzbar`` when available, improving
 the chances of decoding less than ideal scans.
+
+When converting from PDF, the resolution can be controlled with the ``--dpi``
+command‑line option (default: 300).
 """
 import sys
 import os
+import argparse
 from typing import Callable, Dict, List
 
 try:
@@ -188,7 +192,7 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                             return results
     return results
 
-def decode_file(path: str) -> List[str]:
+def decode_file(path: str, dpi: int = 300) -> List[str]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         if convert_from_path is None:
@@ -202,11 +206,16 @@ def decode_file(path: str) -> List[str]:
                 poppler_dir = candidate
                 break
 
-        kwargs = {"dpi": 200}
+        kwargs = {"dpi": dpi}
         if poppler_dir:
             kwargs["poppler_path"] = poppler_dir
 
-        info = pdfinfo_from_path(path, **kwargs) if pdfinfo_from_path else {"Pages": 1}
+        info: Dict[str, int] = {"Pages": 1}
+        if pdfinfo_from_path is not None:
+            try:
+                info = pdfinfo_from_path(path, **kwargs)
+            except TypeError:
+                info = pdfinfo_from_path(path)  # type: ignore[arg-type]
         total_pages = int(info.get("Pages", 1))
 
         pages = convert_from_path(path, first_page=1, last_page=1, **kwargs)
@@ -235,15 +244,22 @@ def decode_file(path: str) -> List[str]:
         return _decode_with_strategies(img)
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: detectar_qr.py <file>", file=sys.stderr)
-        return 1
-    file_path = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Decode QR codes from images or PDFs")
+    parser.add_argument("file", help="path to image or PDF")
+    parser.add_argument(
+        "--dpi",
+        type=int,
+        default=300,
+        help="resolution to use when converting PDFs (default: 300)",
+    )
+    args = parser.parse_args()
+
+    file_path = args.file
     if not os.path.exists(file_path):
         print("file not found", file=sys.stderr)
         return 2
     try:
-        texts = decode_file(file_path)
+        texts = decode_file(file_path, dpi=args.dpi)
     except Exception as exc:  # pragma: no cover
         print(str(exc), file=sys.stderr)
         return 3
