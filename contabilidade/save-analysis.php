@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/../functions.php';
-require_once __DIR__ . '/../vendor/autoload.php';
+// Load Composer's autoloader if available. This prevents fatal errors in
+// environments where the dependencies have not been installed yet.
+$autoload = __DIR__ . '/../vendor/autoload.php';
+if (file_exists($autoload)) {
+    require_once $autoload;
+}
 require_once __DIR__ . '/functions.php';
 
 startSession();
@@ -162,11 +167,17 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+    $stmt = $pdo->prepare(
+        'SELECT account_iva6, account_iva13, account_iva23, account_novat '
+        . 'FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+    );
     $stmt->execute([$a, $b, $d]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     echo json_encode([
-        'account' => $row['account'] ?? '',
+        'iva6' => $row['account_iva6'] ?? '',
+        'iva13' => $row['account_iva13'] ?? '',
+        'iva23' => $row['account_iva23'] ?? '',
+        'novat' => $row['account_novat'] ?? '',
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -180,13 +191,11 @@ if ($action === 'get') {
     $id = $_POST['id'] ?? '';
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
-    $d = $_POST['D'] ?? '';    
+    $d = $_POST['D'] ?? '';
     $iva6 = $_POST['iva6'] ?? '';
     $iva13 = $_POST['iva13'] ?? '';
     $iva23 = $_POST['iva23'] ?? '';
     $novat = $_POST['novat'] ?? '';
-    $actarr=serialize(array("iva6"=>$iva6,"iva13"=>$iva13,"iva23"=>$iva23,"novat"=>$novat));
-
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -196,10 +205,26 @@ if ($action === 'get') {
     }
     try {
         $pdo->beginTransaction();
+        $serialized = json_encode([
+            'iva6' => $iva6,
+            'iva13' => $iva13,
+            'iva23' => $iva23,
+            'novat' => $novat,
+        ]);
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
-        $stmt->execute([$actarr, $id]);
-        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account_iva6, account_iva13, account_iva23, account_novat) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
-        $stmt2->execute([$a, $b, $d, $iva6, $iva13, $iva23, $novat]);
+        $stmt->execute([$serialized, $id]);
+        $stmt2 = $pdo->prepare(
+            'INSERT INTO accounting_classifications '
+            . '(emitter, acquirer, doc_type, account, account_iva6, account_iva13, account_iva23, account_novat) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE '
+            . 'account = VALUES(account), '
+            . 'account_iva6 = VALUES(account_iva6), '
+            . 'account_iva13 = VALUES(account_iva13), '
+            . 'account_iva23 = VALUES(account_iva23), '
+            . 'account_novat = VALUES(account_novat)'
+        );
+        $stmt2->execute([$a, $b, $d, $novat, $iva6, $iva13, $iva23, $novat]);
         $pdo->commit();
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
@@ -207,7 +232,13 @@ if ($action === 'get') {
             $pdo->rollBack();
         }
         http_response_code(500);
-        echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
+        // Log the underlying exception for debugging and expose the message in
+        // the JSON response so the caller can act accordingly.
+        error_log('save-analysis error: ' . $e->getMessage());
+        echo json_encode([
+            'error' => 'Erro ao guardar: ' . $e->getMessage(),
+            'csrf_token' => generateCsrfToken()
+        ]);
     }
     exit;
 } elseif ($action === 'remove') {
