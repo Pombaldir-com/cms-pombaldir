@@ -211,8 +211,12 @@ if ($action === 'get') {
             'iva23' => $iva23,
             'novat' => $novat,
         ]);
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
-        $stmt->execute([$serialized, $id]);
+        $stmt = $pdo->prepare(
+            'UPDATE accounting_imports '
+            . 'SET account = ?, account_iva6 = ?, account_iva13 = ?, account_iva23 = ?, account_novat = ? '
+            . 'WHERE id = ?'
+        );
+        $stmt->execute([$serialized, $iva6, $iva13, $iva23, $novat, $id]);
         $stmt2 = $pdo->prepare(
             'INSERT INTO accounting_classifications '
             . '(emitter, acquirer, doc_type, account, account_iva6, account_iva13, account_iva23, account_novat) '
