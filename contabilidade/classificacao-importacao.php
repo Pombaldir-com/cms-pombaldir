@@ -65,9 +65,17 @@ require_once __DIR__ . '/../header.php';
                     <td><?= htmlspecialchars($row['field_Q'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_R'] ?? ''); ?></td>
                     <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
-                    <?php $btnClass = $row['account'] ? 'btn-success' : 'btn-warning'; ?>
+                    <?php
+                        $allAccounts = (
+                            (int)($row['account_iva6'] ?? 0) > 0 &&
+                            (int)($row['account_iva13'] ?? 0) > 0 &&
+                            (int)($row['account_iva23'] ?? 0) > 0 &&
+                            (int)($row['account_novat'] ?? 0) > 0
+                        );
+                        $btnClass = $allAccounts ? 'btn-success' : 'btn-warning';
+                    ?>
                     <td class="text-center">
-                        <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-account="<?= htmlspecialchars($row['account'] ?? ''); ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
+                        <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-iva6="<?= htmlspecialchars($row['account_iva6'] ?? ''); ?>" data-iva13="<?= htmlspecialchars($row['account_iva13'] ?? ''); ?>" data-iva23="<?= htmlspecialchars($row['account_iva23'] ?? ''); ?>" data-novat="<?= htmlspecialchars($row['account_novat'] ?? ''); ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
@@ -76,6 +84,40 @@ require_once __DIR__ . '/../header.php';
             </tbody>
         </table>
         <input type="hidden" id="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+    </div>
+</div>
+<div class="modal fade" id="classifyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Classificar</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form id="classify-form">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">IVA 6%</label>
+                        <input type="number" class="form-control" name="iva6">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">IVA 13%</label>
+                        <input type="number" class="form-control" name="iva13">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">IVA 23%</label>
+                        <input type="number" class="form-control" name="iva23">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Valor S IVA</label>
+                        <input type="number" class="form-control" name="novat">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 <script src="assets/js/classificacao_importacao.js"></script>

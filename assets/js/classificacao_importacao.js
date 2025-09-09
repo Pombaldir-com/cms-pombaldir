@@ -12,25 +12,29 @@ window.addEventListener('load', function() {
     });
 
     function updateButtonClass(btn) {
-        if (btn.getAttribute('data-account')) {
-            btn.classList.remove('btn-warning');
-            btn.classList.add('btn-success');
-        } else {
-            btn.classList.remove('btn-success');
-            btn.classList.add('btn-warning');
-        }
+        var iva6 = parseInt(btn.getAttribute('data-iva6')) || 0;
+        var iva13 = parseInt(btn.getAttribute('data-iva13')) || 0;
+        var iva23 = parseInt(btn.getAttribute('data-iva23')) || 0;
+        var novat = parseInt(btn.getAttribute('data-novat')) || 0;
+        var allFilled = iva6 > 0 && iva13 > 0 && iva23 > 0 && novat > 0;
+        btn.classList.toggle('btn-success', allFilled);
+        btn.classList.toggle('btn-warning', !allFilled);
     }
 
     $('#classify-table').find('.classify-row').each(function() {
         updateButtonClass(this);
     });
 
+    var classifyModal = new bootstrap.Modal(document.getElementById('classifyModal'));
+    var form = document.getElementById('classify-form');
+    var currentBtn = null;
+
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
+        currentBtn = btn;
         var emitter = btn.getAttribute('data-emitter');
         var acquirer = btn.getAttribute('data-acquirer');
         var docType = btn.getAttribute('data-doctype');
-        var current = btn.getAttribute('data-account') || '';
         var params = new URLSearchParams({
             action: 'get',
             A: emitter,
@@ -44,37 +48,54 @@ window.addEventListener('load', function() {
                 if (res.csrf_token) {
                     csrfInput.value = res.csrf_token;
                 }
-                if (!current) {
-                    current = res.account || '';
-                }
-                var account = prompt('N\u00ba conta:', current);
-                if (account !== null) {
-                    var body = new URLSearchParams({
-                        id: btn.getAttribute('data-id'),
-                        A: emitter,
-                        B: acquirer,
-                        D: docType,
-                        account: account,
-                        csrf_token: csrfInput.value
-                    });
-                    fetch('contabilidade/save-analysis.php?action=save', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: body.toString()
-                    })
-                    .then(function(res) { return res.json(); })
-                    .then(function(res) {
-                        if (res.csrf_token) {
-                            csrfInput.value = res.csrf_token;
-                        }
-                        if (res.success) {
-                            btn.setAttribute('data-account', account);
-                            updateButtonClass(btn);
-                        } else {
-                            alert(res.error || 'Erro ao guardar');
-                        }
-                    });
-                }
+                form.iva6.value = btn.getAttribute('data-iva6') || res.iva6 || '';
+                form.iva13.value = btn.getAttribute('data-iva13') || res.iva13 || '';
+                form.iva23.value = btn.getAttribute('data-iva23') || res.iva23 || '';
+                form.novat.value = btn.getAttribute('data-novat') || res.novat || '';
+                classifyModal.show();
+            });
+    });
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (!currentBtn) {
+            return;
+        }
+        var iva6 = form.iva6.value.trim();
+        var iva13 = form.iva13.value.trim();
+        var iva23 = form.iva23.value.trim();
+        var novat = form.novat.value.trim();
+        var body = new URLSearchParams({
+            id: currentBtn.getAttribute('data-id'),
+            A: currentBtn.getAttribute('data-emitter'),
+            B: currentBtn.getAttribute('data-acquirer'),
+            D: currentBtn.getAttribute('data-doctype'),
+            iva6: iva6,
+            iva13: iva13,
+            iva23: iva23,
+            novat: novat,
+            csrf_token: csrfInput.value
+        });
+        fetch('contabilidade/save-analysis.php?action=save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (res.csrf_token) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success) {
+                currentBtn.setAttribute('data-iva6', iva6);
+                currentBtn.setAttribute('data-iva13', iva13);
+                currentBtn.setAttribute('data-iva23', iva23);
+                currentBtn.setAttribute('data-novat', novat);
+                updateButtonClass(currentBtn);
+                classifyModal.hide();
+            } else {
+                alert(res.error || 'Erro ao guardar');
+            }
         });
     });
 
