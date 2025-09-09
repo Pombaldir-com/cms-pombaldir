@@ -194,10 +194,6 @@ if ($action === 'get') {
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
-    $iva6 = $_POST['iva6'] ?? '';
-    $iva13 = $_POST['iva13'] ?? '';
-    $iva23 = $_POST['iva23'] ?? '';
-    $novat = $_POST['novat'] ?? '';
     try {
         $pdo = getPDO();
         dropLegacyAccountColumns($pdo);
@@ -222,12 +218,11 @@ if ($action === 'get') {
         $existingRow = json_decode($stmtRow->fetchColumn() ?: '', true) ?: [];
 
         // Merge existing accounts, giving priority to row-specific values and
-        // any non-empty values submitted in this request.
+        // any values explicitly submitted in this request (even empty ones).
         $accounts = array_merge($existingClass, $existingRow);
         foreach (['iva6', 'iva13', 'iva23', 'novat'] as $key) {
-            $val = ${$key};
-            if ($val !== '') {
-                $accounts[$key] = $val;
+            if (array_key_exists($key, $_POST)) {
+                $accounts[$key] = $_POST[$key];
             }
         }
 
