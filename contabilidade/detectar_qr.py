@@ -225,12 +225,14 @@ def decode_file(path: str, dpi: int = 300) -> List[str]:
         first_img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
         texts = _decode_with_strategies(first_img)
 
-        if len(texts) == 1 or total_pages == 1:
+        if total_pages == 1:
             return texts
 
         seen = set(texts)
         for page_num in range(2, total_pages + 1):
-            page = convert_from_path(path, first_page=page_num, last_page=page_num, **kwargs)[0]
+            page = convert_from_path(
+                path, first_page=page_num, last_page=page_num, **kwargs
+            )[0]
             img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
             for t in _decode_with_strategies(img):
                 if t not in seen:
