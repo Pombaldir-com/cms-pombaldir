@@ -162,14 +162,11 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    $stmt = $pdo->prepare('SELECT account_iva6, account_iva13, account_iva23, account_novat FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
     $stmt->execute([$a, $b, $d]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     echo json_encode([
-        'iva6' => $row['account_iva6'] ?? '',
-        'iva13' => $row['account_iva13'] ?? '',
-        'iva23' => $row['account_iva23'] ?? '',
-        'novat' => $row['account_novat'] ?? '',
+        'account' => $row['account'] ?? '',
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -184,10 +181,7 @@ if ($action === 'get') {
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
-    $iva6 = $_POST['iva6'] ?? '';
-    $iva13 = $_POST['iva13'] ?? '';
-    $iva23 = $_POST['iva23'] ?? '';
-    $novat = $_POST['novat'] ?? '';
+    $account = $_POST['account'] ?? '';
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -197,10 +191,10 @@ if ($action === 'get') {
     }
     try {
         $pdo->beginTransaction();
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, account_iva6 = ?, account_iva13 = ?, account_iva23 = ?, account_novat = ? WHERE id = ?');
-        $stmt->execute([$novat, $iva6, $iva13, $iva23, $novat, $id]);
-        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account, account_iva6, account_iva13, account_iva23, account_novat) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account), account_iva6 = VALUES(account_iva6), account_iva13 = VALUES(account_iva13), account_iva23 = VALUES(account_iva23), account_novat = VALUES(account_novat)');
-        $stmt2->execute([$a, $b, $d, $novat, $iva6, $iva13, $iva23, $novat]);
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
+        $stmt->execute([$account, $id]);
+        $stmt2 = $pdo->prepare('INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE account = VALUES(account)');
+        $stmt2->execute([$a, $b, $d, $account]);
         $pdo->commit();
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
