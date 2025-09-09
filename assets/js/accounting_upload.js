@@ -15,6 +15,7 @@ window.addEventListener('load', function() {
             columnDefs: [
                 { targets: [ 2, 4, 7, 8, 17, 18], visible: false },
                 { targets: [0, 1], className: 'text-start' },
+                { targets: [9, 10, 11, 12, 13, 14, 15, 16], orderable: false },
                 { targets: [ -1 ], orderable: false, searchable: false }
             ]
         });
