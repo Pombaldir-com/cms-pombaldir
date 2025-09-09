@@ -14,6 +14,7 @@ window.addEventListener('load', function() {
     function updateButtonClass(btn) {
 
 
+
         var iva6 = btn.getAttribute('data-iva6') || '';
         var iva13 = btn.getAttribute('data-iva13') || '';
         var iva23 = btn.getAttribute('data-iva23') || '';
@@ -22,10 +23,9 @@ window.addEventListener('load', function() {
         var amtIva13 = parseFloat(btn.getAttribute('data-amt-iva13')) || 0;
         var amtIva23 = parseFloat(btn.getAttribute('data-amt-iva23')) || 0;
 
-        var needIva6 = amtIva6 > 0;
-        var needIva13 = amtIva13 > 0;
-        var needIva23 = amtIva23 > 0;
+      
         var needNovat = btn.getAttribute('data-req-novat') === '1';
+
         var requires = needIva6 || needIva13 || needIva23 || needNovat;
         var allFilled = true;
         if (needIva6 && !iva6) { allFilled = false; }
@@ -35,6 +35,7 @@ window.addEventListener('load', function() {
 
 
         if (!requires) { allFilled = false; }
+
         btn.classList.toggle('btn-success', allFilled);
         btn.classList.toggle('btn-warning', !allFilled);
     }
