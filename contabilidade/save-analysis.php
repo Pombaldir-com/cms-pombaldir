@@ -204,7 +204,9 @@ if ($action === 'get') {
         $pdo->commit();
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
-        $pdo->rollBack();
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         http_response_code(500);
         echo json_encode(['error' => 'Erro ao guardar', 'csrf_token' => generateCsrfToken()]);
     }
