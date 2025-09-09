@@ -10,6 +10,14 @@ $useDropzone = false;
 $pdo = getPDO();
 $stmt = $pdo->query('SELECT * FROM accounting_imports');
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($rows as &$row) {
+    $accounts = json_decode($row['account'] ?? '', true) ?: [];
+    $row['account_iva6'] = $accounts['iva6'] ?? '';
+    $row['account_iva13'] = $accounts['iva13'] ?? '';
+    $row['account_iva23'] = $accounts['iva23'] ?? '';
+    $row['account_novat'] = $accounts['novat'] ?? '';
+}
+unset($row);
 $csrfToken = generateCsrfToken();
 
 require_once __DIR__ . '/../header.php';
