@@ -25,6 +25,7 @@ if ($action === 'lines') {
     $id = $_GET['id'] ?? '';
     try {
         $pdo = getPDO();
+        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         header('Content-Type: application/json');
@@ -162,22 +163,23 @@ if ($action === 'get') {
     $d = $_GET['D'] ?? '';
     try {
         $pdo = getPDO();
+        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
     $stmt = $pdo->prepare(
-        'SELECT account_iva6, account_iva13, account_iva23, account_novat '
-        . 'FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
     );
     $stmt->execute([$a, $b, $d]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $accounts = json_decode($row['account'] ?? '', true) ?: [];
     echo json_encode([
-        'iva6' => $row['account_iva6'] ?? '',
-        'iva13' => $row['account_iva13'] ?? '',
-        'iva23' => $row['account_iva23'] ?? '',
-        'novat' => $row['account_novat'] ?? '',
+        'iva6' => $accounts['iva6'] ?? '',
+        'iva13' => $accounts['iva13'] ?? '',
+        'iva23' => $accounts['iva23'] ?? '',
+        'novat' => $accounts['novat'] ?? '',
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -198,6 +200,7 @@ if ($action === 'get') {
     $novat = $_POST['novat'] ?? '';
     try {
         $pdo = getPDO();
+        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
@@ -212,23 +215,15 @@ if ($action === 'get') {
             'novat' => $novat,
         ]);
         $stmt = $pdo->prepare(
-            'UPDATE accounting_imports '
-            . 'SET account = ?, account_iva6 = ?, account_iva13 = ?, account_iva23 = ?, account_novat = ? '
-            . 'WHERE id = ?'
+            'UPDATE accounting_imports SET account = ? WHERE id = ?'
         );
-        $stmt->execute([$serialized, $iva6, $iva13, $iva23, $novat, $id]);
+        $stmt->execute([$serialized, $id]);
         $stmt2 = $pdo->prepare(
-            'INSERT INTO accounting_classifications '
-            . '(emitter, acquirer, doc_type, account, account_iva6, account_iva13, account_iva23, account_novat) '
-            . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
-            . 'ON DUPLICATE KEY UPDATE '
-            . 'account = VALUES(account), '
-            . 'account_iva6 = VALUES(account_iva6), '
-            . 'account_iva13 = VALUES(account_iva13), '
-            . 'account_iva23 = VALUES(account_iva23), '
-            . 'account_novat = VALUES(account_novat)'
+            'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
+            . 'VALUES (?, ?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE account = VALUES(account)'
         );
-        $stmt2->execute([$a, $b, $d, $novat, $iva6, $iva13, $iva23, $novat]);
+        $stmt2->execute([$a, $b, $d, $serialized]);
         $pdo->commit();
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
@@ -255,6 +250,7 @@ if ($action === 'get') {
     $id = $_POST['id'] ?? '';
     try {
         $pdo = getPDO();
+        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
