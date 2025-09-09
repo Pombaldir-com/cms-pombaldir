@@ -28,18 +28,18 @@ require_once __DIR__ . '/../header.php';
                     <th width="12%">Doc</th>
                     <th></th>
                     <th>País</th>
-                    <th width="8%">Base 6%</th>
-                    <th width="8%">IVA 6%</th>
-                    <th width="8%">Base 13%</th>
-                    <th width="8%">IVA 13%</th>
-                    <th width="8%">Base 23%</th>
-                    <th width="8%">IVA 23%</th>
-                    <th width="8%">Total IVA</th>
-                    <th width="8%">Total</th>
+                    <th width="6%">Base 6%</th>
+                    <th width="6%">IVA 6%</th>
+                    <th width="6%">Base 13%</th>
+                    <th width="6%">IVA 13%</th>
+                    <th width="6%">Base 23%</th>
+                    <th width="6%">IVA 23%</th>
+                    <th width="5%">Total IVA</th>
+                    <th width="5%">Total</th>
                     <th></th>
                     <th></th>
-                    <th data-orderable="false">Ações</th>
-                    <th data-orderable="false">Classificar</th>
+                    <th data-orderable="false" class="text-center">PDF</th>
+                    <th data-orderable="false" width="14%" class="text-center">Ação</th>
                 </tr>
             </thead>
             <tbody>
@@ -64,12 +64,12 @@ require_once __DIR__ . '/../header.php';
                     <td><?= htmlspecialchars($row['field_O'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_Q'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_R'] ?? ''); ?></td>
-                    <td><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary">Ver PDF</a></td>
+                    <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
                     <?php $btnClass = $row['account'] ? 'btn-success' : 'btn-warning'; ?>
-                    <td>
+                    <td class="text-center">
                         <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-account="<?= htmlspecialchars($row['account'] ?? ''); ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
-                        <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>">Remover</button>
+                        <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
                 </tr>
             <?php endforeach; ?>
