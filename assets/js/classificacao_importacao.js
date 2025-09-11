@@ -24,20 +24,18 @@ window.addEventListener('load', function() {
         var needIva6 = amtIva6 > 0;
         var needIva13 = amtIva13 > 0;
         var needIva23 = amtIva23 > 0;
-        var needNovat = btn.getAttribute('data-req-novat') === '1';
 
-        var requires = needIva6 || needIva13 || needIva23 || needNovat;
+        var requires = needIva6 || needIva13 || needIva23;
         var allFilled = true;
         if (needIva6 && !iva6) { allFilled = false; }
         if (needIva13 && !iva13) { allFilled = false; }
         if (needIva23 && !iva23) { allFilled = false; }
-        if (needNovat && !novat) { allFilled = false; }
-
-        if (!requires) { allFilled = false; }
 
         var hasAnyAccount = iva6 || iva13 || iva23 || novat;
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
-        if (requires && allFilled) {
+        if (!requires) {
+            btn.classList.add('btn-success');
+        } else if (allFilled) {
             btn.classList.add('btn-success');
         } else if (hasAnyAccount) {
             btn.classList.add('btn-warning');
