@@ -4,37 +4,48 @@ import argparse
 import boto3
 import json
 import os
+import re
 import sys
 import time
 import uuid
 
 
+# Regular expression to capture invoice line fields
+LINE_ITEM_RE = re.compile(
+    r"""
+    (?P<arm>\d+)\s+
+    (?P<codigo_artigo>[A-Z0-9-]+)\s+
+    (?P<descricao>.+?)\s+
+    (?P<quantidade>\d+(?:,\d+)?)\s+
+    (?P<unidade>\w+)\s+
+    (?P<preco_unitario>\d+(?:,\d+)?)\s+
+    (?P<percentagem_desconto>\d+(?:,\d+)?)\s+
+    (?P<desconto_valor>\d+(?:,\d+)?)\s+
+    (?P<valor_liquido>\d+(?:,\d+)?)\s+
+    (?P<imposto>\d+(?:,\d+)?)
+    """,
+    re.VERBOSE,
+)
+
+
 def parse_invoice_line_text(text: str) -> dict:
-    tokens = text.strip().split()
-    if len(tokens) < 10:
+    """Parse a single invoice line using regular expressions."""
+    match = LINE_ITEM_RE.search(text.strip())
+    if not match:
         raise ValueError("Unexpected OCR output: %s" % text)
-    imposto = tokens.pop()
-    valor_liquido = tokens.pop()
-    desconto_valor = tokens.pop()
-    percent_desc = tokens.pop()
-    preco_unitario = tokens.pop()
-    unidade = tokens.pop()
-    quantidade = tokens.pop()
-    arm = tokens.pop(0)
-    codigo = tokens.pop(0)
-    descricao = " ".join(tokens)
+    groups = match.groupdict()
     to_float = lambda v: float(v.replace(',', '.')) if v else 0.0
     return {
-        "arm": int(arm) if arm.isdigit() else arm,
-        "codigo_artigo": codigo,
-        "descricao": descricao,
-        "quantidade": to_float(quantidade),
-        "unidade": unidade,
-        "preco_unitario": to_float(preco_unitario),
-        "percentagem_desconto": to_float(percent_desc),
-        "desconto_valor": to_float(desconto_valor),
-        "valor_liquido": to_float(valor_liquido),
-        "imposto": to_float(imposto),
+        "arm": int(groups["arm"]) if groups["arm"].isdigit() else groups["arm"],
+        "codigo_artigo": groups["codigo_artigo"],
+        "descricao": groups["descricao"].strip(),
+        "quantidade": to_float(groups["quantidade"]),
+        "unidade": groups["unidade"],
+        "preco_unitario": to_float(groups["preco_unitario"]),
+        "percentagem_desconto": to_float(groups["percentagem_desconto"]),
+        "desconto_valor": to_float(groups["desconto_valor"]),
+        "valor_liquido": to_float(groups["valor_liquido"]),
+        "imposto": to_float(groups["imposto"]),
     }
 
 
