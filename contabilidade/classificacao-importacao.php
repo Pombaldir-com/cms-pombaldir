@@ -84,22 +84,22 @@ require_once __DIR__ . '/../header.php';
                         $hasIva6 = $amtIva6 > 0;
                         $hasIva13 = $amtIva13 > 0;
                         $hasIva23 = $amtIva23 > 0;
-                        $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23;
 
                         $allAccounts = (
                             ($amtIva6 == 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
                             ($amtIva13 == 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
-                            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
-                            (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
+                            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0)
                         );
-                        $requires = $hasIva6 || $hasIva13 || $hasIva23 || $needsNovat;
+                        $requires = $hasIva6 || $hasIva13 || $hasIva23;
                         $hasAnyAccount = (
                             (int)($row['account_iva6'] ?? 0) > 0 ||
                             (int)($row['account_iva13'] ?? 0) > 0 ||
                             (int)($row['account_iva23'] ?? 0) > 0 ||
                             (int)($row['account_novat'] ?? 0) > 0
                         );
-                        if ($requires && $allAccounts) {
+                        if (!$requires) {
+                            $btnClass = 'btn-success';
+                        } elseif ($allAccounts) {
                             $btnClass = 'btn-success';
                         } elseif ($hasAnyAccount) {
                             $btnClass = 'btn-warning';
@@ -108,7 +108,7 @@ require_once __DIR__ . '/../header.php';
                         }
                     ?>
                     <td class="text-center">
-                        <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-iva6="<?= htmlspecialchars($row['account_iva6'] ?? ''); ?>" data-iva13="<?= htmlspecialchars($row['account_iva13'] ?? ''); ?>" data-iva23="<?= htmlspecialchars($row['account_iva23'] ?? ''); ?>" data-novat="<?= htmlspecialchars($row['account_novat'] ?? ''); ?>" data-amt-iva6="<?= $amtIva6; ?>" data-amt-iva13="<?= $amtIva13; ?>" data-amt-iva23="<?= $amtIva23; ?>" data-req-novat="<?= $needsNovat ? 1 : 0; ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
+                        <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-iva6="<?= htmlspecialchars($row['account_iva6'] ?? ''); ?>" data-iva13="<?= htmlspecialchars($row['account_iva13'] ?? ''); ?>" data-iva23="<?= htmlspecialchars($row['account_iva23'] ?? ''); ?>" data-novat="<?= htmlspecialchars($row['account_novat'] ?? ''); ?>" data-amt-iva6="<?= $amtIva6; ?>" data-amt-iva13="<?= $amtIva13; ?>" data-amt-iva23="<?= $amtIva23; ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
 
                         <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
