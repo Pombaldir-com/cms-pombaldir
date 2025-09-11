@@ -47,26 +47,8 @@ if ($action === 'lines') {
 
     try {
         $items = parseInvoiceLineTextract($path);
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
-        $output = fopen('php://output', 'w');
-        fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
-        foreach ($items as $i => $fields) {
-            fputcsv($output, [
-                $i + 1,
-                $fields['text'] ?? '',
-                $fields['arm'] ?? '',
-                $fields['codigo_artigo'] ?? '',
-                $fields['descricao'] ?? '',
-                $fields['quantidade'] ?? '',
-                $fields['unidade'] ?? '',
-                $fields['preco_unitario'] ?? '',
-                $fields['percentagem_desconto'] ?? '',
-                $fields['desconto_valor'] ?? '',
-                $fields['valor_liquido'] ?? '',
-                $fields['imposto'] ?? '',
-            ]);
-        }
+        header('Content-Type: application/json');
+        echo json_encode($items, JSON_UNESCAPED_UNICODE);
         exit;
     } catch (Throwable $e) {
         logOcrMessage('Textract OCR error: ' . $e->getMessage());
