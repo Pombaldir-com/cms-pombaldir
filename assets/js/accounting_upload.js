@@ -49,8 +49,14 @@ window.addEventListener('load', function() {
         }
         if (data.qr_texts && data.qr_texts.length) {
             var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
+            var seen = new Set();
             data.qr_texts.forEach(function(qrText) {
                 var qrData = extractQR(qrText);
+                var identifier = qrData['H'] || qrText;
+                if (seen.has(identifier)) {
+                    return;
+                }
+                seen.add(identifier);
                 var row = keys.map(function(key) {
                     var value = qrData[key] || '';
                     if (key === 'F') {
