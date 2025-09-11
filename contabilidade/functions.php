@@ -207,6 +207,11 @@ function parseInvoiceLineTextract(string $filePath): array {
                                         $line['imposto'] = $num;
                                     }
                                     break;
+                                case 'PRODUCT_CODE':
+                                case 'ITEM_CODE':
+                                case 'SKU':
+                                    $line['codigo_artigo'] = $value;
+                                    break;
                                 case 'DISCOUNT':
                                     $line['desconto_valor'] = $num;
                                     break;
