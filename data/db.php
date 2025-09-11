@@ -29,5 +29,3 @@ function getPDO() {
     }
     return $pdo;
 }
-?>
-
