@@ -62,6 +62,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setSetting('smtp_user', $smtpUser);
         setSetting('smtp_pass', $smtpPass);
         setSetting('smtp_encryption', $smtpEncryption);
+
+        $awsKey = trim($_POST['aws_access_key_id'] ?? '');
+        $awsSecret = trim($_POST['aws_secret_access_key'] ?? '');
+        $awsRegion = trim($_POST['aws_region'] ?? '');
+        $ocrProvider = trim($_POST['ocr_provider'] ?? 'tesseract');
+        setSetting('aws_access_key_id', $awsKey);
+        setSetting('aws_secret_access_key', $awsSecret);
+        setSetting('aws_region', $awsRegion);
+        setSetting('ocr_provider', $ocrProvider);
+
         $emailSaved = true;
     }
     if (isset($_POST['modules_save']) && ($user['role'] ?? 3) == 1) {
@@ -79,12 +89,16 @@ $contentTypeApi = [];
 foreach ($contentTypes as $type) {
     $contentTypeApi[$type['id']] = (int)($type['api_enabled'] ?? 0);
 }
-$currentSmtpHost = getSetting('smtp_host', '');
-$currentSmtpPort = getSetting('smtp_port', '');
-$currentSmtpUser = getSetting('smtp_user', '');
-$currentSmtpPass = getSetting('smtp_pass', '');
-$currentSmtpEncryption = getSetting('smtp_encryption', '');
-$currentModules = getActiveModules();
+    $currentSmtpHost = getSetting('smtp_host', '');
+    $currentSmtpPort = getSetting('smtp_port', '');
+    $currentSmtpUser = getSetting('smtp_user', '');
+    $currentSmtpPass = getSetting('smtp_pass', '');
+    $currentSmtpEncryption = getSetting('smtp_encryption', '');
+    $currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
+    $currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
+    $currentAwsRegion = getSetting('aws_region', '');
+    $currentOcrProvider = getSetting('ocr_provider', 'tesseract');
+    $currentModules = getActiveModules();
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -190,7 +204,29 @@ require_once __DIR__ . '/header.php';
                     </select>
                 </div>
                 </div>
-            
+
+                <div class="row">
+                <div class="mb-3 col-md-3 col-sm-12">
+                    <label for="ocr_provider" class="form-label">OCR</label>
+                    <select class="form-select" id="ocr_provider" name="ocr_provider">
+                        <option value="tesseract" <?= $currentOcrProvider === 'tesseract' ? 'selected' : ''; ?>>Tesseract</option>
+                        <option value="textract" <?= $currentOcrProvider === 'textract' ? 'selected' : ''; ?>>AWS Textract</option>
+                    </select>
+                </div>
+                <div class="mb-3 col-md-3 col-sm-12">
+                    <label for="aws_access_key_id" class="form-label">AWS Access Key ID</label>
+                    <input type="text" class="form-control" id="aws_access_key_id" name="aws_access_key_id" value="<?= htmlspecialchars($currentAwsAccessKeyId); ?>">
+                </div>
+                <div class="mb-3 col-md-3 col-sm-12">
+                    <label for="aws_secret_access_key" class="form-label">AWS Secret Access Key</label>
+                    <input type="password" class="form-control" id="aws_secret_access_key" name="aws_secret_access_key" value="<?= htmlspecialchars($currentAwsSecretAccessKey); ?>">
+                </div>
+                <div class="mb-3 col-md-3 col-sm-12">
+                    <label for="aws_region" class="form-label">AWS Region</label>
+                    <input type="text" class="form-control" id="aws_region" name="aws_region" value="<?= htmlspecialchars($currentAwsRegion); ?>">
+                </div>
+                </div>
+
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </form>
         </div>
