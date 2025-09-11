@@ -27,11 +27,16 @@ window.addEventListener('load', function() {
 
         var requires = needIva6 || needIva13 || needIva23;
         var allFilled = true;
+
         if (needIva6 && !iva6) { allFilled = false; }
         if (needIva13 && !iva13) { allFilled = false; }
         if (needIva23 && !iva23) { allFilled = false; }
 
-        var hasAnyAccount = iva6 || iva13 || iva23 || novat;
+        if (needIva6 && !hasIva6) { allFilled = false; }
+        if (needIva13 && !hasIva13) { allFilled = false; }
+        if (needIva23 && !hasIva23) { allFilled = false; }
+
+        var hasAnyAccount = hasIva6 || hasIva13 || hasIva23 || hasNovat;
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
         if (!requires) {
             btn.classList.add('btn-success');
