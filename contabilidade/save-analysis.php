@@ -10,10 +10,6 @@ require_once __DIR__ . '/functions.php';
 
 startSession();
 
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
@@ -43,6 +39,8 @@ if ($action === 'lines') {
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
 
     if ($ocrProvider === 'textract') {
+
+
         try {
             $items = parseInvoiceLineTextract($path);
             header('Content-Type: text/csv');
@@ -70,6 +68,7 @@ if ($action === 'lines') {
             error_log('Textract OCR error: ' . $e->getMessage());
             // Fallback to Tesseract below
         }
+
     }
 
     $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));

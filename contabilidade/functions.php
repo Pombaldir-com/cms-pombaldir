@@ -1,4 +1,9 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+require_once __DIR__ . '/../functions.php';
 
 use thiagoalessio\TesseractOCR\TesseractOCR;
 use Aws\Textract\TextractClient;
@@ -65,6 +70,8 @@ function parseInvoiceLineImage(string $imagePath): array {
  * @throws RuntimeException When Textract fails.
  */
 function parseInvoiceLineTextract(string $filePath): array {
+
+
     $key = getSetting('aws_access_key_id', getenv('AWS_ACCESS_KEY_ID') ?: '');
     $secret = getSetting('aws_secret_access_key', getenv('AWS_SECRET_ACCESS_KEY') ?: '');
     $region = getSetting('aws_region', getenv('AWS_REGION') ?: 'us-east-1');

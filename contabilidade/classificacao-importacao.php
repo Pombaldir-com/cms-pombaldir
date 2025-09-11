@@ -84,13 +84,14 @@ require_once __DIR__ . '/../header.php';
                         $hasIva6 = $amtIva6 > 0;
                         $hasIva13 = $amtIva13 > 0;
                         $hasIva23 = $amtIva23 > 0;
-                        $total = abs((float) str_replace(',', '.', $row['field_O'] ?? 0));
+
+                        $total = abs((float)($row['field_O'] ?? 0));
                         $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23 && $total > 0;
 
                         $allAccounts = (
-                            ($amtIva6 <= 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
-                            ($amtIva13 <= 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
-                            ($amtIva23 <= 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
+                            ($amtIva6 == 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
+                            ($amtIva13 == 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
+                            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
                             (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
                         );
                         $requires = $hasIva6 || $hasIva13 || $hasIva23 || $needsNovat;
