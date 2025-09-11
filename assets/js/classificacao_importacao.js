@@ -28,10 +28,9 @@ window.addEventListener('load', function() {
         var requires = needIva6 || needIva13 || needIva23;
         var allFilled = true;
 
-        var hasIva6 = parseInt(iva6, 10) > 0;
-        var hasIva13 = parseInt(iva13, 10) > 0;
-        var hasIva23 = parseInt(iva23, 10) > 0;
-        var hasNovat = parseInt(novat, 10) > 0;
+        if (needIva6 && !iva6) { allFilled = false; }
+        if (needIva13 && !iva13) { allFilled = false; }
+        if (needIva23 && !iva23) { allFilled = false; }
 
         if (needIva6 && !hasIva6) { allFilled = false; }
         if (needIva13 && !hasIva13) { allFilled = false; }
