@@ -1,4 +1,7 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
 use thiagoalessio\TesseractOCR\TesseractOCR;
 use Aws\Textract\TextractClient;
@@ -65,9 +68,6 @@ function parseInvoiceLineImage(string $imagePath): array {
  * @throws RuntimeException When Textract fails.
  */
 function parseInvoiceLineTextract(string $filePath): array {
-    if (!class_exists(TextractClient::class)) {
-        throw new RuntimeException('AWS SDK não instalado');
-    }
 
     $key = getSetting('aws_access_key_id', getenv('AWS_ACCESS_KEY_ID') ?: '');
     $secret = getSetting('aws_secret_access_key', getenv('AWS_SECRET_ACCESS_KEY') ?: '');
