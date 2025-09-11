@@ -85,6 +85,9 @@ function parseInvoiceLineImage(string $imagePath): array {
  * @throws RuntimeException When Textract fails.
  */
 function parseInvoiceLineTextract(string $filePath): array {
+    if (!class_exists(TextractClient::class) || !class_exists(S3Client::class)) {
+        throw new RuntimeException('AWS SDK para PHP não instalado');
+    }
     $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
     $allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'tif'];
     if (! in_array($extension, $allowedExtensions, true)) {
