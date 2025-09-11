@@ -37,8 +37,8 @@ if ($action === 'lines') {
     }
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
-
     if ($ocrProvider === 'textract') {
+
         try {
             $items = parseInvoiceLineTextract($path);
             header('Content-Type: text/csv');
