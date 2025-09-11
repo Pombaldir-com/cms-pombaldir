@@ -17,6 +17,7 @@ window.addEventListener('load', function() {
         var iva23 = btn.getAttribute('data-iva23') || '';
         var novat = btn.getAttribute('data-novat') || '';
 
+
         var amtIva6 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva6'))) || 0;
         var amtIva13 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva13'))) || 0;
         var amtIva23 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva23'))) || 0;

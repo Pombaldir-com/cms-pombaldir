@@ -77,13 +77,14 @@ require_once __DIR__ . '/../header.php';
                     <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
                     <?php
 
-
-                        $amtIva6 = abs((float)($row['field_I1'] ?? 0)) + abs((float)($row['field_I3'] ?? 0));
-                        $amtIva13 = abs((float)($row['field_I4'] ?? 0)) + abs((float)($row['field_I5'] ?? 0));
-                        $amtIva23 = abs((float)($row['field_I6'] ?? 0)) + abs((float)($row['field_I7'] ?? 0));
+                        // Only consider VAT columns to determine whether accounts are required.
+                        $amtIva6 = abs((float) str_replace(',', '.', $row['field_I3'] ?? 0));
+                        $amtIva13 = abs((float) str_replace(',', '.', $row['field_I5'] ?? 0));
+                        $amtIva23 = abs((float) str_replace(',', '.', $row['field_I7'] ?? 0));
                         $hasIva6 = $amtIva6 > 0;
                         $hasIva13 = $amtIva13 > 0;
                         $hasIva23 = $amtIva23 > 0;
+
                         $total = abs((float)($row['field_O'] ?? 0));
                         $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23 && $total > 0;
 
