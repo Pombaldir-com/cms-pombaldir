@@ -15,7 +15,6 @@
         "thiagoalessio/tesseract_ocr": "^2.13",
         "khanamiryan/qrcode-detector-decoder": "^2.0",
         "smalot/pdfparser": "^2.12",
-        "setasign/fpdf": "^1.8",
-        "aws/aws-sdk-php": "^3.0"
+        "setasign/fpdf": "^1.8"
     }
 }
