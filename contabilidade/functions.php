@@ -198,6 +198,15 @@ function parseInvoiceLineTextract(string $filePath): array {
                                 case 'TAX_RATE':
                                     $line['imposto'] = $num;
                                     break;
+                                case 'TAX':
+                                    // Textract sometimes labels the tax rate simply as "TAX".
+                                    // When the value represents a percentage we treat it as the
+                                    // tax rate rather than the tax amount.
+                                    if (in_array('PERCENTAGE', $field['EntityTypes'] ?? [], true)
+                                        || strpos($value, '%') !== false) {
+                                        $line['imposto'] = $num;
+                                    }
+                                    break;
                                 case 'DISCOUNT':
                                     $line['desconto_valor'] = $num;
                                     break;
