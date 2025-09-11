@@ -8,6 +8,7 @@ require_once __DIR__ . '/../functions.php';
 use thiagoalessio\TesseractOCR\TesseractOCR;
 use Aws\Textract\TextractClient;
 use Aws\Textract\Exception\TextractException;
+use Aws\S3\S3Client;
 
 /**
  * Parse an invoice line from a text string produced by OCR.
@@ -77,87 +78,136 @@ function parseInvoiceLineTextract(string $filePath): array {
         throw new RuntimeException('Formato de arquivo não suportado pelo Textract');
     }
 
-
-
     $key = getSetting('aws_access_key_id', getenv('AWS_ACCESS_KEY_ID') ?: '');
     $secret = getSetting('aws_secret_access_key', getenv('AWS_SECRET_ACCESS_KEY') ?: '');
     $region = getSetting('aws_region', getenv('AWS_REGION') ?: 'us-east-1');
+    $bucket = getSetting('aws_textract_bucket', getenv('AWS_TEXTRACT_BUCKET') ?: '');
+
+    if (! $bucket) {
+        $slug = getCompanySlug();
+        if ($slug) {
+            $bucket = $slug;
+        }
+    }
+
+    if (! $bucket) {
+        throw new RuntimeException('Bucket S3 para Textract não configurado');
+    }
 
     $config = ['version' => 'latest', 'region' => $region];
     if ($key && $secret) {
         $config['credentials'] = ['key' => $key, 'secret' => $secret];
     }
 
-    $client = new TextractClient($config);
-    $bytes = file_get_contents($filePath);
+    $s3 = new S3Client($config);
+    $textract = new TextractClient($config);
+
+    $objectKey = 'textract/' . uniqid('', true) . '.' . $extension;
+    $s3->putObject([
+        'Bucket' => $bucket,
+        'Key' => $objectKey,
+        'SourceFile' => $filePath,
+    ]);
 
     try {
-        $result = $client->analyzeExpense(['Document' => ['Bytes' => $bytes]]);
-        $lines = [];
-        foreach ($result['ExpenseDocuments'][0]['LineItemGroups'] ?? [] as $group) {
-            foreach ($group['LineItems'] ?? [] as $item) {
-                $line = [
-                    'arm' => '',
-                    'codigo_artigo' => '',
-                    'descricao' => '',
-                    'quantidade' => '',
-                    'unidade' => '',
-                    'preco_unitario' => '',
-                    'percentagem_desconto' => '',
-                    'desconto_valor' => '',
-                    'valor_liquido' => '',
-                    'imposto' => '',
-                    'text' => '',
-                ];
-                foreach ($item['LineItemExpenseFields'] ?? [] as $field) {
-                    $type = $field['Type']['Text'] ?? '';
-                    $value = $field['ValueDetection']['Text'] ?? '';
-                    $num = (float) str_replace(',', '.', $value);
-                    switch ($type) {
-                        case 'ITEM':
-                            $line['descricao'] = $value;
-                            break;
-                        case 'QUANTITY':
-                            $line['quantidade'] = $num;
-                            break;
-                        case 'UNIT_PRICE':
-                        case 'PRICE':
-                            $line['preco_unitario'] = $num;
-                            break;
-                        case 'UNIT':
-                            $line['unidade'] = $value;
-                            break;
-                        case 'AMOUNT':
-                            $line['valor_liquido'] = $num;
-                            break;
-                        case 'TAX_RATE':
-                            $line['imposto'] = $num;
-                            break;
-                        case 'DISCOUNT':
-                            $line['desconto_valor'] = $num;
-                            break;
+        try {
+            $start = $textract->startExpenseAnalysis([
+                'DocumentLocation' => ['S3Object' => ['Bucket' => $bucket, 'Name' => $objectKey]],
+            ]);
+            $jobId = $start['JobId'];
+            do {
+                sleep(1);
+                $result = $textract->getExpenseAnalysis(['JobId' => $jobId]);
+                $status = $result['JobStatus'] ?? 'IN_PROGRESS';
+            } while ($status === 'IN_PROGRESS');
+
+            if ($status === 'SUCCEEDED') {
+                $lines = [];
+                foreach ($result['ExpenseDocuments'][0]['LineItemGroups'] ?? [] as $group) {
+                    foreach ($group['LineItems'] ?? [] as $item) {
+                        $line = [
+                            'arm' => '',
+                            'codigo_artigo' => '',
+                            'descricao' => '',
+                            'quantidade' => '',
+                            'unidade' => '',
+                            'preco_unitario' => '',
+                            'percentagem_desconto' => '',
+                            'desconto_valor' => '',
+                            'valor_liquido' => '',
+                            'imposto' => '',
+                            'text' => '',
+                        ];
+                        foreach ($item['LineItemExpenseFields'] ?? [] as $field) {
+                            $type = $field['Type']['Text'] ?? '';
+                            $value = $field['ValueDetection']['Text'] ?? '';
+                            $num = (float) str_replace(',', '.', $value);
+                            switch ($type) {
+                                case 'ITEM':
+                                    $line['descricao'] = $value;
+                                    break;
+                                case 'QUANTITY':
+                                    $line['quantidade'] = $num;
+                                    break;
+                                case 'UNIT_PRICE':
+                                case 'PRICE':
+                                    $line['preco_unitario'] = $num;
+                                    break;
+                                case 'UNIT':
+                                    $line['unidade'] = $value;
+                                    break;
+                                case 'AMOUNT':
+                                    $line['valor_liquido'] = $num;
+                                    break;
+                                case 'TAX_RATE':
+                                    $line['imposto'] = $num;
+                                    break;
+                                case 'DISCOUNT':
+                                    $line['desconto_valor'] = $num;
+                                    break;
+                            }
+                        }
+                        $line['text'] = trim($line['descricao']);
+                        $lines[] = $line;
                     }
                 }
-                $line['text'] = trim($line['descricao']);
-                $lines[] = $line;
+                if ($lines) {
+                    return $lines;
+                }
             }
+        } catch (TextractException $e) {
+            if ($e->getAwsErrorCode() === 'UnsupportedDocumentException') {
+                throw new RuntimeException('Formato de arquivo não suportado pelo Textract', 0, $e);
+            }
+            error_log('Textract StartExpenseAnalysis error: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            error_log('Textract StartExpenseAnalysis error: ' . $e->getMessage());
         }
-        if ($lines) {
-            return $lines;
-        }
-    } catch (TextractException $e) {
-        if ($e->getAwsErrorCode() === 'UnsupportedDocumentException') {
-            throw new RuntimeException('Formato de arquivo não suportado pelo Textract', 0, $e);
-        }
-        error_log('Textract AnalyzeExpense error: ' . $e->getMessage());
-    } catch (Throwable $e) {
-        error_log('Textract AnalyzeExpense error: ' . $e->getMessage());
-    }
 
-    try {
-        $result = $client->detectDocumentText(['Document' => ['Bytes' => $bytes]]);
+        $start = $textract->startDocumentTextDetection([
+            'DocumentLocation' => ['S3Object' => ['Bucket' => $bucket, 'Name' => $objectKey]],
+        ]);
+        $jobId = $start['JobId'];
+        $blocks = [];
+        $nextToken = null;
+        do {
+            sleep(1);
+            $params = ['JobId' => $jobId];
+            if ($nextToken) {
+                $params['NextToken'] = $nextToken;
+            }
+            $result = $textract->getDocumentTextDetection($params);
+            $status = $result['JobStatus'] ?? 'IN_PROGRESS';
+            $blocks = array_merge($blocks, $result['Blocks'] ?? []);
+            $nextToken = $result['NextToken'] ?? null;
+        } while ($status === 'IN_PROGRESS' || $nextToken);
+
+        if ($status !== 'SUCCEEDED') {
+            throw new RuntimeException('Falha no OCR Textract');
+        }
+
         $lines = [];
-        foreach ($result['Blocks'] ?? [] as $block) {
+        foreach ($blocks as $block) {
             if (($block['BlockType'] ?? '') !== 'LINE') {
                 continue;
             }
@@ -191,6 +241,12 @@ function parseInvoiceLineTextract(string $filePath): array {
     } catch (Throwable $e) {
         error_log('Textract DetectDocumentText error: ' . $e->getMessage());
         throw new RuntimeException('Falha no OCR Textract', 0, $e);
+    } finally {
+        try {
+            $s3->deleteObject(['Bucket' => $bucket, 'Key' => $objectKey]);
+        } catch (Throwable $e) {
+            // ignore
+        }
     }
 }
 
