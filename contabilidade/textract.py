@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run AWS Textract and export parsed invoice lines to CSV."""
+"""Run AWS Textract and output parsed invoice lines as JSON."""
 import argparse
 import boto3
-import csv
+import json
 import os
 import re
 import sys
@@ -49,31 +49,11 @@ def parse_invoice_line_text(text: str) -> dict:
     }
 
 
-def write_csv(lines, fp):
-    """Write invoice lines to CSV using a fixed column order."""
-    fieldnames = [
-        "arm",
-        "codigo_artigo",
-        "descricao",
-        "quantidade",
-        "unidade",
-        "preco_unitario",
-        "percentagem_desconto",
-        "desconto_valor",
-        "valor_liquido",
-        "imposto",
-    ]
-    writer = csv.DictWriter(fp, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(lines)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process an invoice file with AWS Textract")
     parser.add_argument("file", help="Path to the document to analyse")
     parser.add_argument("--bucket", default=os.environ.get("AWS_TEXTRACT_BUCKET"), help="S3 bucket")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"), help="AWS region")
-    parser.add_argument("-o", "--output", help="CSV file to write (default: stdout)")
     args = parser.parse_args()
 
     if not args.bucket:
@@ -84,7 +64,6 @@ def main() -> int:
     s3 = session.client("s3")
     textract = session.client("textract")
     key = None
-    out = open(args.output, "w", newline="", encoding="utf-8") if args.output else sys.stdout
     try:
         try:
             s3.head_bucket(Bucket=args.bucket)
@@ -151,7 +130,7 @@ def main() -> int:
                         line["text"] = line["descricao"].strip()
                         lines.append(line)
                 if lines:
-                    write_csv(lines, out)
+                    json.dump(lines, sys.stdout, ensure_ascii=False)
                     return 0
         except Exception:
             pass  # fallback to DocumentTextDetection
@@ -198,11 +177,9 @@ def main() -> int:
                 }
             fields["text"] = text
             lines.append(fields)
-        write_csv(lines, out)
+        json.dump(lines, sys.stdout, ensure_ascii=False)
         return 0
     finally:
-        if out is not sys.stdout:
-            out.close()
         if key:
             try:
                 s3.delete_object(Bucket=args.bucket, Key=key)
