@@ -40,6 +40,40 @@ if ($action === 'lines') {
         exit;
     }
     $path = dirname(__DIR__) . '/' . $row['filename'];
+    $ocrProvider = getSetting('ocr_provider', 'tesseract');
+
+    if ($ocrProvider === 'textract' && class_exists(\Aws\Textract\TextractClient::class)) {
+        try {
+            $items = parseInvoiceLineTextract($path);
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
+            $output = fopen('php://output', 'w');
+            fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
+            foreach ($items as $i => $fields) {
+                fputcsv($output, [
+                    $i + 1,
+                    $fields['text'] ?? '',
+                    $fields['arm'] ?? '',
+                    $fields['codigo_artigo'] ?? '',
+                    $fields['descricao'] ?? '',
+                    $fields['quantidade'] ?? '',
+                    $fields['unidade'] ?? '',
+                    $fields['preco_unitario'] ?? '',
+                    $fields['percentagem_desconto'] ?? '',
+                    $fields['desconto_valor'] ?? '',
+                    $fields['valor_liquido'] ?? '',
+                    $fields['imposto'] ?? '',
+                ]);
+            }
+            exit;
+        } catch (Throwable $e) {
+            error_log('Textract OCR error: ' . $e->getMessage());
+            // Fallback to Tesseract below
+        }
+    } elseif ($ocrProvider === 'textract') {
+        error_log('Textract SDK não encontrado, a usar Tesseract');
+    }
+
     $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
     $text = '';
     try {

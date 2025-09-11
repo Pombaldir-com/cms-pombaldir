@@ -1,6 +1,7 @@
 <?php
 
 use thiagoalessio\TesseractOCR\TesseractOCR;
+use Aws\Textract\TextractClient;
 
 /**
  * Parse an invoice line from a text string produced by OCR.
@@ -53,6 +54,123 @@ function parseInvoiceLineImage(string $imagePath): array {
         ->lang('por')
         ->run();
     return parseInvoiceLineText($text);
+}
+
+/**
+ * Extract invoice lines using AWS Textract. Returns an array of line items
+ * with the same structure as parseInvoiceLineText along with the raw text.
+ *
+ * @param string $filePath Path to the document image or PDF.
+ * @return array<int,array<string,mixed>> Parsed line items.
+ * @throws RuntimeException When Textract fails.
+ */
+function parseInvoiceLineTextract(string $filePath): array {
+    if (!class_exists(TextractClient::class)) {
+        throw new RuntimeException('AWS SDK não instalado');
+    }
+
+    $key = getSetting('aws_access_key_id', getenv('AWS_ACCESS_KEY_ID') ?: '');
+    $secret = getSetting('aws_secret_access_key', getenv('AWS_SECRET_ACCESS_KEY') ?: '');
+    $region = getSetting('aws_region', getenv('AWS_REGION') ?: 'us-east-1');
+
+    $config = ['version' => 'latest', 'region' => $region];
+    if ($key && $secret) {
+        $config['credentials'] = ['key' => $key, 'secret' => $secret];
+    }
+
+    $client = new TextractClient($config);
+    $bytes = file_get_contents($filePath);
+
+    try {
+        $result = $client->analyzeExpense(['Document' => ['Bytes' => $bytes]]);
+        $lines = [];
+        foreach ($result['ExpenseDocuments'][0]['LineItemGroups'] ?? [] as $group) {
+            foreach ($group['LineItems'] ?? [] as $item) {
+                $line = [
+                    'arm' => '',
+                    'codigo_artigo' => '',
+                    'descricao' => '',
+                    'quantidade' => '',
+                    'unidade' => '',
+                    'preco_unitario' => '',
+                    'percentagem_desconto' => '',
+                    'desconto_valor' => '',
+                    'valor_liquido' => '',
+                    'imposto' => '',
+                    'text' => '',
+                ];
+                foreach ($item['LineItemExpenseFields'] ?? [] as $field) {
+                    $type = $field['Type']['Text'] ?? '';
+                    $value = $field['ValueDetection']['Text'] ?? '';
+                    $num = (float) str_replace(',', '.', $value);
+                    switch ($type) {
+                        case 'ITEM':
+                            $line['descricao'] = $value;
+                            break;
+                        case 'QUANTITY':
+                            $line['quantidade'] = $num;
+                            break;
+                        case 'UNIT_PRICE':
+                        case 'PRICE':
+                            $line['preco_unitario'] = $num;
+                            break;
+                        case 'UNIT':
+                            $line['unidade'] = $value;
+                            break;
+                        case 'AMOUNT':
+                            $line['valor_liquido'] = $num;
+                            break;
+                        case 'TAX_RATE':
+                            $line['imposto'] = $num;
+                            break;
+                        case 'DISCOUNT':
+                            $line['desconto_valor'] = $num;
+                            break;
+                    }
+                }
+                $line['text'] = trim($line['descricao']);
+                $lines[] = $line;
+            }
+        }
+        if ($lines) {
+            return $lines;
+        }
+    } catch (Throwable $e) {
+        error_log('Textract AnalyzeExpense error: ' . $e->getMessage());
+    }
+
+    try {
+        $result = $client->detectDocumentText(['Document' => ['Bytes' => $bytes]]);
+        $lines = [];
+        foreach ($result['Blocks'] ?? [] as $block) {
+            if (($block['BlockType'] ?? '') !== 'LINE') {
+                continue;
+            }
+            $text = $block['Text'] ?? '';
+            try {
+                $fields = parseInvoiceLineText($text);
+            } catch (RuntimeException $e) {
+                $fields = [
+                    'arm' => '',
+                    'codigo_artigo' => '',
+                    'descricao' => '',
+                    'quantidade' => '',
+                    'unidade' => '',
+                    'preco_unitario' => '',
+                    'percentagem_desconto' => '',
+                    'desconto_valor' => '',
+                    'valor_liquido' => '',
+                    'imposto' => '',
+                ];
+            }
+            $fields['text'] = $text;
+            $lines[] = $fields;
+        }
+        return $lines;
+    } catch (Throwable $e) {
+        error_log('Textract DetectDocumentText error: ' . $e->getMessage());
+        throw new RuntimeException('Falha no OCR Textract', 0, $e);
+    }
 }
 
 /**

@@ -57,5 +57,12 @@ O projeto disponibiliza um endpoint simples em [`api.php`](api.php) para aceder 
 
 O endpoint responde com informação da taxonomia e a lista de termos associados.
 
+## Textract OCR
+O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com/textract/) para extrair dados de faturas.
+
+1. Aceda a **Definições > E-mail** e selecione **AWS Textract** no campo **OCR**.
+2. Preencha **AWS Access Key ID**, **AWS Secret Access Key** e **AWS Region** ou defina as variáveis de ambiente `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_REGION`.
+3. Quando ativo, o sistema usa Textract para analisar faturas e, em caso de erro, reverte para o Tesseract registando a falha nos logs.
+
 ## Licença
 Distribuído sob a licença MIT. Consulte o ficheiro [`LICENSE`](LICENSE) se existir ou adapte conforme necessário.
