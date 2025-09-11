@@ -84,6 +84,7 @@ function parseInvoiceLineTextract(string $filePath): array {
     $bucket = getSetting('aws_textract_bucket', getenv('AWS_TEXTRACT_BUCKET') ?: '');
 
     if (! $bucket) {
+
         $slug = getCompanySlug();
         if ($slug) {
             $bucket = $slug;
