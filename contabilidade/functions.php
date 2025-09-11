@@ -104,15 +104,18 @@ function parseInvoiceLineTextract(string $filePath): array {
     $s3 = new S3Client($config);
 
     try {
+
         $s3->headBucket(['Bucket' => $bucket]);
     } catch (AwsException $e) {
         if ($e->getStatusCode() === 404) {
+
             $params = ['Bucket' => $bucket];
             if ($region !== 'us-east-1') {
                 $params['CreateBucketConfiguration'] = ['LocationConstraint' => $region];
             }
             $s3->createBucket($params);
             $s3->waitUntil('BucketExists', ['Bucket' => $bucket]);
+
         } else {
             throw $e;
         }
