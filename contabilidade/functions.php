@@ -9,6 +9,7 @@ use thiagoalessio\TesseractOCR\TesseractOCR;
 use Aws\Textract\TextractClient;
 use Aws\Textract\Exception\TextractException;
 use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
 
 /**
  * Parse an invoice line from a text string produced by OCR.
@@ -101,6 +102,26 @@ function parseInvoiceLineTextract(string $filePath): array {
     }
 
     $s3 = new S3Client($config);
+
+    try {
+        $exists = $s3->doesBucketExistV2($bucket);
+    } catch (AwsException $e) {
+        throw new RuntimeException('Falha ao verificar bucket S3', 0, $e);
+    }
+
+    if (! $exists) {
+        try {
+            $params = ['Bucket' => $bucket];
+            if ($region !== 'us-east-1') {
+                $params['CreateBucketConfiguration'] = ['LocationConstraint' => $region];
+            }
+            $s3->createBucket($params);
+            $s3->waitUntil('BucketExists', ['Bucket' => $bucket]);
+        } catch (AwsException $e) {
+            throw new RuntimeException('Falha ao criar bucket S3', 0, $e);
+        }
+    }
+
     $textract = new TextractClient($config);
 
     $objectKey = 'textract/' . uniqid('', true) . '.' . $extension;
