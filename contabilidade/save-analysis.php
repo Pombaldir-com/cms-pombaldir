@@ -38,146 +38,43 @@ if ($action === 'lines') {
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
 
-    if ($ocrProvider === 'textract') {
-        try {
-            $items = parseInvoiceLineTextract($path);
-            header('Content-Type: text/csv');
-            header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
-            $output = fopen('php://output', 'w');
-            fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
-            foreach ($items as $i => $fields) {
-                fputcsv($output, [
-                    $i + 1,
-                    $fields['text'] ?? '',
-                    $fields['arm'] ?? '',
-                    $fields['codigo_artigo'] ?? '',
-                    $fields['descricao'] ?? '',
-                    $fields['quantidade'] ?? '',
-                    $fields['unidade'] ?? '',
-                    $fields['preco_unitario'] ?? '',
-                    $fields['percentagem_desconto'] ?? '',
-                    $fields['desconto_valor'] ?? '',
-                    $fields['valor_liquido'] ?? '',
-                    $fields['imposto'] ?? '',
-                ]);
-            }
-            exit;
-        } catch (Throwable $e) {
-            logOcrMessage('Textract OCR error: ' . $e->getMessage());
-            http_response_code(500);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
-            exit;
-        }
-    } elseif ($ocrProvider === 'tesseract') {
-        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        $text = '';
-        try {
-            if ($extension === 'pdf') {
-                if (!class_exists('Imagick')) {
-                    throw new RuntimeException('Extensão Imagick não disponível');
-                }
-                $imagick = new Imagick();
-                $imagick->setResolution(300, 300);
-                $imagick->readImage($path);
-                $imagick->setImageFormat('png');
-                $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
-                $imagick->writeImages($tmpBase . '.png', false);
-                $imagick->clear();
-                $imagick->destroy();
-                foreach (glob($tmpBase . '-*.png') as $imgFile) {
-                    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
-                    $text .= $ocr->run() . PHP_EOL;
-                    unlink($imgFile);
-                }
-            } else {
-                $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
-                $text = $ocr->run();
-            }
-        } catch (Throwable $e) {
-            logOcrMessage('Tesseract OCR error: ' . $e->getMessage());
-            http_response_code(500);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
-            exit;
-        }
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
-        $output = fopen('php://output', 'w');
-        fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
-        $lines = explode(PHP_EOL, $text);
-    } else {
+    if ($ocrProvider !== 'textract') {
         http_response_code(400);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'OCR provider inválido']);
         exit;
     }
-    $inTable = false;
-    $normalize = static function (string $str): string {
-        return strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $str));
-    };
-    $unique = [];
-    foreach ($lines as $i => $line) {
-        if (! $inTable) {
-            $norm = $normalize($line);
-            if (strpos($norm, 'descricao') !== false
-                || strpos($norm, 'unidade') !== false
-                || strpos($norm, 'taxa') !== false) {
-                $inTable = true;
-                continue;
-            }
-            $tokens = preg_split('/\s+/', trim($line));
-            if (count($tokens) >= 3 && preg_match('/\d/', $line)) {
-                $inTable = true;
-            } else {
-                continue;
-            }
-        }
-        if (strpos($normalize($line), 'mercadoria') !== false) {
-            $inTable = false;
-            continue;
-        }
 
-        if (trim($line) === '') {
-            continue;
+    try {
+        $items = parseInvoiceLineTextract($path);
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
+        $output = fopen('php://output', 'w');
+        fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
+        foreach ($items as $i => $fields) {
+            fputcsv($output, [
+                $i + 1,
+                $fields['text'] ?? '',
+                $fields['arm'] ?? '',
+                $fields['codigo_artigo'] ?? '',
+                $fields['descricao'] ?? '',
+                $fields['quantidade'] ?? '',
+                $fields['unidade'] ?? '',
+                $fields['preco_unitario'] ?? '',
+                $fields['percentagem_desconto'] ?? '',
+                $fields['desconto_valor'] ?? '',
+                $fields['valor_liquido'] ?? '',
+                $fields['imposto'] ?? '',
+            ]);
         }
-        $tokens = preg_split('/\s+/', trim($line));
-        if (count($tokens) < 3) {
-            continue;
-        }
-        try {
-            $fields = parseInvoiceLineText($line);
-        } catch (RuntimeException $e) {
-            $fields = [
-                'arm' => '',
-                'codigo_artigo' => '',
-                'descricao' => '',
-                'quantidade' => '',
-                'unidade' => '',
-                'preco_unitario' => '',
-                'percentagem_desconto' => '',
-                'desconto_valor' => '',
-                'valor_liquido' => '',
-                'imposto' => '',
-            ];
-        }
-
-        $key = trim($normalize($line));
-        if (isset($unique[$key])) {
-            continue;
-        }
-        $unique[$key] = true;
-
-        fputcsv(
-            $output,
-            array_merge(
-                [$i + 1, $line],
-                array_values($fields)
-            )
-        );
+        exit;
+    } catch (Throwable $e) {
+        logOcrMessage('Textract OCR error: ' . $e->getMessage());
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+        exit;
     }
-    fclose($output);
-    exit;
 }
 
 header('Content-Type: application/json');
