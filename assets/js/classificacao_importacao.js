@@ -17,24 +17,27 @@ window.addEventListener('load', function() {
         var iva23 = btn.getAttribute('data-iva23') || '';
         var novat = btn.getAttribute('data-novat') || '';
 
-        var amtIva6 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva6'))) || 0;
-        var amtIva13 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva13'))) || 0;
-        var amtIva23 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva23'))) || 0;
+        var amtIva6 = Math.abs(parseFloat((btn.getAttribute('data-amt-iva6') || '0').replace(',', '.'))) || 0;
+        var amtIva13 = Math.abs(parseFloat((btn.getAttribute('data-amt-iva13') || '0').replace(',', '.'))) || 0;
+        var amtIva23 = Math.abs(parseFloat((btn.getAttribute('data-amt-iva23') || '0').replace(',', '.'))) || 0;
+        var needNovat = btn.getAttribute('data-req-novat') === '1';
 
         var needIva6 = amtIva6 > 0;
         var needIva13 = amtIva13 > 0;
         var needIva23 = amtIva23 > 0;
 
-        var requires = needIva6 || needIva13 || needIva23;
-        var allFilled = true;
+        var hasIva6 = parseInt(iva6, 10) > 0;
+        var hasIva13 = parseInt(iva13, 10) > 0;
+        var hasIva23 = parseInt(iva23, 10) > 0;
+        var hasNovat = parseInt(novat, 10) > 0;
 
-        if (needIva6 && !iva6) { allFilled = false; }
-        if (needIva13 && !iva13) { allFilled = false; }
-        if (needIva23 && !iva23) { allFilled = false; }
+        var requires = needIva6 || needIva13 || needIva23 || needNovat;
+        var allFilled = true;
 
         if (needIva6 && !hasIva6) { allFilled = false; }
         if (needIva13 && !hasIva13) { allFilled = false; }
         if (needIva23 && !hasIva23) { allFilled = false; }
+        if (needNovat && !hasNovat) { allFilled = false; }
 
         var hasAnyAccount = hasIva6 || hasIva13 || hasIva23 || hasNovat;
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
