@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run AWS Textract and output parsed invoice lines as JSON."""
+"""Run AWS Textract and output parsed invoice article lines as JSON
+(auto header detection: usa os cabeçalhos originais da tabela do PDF,
+sem mapping fixo, sem duplicados, sem subtotais).
+Opcional: --save-headers <ficheiro.json> guarda os cabeçalhos detetados."""
+
 import argparse
 import boto3
 import json
@@ -10,50 +14,43 @@ import time
 import uuid
 
 
-# Regular expression to capture invoice line fields
-LINE_ITEM_RE = re.compile(
-    r"""
-    (?P<arm>\d+)\s+
-    (?P<codigo_artigo>[A-Z0-9-]+)\s+
-    (?P<descricao>.+?)\s+
-    (?P<quantidade>\d+(?:,\d+)?)\s+
-    (?P<unidade>\w+)\s+
-    (?P<preco_unitario>\d+(?:,\d+)?)\s+
-    (?P<percentagem_desconto>\d+(?:,\d+)?)\s+
-    (?P<desconto_valor>\d+(?:,\d+)?)\s+
-    (?P<valor_liquido>\d+(?:,\d+)?)\s+
-    (?P<imposto>\d+(?:,\d+)?)
-    """,
-    re.VERBOSE,
-)
+# ---------- HELPERS ----------
+
+def parse_table_with_headers(rows: dict[int, dict[int, str]]) -> list[dict]:
+    """Transforma uma tabela do Textract em lista de linhas usando os cabeçalhos originais."""
+    result = []
+    header_row = None
+
+    for r_idx in sorted(rows.keys()):
+        row_cells = [rows[r_idx].get(c, "") for c in sorted(rows[r_idx].keys())]
+        if not any(row_cells):
+            continue
+
+        if header_row is None:
+            # Primeira linha = cabeçalho original
+            header_row = row_cells
+            continue
+
+        line = {}
+        for idx, val in enumerate(row_cells):
+            if idx < len(header_row):
+                col_name = header_row[idx].strip()
+                if col_name:  # ignora colunas vazias
+                    line[col_name] = val.strip()
+        if any(v for v in line.values()):
+            result.append(line)
+
+    return result, header_row
 
 
-def parse_invoice_line_text(text: str) -> dict:
-    """Parse a single invoice line using regular expressions."""
-    match = LINE_ITEM_RE.search(text.strip())
-    if not match:
-        raise ValueError("Unexpected OCR output: %s" % text)
-    groups = match.groupdict()
-    to_float = lambda v: float(v.replace(',', '.')) if v else 0.0
-    return {
-        "arm": int(groups["arm"]) if groups["arm"].isdigit() else groups["arm"],
-        "codigo_artigo": groups["codigo_artigo"],
-        "descricao": groups["descricao"].strip(),
-        "quantidade": to_float(groups["quantidade"]),
-        "unidade": groups["unidade"],
-        "preco_unitario": to_float(groups["preco_unitario"]),
-        "percentagem_desconto": to_float(groups["percentagem_desconto"]),
-        "desconto_valor": to_float(groups["desconto_valor"]),
-        "valor_liquido": to_float(groups["valor_liquido"]),
-        "imposto": to_float(groups["imposto"]),
-    }
-
+# ---------- MAIN ----------
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process an invoice file with AWS Textract")
     parser.add_argument("file", help="Path to the document to analyse")
     parser.add_argument("--bucket", default=os.environ.get("AWS_TEXTRACT_BUCKET"), help="S3 bucket")
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"), help="AWS region")
+    parser.add_argument("--save-headers", help="Guardar cabeçalhos detetados em ficheiro JSON")
     args = parser.parse_args()
 
     if not args.bucket:
@@ -65,15 +62,21 @@ def main() -> int:
     textract = session.client("textract")
     key = None
     try:
+        # garante bucket
         try:
             s3.head_bucket(Bucket=args.bucket)
         except Exception:
             s3.create_bucket(Bucket=args.bucket)
             s3.get_waiter("bucket_exists").wait(Bucket=args.bucket)
+
         key = f"textract/{uuid.uuid4()}" + os.path.splitext(args.file)[1]
         s3.upload_file(args.file, args.bucket, key)
 
-        # Attempt ExpenseAnalysis first
+        lines = []
+        seen = set()
+        headers_saved = False
+
+        # --- 1. Try AnalyzeExpense ---
         try:
             start = textract.start_expense_analysis(
                 DocumentLocation={"S3Object": {"Bucket": args.bucket, "Name": key}}
@@ -88,54 +91,26 @@ def main() -> int:
             if status == "SUCCEEDED":
                 expense_docs = res.get("ExpenseDocuments", [])
                 groups = expense_docs[0].get("LineItemGroups", []) if expense_docs else []
-                lines = []
                 for group in groups:
                     for item in group.get("LineItems", []):
-                        line = {
-                            "arm": "",
-                            "codigo_artigo": "",
-                            "descricao": "",
-                            "quantidade": "",
-                            "unidade": "",
-                            "preco_unitario": "",
-                            "percentagem_desconto": "",
-                            "desconto_valor": "",
-                            "valor_liquido": "",
-                            "imposto": "",
-                            "text": "",
-                        }
+                        line = {}
                         for field in item.get("LineItemExpenseFields", []):
                             t = field.get("Type", {}).get("Text", "")
                             val = field.get("ValueDetection", {}).get("Text", "")
-                            num = float(val.replace(',', '.')) if val else 0.0
-                            if t == "ITEM":
-                                line["descricao"] = val
-                            elif t == "QUANTITY":
-                                line["quantidade"] = num
-                            elif t in ("UNIT_PRICE", "PRICE"):
-                                line["preco_unitario"] = num
-                            elif t == "UNIT":
-                                line["unidade"] = val
-                            elif t == "AMOUNT":
-                                line["valor_liquido"] = num
-                            elif t == "TAX_RATE":
-                                line["imposto"] = num
-                            elif t == "TAX":
-                                if "PERCENTAGE" in field.get("EntityTypes", []) or "%" in val:
-                                    line["imposto"] = num
-                            elif t in ("PRODUCT_CODE", "ITEM_CODE", "SKU"):
-                                line["codigo_artigo"] = val
-                            elif t == "DISCOUNT":
-                                line["desconto_valor"] = num
-                        line["text"] = line["descricao"].strip()
-                        lines.append(line)
+                            if t and val:
+                                line[t] = val
+                        if line:
+                            key_line = tuple(line.values())
+                            if key_line not in seen:
+                                lines.append(line)
+                                seen.add(key_line)
                 if lines:
-                    json.dump(lines, sys.stdout, ensure_ascii=False)
+                    json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
                     return 0
         except Exception:
-            pass  # fallback to DocumentTextDetection
+            pass
 
-        # Fallback to DocumentAnalysis with TABLES to better capture line items
+        # --- 2. Fallback DocumentAnalysis TABLES ---
         try:
             start = textract.start_document_analysis(
                 DocumentLocation={"S3Object": {"Bucket": args.bucket, "Name": key}},
@@ -155,9 +130,9 @@ def main() -> int:
                 if status != "IN_PROGRESS" and not token:
                     break
                 time.sleep(1)
+
             if status == "SUCCEEDED":
                 block_map = {b["Id"]: b for b in blocks}
-                lines = []
                 for block in blocks:
                     if block.get("BlockType") != "TABLE":
                         continue
@@ -180,34 +155,30 @@ def main() -> int:
                                     if word.get("BlockType") == "WORD":
                                         text_parts.append(word.get("Text", ""))
                             rows.setdefault(row, {})[col] = " ".join(text_parts)
-                    for r_idx in sorted(rows.keys()):
-                        row_cells = [rows[r_idx].get(c, "") for c in sorted(rows[r_idx].keys())]
-                        row_text = " ".join(row_cells).strip()
-                        if not row_text:
-                            continue
-                        try:
-                            fields = parse_invoice_line_text(row_text)
-                        except Exception:
-                            fields = {
-                                "arm": "",
-                                "codigo_artigo": "",
-                                "descricao": "",
-                                "quantidade": "",
-                                "unidade": "",
-                                "preco_unitario": "",
-                                "percentagem_desconto": "",
-                                "desconto_valor": "",
-                                "valor_liquido": "",
-                                "imposto": "",
-                            }
-                        fields["text"] = row_text
-                        lines.append(fields)
+
+                    table_lines, header_row = parse_table_with_headers(rows)
+
+                    # guardar cabeçalhos se pedido
+                    if args.save_headers and header_row and not headers_saved:
+                        header_file = args.save_headers
+                        with open(header_file, "w", encoding="utf-8") as f:
+                            json.dump([h.strip() for h in header_row if h.strip()],
+                                      f, ensure_ascii=False, indent=2)
+                        headers_saved = True
+
+                    for line in table_lines:
+                        key_line = tuple(line.values())
+                        if key_line not in seen:
+                            lines.append(line)
+                            seen.add(key_line)
+
                 if lines:
-                    json.dump(lines, sys.stdout, ensure_ascii=False)
+                    json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
                     return 0
         except Exception:
-            pass  # fallback to DocumentTextDetection
+            pass
 
+        # --- 3. Fallback DocumentTextDetection ---
         start = textract.start_document_text_detection(
             DocumentLocation={"S3Object": {"Bucket": args.bucket, "Name": key}}
         )
@@ -225,33 +196,26 @@ def main() -> int:
             if status != "IN_PROGRESS" and not token:
                 break
             time.sleep(1)
+
         if status != "SUCCEEDED":
             print("Textract job failed", file=sys.stderr)
             return 3
-        lines = []
+
         for block in blocks:
             if block.get("BlockType") != "LINE":
                 continue
             text = block.get("Text", "")
-            try:
-                fields = parse_invoice_line_text(text)
-            except Exception:
-                fields = {
-                    "arm": "",
-                    "codigo_artigo": "",
-                    "descricao": "",
-                    "quantidade": "",
-                    "unidade": "",
-                    "preco_unitario": "",
-                    "percentagem_desconto": "",
-                    "desconto_valor": "",
-                    "valor_liquido": "",
-                    "imposto": "",
-                }
-            fields["text"] = text
-            lines.append(fields)
-        json.dump(lines, sys.stdout, ensure_ascii=False)
-        return 0
+            if text:
+                line = {"Texto": text}
+                if line not in lines:
+                    lines.append(line)
+
+        if lines:
+            json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
+            return 0
+
+        return 1
+
     finally:
         if key:
             try:
