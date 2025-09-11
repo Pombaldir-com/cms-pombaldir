@@ -37,7 +37,9 @@ if ($action === 'lines') {
     }
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
+
     if ($ocrProvider === 'textract') {
+
 
         try {
             $items = parseInvoiceLineTextract($path);
@@ -66,6 +68,7 @@ if ($action === 'lines') {
             error_log('Textract OCR error: ' . $e->getMessage());
             // Fallback to Tesseract below
         }
+
     }
 
     $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
