@@ -135,6 +135,79 @@ def main() -> int:
         except Exception:
             pass  # fallback to DocumentTextDetection
 
+        # Fallback to DocumentAnalysis with TABLES to better capture line items
+        try:
+            start = textract.start_document_analysis(
+                DocumentLocation={"S3Object": {"Bucket": args.bucket, "Name": key}},
+                FeatureTypes=["TABLES"],
+            )
+            job_id = start["JobId"]
+            blocks = []
+            token = None
+            while True:
+                params = {"JobId": job_id}
+                if token:
+                    params["NextToken"] = token
+                res = textract.get_document_analysis(**params)
+                blocks.extend(res.get("Blocks", []))
+                token = res.get("NextToken")
+                status = res.get("JobStatus")
+                if status != "IN_PROGRESS" and not token:
+                    break
+                time.sleep(1)
+            if status == "SUCCEEDED":
+                block_map = {b["Id"]: b for b in blocks}
+                lines = []
+                for block in blocks:
+                    if block.get("BlockType") != "TABLE":
+                        continue
+                    rows = {}
+                    for rel in block.get("Relationships", []):
+                        if rel.get("Type") != "CHILD":
+                            continue
+                        for cid in rel.get("Ids", []):
+                            cell = block_map.get(cid, {})
+                            if cell.get("BlockType") != "CELL":
+                                continue
+                            row = cell.get("RowIndex", 0)
+                            col = cell.get("ColumnIndex", 0)
+                            text_parts = []
+                            for r in cell.get("Relationships", []):
+                                if r.get("Type") != "CHILD":
+                                    continue
+                                for wid in r.get("Ids", []):
+                                    word = block_map.get(wid, {})
+                                    if word.get("BlockType") == "WORD":
+                                        text_parts.append(word.get("Text", ""))
+                            rows.setdefault(row, {})[col] = " ".join(text_parts)
+                    for r_idx in sorted(rows.keys()):
+                        row_cells = [rows[r_idx].get(c, "") for c in sorted(rows[r_idx].keys())]
+                        row_text = " ".join(row_cells).strip()
+                        if not row_text:
+                            continue
+                        try:
+                            fields = parse_invoice_line_text(row_text)
+                        except Exception:
+                            fields = {
+                                "arm": "",
+                                "codigo_artigo": "",
+                                "descricao": "",
+                                "quantidade": "",
+                                "unidade": "",
+                                "preco_unitario": "",
+                                "percentagem_desconto": "",
+                                "desconto_valor": "",
+                                "valor_liquido": "",
+                                "imposto": "",
+                            }
+                        fields["text"] = row_text
+                        lines.append(fields)
+                if lines:
+                    json.dump(lines, sys.stdout, ensure_ascii=False)
+                    return 0
+        except Exception:
+            pass  # fallback to DocumentTextDetection
+
         start = textract.start_document_text_detection(
             DocumentLocation={"S3Object": {"Bucket": args.bucket, "Name": key}}
         )
