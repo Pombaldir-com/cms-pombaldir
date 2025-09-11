@@ -39,8 +39,6 @@ if ($action === 'lines') {
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
 
     if ($ocrProvider === 'textract') {
-
-
         try {
             $items = parseInvoiceLineTextract($path);
             header('Content-Type: text/csv');
@@ -65,47 +63,55 @@ if ($action === 'lines') {
             }
             exit;
         } catch (Throwable $e) {
-            error_log('Textract OCR error: ' . $e->getMessage());
-            // Fallback to Tesseract below
+            logOcrMessage('Textract OCR error: ' . $e->getMessage());
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+            exit;
         }
-
-    }
-
-    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-    $text = '';
-    try {
-        if ($extension === 'pdf') {
-            if (!class_exists('Imagick')) {
-                throw new RuntimeException('Extensão Imagick não disponível');
+    } elseif ($ocrProvider === 'tesseract') {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $text = '';
+        try {
+            if ($extension === 'pdf') {
+                if (!class_exists('Imagick')) {
+                    throw new RuntimeException('Extensão Imagick não disponível');
+                }
+                $imagick = new Imagick();
+                $imagick->setResolution(300, 300);
+                $imagick->readImage($path);
+                $imagick->setImageFormat('png');
+                $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
+                $imagick->writeImages($tmpBase . '.png', false);
+                $imagick->clear();
+                $imagick->destroy();
+                foreach (glob($tmpBase . '-*.png') as $imgFile) {
+                    $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
+                    $text .= $ocr->run() . PHP_EOL;
+                    unlink($imgFile);
+                }
+            } else {
+                $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
+                $text = $ocr->run();
             }
-            $imagick = new Imagick();
-            $imagick->setResolution(300, 300);
-            $imagick->readImage($path);
-            $imagick->setImageFormat('png');
-            $tmpBase = sys_get_temp_dir() . '/ocr_' . uniqid();
-            $imagick->writeImages($tmpBase . '.png', false);
-            $imagick->clear();
-            $imagick->destroy();
-            foreach (glob($tmpBase . '-*.png') as $imgFile) {
-                $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($imgFile);
-                $text .= $ocr->run() . PHP_EOL;
-                unlink($imgFile);
-            }
-        } else {
-            $ocr = new thiagoalessio\TesseractOCR\TesseractOCR($path);
-            $text = $ocr->run();
+        } catch (Throwable $e) {
+            logOcrMessage('Tesseract OCR error: ' . $e->getMessage());
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+            exit;
         }
-    } catch (Throwable $e) {
-        http_response_code(500);
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
+        $output = fopen('php://output', 'w');
+        fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
+        $lines = explode(PHP_EOL, $text);
+    } else {
+        http_response_code(400);
         header('Content-Type: application/json');
-        echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+        echo json_encode(['error' => 'OCR provider inválido']);
         exit;
     }
-    header('Content-Type: text/csv');
-    header('Content-Disposition: attachment; filename="ocr_lines_' . $row['id'] . '.csv"');
-    $output = fopen('php://output', 'w');
-    fputcsv($output, ['line_number', 'text', 'arm', 'codigo_artigo', 'descricao', 'quantidade', 'unidade', 'preco_unitario', 'percentagem_desconto', 'desconto_valor', 'valor_liquido', 'imposto']);
-    $lines = explode(PHP_EOL, $text);
     $inTable = false;
     $normalize = static function (string $str): string {
         return strtolower(iconv('UTF-8', 'ASCII//TRANSLIT', $str));

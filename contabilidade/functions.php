@@ -12,6 +12,18 @@ use Aws\S3\S3Client;
 use Aws\Exception\AwsException;
 
 /**
+ * Append an OCR-related message to a log file.
+ *
+ * @param string $message Message to append.
+ * @return void
+ */
+function logOcrMessage(string $message): void {
+    $logFile = __DIR__ . '/../data/ocr.log';
+    $timestamp = date('Y-m-d H:i:s');
+    error_log("[$timestamp] $message\n", 3, $logFile);
+}
+
+/**
  * Parse an invoice line from a text string produced by OCR.
  *
  * @param string $text OCR text for a single invoice line.
@@ -200,9 +212,9 @@ function parseInvoiceLineTextract(string $filePath): array {
             if ($e->getAwsErrorCode() === 'UnsupportedDocumentException') {
                 throw new RuntimeException('Formato de arquivo não suportado pelo Textract', 0, $e);
             }
-            error_log('Textract StartExpenseAnalysis error: ' . $e->getMessage());
+            logOcrMessage('Textract StartExpenseAnalysis error: ' . $e->getMessage());
         } catch (Throwable $e) {
-            error_log('Textract StartExpenseAnalysis error: ' . $e->getMessage());
+            logOcrMessage('Textract StartExpenseAnalysis error: ' . $e->getMessage());
         }
 
         $start = $textract->startDocumentTextDetection([
@@ -257,10 +269,10 @@ function parseInvoiceLineTextract(string $filePath): array {
         if ($e->getAwsErrorCode() === 'UnsupportedDocumentException') {
             throw new RuntimeException('Formato de arquivo não suportado pelo Textract', 0, $e);
         }
-        error_log('Textract DetectDocumentText error: ' . $e->getMessage());
+        logOcrMessage('Textract DetectDocumentText error: ' . $e->getMessage());
         throw new RuntimeException('Falha no OCR Textract', 0, $e);
     } catch (Throwable $e) {
-        error_log('Textract DetectDocumentText error: ' . $e->getMessage());
+        logOcrMessage('Textract DetectDocumentText error: ' . $e->getMessage());
         throw new RuntimeException('Falha no OCR Textract', 0, $e);
     } finally {
         try {
