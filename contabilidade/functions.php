@@ -70,7 +70,11 @@ function parseInvoiceLineImage(string $imagePath): array {
  * @throws RuntimeException When Textract fails.
  */
 function parseInvoiceLineTextract(string $filePath): array {
-
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+    $allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'tif'];
+    if (! in_array($extension, $allowedExtensions, true)) {
+        throw new RuntimeException('Formato de arquivo não suportado pelo Textract');
+    }
 
     $key = getSetting('aws_access_key_id', getenv('AWS_ACCESS_KEY_ID') ?: '');
     $secret = getSetting('aws_secret_access_key', getenv('AWS_SECRET_ACCESS_KEY') ?: '');
