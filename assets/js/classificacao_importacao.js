@@ -35,8 +35,15 @@ window.addEventListener('load', function() {
 
         if (!requires) { allFilled = false; }
 
-        btn.classList.toggle('btn-success', allFilled);
-        btn.classList.toggle('btn-warning', !allFilled);
+        var hasAnyAccount = iva6 || iva13 || iva23 || novat;
+        btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
+        if (requires && allFilled) {
+            btn.classList.add('btn-success');
+        } else if (hasAnyAccount) {
+            btn.classList.add('btn-warning');
+        } else {
+            btn.classList.add('btn-secondary');
+        }
 
     }
 
