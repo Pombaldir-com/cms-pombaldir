@@ -1,11 +1,15 @@
 window.addEventListener('load', function() {
     function showError(message) {
-        new PNotify({
-            title: 'Erro',
-            text: message,
-            type: 'error',
-            styling: 'bootstrap3'
-        });
+        if (window.PNotify) {
+            new PNotify({
+                title: 'Erro',
+                text: message,
+                type: 'error',
+                styling: 'bootstrap3'
+            });
+        } else {
+            alert(message);
+        }
     }
 
     function fetchJson(url, options) {
