@@ -9,8 +9,10 @@ $useDataTables = true;
 $useDropzone = false;
 
 $pdo = getPDO();
+$importType = (int)($_GET['import_type'] ?? 1);
 
-$stmt = $pdo->query('SELECT * FROM accounting_imports');
+$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type');
+$stmt->execute([':type' => $importType]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
@@ -26,6 +28,7 @@ $csrfToken = generateCsrfToken();
 
 require_once __DIR__ . '/../header.php';
 ?>
+<input type="hidden" id="import_type" value="<?= htmlspecialchars($importType); ?>">
 <div class="row mb-3">
     <div class="col-12">
         <table id="classify-table" class="table table-striped">

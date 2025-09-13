@@ -8,10 +8,15 @@ window.addEventListener('load', function() {
         });
     }
     var csrfInput = document.getElementById('csrf_token');
+    var importTypeInput = document.getElementById('import_type');
+    var importType = importTypeInput ? importTypeInput.value : 1;
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
-        ajax: 'contabilidade/classificacao-importacao-data.php',
+        ajax: {
+            url: 'contabilidade/classificacao-importacao-data.php',
+            data: function(d) { d.import_type = importType; }
+        },
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [

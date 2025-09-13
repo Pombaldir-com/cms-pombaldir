@@ -6,6 +6,7 @@ startSession();
 requireLogin();
 
 $pdo = getPDO();
+$importType = (int)($_GET['import_type'] ?? 1);
 dropLegacyAccountColumns($pdo);
 
 $columns = [
@@ -40,13 +41,16 @@ if ($length <= 0) {
     $length = 10;
 }
 
-$total = (int)$pdo->query('SELECT COUNT(*) FROM accounting_imports')->fetchColumn();
+$totalStmt = $pdo->prepare('SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType');
+$totalStmt->execute([':importType' => $importType]);
+$total = (int)$totalStmt->fetchColumn();
 
 $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-$sql = "SELECT $colList FROM accounting_imports ORDER BY id LIMIT :start, :length";
+$sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
 $stmt = $pdo->prepare($sql);
 $stmt->bindValue(':start', $start, PDO::PARAM_INT);
 $stmt->bindValue(':length', $length, PDO::PARAM_INT);
+$stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
 $stmt->execute();
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
