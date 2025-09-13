@@ -178,7 +178,7 @@ $csrfToken = generateCsrfToken();
         <tbody></tbody>
         </table>
         <button id="import-btn" class="btn btn-success mt-3" style="display: none;">Importar</button>
-        <button id="import-compras-btn" class="btn btn-primary mt-3" style="display: none;">Importar Compras</button>
+        <button id="import-compras-btn" class="btn btn-primary mt-3">Importar Compras</button>
     </div>
 
 </div>
