@@ -111,9 +111,7 @@ foreach ($rows as $row) {
             . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
     }
     if ($importType === 2) {
-        $actionsParts[] = '<a href="contabilidade/save-analysis.php?action=lines&id=' . (int)$row['id']
-            . '&csrf_token=' . urlencode($csrfToken) . '" '
-            . 'class="btn btn-xs btn-info" target="_blank">Analisar</a>';
+        $actionsParts[] = '<button type="button" class="btn btn-xs btn-info analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
     }
     $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
     $actions = implode(' ', $actionsParts);

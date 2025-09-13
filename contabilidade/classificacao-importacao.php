@@ -124,7 +124,7 @@ require_once __DIR__ . '/../header.php';
                         <?php endif; ?>
 
                         <?php if ($importType === 2): ?>
-                        <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>&csrf_token=<?= urlencode($csrfToken); ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
+                        <button type="button" class="btn btn-xs btn-info analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
@@ -134,7 +134,7 @@ require_once __DIR__ . '/../header.php';
             </tbody>
         </table>
         <input type="hidden" id="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-    </div>
+</div>
 </div>
 <div class="modal fade" id="classifyModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -167,6 +167,22 @@ require_once __DIR__ . '/../header.php';
                     <button type="submit" class="btn btn-primary">Guardar</button>
                 </div>
             </form>
+</div>
+</div>
+</div>
+<div class="modal fade" id="linesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Linhas do Documento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="linesContainer"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Confirmar</button>
+            </div>
         </div>
     </div>
 </div>

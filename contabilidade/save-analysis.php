@@ -34,13 +34,24 @@ if ($action === 'lines') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    $stmt = $pdo->prepare('SELECT id, filename FROM accounting_imports WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, filename, line_items FROM accounting_imports WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (! $row) {
         http_response_code(404);
         exit;
     }
+    // If line items already stored, return them without invoking OCR again.
+    if (!empty($row['line_items'])) {
+        $items = json_decode($row['line_items'], true);
+        if (!is_array($items)) {
+            $items = [];
+        }
+        header('Content-Type: application/json');
+        echo json_encode($items, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
 
@@ -53,6 +64,9 @@ if ($action === 'lines') {
 
     try {
         $items = parseInvoiceLineTextract($path);
+        // Store OCR result so subsequent requests can reuse it.
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+        $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
         header('Content-Type: application/json');
         echo json_encode($items, JSON_UNESCAPED_UNICODE);
         exit;
