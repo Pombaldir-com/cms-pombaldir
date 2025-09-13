@@ -10,7 +10,7 @@ $useDropzone = false;
 
 $pdo = getPDO();
 dropLegacyAccountColumns($pdo);
-$stmt = $pdo->query('SELECT * FROM accounting_imports');
+$stmt = $pdo->query('SELECT * FROM accounting_imports WHERE import_type = 1');
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
     $accounts = json_decode($row['account'] ?? '', true) ?: [];

@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS accounting_imports (
     field_R VARCHAR(255) DEFAULT '',
     account VARCHAR(255) DEFAULT '',
     filename VARCHAR(255) DEFAULT '',
+    import_type TINYINT DEFAULT 1,
     dte_add TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

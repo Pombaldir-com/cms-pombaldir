@@ -39,6 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        $importType = isset($data['import_type']) ? (int)$data['import_type'] : 1;
+
         $pdo = getPDO();
 
         // Preencher conta associada, se existir classificação
@@ -53,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($row);
 
         // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H
-        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? LIMIT 1');
         foreach ($rows as $row) {
             $fieldH = $row['H'] ?? '';
@@ -85,7 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['Q'] ?? '',
                 $row['R'] ?? '',
                 $row['account'] ?? '',
-                $row['filename'] ?? ''
+                $row['filename'] ?? '',
+                $importType
             ]);
         }
 
@@ -175,6 +178,7 @@ $csrfToken = generateCsrfToken();
         <tbody></tbody>
         </table>
         <button id="import-btn" class="btn btn-success mt-3" style="display: none;">Importar</button>
+        <button id="import-compras-btn" class="btn btn-primary mt-3" style="display: none;">Importar Compras</button>
     </div>
 
 </div>
