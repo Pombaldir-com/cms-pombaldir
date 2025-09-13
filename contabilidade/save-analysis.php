@@ -18,6 +18,13 @@ if ($action === 'lines') {
         http_response_code(403);
         exit;
     }
+    $token = $_GET['csrf_token'] ?? $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
     $id = $_GET['id'] ?? '';
     try {
         $pdo = getPDO();
