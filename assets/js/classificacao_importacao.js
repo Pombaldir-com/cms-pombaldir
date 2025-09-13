@@ -9,6 +9,9 @@ window.addEventListener('load', function() {
     }
     var csrfInput = document.getElementById('csrf_token');
     var table = $('#classify-table').DataTable({
+        serverSide: true,
+        processing: true,
+        ajax: 'contabilidade/classificacao-importacao-data.php',
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [
@@ -165,7 +168,7 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                table.row($(btn).closest('tr')).remove().draw();
+                table.ajax.reload(null, false);
             } else {
                 showError(res.error || 'Erro ao remover');
             }

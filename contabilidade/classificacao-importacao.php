@@ -9,6 +9,7 @@ $useDataTables = true;
 $useDropzone = false;
 
 $pdo = getPDO();
+
 $stmt = $pdo->query('SELECT * FROM accounting_imports');
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
@@ -19,6 +20,7 @@ foreach ($rows as &$row) {
     $row['account_novat'] = $accounts['novat'] ?? '';
 }
 unset($row);
+
 $csrfToken = generateCsrfToken();
 
 require_once __DIR__ . '/../header.php';
@@ -52,6 +54,7 @@ require_once __DIR__ . '/../header.php';
                 </tr>
             </thead>
             <tbody>
+
             <?php foreach ($rows as $row): ?>
                 <tr>
                     <td class="text-start"><?= htmlspecialchars($row['field_A'] ?? ''); ?></td>
@@ -119,6 +122,7 @@ require_once __DIR__ . '/../header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
+
             </tbody>
         </table>
         <input type="hidden" id="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
