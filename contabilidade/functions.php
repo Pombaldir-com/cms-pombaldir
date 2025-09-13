@@ -139,4 +139,31 @@ function parseInvoiceLineTextract(string $filePath): array {
     return $data;
 }
 
+/**
+ * Remove legacy account columns from accounting tables if they exist.
+ *
+ * Previous iterations stored account information directly in dedicated
+ * columns.  The current schema uses a JSON field instead, so these old
+ * columns should be dropped.  The function is safe to run multiple
+ * times because it checks for a column's existence before attempting
+ * to drop it.
+ *
+ * @param PDO $pdo Active database connection
+ * @return void
+ */
+function dropLegacyAccountColumns(PDO $pdo): void {
+    $legacyCols = ['account_iva6', 'account_iva13', 'account_iva23', 'account_novat'];
+    $tables = ['accounting_imports', 'accounting_classifications'];
+
+    foreach ($tables as $table) {
+        $stmt = $pdo->query("SHOW COLUMNS FROM {$table}");
+        $existing = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($legacyCols as $col) {
+            if (in_array($col, $existing, true)) {
+                $pdo->exec("ALTER TABLE {$table} DROP COLUMN {$col}");
+            }
+        }
+    }
+}
+
 ?>
