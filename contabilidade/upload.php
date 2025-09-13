@@ -56,13 +56,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($row);
 
-        // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H
+        // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H e pelo tipo de importação
         $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? LIMIT 1');
+        $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? AND import_type = ? LIMIT 1');
         foreach ($rows as $row) {
             $fieldH = $row['H'] ?? '';
             if ($fieldH !== '') {
-                $exists->execute([$fieldH]);
+                // Verifica se já existe um registo com o mesmo documento e tipo de importação
+                $exists->execute([$fieldH, $importType]);
                 if ($exists->fetchColumn()) {
                     continue; // pular se já existir
                 }
