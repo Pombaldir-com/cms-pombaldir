@@ -92,22 +92,28 @@ unset($row);
 
 $data = [];
 foreach ($rows as $row) {
-    $actions = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
-        . 'data-id="' . (int)$row['id'] . '" '
-        . 'data-iva6="' . htmlspecialchars($row['account_iva6']) . '" '
-        . 'data-iva13="' . htmlspecialchars($row['account_iva13']) . '" '
-        . 'data-iva23="' . htmlspecialchars($row['account_iva23']) . '" '
-        . 'data-novat="' . htmlspecialchars($row['account_novat']) . '" '
-        . 'data-amt-iva6="' . $row['amt_iva6'] . '" '
-        . 'data-amt-iva13="' . $row['amt_iva13'] . '" '
-        . 'data-amt-iva23="' . $row['amt_iva23'] . '" '
-        . 'data-req-novat="' . $row['needs_novat'] . '" '
-        . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
-        . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
-        . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button> '
-        . '<a href="contabilidade/save-analysis.php?action=lines&id=' . (int)$row['id'] . '" '
-        . 'class="btn btn-xs btn-info" target="_blank">Analisar</a> '
-        . '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
+    $actionsParts = [];
+    if ($importType === 1) {
+        $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
+            . 'data-id="' . (int)$row['id'] . '" '
+            . 'data-iva6="' . htmlspecialchars($row['account_iva6']) . '" '
+            . 'data-iva13="' . htmlspecialchars($row['account_iva13']) . '" '
+            . 'data-iva23="' . htmlspecialchars($row['account_iva23']) . '" '
+            . 'data-novat="' . htmlspecialchars($row['account_novat']) . '" '
+            . 'data-amt-iva6="' . $row['amt_iva6'] . '" '
+            . 'data-amt-iva13="' . $row['amt_iva13'] . '" '
+            . 'data-amt-iva23="' . $row['amt_iva23'] . '" '
+            . 'data-req-novat="' . $row['needs_novat'] . '" '
+            . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
+            . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
+            . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
+    }
+    if ($importType === 2) {
+        $actionsParts[] = '<a href="contabilidade/save-analysis.php?action=lines&id=' . (int)$row['id'] . '" '
+            . 'class="btn btn-xs btn-info" target="_blank">Analisar</a>';
+    }
+    $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
+    $actions = implode(' ', $actionsParts);
     $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
     $data[] = [
         htmlspecialchars($row['field_A'] ?? ''),
