@@ -11,6 +11,7 @@ $useDropzone = false;
 $pdo = getPDO();
 
 $stmt = $pdo->query('SELECT * FROM accounting_imports');
+
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
     $accounts = json_decode($row['account'] ?? '', true) ?: [];

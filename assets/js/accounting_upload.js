@@ -4,6 +4,7 @@ window.addEventListener('load', function() {
     var form = document.getElementById('multi-upload');
     var csrfInput = form.querySelector('input[name="csrf_token"]');
     var importBtn = document.getElementById('import-btn');
+    var importComprasBtn = document.getElementById('import-compras-btn');
 
     var table;
     if ($.fn.dataTable.isDataTable('#qr-table')) {
@@ -124,8 +125,13 @@ window.addEventListener('load', function() {
     });
 
     dz.on('queuecomplete', function() {
-        if (importBtn && table.rows().data().length) {
-            importBtn.style.display = 'inline-block';
+        if (table.rows().data().length) {
+            if (importBtn) {
+                importBtn.style.display = 'inline-block';
+            }
+            if (importComprasBtn) {
+                importComprasBtn.style.display = 'inline-block';
+            }
         }
     });
 
@@ -166,48 +172,58 @@ window.addEventListener('load', function() {
         });
     });
 
-    if (importBtn) {
-        importBtn.addEventListener('click', function() {
-            var nodes = table.rows().nodes().toArray();
-            if (!nodes.length) {
-                alert('Não há dados para importar');
-                return;
+    function handleImport(type) {
+        var nodes = table.rows().nodes().toArray();
+        if (!nodes.length) {
+            alert('Não há dados para importar');
+            return;
+        }
+        var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
+        var payload = nodes.map(function(node) {
+            var data = table.row(node).data() || [];
+            var obj = {};
+            for (var i = 0; i < keys.length; i++) {
+                obj[keys[i]] = data[i] || '';
             }
-            var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
-            var payload = nodes.map(function(node) {
-                var data = table.row(node).data() || [];
-                var obj = {};
-                for (var i = 0; i < keys.length; i++) {
-                    obj[keys[i]] = data[i] || '';
-                }
-                obj['filename'] = $(node).find('.delete-row').data('file') || '';
-                return obj;
-            });
-            fetch('contabilidade/upload.php?action=import', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ rows: payload, csrf_token: csrfInput.value })
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-                if (res.success) {
-                    alert('Importação concluída');
-                    importBtn.style.display = 'none';
-                    table.clear().draw();
-                    dz.removeAllFiles(true);
-                } else {
-                    alert(res.error || 'Falha na importação');
-                }
-            })
-            .catch(function() {
-                alert('Falha na importação');
-            });
+            obj['filename'] = $(node).find('.delete-row').data('file') || '';
+            return obj;
         });
+        fetch('contabilidade/upload.php?action=import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ rows: payload, import_type: type, csrf_token: csrfInput.value })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (res.csrf_token) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success) {
+                alert('Importação concluída');
+                if (importBtn) {
+                    importBtn.style.display = 'none';
+                }
+                if (importComprasBtn) {
+                    importComprasBtn.style.display = 'none';
+                }
+                table.clear().draw();
+                dz.removeAllFiles(true);
+            } else {
+                alert(res.error || 'Falha na importação');
+            }
+        })
+        .catch(function() {
+            alert('Falha na importação');
+        });
+    }
+
+    if (importBtn) {
+        importBtn.addEventListener('click', function() { handleImport(1); });
+    }
+    if (importComprasBtn) {
+        importComprasBtn.addEventListener('click', function() { handleImport(2); });
     }
 
 });
