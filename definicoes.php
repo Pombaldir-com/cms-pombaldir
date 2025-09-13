@@ -13,6 +13,7 @@ $contentTypes = getContentTypes();
 $availableModules = [
     'contabilidade' => 'Contabilidade',
     'faturacao' => 'Faturação',
+    'compras' => 'Compras',
 ];
 
 $generalSaved = false;
