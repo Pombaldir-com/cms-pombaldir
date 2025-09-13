@@ -3,6 +3,8 @@ require_once __DIR__ . '/../functions.php';
 
 startSession();
 
+$comprasActive = isModuleActive('compras');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
 
@@ -178,7 +180,9 @@ $csrfToken = generateCsrfToken();
         <tbody></tbody>
         </table>
         <button id="import-btn" class="btn btn-success mt-3" style="display: none;">Importar</button>
+        <?php if ($comprasActive): ?>
         <button id="import-compras-btn" class="btn btn-primary mt-3" style="display: none;">Importar Compras</button>
+        <?php endif; ?>
     </div>
 
 </div>
