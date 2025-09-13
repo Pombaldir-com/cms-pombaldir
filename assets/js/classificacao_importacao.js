@@ -210,14 +210,10 @@ window.addEventListener('load', function() {
         var id = btn.getAttribute('data-id');
         var params = new URLSearchParams({
             action: 'lines',
-            id: id,
-            csrf_token: csrfInput.value
+            id: id
         });
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
                 if (res.error) {
                     showError(res.error);
                     return;
@@ -238,7 +234,7 @@ window.addEventListener('load', function() {
         var headers = [];
         lines.forEach(function(line) {
             Object.keys(line).forEach(function(key) {
-                if (headers.indexOf(key) === -1) {
+                if (key !== 'EXPENSE_ROW' && headers.indexOf(key) === -1) {
                     headers.push(key);
                 }
             });
