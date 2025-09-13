@@ -12,7 +12,6 @@ $csrfToken = generateCsrfToken();
 $contentTypes = getContentTypes();
 $availableModules = [
     'contabilidade' => 'Contabilidade',
-    'faturacao' => 'Faturação',
     'compras' => 'Compras',
 ];
 
