@@ -12,6 +12,14 @@ document.addEventListener('DOMContentLoaded', function () {
     var csrfInput = document.querySelector('#multi-upload input[name="csrf_token"]');
     var importBtn = document.getElementById('import-btn');
     var importComprasBtn = document.getElementById('import-compras-btn');
+    function showImportButtons() {
+        if (importBtn) {
+            importBtn.style.display = 'inline-block';
+        }
+        if (importComprasBtn) {
+            importComprasBtn.style.display = 'inline-block';
+        }
+    }
     var table = window.accountingTable;
 
     if (!cameraBtn || !fileBtn) {
@@ -92,12 +100,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
                 if (table && table.rows().data().length) {
-                    if (importBtn) {
-                        importBtn.style.display = 'inline-block';
-                    }
-                    if (importComprasBtn) {
-                        importComprasBtn.style.display = 'inline-block';
-                    }
+                    showImportButtons();
                 }
             } else {
                 alert('QR code não encontrado');
