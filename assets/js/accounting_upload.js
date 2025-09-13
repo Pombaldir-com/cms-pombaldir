@@ -6,6 +6,15 @@ window.addEventListener('load', function() {
     var importBtn = document.getElementById('import-btn');
     var importComprasBtn = document.getElementById('import-compras-btn');
 
+    function showImportButtons() {
+        if (importBtn) {
+            importBtn.style.display = 'inline-block';
+        }
+        if (importComprasBtn) {
+            importComprasBtn.style.display = 'inline-block';
+        }
+    }
+
     var table;
     if ($.fn.dataTable.isDataTable('#qr-table')) {
         table = $('#qr-table').DataTable();
@@ -64,6 +73,9 @@ window.addEventListener('load', function() {
                 row.push(actions);
                 table.row.add(row).draw(false);
             });
+            if (table.rows().data().length) {
+                showImportButtons();
+            }
         } else {
             alert('QR code não encontrado');
             if (data.file) {
@@ -126,12 +138,7 @@ window.addEventListener('load', function() {
 
     dz.on('queuecomplete', function() {
         if (table.rows().data().length) {
-            if (importBtn) {
-                importBtn.style.display = 'inline-block';
-            }
-            if (importComprasBtn) {
-                importComprasBtn.style.display = 'inline-block';
-            }
+            showImportButtons();
         }
     });
 
