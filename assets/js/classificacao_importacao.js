@@ -7,6 +7,18 @@ window.addEventListener('load', function() {
             styling: 'bootstrap3'
         });
     }
+
+    function fetchJson(url, options) {
+        return fetch(url, options).then(function(res) {
+            return res.text().then(function(text) {
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    throw new Error(text || 'Resposta inválida do servidor');
+                }
+            });
+        });
+    }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
     var importType = importTypeInput ? importTypeInput.value : 1;
@@ -96,8 +108,7 @@ window.addEventListener('load', function() {
             D: docType,
             csrf_token: csrfInput.value
         });
-        fetch('contabilidade/save-analysis.php?' + params.toString())
-            .then(function(res) { return res.json(); })
+        fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
                 if (res.csrf_token) {
                     csrfInput.value = res.csrf_token;
@@ -107,6 +118,9 @@ window.addEventListener('load', function() {
                 form.iva23.value = btn.getAttribute('data-iva23') || res.iva23 || '';
                 form.novat.value = btn.getAttribute('data-novat') || res.novat || '';
                 classifyModal.show();
+            })
+            .catch(function(err) {
+                showError(err.message || 'Erro ao carregar');
             });
     });
 
@@ -130,12 +144,11 @@ window.addEventListener('load', function() {
             novat: novat,
             csrf_token: csrfInput.value
         });
-        fetch('contabilidade/save-analysis.php?action=save', {
+        fetchJson('contabilidade/save-analysis.php?action=save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString()
         })
-        .then(function(res) { return res.json(); })
         .then(function(res) {
             if (res.csrf_token) {
                 csrfInput.value = res.csrf_token;
@@ -150,6 +163,9 @@ window.addEventListener('load', function() {
             } else {
                 showError(res.error || 'Erro ao guardar');
             }
+        })
+        .catch(function(err) {
+            showError(err.message || 'Erro ao guardar');
         });
     });
 
@@ -162,12 +178,11 @@ window.addEventListener('load', function() {
             id: btn.getAttribute('data-id'),
             csrf_token: csrfInput.value
         });
-        fetch('contabilidade/save-analysis.php?action=remove', {
+        fetchJson('contabilidade/save-analysis.php?action=remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString()
         })
-        .then(function(res) { return res.json(); })
         .then(function(res) {
             if (res.csrf_token) {
                 csrfInput.value = res.csrf_token;
@@ -177,6 +192,9 @@ window.addEventListener('load', function() {
             } else {
                 showError(res.error || 'Erro ao remover');
             }
+        })
+        .catch(function(err) {
+            showError(err.message || 'Erro ao remover');
         });
     });
 });
