@@ -139,26 +139,4 @@ function parseInvoiceLineTextract(string $filePath): array {
     return $data;
 }
 
-/**
- * Remove legacy per-IVA columns so only the serialized `account` column remains.
- */
-function dropLegacyAccountColumns(PDO $pdo): void {
-    $tables = ['accounting_imports', 'accounting_classifications'];
-    $legacy = ['account_iva6', 'account_iva13', 'account_iva23', 'account_novat'];
-
-    foreach ($tables as $table) {
-        $stmt = $pdo->query("SHOW COLUMNS FROM {$table}");
-        $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        $drops = [];
-        foreach ($legacy as $col) {
-            if (in_array($col, $columns, true)) {
-                $drops[] = "DROP COLUMN `{$col}`";
-            }
-        }
-        if ($drops) {
-            $pdo->exec("ALTER TABLE {$table} " . implode(', ', $drops));
-        }
-    }
-}
-
 ?>
