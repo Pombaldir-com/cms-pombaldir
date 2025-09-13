@@ -98,6 +98,8 @@ window.addEventListener('load', function() {
     var classifyModal = new bootstrap.Modal(document.getElementById('classifyModal'));
     var form = document.getElementById('classify-form');
     var currentBtn = null;
+    var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
+    var linesContainer = document.getElementById('linesContainer');
 
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
@@ -201,5 +203,56 @@ window.addEventListener('load', function() {
             showError(err.message || 'Erro ao remover');
         });
     });
+
+    // Handle line analysis (import type 2)
+    $('#classify-table').on('click', '.analyze-lines', function() {
+        var btn = this;
+        var id = btn.getAttribute('data-id');
+        var params = new URLSearchParams({
+            action: 'lines',
+            id: id,
+            csrf_token: csrfInput.value
+        });
+        fetchJson('contabilidade/save-analysis.php?' + params.toString())
+            .then(function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (res.error) {
+                    showError(res.error);
+                    return;
+                }
+                renderLines(res);
+                linesModal.show();
+            })
+            .catch(function(err) {
+                showError(err.message || 'Erro na análise');
+            });
+    });
+
+    function renderLines(lines) {
+        if (!Array.isArray(lines) || lines.length === 0) {
+            linesContainer.innerHTML = '<p>Sem linhas detectadas</p>';
+            return;
+        }
+        var headers = [];
+        lines.forEach(function(line) {
+            Object.keys(line).forEach(function(key) {
+                if (headers.indexOf(key) === -1) {
+                    headers.push(key);
+                }
+            });
+        });
+        var html = '<table class="table table-striped"><thead><tr>';
+        headers.forEach(function(h) { html += '<th>' + h + '</th>'; });
+        html += '</tr></thead><tbody>';
+        lines.forEach(function(line) {
+            html += '<tr>';
+            headers.forEach(function(h) { html += '<td>' + (line[h] || '') + '</td>'; });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        linesContainer.innerHTML = html;
+    }
 });
 
