@@ -131,11 +131,17 @@ if ($action === 'get') {
             'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
         );
         $stmtExisting->execute([$a, $b, $d]);
-        $existingClass = json_decode($stmtExisting->fetchColumn() ?: '', true) ?: [];
+        $existingClass = json_decode($stmtExisting->fetchColumn() ?: '[]', true);
+        if (!is_array($existingClass)) {
+            $existingClass = [];
+        }
 
         $stmtRow = $pdo->prepare('SELECT account FROM accounting_imports WHERE id = ?');
         $stmtRow->execute([$id]);
-        $existingRow = json_decode($stmtRow->fetchColumn() ?: '', true) ?: [];
+        $existingRow = json_decode($stmtRow->fetchColumn() ?: '[]', true);
+        if (!is_array($existingRow)) {
+            $existingRow = [];
+        }
 
         // Merge existing accounts, giving priority to row-specific values and
         // any values explicitly submitted in this request (even empty ones).
