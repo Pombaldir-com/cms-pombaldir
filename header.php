@@ -100,7 +100,13 @@ foreach ($sidebarTypes as $sidebarType):
                                     <li><a href="<?= BASE_URL ?>contabilidade/saft">SAF-T</a></li>
                                 </ul>
                             </li>
-                            <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao"><i class="fa fa-tasks"></i> Classificação e Importação</a></li>
+                            <li>
+                                <a><i class="fa fa-tasks"></i> Classificação e Importação <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1">Contabilidade -> Compras</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=2">Importação de Compras</a></li>
+                                </ul>
+                            </li>
 <?php endif; ?>
                         </ul>
                     </div>
