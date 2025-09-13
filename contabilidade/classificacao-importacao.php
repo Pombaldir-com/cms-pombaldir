@@ -9,8 +9,9 @@ $useDataTables = true;
 $useDropzone = false;
 
 $pdo = getPDO();
-dropLegacyAccountColumns($pdo);
-$stmt = $pdo->query('SELECT * FROM accounting_imports WHERE import_type = 1');
+
+$stmt = $pdo->query('SELECT * FROM accounting_imports');
+
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
     $accounts = json_decode($row['account'] ?? '', true) ?: [];
@@ -20,6 +21,7 @@ foreach ($rows as &$row) {
     $row['account_novat'] = $accounts['novat'] ?? '';
 }
 unset($row);
+
 $csrfToken = generateCsrfToken();
 
 require_once __DIR__ . '/../header.php';
@@ -53,6 +55,7 @@ require_once __DIR__ . '/../header.php';
                 </tr>
             </thead>
             <tbody>
+
             <?php foreach ($rows as $row): ?>
                 <tr>
                     <td class="text-start"><?= htmlspecialchars($row['field_A'] ?? ''); ?></td>
@@ -115,11 +118,12 @@ require_once __DIR__ . '/../header.php';
 
                         <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-iva6="<?= htmlspecialchars($row['account_iva6'] ?? ''); ?>" data-iva13="<?= htmlspecialchars($row['account_iva13'] ?? ''); ?>" data-iva23="<?= htmlspecialchars($row['account_iva23'] ?? ''); ?>" data-novat="<?= htmlspecialchars($row['account_novat'] ?? ''); ?>" data-amt-iva6="<?= $amtIva6; ?>" data-amt-iva13="<?= $amtIva13; ?>" data-amt-iva23="<?= $amtIva23; ?>" data-req-novat="<?= $needsNovat ? 1 : 0; ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
 
-                        <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
+                        <a href="contabilidade/save-analysis.php?action=lines&id=<?= (int)$row['id']; ?>&csrf_token=<?= urlencode($csrfToken); ?>" class="btn btn-xs btn-info" target="_blank">Analisar</a>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
                 </tr>
             <?php endforeach; ?>
+
             </tbody>
         </table>
         <input type="hidden" id="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">

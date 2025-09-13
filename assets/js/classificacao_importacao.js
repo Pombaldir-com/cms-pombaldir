@@ -1,6 +1,17 @@
 window.addEventListener('load', function() {
+    function showError(message) {
+        new PNotify({
+            title: 'Erro',
+            text: message,
+            type: 'error',
+            styling: 'bootstrap3'
+        });
+    }
     var csrfInput = document.getElementById('csrf_token');
     var table = $('#classify-table').DataTable({
+        serverSide: true,
+        processing: true,
+        ajax: 'contabilidade/classificacao-importacao-data.php',
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [
@@ -132,8 +143,7 @@ window.addEventListener('load', function() {
                 updateButtonClass(currentBtn);
                 classifyModal.hide();
             } else {
-                console.log(res);
-                alert(res.error || 'Erro ao guardar');
+                showError(res.error || 'Erro ao guardar');
             }
         });
     });
@@ -158,9 +168,9 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                table.row($(btn).closest('tr')).remove().draw();
+                table.ajax.reload(null, false);
             } else {
-                alert(res.error || 'Erro ao remover');
+                showError(res.error || 'Erro ao remover');
             }
         });
     });
