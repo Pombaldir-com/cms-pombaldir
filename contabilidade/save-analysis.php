@@ -21,7 +21,6 @@ if ($action === 'lines') {
     $id = $_GET['id'] ?? '';
     try {
         $pdo = getPDO();
-        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         header('Content-Type: application/json');
@@ -79,7 +78,6 @@ if ($action === 'get') {
     $d = $_GET['D'] ?? '';
     try {
         $pdo = getPDO();
-        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
@@ -112,7 +110,6 @@ if ($action === 'get') {
     $d = $_POST['D'] ?? '';
     try {
         $pdo = getPDO();
-        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
@@ -179,7 +176,6 @@ if ($action === 'get') {
     $id = $_POST['id'] ?? '';
     try {
         $pdo = getPDO();
-        dropLegacyAccountColumns($pdo);
     } catch (RuntimeException $e) {
         http_response_code(400);
         echo json_encode(['error' => 'Empresa não selecionada']);
