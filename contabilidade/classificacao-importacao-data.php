@@ -33,7 +33,8 @@ $columns = [
     'field_O',
     'field_Q',
     'field_R',
-    'filename'
+    'filename',
+    'line_items'
 ];
 
 $draw = (int)($_GET['draw'] ?? 0);
@@ -89,6 +90,21 @@ foreach ($rows as &$row) {
     $row['amt_iva6'] = $amtIva6;
     $row['amt_iva13'] = $amtIva13;
     $row['amt_iva23'] = $amtIva23;
+    // Determine analyze button class based on line ERP codes
+    $row['line_btn_class'] = 'btn-info';
+    $lines = json_decode($row['line_items'] ?? '', true);
+    if (is_array($lines) && count($lines) > 0) {
+        $allFilled = true;
+        foreach ($lines as $line) {
+            if (trim($line['ERP'] ?? '') === '') {
+                $allFilled = false;
+                break;
+            }
+        }
+        if ($allFilled) {
+            $row['line_btn_class'] = 'btn-success';
+        }
+    }
 }
 unset($row);
 
@@ -111,7 +127,7 @@ foreach ($rows as $row) {
             . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
     }
     if ($importType === 2) {
-        $actionsParts[] = '<button type="button" class="btn btn-xs btn-info analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
+        $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
     }
     $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
     $actions = implode(' ', $actionsParts);
