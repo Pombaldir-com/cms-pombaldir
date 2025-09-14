@@ -181,7 +181,7 @@ require_once __DIR__ . '/../header.php';
                 <div id="linesContainer"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Confirmar</button>
+                <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
             </div>
         </div>
     </div>
