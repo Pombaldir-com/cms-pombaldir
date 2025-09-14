@@ -250,10 +250,9 @@ window.addEventListener('load', function() {
             var erp = line.ERP || '';
             var iva = line.IVA_TAXA || line.OTHER || '';
             var productCode = line.PRODUCT_CODE || '';
-            var itemData = line.ITEM_QUANTITY_UNIT_PRICE || {};
-            var item = itemData.ITEM || line.ITEM || '';
-            var quantity = itemData.QUANTITY || line.QUANTITY || '';
-            var unitPrice = itemData.UNIT_PRICE || line.UNIT_PRICE || '';
+            var item = line.ITEM || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.ITEM) || '';
+            var quantity = line.QUANTITY || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.QUANTITY) || '';
+            var unitPrice = line.UNIT_PRICE || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.UNIT_PRICE) || '';
             var price = line.PRICE || '';
             var priceVat = line.PRICE_VAT || '';
             if (!priceVat) {
@@ -296,11 +295,9 @@ window.addEventListener('load', function() {
                 ERP: erp,
                 IVA_TAXA: iva,
                 PRODUCT_CODE: productCode,
-                ITEM_QUANTITY_UNIT_PRICE: {
-                    ITEM: item,
-                    QUANTITY: quantity,
-                    UNIT_PRICE: unitPrice
-                },
+                ITEM: item,
+                QUANTITY: quantity,
+                UNIT_PRICE: unitPrice,
                 PRICE: price,
                 PRICE_VAT: priceVat
             });
