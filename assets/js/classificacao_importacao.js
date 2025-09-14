@@ -211,6 +211,8 @@ window.addEventListener('load', function() {
         var btn = this;
         var id = btn.getAttribute('data-id');
         currentLinesId = id;
+        linesContainer.innerHTML = '<div class="d-flex justify-content-center my-3"><div class="spinner-border" role="status"><span class="visually-hidden">A carregar...</span></div></div>';
+        linesModal.show();
         var params = new URLSearchParams({
             action: 'lines',
             id: id
@@ -218,13 +220,14 @@ window.addEventListener('load', function() {
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
                 if (res.error) {
+                    linesModal.hide();
                     showError(res.error);
                     return;
                 }
                 renderLines(res);
-                linesModal.show();
             })
             .catch(function(err) {
+                linesModal.hide();
                 showError(err.message || 'Erro na análise');
             });
     });
@@ -236,12 +239,12 @@ window.addEventListener('load', function() {
         }
         var html = '<table class="table table-striped"><thead><tr>' +
             '<th>ERP</th>' +
-            '<th>IVA_TAXA</th>' +
-            '<th>PRODUCT_CODE</th>' +
-            '<th>ITEM</th>' +
-            '<th>QUANTITY</th>' +
-            '<th>UNIT_PRICE</th>' +
-            '<th>PRICE</th>' +
+            '<th>IVA</th>' +
+            '<th>Código</th>' +
+            '<th>Descrição</th>' +
+            '<th>Qtd.</th>' +
+            '<th>P. Un.</th>' +
+            '<th>Preço</th>' +
             '</tr></thead><tbody>';
         lines.forEach(function(line) {
             var erp = line.ERP || '';
