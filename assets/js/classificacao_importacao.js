@@ -100,6 +100,8 @@ window.addEventListener('load', function() {
     var currentBtn = null;
     var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
     var linesContainer = document.getElementById('linesContainer');
+    var confirmLinesBtn = document.getElementById('confirmLinesBtn');
+    var currentLinesId = null;
 
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
@@ -208,6 +210,7 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.analyze-lines', function() {
         var btn = this;
         var id = btn.getAttribute('data-id');
+        currentLinesId = id;
         var params = new URLSearchParams({
             action: 'lines',
             id: id
@@ -231,24 +234,98 @@ window.addEventListener('load', function() {
             linesContainer.innerHTML = '<p>Sem linhas detectadas</p>';
             return;
         }
-        var headers = [];
+        var html = '<table class="table table-striped"><thead><tr>' +
+            '<th>ERP</th>' +
+            '<th>IVA_TAXA</th>' +
+            '<th>PRODUCT_CODE</th>' +
+            '<th>ITEM</th>' +
+            '<th>QUANTITY</th>' +
+            '<th>UNIT_PRICE</th>' +
+            '<th>PRICE</th>' +
+            '</tr></thead><tbody>';
         lines.forEach(function(line) {
-            Object.keys(line).forEach(function(key) {
-                if (key !== 'EXPENSE_ROW' && headers.indexOf(key) === -1) {
-                    headers.push(key);
+            var erp = line.ERP || '';
+            var iva = line.IVA_TAXA || line.OTHER || '';
+            var productCode = line.PRODUCT_CODE || '';
+            var itemData = line.ITEM_QUANTITY_UNIT_PRICE || {};
+            var item = itemData.ITEM || line.ITEM || '';
+            var quantity = itemData.QUANTITY || line.QUANTITY || '';
+            var unitPrice = itemData.UNIT_PRICE || line.UNIT_PRICE || '';
+            var price = line.PRICE || '';
+            var priceVat = line.PRICE_VAT || '';
+            if (!priceVat) {
+                var priceNum = parseFloat(String(price).replace(',', '.'));
+                var ivaNum = parseFloat(String(iva).replace(',', '.'));
+                if (!isNaN(priceNum) && !isNaN(ivaNum)) {
+                    priceVat = (priceNum * (1 + ivaNum / 100)).toFixed(2);
                 }
-            });
-        });
-        var html = '<table class="table table-striped"><thead><tr>';
-        headers.forEach(function(h) { html += '<th>' + h + '</th>'; });
-        html += '</tr></thead><tbody>';
-        lines.forEach(function(line) {
-            html += '<tr>';
-            headers.forEach(function(h) { html += '<td>' + (line[h] || '') + '</td>'; });
-            html += '</tr>';
+            }
+            html += '<tr>' +
+                '<td><input type="text" class="form-control erp-input" value="' + erp + '"><input type="hidden" class="price-vat" value="' + priceVat + '"></td>' +
+                '<td class="iva-taxa">' + iva + '</td>' +
+                '<td class="product-code">' + productCode + '</td>' +
+                '<td class="item">' + item + '</td>' +
+                '<td class="quantity">' + quantity + '</td>' +
+                '<td class="unit-price">' + unitPrice + '</td>' +
+                '<td class="price">' + price + '</td>' +
+                '</tr>';
         });
         html += '</tbody></table>';
         linesContainer.innerHTML = html;
     }
+
+    confirmLinesBtn.addEventListener('click', function() {
+        if (!currentLinesId) {
+            return;
+        }
+        var rows = linesContainer.querySelectorAll('tbody tr');
+        var linesToSave = [];
+        rows.forEach(function(row) {
+            var erp = row.querySelector('.erp-input').value.trim();
+            var iva = row.querySelector('.iva-taxa').textContent.trim();
+            var productCode = row.querySelector('.product-code').textContent.trim();
+            var item = row.querySelector('.item').textContent.trim();
+            var quantity = row.querySelector('.quantity').textContent.trim();
+            var unitPrice = row.querySelector('.unit-price').textContent.trim();
+            var price = row.querySelector('.price').textContent.trim();
+            var priceVat = row.querySelector('.price-vat').value;
+            linesToSave.push({
+                ERP: erp,
+                IVA_TAXA: iva,
+                PRODUCT_CODE: productCode,
+                ITEM_QUANTITY_UNIT_PRICE: {
+                    ITEM: item,
+                    QUANTITY: quantity,
+                    UNIT_PRICE: unitPrice
+                },
+                PRICE: price,
+                PRICE_VAT: priceVat
+            });
+        });
+        var body = new URLSearchParams({
+            action: 'save_lines',
+            id: currentLinesId,
+            lines: JSON.stringify(linesToSave),
+            csrf_token: csrfInput.value
+        });
+        fetchJson('contabilidade/save-analysis.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        })
+        .then(function(res) {
+            if (res.csrf_token) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success) {
+                linesModal.hide();
+            } else {
+                showError(res.error || 'Erro ao guardar linhas');
+            }
+        })
+        .catch(function(err) {
+            showError(err.message || 'Erro ao guardar linhas');
+        });
+    });
 });
 

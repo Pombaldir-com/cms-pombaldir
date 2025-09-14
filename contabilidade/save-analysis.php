@@ -186,6 +186,30 @@ if ($action === 'get') {
         ]);
     }
     exit;
+} elseif ($action === 'save_lines') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $id = $_POST['id'] ?? '';
+    $linesJson = $_POST['lines'] ?? '[]';
+    $lines = json_decode($linesJson, true);
+    if (!is_array($lines)) {
+        $lines = [];
+    }
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
+    $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+    $stmt->execute([json_encode($lines, JSON_UNESCAPED_UNICODE), $id]);
+    echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    exit;
 } elseif ($action === 'remove') {
     $token = $_POST['csrf_token'] ?? '';
     if (!validateCsrfToken($token)) {
