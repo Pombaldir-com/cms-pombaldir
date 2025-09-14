@@ -5103,6 +5103,12 @@ ul.project_files li a i {
     margin: 0;
 }
 
+#linesContainer .price {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+}
+
 .prod_title {
     border-bottom: 1px solid #DFDFDF;
     padding-bottom: 5px;
