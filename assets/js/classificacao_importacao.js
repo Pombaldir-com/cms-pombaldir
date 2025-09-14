@@ -282,6 +282,7 @@ window.addEventListener('load', function() {
         }
         var rows = linesContainer.querySelectorAll('tbody tr');
         var linesToSave = [];
+        var allErpFilled = true;
         rows.forEach(function(row) {
             var erp = row.querySelector('.erp-input').value.trim();
             var iva = row.querySelector('.iva-taxa').textContent.trim();
@@ -291,6 +292,9 @@ window.addEventListener('load', function() {
             var unitPrice = row.querySelector('.unit-price').textContent.trim();
             var price = row.querySelector('.price').textContent.trim();
             var priceVat = row.querySelector('.price-vat').value;
+            if (!erp) {
+                allErpFilled = false;
+            }
             linesToSave.push({
                 ERP: erp,
                 IVA_TAXA: iva,
@@ -319,6 +323,11 @@ window.addEventListener('load', function() {
             }
             if (res.success) {
                 linesModal.hide();
+                var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
+                if (analyzeBtn) {
+                    analyzeBtn.classList.remove('btn-info', 'btn-success');
+                    analyzeBtn.classList.add(allErpFilled ? 'btn-success' : 'btn-info');
+                }
             } else {
                 showError(res.error || 'Erro ao guardar linhas');
             }
