@@ -268,8 +268,9 @@ require_once __DIR__ . '/header.php';
                 </div>
                 <div class="row">
                     <div class="mb-3 col-md-6 col-sm-12">
-                        <label for="erp_nif_pt" class="form-label">Token NIF.PT</label>
-                        <input type="text" class="form-control" id="erp_nif_pt" name="erp_nif_pt" value="<?= htmlspecialchars($currentErpNifPt); ?>">
+
+                        <label for="erp_nif_pt" class="form-label">NIF.PT</label>
+                        <input type="url" class="form-control" id="erp_nif_pt" name="erp_nif_pt" value="<?= htmlspecialchars($currentErpNifPt); ?>">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
