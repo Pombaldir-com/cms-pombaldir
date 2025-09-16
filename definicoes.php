@@ -17,6 +17,7 @@ $availableModules = [
 
 $generalSaved = false;
 $emailSaved = false;
+$erpSaved = false;
 $modulesSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -74,6 +75,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $emailSaved = true;
     }
+    if (isset($_POST['erp_webservice_url'])) {
+        $erpWebserviceUrl = trim($_POST['erp_webservice_url'] ?? '');
+        $erpToken = trim($_POST['erp_token'] ?? '');
+
+        setSetting('erp_webservice_url', $erpWebserviceUrl);
+        setSetting('erp_token', $erpToken);
+
+        $erpSaved = true;
+    }
     if (isset($_POST['modules_save']) && ($user['role'] ?? 3) == 1) {
         $selectedModules = array_keys($_POST['modules'] ?? []);
         setSetting('active_modules', json_encode($selectedModules));
@@ -89,16 +99,18 @@ $contentTypeApi = [];
 foreach ($contentTypes as $type) {
     $contentTypeApi[$type['id']] = (int)($type['api_enabled'] ?? 0);
 }
-    $currentSmtpHost = getSetting('smtp_host', '');
-    $currentSmtpPort = getSetting('smtp_port', '');
-    $currentSmtpUser = getSetting('smtp_user', '');
-    $currentSmtpPass = getSetting('smtp_pass', '');
-    $currentSmtpEncryption = getSetting('smtp_encryption', '');
-    $currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
-    $currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
-    $currentAwsRegion = getSetting('aws_region', '');
-    $currentOcrProvider = getSetting('ocr_provider', 'tesseract');
-    $currentModules = getActiveModules();
+$currentSmtpHost = getSetting('smtp_host', '');
+$currentSmtpPort = getSetting('smtp_port', '');
+$currentSmtpUser = getSetting('smtp_user', '');
+$currentSmtpPass = getSetting('smtp_pass', '');
+$currentSmtpEncryption = getSetting('smtp_encryption', '');
+$currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
+$currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
+$currentAwsRegion = getSetting('aws_region', '');
+$currentOcrProvider = getSetting('ocr_provider', 'tesseract');
+$currentErpWebserviceUrl = getSetting('erp_webservice_url', '');
+$currentErpToken = getSetting('erp_token', '');
+$currentModules = getActiveModules();
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -111,6 +123,9 @@ require_once __DIR__ . '/header.php';
         </li>
         <li class="nav-item">
             <a class="nav-link" id="email-tab" data-bs-toggle="tab" href="#email" role="tab" aria-controls="email" aria-selected="false">E-mail</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="erp-tab" data-bs-toggle="tab" href="#erp" role="tab" aria-controls="erp" aria-selected="false">ERP</a>
         </li>
         <?php if (($user['role'] ?? 3) == 1): ?>
         <li class="nav-item">
@@ -227,6 +242,27 @@ require_once __DIR__ . '/header.php';
                 </div>
                 </div>
 
+                <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </form>
+        </div>
+        <div class="tab-pane fade" id="erp" role="tabpanel" aria-labelledby="erp-tab">
+            <?php if ($erpSaved): ?>
+                <div class="alert alert-success mt-3">Definições do ERP guardadas.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="erp_webservice_url" class="form-label">Url Webservice</label>
+                        <input type="text" class="form-control" id="erp_webservice_url" name="erp_webservice_url" value="<?= htmlspecialchars($currentErpWebserviceUrl); ?>">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="erp_token" class="form-label">Token</label>
+                        <input type="text" class="form-control" id="erp_token" name="erp_token" value="<?= htmlspecialchars($currentErpToken); ?>">
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </form>
         </div>
