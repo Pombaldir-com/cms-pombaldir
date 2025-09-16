@@ -169,6 +169,14 @@ switch (true) {
     case $path === 'contabilidade/save-analysis.php':
         require __DIR__ . '/contabilidade/save-analysis.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/data',
+        'contabilidade/classificacao-importacao-data',
+        'contabilidade/classificacao-importacao-data.php'
+    ], true):
+        $_GET['action'] = 'data';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;

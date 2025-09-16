@@ -30,7 +30,7 @@ window.addEventListener('load', function() {
         serverSide: true,
         processing: true,
         ajax: {
-            url: 'contabilidade/classificacao-importacao-data.php',
+            url: 'contabilidade/classificacao-importacao/data',
             data: function(d) { d.import_type = importType; }
         },
         orderCellsTop: true,
