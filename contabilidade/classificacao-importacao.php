@@ -12,6 +12,31 @@ $pdo = getPDO();
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 
+function prepareImportRow(array $row): array {
+    $accounts = normalizeAccountingAccounts($row['account'] ?? '');
+    $summaries = computeImportRateSummaries($row);
+    [$payload, $requirements] = buildRatePayload($summaries, $accounts);
+    $row['rate_payload'] = $payload;
+    $row['rate_requirements'] = $requirements;
+    $row['btn_class'] = determineClassificationButtonClass($requirements, $payload);
+    $row['line_btn_class'] = 'btn-info';
+    $lines = json_decode($row['line_items'] ?? '', true);
+    if (is_array($lines) && count($lines) > 0) {
+        $allFilled = true;
+        foreach ($lines as $line) {
+            if (trim((string) ($line['ERP'] ?? '')) === '') {
+                $allFilled = false;
+                break;
+            }
+        }
+        if ($allFilled) {
+            $row['line_btn_class'] = 'btn-success';
+        }
+    }
+
+    return $row;
+}
+
 if ($action === 'data') {
     $csrfToken = generateCsrfToken();
     dropLegacyAccountColumns($pdo);
@@ -19,6 +44,7 @@ if ($action === 'data') {
     $columns = [
         'id',
         'account',
+        'cost_center',
         'field_A',
         'field_B',
         'field_C',
@@ -63,69 +89,22 @@ if ($action === 'data') {
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as &$row) {
-        $accounts = json_decode($row['account'] ?? '', true) ?: [];
-        $row['account_iva6'] = $accounts['iva6'] ?? '';
-        $row['account_iva13'] = $accounts['iva13'] ?? '';
-        $row['account_iva23'] = $accounts['iva23'] ?? '';
-        $row['account_novat'] = $accounts['novat'] ?? '';
-        $amtIva6 = abs((float) str_replace(',', '.', $row['field_I3'] ?? 0));
-        $amtIva13 = abs((float) str_replace(',', '.', $row['field_I5'] ?? 0));
-        $amtIva23 = abs((float) str_replace(',', '.', $row['field_I7'] ?? 0));
-        $needsNovat = !$amtIva6 && !$amtIva13 && !$amtIva23 && abs((float)($row['field_O'] ?? 0)) > 0;
-        $row['btn_class'] = 'btn-secondary';
-        $hasAnyAccount = (
-            (int)($row['account_iva6'] ?? 0) > 0 ||
-            (int)($row['account_iva13'] ?? 0) > 0 ||
-            (int)($row['account_iva23'] ?? 0) > 0 ||
-            (int)($row['account_novat'] ?? 0) > 0
-        );
-        $allAccounts = (
-            ($amtIva6 == 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
-            ($amtIva13 == 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
-            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
-            (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
-        );
-        $requires = $amtIva6 > 0 || $amtIva13 > 0 || $amtIva23 > 0 || $needsNovat;
-        if (!$requires || $allAccounts) {
-            $row['btn_class'] = 'btn-success';
-        } elseif ($hasAnyAccount) {
-            $row['btn_class'] = 'btn-warning';
-        }
-        $row['needs_novat'] = $needsNovat ? 1 : 0;
-        $row['amt_iva6'] = $amtIva6;
-        $row['amt_iva13'] = $amtIva13;
-        $row['amt_iva23'] = $amtIva23;
-        $row['line_btn_class'] = 'btn-info';
-        $lines = json_decode($row['line_items'] ?? '', true);
-        if (is_array($lines) && count($lines) > 0) {
-            $allFilled = true;
-            foreach ($lines as $line) {
-                if (trim($line['ERP'] ?? '') === '') {
-                    $allFilled = false;
-                    break;
-                }
-            }
-            if ($allFilled) {
-                $row['line_btn_class'] = 'btn-success';
-            }
-        }
+        $row = prepareImportRow($row);
     }
     unset($row);
 
     $data = [];
     foreach ($rows as $row) {
         $actionsParts = [];
+        $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+        $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+        $costCenterAttr = htmlspecialchars($row['cost_center'] ?? '', ENT_QUOTES, 'UTF-8');
         if ($importType === 1) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                 . 'data-id="' . (int)$row['id'] . '" '
-                . 'data-iva6="' . htmlspecialchars($row['account_iva6']) . '" '
-                . 'data-iva13="' . htmlspecialchars($row['account_iva13']) . '" '
-                . 'data-iva23="' . htmlspecialchars($row['account_iva23']) . '" '
-                . 'data-novat="' . htmlspecialchars($row['account_novat']) . '" '
-                . 'data-amt-iva6="' . $row['amt_iva6'] . '" '
-                . 'data-amt-iva13="' . $row['amt_iva13'] . '" '
-                . 'data-amt-iva23="' . $row['amt_iva23'] . '" '
-                . 'data-req-novat="' . $row['needs_novat'] . '" '
+                . 'data-rates="' . $ratesAttr . '" '
+                . 'data-requirements="' . $requirementsAttr . '" '
+                . 'data-cost-center="' . $costCenterAttr . '" '
                 . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
@@ -176,11 +155,7 @@ $stmt->execute([':type' => $importType]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($rows as &$row) {
-    $accounts = json_decode($row['account'] ?? '', true) ?: [];
-    $row['account_iva6'] = $accounts['iva6'] ?? '';
-    $row['account_iva13'] = $accounts['iva13'] ?? '';
-    $row['account_iva23'] = $accounts['iva23'] ?? '';
-    $row['account_novat'] = $accounts['novat'] ?? '';
+    $row = prepareImportRow($row);
 }
 unset($row);
 
@@ -242,49 +217,28 @@ require_once __DIR__ . '/../header.php';
                     <td><?= htmlspecialchars($row['field_R'] ?? ''); ?></td>
                     <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
                     <?php
-
-                        // Only consider VAT columns to determine whether accounts are required.
-                        $amtIva6 = abs((float) str_replace(',', '.', $row['field_I3'] ?? 0));
-                        $amtIva13 = abs((float) str_replace(',', '.', $row['field_I5'] ?? 0));
-                        $amtIva23 = abs((float) str_replace(',', '.', $row['field_I7'] ?? 0));
-                        $hasIva6 = $amtIva6 > 0;
-                        $hasIva13 = $amtIva13 > 0;
-                        $hasIva23 = $amtIva23 > 0;
-
-                        $total = abs((float)($row['field_O'] ?? 0));
-                        $needsNovat = !$hasIva6 && !$hasIva13 && !$hasIva23 && $total > 0;
-
-                        $allAccounts = (
-                            ($amtIva6 == 0 || (int)($row['account_iva6'] ?? 0) > 0) &&
-                            ($amtIva13 == 0 || (int)($row['account_iva13'] ?? 0) > 0) &&
-                            ($amtIva23 == 0 || (int)($row['account_iva23'] ?? 0) > 0) &&
-                            (!$needsNovat || (int)($row['account_novat'] ?? 0) > 0)
-                        );
-                        $requires = $hasIva6 || $hasIva13 || $hasIva23 || $needsNovat;
-                        $hasAnyAccount = (
-                            (int)($row['account_iva6'] ?? 0) > 0 ||
-                            (int)($row['account_iva13'] ?? 0) > 0 ||
-                            (int)($row['account_iva23'] ?? 0) > 0 ||
-                            (int)($row['account_novat'] ?? 0) > 0
-                        );
-                        if (!$requires) {
-                            $btnClass = 'btn-success';
-                        } elseif ($allAccounts) {
-                            $btnClass = 'btn-success';
-                        } elseif ($hasAnyAccount) {
-                            $btnClass = 'btn-warning';
-                        } else {
-                            $btnClass = 'btn-secondary';
-                        }
+                        $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                        $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                        $costCenterAttr = htmlspecialchars($row['cost_center'] ?? '', ENT_QUOTES, 'UTF-8');
+                        $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
                     ?>
                     <td class="text-center">
 
                         <?php if ($importType === 1): ?>
-                        <button type="button" class="btn btn-xs <?= $btnClass; ?> classify-row" data-id="<?= (int)$row['id']; ?>" data-iva6="<?= htmlspecialchars($row['account_iva6'] ?? ''); ?>" data-iva13="<?= htmlspecialchars($row['account_iva13'] ?? ''); ?>" data-iva23="<?= htmlspecialchars($row['account_iva23'] ?? ''); ?>" data-novat="<?= htmlspecialchars($row['account_novat'] ?? ''); ?>" data-amt-iva6="<?= $amtIva6; ?>" data-amt-iva13="<?= $amtIva13; ?>" data-amt-iva23="<?= $amtIva23; ?>" data-req-novat="<?= $needsNovat ? 1 : 0; ?>" data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>" data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>" data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
+                        <button
+                            type="button"
+                            class="btn btn-xs <?= $btnClass; ?> classify-row"
+                            data-id="<?= (int)$row['id']; ?>"
+                            data-rates="<?= $ratesAttr; ?>"
+                            data-requirements="<?= $requirementsAttr; ?>"
+                            data-cost-center="<?= $costCenterAttr; ?>"
+                            data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
+                            data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
+                            data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <?php endif; ?>
 
                         <?php if ($importType === 2): ?>
-                        <button type="button" class="btn btn-xs btn-info analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
+                        <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
@@ -297,7 +251,7 @@ require_once __DIR__ . '/../header.php';
 </div>
 </div>
 <div class="modal fade" id="classifyModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Classificar</h5>
@@ -305,21 +259,43 @@ require_once __DIR__ . '/../header.php';
             </div>
             <form id="classify-form">
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">IVA 6%</label>
-                        <input type="number" class="form-control" name="iva6">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">IVA 13%</label>
-                        <input type="number" class="form-control" name="iva13">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">IVA 23%</label>
-                        <input type="number" class="form-control" name="iva23">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Valor S IVA</label>
-                        <input type="number" class="form-control" name="novat">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Taxa</th>
+                                    <th>Base</th>
+                                    <th>IVA</th>
+                                    <th>Conta IVA</th>
+                                    <th>Conta Geral</th>
+                                    <th>Centro de Custo</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                $modalRates = [
+                                    '0' => '0%',
+                                    '6' => '6%',
+                                    '13' => '13%',
+                                    '23' => '23%',
+                                ];
+                                foreach ($modalRates as $rate => $label):
+                                ?>
+                                <tr data-rate="<?= $rate; ?>">
+                                    <td class="align-middle"><?= $label; ?></td>
+                                    <td><input type="text" class="form-control form-control-sm base-field" readonly></td>
+                                    <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
+                                    <td><input type="text" class="form-control form-control-sm iva-account-field" name="rates[<?= $rate; ?>][iva_account]"></td>
+                                    <td><input type="text" class="form-control form-control-sm general-account-field" name="rates[<?= $rate; ?>][general_account]"></td>
+                                    <?php if ($rate === '0'): ?>
+                                    <td rowspan="<?= count($modalRates); ?>" class="align-middle">
+                                        <input type="text" class="form-control cost-center-field" name="cost_center">
+                                    </td>
+                                    <?php endif; ?>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
                 <div class="modal-footer">
