@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/functions.php';
 
 startSession();
 
@@ -45,12 +46,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo = getPDO();
 
-        // Preencher conta associada, se existir classificação
+        // Preencher conta associada, se existir classificação e sincronizar entidade do adquirente
         $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+        $entityCache = [];
         foreach ($rows as &$row) {
             $a = $row['A'] ?? '';
             $b = $row['B'] ?? '';
             $d = $row['D'] ?? '';
+            if ($b !== '') {
+                $nif = extractVatNumber((string) $b);
+                if ($nif !== '' && !array_key_exists($nif, $entityCache)) {
+                    $entityCache[$nif] = ensureAccountingEntity($pdo, (string) $b);
+                }
+            }
             $stmt->execute([$a, $b, $d]);
             $row['account'] = $stmt->fetchColumn() ?: '';
         }
