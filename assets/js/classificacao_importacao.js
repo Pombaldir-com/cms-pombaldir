@@ -55,6 +55,7 @@ window.addEventListener('load', function() {
         }
     }
 
+
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
         var requirements = parseJsonAttribute(btn, 'data-requirements') || {};
@@ -62,27 +63,26 @@ window.addEventListener('load', function() {
         var requires = false;
         var allFilled = true;
         var hasAny = false;
-        ['0', '6', '13', '23'].forEach(function(rate) {
+
+        Object.keys(requirements).forEach(function(rate) {
             var req = requirements[rate] || {};
             var data = rateData[rate] || {};
-            var general = (data.general_account || '').trim();
-            var iva = (data.iva_account || '').trim();
-
-            if (general || iva) {
-                hasAny = true;
-            }
-
             if (req.general) {
                 requires = true;
+                var general = (data.general_account || '').trim();
                 if (!general) {
                     allFilled = false;
+                } else {
+                    hasAny = true;
                 }
             }
-
             if (req.iva) {
                 requires = true;
+                var iva = (data.iva_account || '').trim();
                 if (!iva) {
                     allFilled = false;
+                } else {
+                    hasAny = true;
                 }
             }
         });
@@ -140,10 +140,8 @@ window.addEventListener('load', function() {
         var emitter = btn.getAttribute('data-emitter') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
-        var documentRef = btn.getAttribute('data-document') || '';
-        if (modalTitleEl) {
-            modalTitleEl.textContent = documentRef ? 'Classificar ' + documentRef : 'Classificar';
-        }
+
+
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
 
         Object.keys(rateInputs).forEach(function(rate) {
@@ -216,9 +214,9 @@ window.addEventListener('load', function() {
                     currentRateData[rate].general_account = info.generalAccount ? info.generalAccount.value : '';
                 });
 
-                if (classifyModal) {
-                    classifyModal.show();
-                }
+
+                classifyModal.show();
+
             })
             .catch(function(err) {
                 showError(err.message || 'Erro ao carregar');

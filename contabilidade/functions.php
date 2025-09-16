@@ -352,10 +352,6 @@ function computeImportRateSummaries(array $row): array {
         $base0 = 0.0;
     }
 
-    $requireIva6 = abs($base6) > 0.0001 || abs($iva6) > 0.0001;
-    $requireIva13 = abs($base13) > 0.0001 || abs($iva13) > 0.0001;
-    $requireIva23 = abs($base23) > 0.0001 || abs($iva23) > 0.0001;
-
     return [
         '0' => [
             'base_value' => $base0,
@@ -370,24 +366,27 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => $iva6,
             'base_display' => $formatAmount($base6, $row['field_I3'] ?? null),
             'iva_display' => $formatAmount($iva6, $row['field_I4'] ?? null),
-            'require_general' => false,
-            'require_iva' => $requireIva6,
+
+            'require_general' => abs($base6) > 0.0001,
+            'require_iva' => abs($iva6) > 0.0001,
+
         ],
         '13' => [
             'base_value' => $base13,
             'iva_value' => $iva13,
             'base_display' => $formatAmount($base13, $row['field_I5'] ?? null),
             'iva_display' => $formatAmount($iva13, $row['field_I6'] ?? null),
-            'require_general' => false,
-            'require_iva' => $requireIva13,
+            'require_general' => abs($base13) > 0.0001,
+            'require_iva' => abs($iva13) > 0.0001,
+
         ],
         '23' => [
             'base_value' => $base23,
             'iva_value' => $iva23,
             'base_display' => $formatAmount($base23, $row['field_I7'] ?? null),
             'iva_display' => $formatAmount($iva23, $row['field_I8'] ?? null),
-            'require_general' => false,
-            'require_iva' => $requireIva23,
+            'require_general' => abs($base23) > 0.0001,
+            'require_iva' => abs($iva23) > 0.0001,
         ],
     ];
 }
@@ -431,29 +430,25 @@ function determineClassificationButtonClass(array $requirements, array $payload)
     $allFilled = true;
     $hasAny = false;
 
-    $rates = array_unique(array_merge(array_keys($requirements), array_keys($payload)));
 
-    foreach ($rates as $rate) {
-        $req = $requirements[$rate] ?? [];
+    foreach ($requirements as $rate => $req) {
         $data = $payload[$rate] ?? [];
-        $general = trim((string) ($data['general_account'] ?? ''));
-        $iva = trim((string) ($data['iva_account'] ?? ''));
-
-        if ($general !== '' || $iva !== '') {
-            $hasAny = true;
-        }
-
         if (!empty($req['general'])) {
             $requires = true;
+            $general = trim((string) ($data['general_account'] ?? ''));
             if ($general === '') {
                 $allFilled = false;
+            } else {
+                $hasAny = true;
             }
         }
-
         if (!empty($req['iva'])) {
             $requires = true;
+            $iva = trim((string) ($data['iva_account'] ?? ''));
             if ($iva === '') {
                 $allFilled = false;
+            } else {
+                $hasAny = true;
             }
         }
     }
