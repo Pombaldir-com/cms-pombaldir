@@ -527,6 +527,26 @@ function deriveEntityNameFromField(string $rawFieldValue, string $nif): string {
 }
 
 /**
+ * Determine whether a stored entity name is just a placeholder derived from the VAT number.
+ *
+ * @param string|null $name Stored name.
+ * @param string      $nif  VAT number associated with the entity.
+ * @return bool Whether the name should be refreshed from the ERP webservice.
+ */
+function isPlaceholderAccountingEntityName(?string $name, string $nif): bool {
+    $normalized = trim((string) $name);
+    if ($normalized === '') {
+        return true;
+    }
+
+    $normalized = strtoupper(preg_replace('/\s+/', ' ', $normalized));
+    $compact = preg_replace('/[^A-Z0-9]/', '', $normalized);
+    $expectedCompact = 'CLIENTE' . $nif;
+
+    return $compact === $expectedCompact;
+}
+
+/**
  * Ensure that an accounting entity exists locally, fetching it from the ERP
  * when necessary.
  *
@@ -546,9 +566,10 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
         return $cache[$nif] ?: null;
     }
 
+    $existing = null;
     try {
         $existing = findAccountingEntity($pdo, $nif);
-        if ($existing !== null) {
+        if ($existing !== null && !isPlaceholderAccountingEntityName($existing['name'] ?? '', $nif)) {
             $cache[$nif] = $existing;
             return $existing;
         }
@@ -560,6 +581,11 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
 
     $remote = fetchAccountingEntityFromErp($nif);
     if ($remote === null) {
+        if ($existing !== null) {
+            $cache[$nif] = $existing;
+            return $existing;
+        }
+
         $cache[$nif] = null;
         return null;
     }
