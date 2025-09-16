@@ -43,42 +43,54 @@ window.addEventListener('load', function() {
         ]
     });
 
+    function parseJsonAttribute(el, attr) {
+        var value = el.getAttribute(attr);
+        if (!value) {
+            return null;
+        }
+        try {
+            return JSON.parse(value);
+        } catch (e) {
+            return null;
+        }
+    }
+
     function updateButtonClass(btn) {
-        var iva6 = btn.getAttribute('data-iva6') || '';
-        var iva13 = btn.getAttribute('data-iva13') || '';
-        var iva23 = btn.getAttribute('data-iva23') || '';
-        var novat = btn.getAttribute('data-novat') || '';
+        var rateData = parseJsonAttribute(btn, 'data-rates') || {};
+        var requirements = parseJsonAttribute(btn, 'data-requirements') || {};
 
-
-        var amtIva6 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva6'))) || 0;
-        var amtIva13 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva13'))) || 0;
-        var amtIva23 = Math.abs(parseFloat(btn.getAttribute('data-amt-iva23'))) || 0;
-        var needNovat = btn.getAttribute('data-req-novat') === '1';
-
-        var needIva6 = amtIva6 > 0;
-        var needIva13 = amtIva13 > 0;
-        var needIva23 = amtIva23 > 0;
-
-        var hasIva6 = parseInt(iva6, 10) > 0;
-        var hasIva13 = parseInt(iva13, 10) > 0;
-        var hasIva23 = parseInt(iva23, 10) > 0;
-        var hasNovat = parseInt(novat, 10) > 0;
-
-        var requires = needIva6 || needIva13 || needIva23 || needNovat;
+        var requires = false;
         var allFilled = true;
+        var hasAny = false;
+        ['0', '6', '13', '23'].forEach(function(rate) {
+            var req = requirements[rate] || {};
+            var data = rateData[rate] || {};
+            var general = (data.general_account || '').trim();
+            var iva = (data.iva_account || '').trim();
 
-        if (needIva6 && !hasIva6) { allFilled = false; }
-        if (needIva13 && !hasIva13) { allFilled = false; }
-        if (needIva23 && !hasIva23) { allFilled = false; }
-        if (needNovat && !hasNovat) { allFilled = false; }
+            if (general || iva) {
+                hasAny = true;
+            }
 
-        var hasAnyAccount = hasIva6 || hasIva13 || hasIva23 || hasNovat;
+            if (req.general) {
+                requires = true;
+                if (!general) {
+                    allFilled = false;
+                }
+            }
+
+            if (req.iva) {
+                requires = true;
+                if (!iva) {
+                    allFilled = false;
+                }
+            }
+        });
+
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
-        if (!requires) {
+        if (!requires || allFilled) {
             btn.classList.add('btn-success');
-        } else if (allFilled) {
-            btn.classList.add('btn-success');
-        } else if (hasAnyAccount) {
+        } else if (hasAny) {
             btn.classList.add('btn-warning');
         } else {
             btn.classList.add('btn-secondary');
@@ -95,8 +107,27 @@ window.addEventListener('load', function() {
     refreshButtonClasses();
     table.on('draw.dt', refreshButtonClasses);
 
-    var classifyModal = new bootstrap.Modal(document.getElementById('classifyModal'));
+    var classifyModalEl = document.getElementById('classifyModal');
+    var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
+    var modalTitleEl = document.getElementById('classifyModalLabel');
     var form = document.getElementById('classify-form');
+    var rateInputs = {};
+    var costCenterInput = null;
+    var currentRateData = {};
+    var currentCostCenter = '';
+    if (form) {
+        var rateRows = Array.prototype.slice.call(form.querySelectorAll('tbody tr[data-rate]'));
+        rateRows.forEach(function(row) {
+            var rate = row.getAttribute('data-rate');
+            rateInputs[rate] = {
+                base: row.querySelector('.base-field'),
+                iva: row.querySelector('.iva-field'),
+                ivaAccount: row.querySelector('.iva-account-field'),
+                generalAccount: row.querySelector('.general-account-field')
+            };
+        });
+        costCenterInput = form.querySelector('.cost-center-field');
+    }
     var currentBtn = null;
     var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
     var linesContainer = document.getElementById('linesContainer');
@@ -106,11 +137,32 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
         currentBtn = btn;
-        var emitter = btn.getAttribute('data-emitter');
-        var acquirer = btn.getAttribute('data-acquirer');
-        var docType = btn.getAttribute('data-doctype');
+        var emitter = btn.getAttribute('data-emitter') || '';
+        var acquirer = btn.getAttribute('data-acquirer') || '';
+        var docType = btn.getAttribute('data-doctype') || '';
+        var documentRef = btn.getAttribute('data-document') || '';
+        if (modalTitleEl) {
+            modalTitleEl.textContent = documentRef ? 'Classificar ' + documentRef : 'Classificar';
+        }
+        currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
+
+        Object.keys(rateInputs).forEach(function(rate) {
+            var info = rateInputs[rate];
+            var data = currentRateData[rate] || {};
+            if (info.base) { info.base.value = data.base || ''; }
+            if (info.iva) { info.iva.value = data.iva || ''; }
+            if (info.ivaAccount) { info.ivaAccount.value = data.iva_account || ''; }
+            if (info.generalAccount) { info.generalAccount.value = data.general_account || ''; }
+        });
+
+        currentCostCenter = btn.getAttribute('data-cost-center') || '';
+        if (costCenterInput) {
+            costCenterInput.value = currentCostCenter;
+        }
+
         var params = new URLSearchParams({
             action: 'get',
+            id: btn.getAttribute('data-id') || '',
             A: emitter,
             B: acquirer,
             D: docType,
@@ -121,11 +173,52 @@ window.addEventListener('load', function() {
                 if (res.csrf_token) {
                     csrfInput.value = res.csrf_token;
                 }
-                form.iva6.value = btn.getAttribute('data-iva6') || res.iva6 || '';
-                form.iva13.value = btn.getAttribute('data-iva13') || res.iva13 || '';
-                form.iva23.value = btn.getAttribute('data-iva23') || res.iva23 || '';
-                form.novat.value = btn.getAttribute('data-novat') || res.novat || '';
-                classifyModal.show();
+
+                var rowRates = res.row_rates || {};
+                Object.keys(rateInputs).forEach(function(rate) {
+                    var info = rateInputs[rate];
+                    var rowData = rowRates[rate] || {};
+                    if (info.ivaAccount && Object.prototype.hasOwnProperty.call(rowData, 'iva_account')) {
+                        info.ivaAccount.value = rowData.iva_account || '';
+                    }
+                    if (info.generalAccount && Object.prototype.hasOwnProperty.call(rowData, 'general_account')) {
+                        info.generalAccount.value = rowData.general_account || '';
+                    }
+                });
+
+                var defaults = res.rates || {};
+                Object.keys(rateInputs).forEach(function(rate) {
+                    var info = rateInputs[rate];
+                    var defaultData = defaults[rate] || {};
+                    if (info.ivaAccount && !info.ivaAccount.value) {
+                        info.ivaAccount.value = defaultData.iva_account || '';
+                    }
+                    if (info.generalAccount && !info.generalAccount.value) {
+                        info.generalAccount.value = defaultData.general_account || '';
+                    }
+                });
+
+                if (costCenterInput && res.cost_center !== undefined && res.cost_center !== null) {
+                    if (!costCenterInput.value) {
+                        costCenterInput.value = res.cost_center || '';
+                    }
+                }
+
+                currentCostCenter = costCenterInput ? costCenterInput.value : currentCostCenter;
+                Object.keys(rateInputs).forEach(function(rate) {
+                    var info = rateInputs[rate];
+                    if (!currentRateData[rate]) {
+                        currentRateData[rate] = {};
+                    }
+                    currentRateData[rate].base = info.base ? info.base.value : '';
+                    currentRateData[rate].iva = info.iva ? info.iva.value : '';
+                    currentRateData[rate].iva_account = info.ivaAccount ? info.ivaAccount.value : '';
+                    currentRateData[rate].general_account = info.generalAccount ? info.generalAccount.value : '';
+                });
+
+                if (classifyModal) {
+                    classifyModal.show();
+                }
             })
             .catch(function(err) {
                 showError(err.message || 'Erro ao carregar');
@@ -137,19 +230,24 @@ window.addEventListener('load', function() {
         if (!currentBtn) {
             return;
         }
-        var iva6 = form.iva6.value.trim();
-        var iva13 = form.iva13.value.trim();
-        var iva23 = form.iva23.value.trim();
-        var novat = form.novat.value.trim();
+
+        var ratesPayload = {};
+        Object.keys(rateInputs).forEach(function(rate) {
+            var info = rateInputs[rate];
+            ratesPayload[rate] = {
+                iva_account: info.ivaAccount ? info.ivaAccount.value.trim() : '',
+                general_account: info.generalAccount ? info.generalAccount.value.trim() : ''
+            };
+        });
+
+        var costCenterValue = costCenterInput ? costCenterInput.value.trim() : '';
         var body = new URLSearchParams({
-            id: currentBtn.getAttribute('data-id'),
-            A: currentBtn.getAttribute('data-emitter'),
-            B: currentBtn.getAttribute('data-acquirer'),
-            D: currentBtn.getAttribute('data-doctype'),
-            iva6: iva6,
-            iva13: iva13,
-            iva23: iva23,
-            novat: novat,
+            id: currentBtn.getAttribute('data-id') || '',
+            A: currentBtn.getAttribute('data-emitter') || '',
+            B: currentBtn.getAttribute('data-acquirer') || '',
+            D: currentBtn.getAttribute('data-doctype') || '',
+            rates: JSON.stringify(ratesPayload),
+            cost_center: costCenterValue,
             csrf_token: csrfInput.value
         });
         fetchJson('contabilidade/save-analysis.php?action=save', {
@@ -162,12 +260,51 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                currentBtn.setAttribute('data-iva6', iva6);
-                currentBtn.setAttribute('data-iva13', iva13);
-                currentBtn.setAttribute('data-iva23', iva23);
-                currentBtn.setAttribute('data-novat', novat);
+                if (res.cost_center !== undefined && res.cost_center !== null) {
+                    currentCostCenter = res.cost_center;
+                    if (costCenterInput) {
+                        costCenterInput.value = res.cost_center;
+                    }
+                } else {
+                    currentCostCenter = costCenterValue;
+                }
+
+                if (res.row_rates && typeof res.row_rates === 'object') {
+                    Object.keys(res.row_rates).forEach(function(rate) {
+                        var info = rateInputs[rate];
+                        if (!currentRateData[rate]) {
+                            currentRateData[rate] = {};
+                        }
+                        currentRateData[rate].base = info && info.base ? info.base.value : '';
+                        currentRateData[rate].iva = info && info.iva ? info.iva.value : '';
+                        currentRateData[rate].iva_account = (res.row_rates[rate] && res.row_rates[rate].iva_account) || '';
+                        currentRateData[rate].general_account = (res.row_rates[rate] && res.row_rates[rate].general_account) || '';
+                        if (info && info.ivaAccount) {
+                            info.ivaAccount.value = currentRateData[rate].iva_account;
+                        }
+                        if (info && info.generalAccount) {
+                            info.generalAccount.value = currentRateData[rate].general_account;
+                        }
+                    });
+                } else {
+                    Object.keys(rateInputs).forEach(function(rate) {
+                        var info = rateInputs[rate];
+                        if (!currentRateData[rate]) {
+                            currentRateData[rate] = {};
+                        }
+                        currentRateData[rate].base = info.base ? info.base.value : '';
+                        currentRateData[rate].iva = info.iva ? info.iva.value : '';
+                        currentRateData[rate].iva_account = ratesPayload[rate].iva_account;
+                        currentRateData[rate].general_account = ratesPayload[rate].general_account;
+                    });
+                }
+
+                currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+                currentBtn.setAttribute('data-cost-center', currentCostCenter);
                 updateButtonClass(currentBtn);
-                classifyModal.hide();
+                if (classifyModal) {
+                    classifyModal.hide();
+                }
             } else {
                 showError(res.error || 'Erro ao guardar');
             }

@@ -166,4 +166,307 @@ function dropLegacyAccountColumns(PDO $pdo): void {
     }
 }
 
+/**
+ * Normalize stored account information into a structure keyed by VAT rate.
+ *
+ * @param string|null $json JSON-encoded account data.
+ * @return array<string,array<string,string>>
+ */
+function normalizeAccountingAccounts(?string $json): array {
+    $rates = ['0', '6', '13', '23'];
+    $result = [];
+    foreach ($rates as $rate) {
+        $result[$rate] = [
+            'iva_account' => '',
+            'general_account' => '',
+        ];
+    }
+
+    if ($json === null || $json === '') {
+        return $result;
+    }
+
+    $data = json_decode($json, true);
+    if (!is_array($data)) {
+        return $result;
+    }
+
+    $sources = [];
+    if (isset($data['rates']) && is_array($data['rates'])) {
+        $sources[] = $data['rates'];
+    } else {
+        $sources[] = $data;
+    }
+
+    foreach ($sources as $source) {
+        foreach ($source as $key => $value) {
+            $keyString = (string) $key;
+            if (in_array($keyString, $rates, true)) {
+                if (is_array($value)) {
+                    if (array_key_exists('iva_account', $value)) {
+                        $result[$keyString]['iva_account'] = (string) $value['iva_account'];
+                    } elseif (array_key_exists('iva', $value)) {
+                        $result[$keyString]['iva_account'] = (string) $value['iva'];
+                    }
+                    if (array_key_exists('general_account', $value)) {
+                        $result[$keyString]['general_account'] = (string) $value['general_account'];
+                    } elseif (array_key_exists('general', $value)) {
+                        $result[$keyString]['general_account'] = (string) $value['general'];
+                    }
+                } elseif (is_string($value) || is_numeric($value)) {
+                    $result[$keyString]['general_account'] = (string) $value;
+                }
+                continue;
+            }
+
+            switch ($keyString) {
+                case 'iva6':
+                    $result['6']['iva_account'] = (string) $value;
+                    break;
+                case 'iva13':
+                    $result['13']['iva_account'] = (string) $value;
+                    break;
+                case 'iva23':
+                    $result['23']['iva_account'] = (string) $value;
+                    break;
+                case 'novat':
+                    $result['0']['general_account'] = (string) $value;
+                    break;
+            }
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Sanitize raw account input ensuring expected VAT rates are present.
+ *
+ * @param array<string,mixed> $input
+ * @return array<string,array<string,string>>
+ */
+function sanitizeAccountInput(array $input): array {
+    $rates = ['0', '6', '13', '23'];
+    $result = [];
+    foreach ($rates as $rate) {
+        $rateInput = $input[$rate] ?? [];
+        if (!is_array($rateInput)) {
+            $rateInput = [];
+        }
+        $result[$rate] = [
+            'iva_account' => isset($rateInput['iva_account']) ? trim((string) $rateInput['iva_account']) : '',
+            'general_account' => isset($rateInput['general_account']) ? trim((string) $rateInput['general_account']) : '',
+        ];
+    }
+
+    return $result;
+}
+
+/**
+ * Merge two account configurations, giving precedence to override values.
+ *
+ * @param array<string,mixed> $base
+ * @param array<string,mixed> $override
+ * @return array<string,array<string,string>>
+ */
+function mergeAccountingAccounts(array $base, array $override): array {
+    $baseSanitized = sanitizeAccountInput($base);
+    $overrideSanitized = sanitizeAccountInput($override);
+
+    foreach (['0', '6', '13', '23'] as $rate) {
+        foreach (['iva_account', 'general_account'] as $field) {
+            if (array_key_exists($field, $overrideSanitized[$rate])) {
+                $baseSanitized[$rate][$field] = $overrideSanitized[$rate][$field];
+            }
+        }
+    }
+
+    return $baseSanitized;
+}
+
+/**
+ * Serialize normalized account information as JSON.
+ *
+ * @param array<string,mixed> $rates
+ * @return string
+ */
+function serializeAccountingAccounts(array $rates): string {
+    $sanitized = sanitizeAccountInput($rates);
+    return json_encode([
+        'version' => 2,
+        'rates' => $sanitized,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Calculate VAT rate amounts and requirements for an imported document row.
+ *
+ * @param array<string,mixed> $row
+ * @return array<string,array<string,mixed>>
+ */
+function computeImportRateSummaries(array $row): array {
+    $parseAmount = static function ($value): float {
+        if ($value === null) {
+            return 0.0;
+        }
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        $stringValue = trim((string) $value);
+        if ($stringValue === '') {
+            return 0.0;
+        }
+        return (float) str_replace(',', '.', $stringValue);
+    };
+
+    $formatAmount = static function (?float $value, $original = null): string {
+        $originalStr = is_string($original) ? trim($original) : '';
+        if ($originalStr !== '') {
+            return $originalStr;
+        }
+        if ($value === null) {
+            return '';
+        }
+        return number_format($value, 2, '.', '');
+    };
+
+    $base6 = $parseAmount($row['field_I3'] ?? null);
+    $iva6 = $parseAmount($row['field_I4'] ?? null);
+    $base13 = $parseAmount($row['field_I5'] ?? null);
+    $iva13 = $parseAmount($row['field_I6'] ?? null);
+    $base23 = $parseAmount($row['field_I7'] ?? null);
+    $iva23 = $parseAmount($row['field_I8'] ?? null);
+    $totalIva = $parseAmount($row['field_N'] ?? null);
+    $total = $parseAmount($row['field_O'] ?? null);
+
+    $totalBase = $total - $totalIva;
+    if (!is_finite($totalBase)) {
+        $totalBase = 0.0;
+    }
+
+    $base0 = $totalBase - $base6 - $base13 - $base23;
+    if (!is_finite($base0)) {
+        $base0 = 0.0;
+    }
+    if (abs($base0) < 0.005) {
+        $base0 = 0.0;
+    }
+
+    $requireIva6 = abs($base6) > 0.0001 || abs($iva6) > 0.0001;
+    $requireIva13 = abs($base13) > 0.0001 || abs($iva13) > 0.0001;
+    $requireIva23 = abs($base23) > 0.0001 || abs($iva23) > 0.0001;
+
+    return [
+        '0' => [
+            'base_value' => $base0,
+            'iva_value' => 0.0,
+            'base_display' => $formatAmount($base0),
+            'iva_display' => $formatAmount(0.0),
+            'require_general' => abs($base0) > 0.0001,
+            'require_iva' => false,
+        ],
+        '6' => [
+            'base_value' => $base6,
+            'iva_value' => $iva6,
+            'base_display' => $formatAmount($base6, $row['field_I3'] ?? null),
+            'iva_display' => $formatAmount($iva6, $row['field_I4'] ?? null),
+            'require_general' => false,
+            'require_iva' => $requireIva6,
+        ],
+        '13' => [
+            'base_value' => $base13,
+            'iva_value' => $iva13,
+            'base_display' => $formatAmount($base13, $row['field_I5'] ?? null),
+            'iva_display' => $formatAmount($iva13, $row['field_I6'] ?? null),
+            'require_general' => false,
+            'require_iva' => $requireIva13,
+        ],
+        '23' => [
+            'base_value' => $base23,
+            'iva_value' => $iva23,
+            'base_display' => $formatAmount($base23, $row['field_I7'] ?? null),
+            'iva_display' => $formatAmount($iva23, $row['field_I8'] ?? null),
+            'require_general' => false,
+            'require_iva' => $requireIva23,
+        ],
+    ];
+}
+
+/**
+ * Build payload and requirement metadata for modal rendering.
+ *
+ * @param array<string,array<string,mixed>> $summaries
+ * @param array<string,array<string,string>> $accounts
+ * @return array{0: array<string,array<string,string>>, 1: array<string,array<string,bool>>}
+ */
+function buildRatePayload(array $summaries, array $accounts): array {
+    $payload = [];
+    $requirements = [];
+
+    foreach ($summaries as $rate => $info) {
+        $payload[$rate] = [
+            'base' => $info['base_display'] ?? '',
+            'iva' => $info['iva_display'] ?? '',
+            'iva_account' => $accounts[$rate]['iva_account'] ?? '',
+            'general_account' => $accounts[$rate]['general_account'] ?? '',
+        ];
+        $requirements[$rate] = [
+            'general' => !empty($info['require_general']),
+            'iva' => !empty($info['require_iva']),
+        ];
+    }
+
+    return [$payload, $requirements];
+}
+
+/**
+ * Determine the button class for a classification row based on requirements.
+ *
+ * @param array<string,array<string,bool>> $requirements
+ * @param array<string,array<string,string>> $payload
+ * @return string
+ */
+function determineClassificationButtonClass(array $requirements, array $payload): string {
+    $requires = false;
+    $allFilled = true;
+    $hasAny = false;
+
+    $rates = array_unique(array_merge(array_keys($requirements), array_keys($payload)));
+
+    foreach ($rates as $rate) {
+        $req = $requirements[$rate] ?? [];
+        $data = $payload[$rate] ?? [];
+        $general = trim((string) ($data['general_account'] ?? ''));
+        $iva = trim((string) ($data['iva_account'] ?? ''));
+
+        if ($general !== '' || $iva !== '') {
+            $hasAny = true;
+        }
+
+        if (!empty($req['general'])) {
+            $requires = true;
+            if ($general === '') {
+                $allFilled = false;
+            }
+        }
+
+        if (!empty($req['iva'])) {
+            $requires = true;
+            if ($iva === '') {
+                $allFilled = false;
+            }
+        }
+    }
+
+    if (!$requires || $allFilled) {
+        return 'btn-success';
+    }
+
+    if ($hasAny) {
+        return 'btn-warning';
+    }
+
+    return 'btn-secondary';
+}
+
 ?>

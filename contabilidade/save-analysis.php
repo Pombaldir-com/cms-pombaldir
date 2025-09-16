@@ -19,6 +19,11 @@ if ($action === 'lines') {
         exit;
     }
     $id = $_GET['id'] ?? '';
+    if ($id === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'ID inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -90,6 +95,7 @@ if ($action === 'get') {
     $a = $_GET['A'] ?? '';
     $b = $_GET['B'] ?? '';
     $d = $_GET['D'] ?? '';
+    $id = $_GET['id'] ?? '';
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -102,12 +108,22 @@ if ($action === 'get') {
     );
     $stmt->execute([$a, $b, $d]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $accounts = json_decode($row['account'] ?? '', true) ?: [];
+    $classificationAccounts = normalizeAccountingAccounts($row['account'] ?? '');
+
+    $rowAccounts = normalizeAccountingAccounts(null);
+    $costCenter = '';
+    if ($id !== '') {
+        $stmtRow = $pdo->prepare('SELECT account, cost_center FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmtRow->execute([$id]);
+        $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
+        $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
+        $costCenter = (string)($importRow['cost_center'] ?? '');
+    }
+
     echo json_encode([
-        'iva6' => $accounts['iva6'] ?? '',
-        'iva13' => $accounts['iva13'] ?? '',
-        'iva23' => $accounts['iva23'] ?? '',
-        'novat' => $accounts['novat'] ?? '',
+        'rates' => $classificationAccounts,
+        'row_rates' => $rowAccounts,
+        'cost_center' => $costCenter,
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -132,46 +148,46 @@ if ($action === 'get') {
     try {
         $pdo->beginTransaction();
 
-        // Load existing classifications so new entries do not wipe out
-        // previously stored tax accounts for the same emitter/acquirer/doc type.
+        $ratesJson = $_POST['rates'] ?? '[]';
+        $ratesData = json_decode($ratesJson, true);
+        if (!is_array($ratesData)) {
+            $ratesData = [];
+        }
+        $submittedRates = sanitizeAccountInput($ratesData);
+        $costCenter = isset($_POST['cost_center']) ? trim((string) $_POST['cost_center']) : '';
+
         $stmtExisting = $pdo->prepare(
             'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
         );
         $stmtExisting->execute([$a, $b, $d]);
-        $existingClass = json_decode($stmtExisting->fetchColumn() ?: '[]', true);
-        if (!is_array($existingClass)) {
-            $existingClass = [];
-        }
+        $existingClass = normalizeAccountingAccounts($stmtExisting->fetchColumn() ?: '');
 
         $stmtRow = $pdo->prepare('SELECT account FROM accounting_imports WHERE id = ?');
         $stmtRow->execute([$id]);
-        $existingRow = json_decode($stmtRow->fetchColumn() ?: '[]', true);
-        if (!is_array($existingRow)) {
-            $existingRow = [];
-        }
+        $existingRow = normalizeAccountingAccounts($stmtRow->fetchColumn() ?: '');
 
-        // Merge existing accounts, giving priority to row-specific values and
-        // any values explicitly submitted in this request (even empty ones).
-        $accounts = array_merge($existingClass, $existingRow);
-        foreach (['iva6', 'iva13', 'iva23', 'novat'] as $key) {
-            if (array_key_exists($key, $_POST)) {
-                $accounts[$key] = $_POST[$key];
-            }
-        }
+        $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
+        $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
 
-        $serialized = json_encode($accounts);
+        $serializedRow = serializeAccountingAccounts($rowAccounts);
+        $serializedClass = serializeAccountingAccounts($classAccounts);
 
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
-        $stmt->execute([$serialized, $id]);
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ? WHERE id = ?');
+        $stmt->execute([$serializedRow, $costCenter, $id]);
 
         $stmt2 = $pdo->prepare(
             'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
             . 'VALUES (?, ?, ?, ?) '
             . 'ON DUPLICATE KEY UPDATE account = VALUES(account)'
         );
-        $stmt2->execute([$a, $b, $d, $serialized]);
+        $stmt2->execute([$a, $b, $d, $serializedClass]);
         $pdo->commit();
-        echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+        echo json_encode([
+            'success' => true,
+            'csrf_token' => generateCsrfToken(),
+            'row_rates' => $rowAccounts,
+            'cost_center' => $costCenter
+        ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
