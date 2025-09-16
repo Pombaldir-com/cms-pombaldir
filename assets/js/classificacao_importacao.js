@@ -127,6 +127,11 @@ window.addEventListener('load', function() {
             };
         });
         costCenterInput = form.querySelector('.cost-center-field');
+        if (costCenterInput) {
+            costCenterInput.setAttribute('type', 'text');
+            costCenterInput.removeAttribute('readonly');
+            costCenterInput.disabled = false;
+        }
     }
     var currentBtn = null;
     var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));

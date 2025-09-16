@@ -292,9 +292,12 @@ require_once __DIR__ . '/../header.php';
                                     <td><input type="text" class="form-control form-control-sm general-account-field" name="rates[<?= $rate; ?>][general_account]"></td>
                                     <?php if ($rate === '0'): ?>
                                     <td rowspan="<?= count($modalRates); ?>" class="align-middle">
-
-                                        <input type="text" class="form-control cost-center-field" name="cost_center">
-
+                                        <input
+                                            type="text"
+                                            class="form-control form-control-sm cost-center-field"
+                                            name="cost_center"
+                                            placeholder="Introduza o centro de custo"
+                                        >
                                     </td>
                                     <?php endif; ?>
                                 </tr>
