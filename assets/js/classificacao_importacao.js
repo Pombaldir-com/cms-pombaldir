@@ -55,6 +55,15 @@ window.addEventListener('load', function() {
         }
     }
 
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
 
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -385,6 +394,7 @@ window.addEventListener('load', function() {
             '<th>Qtd.</th>' +
             '<th>P. Un.</th>' +
             '<th>Preço</th>' +
+            '<th>Centro de Custo</th>' +
             '</tr></thead><tbody>';
         lines.forEach(function(line) {
             var erp = line.ERP || '';
@@ -395,6 +405,7 @@ window.addEventListener('load', function() {
             var unitPrice = line.UNIT_PRICE || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.UNIT_PRICE) || '';
             var price = line.PRICE || '';
             var priceVat = line.PRICE_VAT || '';
+            var costCenter = line.COST_CENTER || line.cost_center || '';
             if (!priceVat) {
                 var priceNum = parseFloat(String(price).replace(',', '.'));
                 var ivaNum = parseFloat(String(iva).replace(',', '.'));
@@ -403,13 +414,14 @@ window.addEventListener('load', function() {
                 }
             }
             html += '<tr>' +
-                '<td><input type="text" class="form-control erp-input" value="' + erp + '"><input type="hidden" class="price-vat" value="' + priceVat + '"></td>' +
-                '<td class="iva-taxa">' + iva + '</td>' +
-                '<td class="product-code">' + productCode + '</td>' +
-                '<td class="item">' + item + '</td>' +
-                '<td class="quantity">' + quantity + '</td>' +
-                '<td class="unit-price">' + unitPrice + '</td>' +
-                '<td class="price">' + price + '</td>' +
+                '<td><input type="text" class="form-control erp-input" value="' + escapeHtml(erp) + '"><input type="hidden" class="price-vat" value="' + escapeHtml(priceVat) + '"></td>' +
+                '<td class="iva-taxa">' + escapeHtml(iva) + '</td>' +
+                '<td class="product-code">' + escapeHtml(productCode) + '</td>' +
+                '<td class="item">' + escapeHtml(item) + '</td>' +
+                '<td class="quantity">' + escapeHtml(quantity) + '</td>' +
+                '<td class="unit-price">' + escapeHtml(unitPrice) + '</td>' +
+                '<td class="price">' + escapeHtml(price) + '</td>' +
+                '<td><input type="text" class="form-control cost-center-input" value="' + escapeHtml(costCenter) + '"></td>' +
                 '</tr>';
         });
         html += '</tbody></table>';
@@ -432,6 +444,8 @@ window.addEventListener('load', function() {
             var unitPrice = row.querySelector('.unit-price').textContent.trim();
             var price = row.querySelector('.price').textContent.trim();
             var priceVat = row.querySelector('.price-vat').value;
+            var costCenterInputEl = row.querySelector('.cost-center-input');
+            var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
             if (!erp) {
                 allErpFilled = false;
             }
@@ -443,7 +457,8 @@ window.addEventListener('load', function() {
                 QUANTITY: quantity,
                 UNIT_PRICE: unitPrice,
                 PRICE: price,
-                PRICE_VAT: priceVat
+                PRICE_VAT: priceVat,
+                COST_CENTER: costCenter
             });
         });
         var body = new URLSearchParams({
