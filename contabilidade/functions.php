@@ -112,7 +112,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
  * @param bool   $logEmpty    Whether to log when no usable data is found.
  * @return array|null Associative array with the extracted data or null if none was found.
  */
-function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel = 'Webservice ERP', bool $logEmpty = true): ?array {
+function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel = 'Webservice ERP-SINC', bool $logEmpty = true): ?array {
     if (isset($payload['success']) && $payload['success'] === false) {
         $message = isset($payload['message']) ? (string) $payload['message'] : (string) ($payload['error'] ?? 'Resposta sem sucesso');
         logErpMessage($sourceLabel . ' devolveu erro: ' . $message);
@@ -256,7 +256,10 @@ function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel 
 }
 
 /**
- * Retrieve accounting entity information from the NIF.pt service as a fallback.
+ * Retrieve accounting entity information from the NIF.pt service.
+ *
+ * This legacy helper is kept for backwards compatibility and is not used by the
+ * current ERP-SINC synchronisation flow.
  *
  * @param string $nif    VAT number requested.
  * @param string $reason Contextual reason for logging when the fallback is used.
@@ -380,27 +383,27 @@ function fetchAccountingEntityFromNifPt(string $nif, string $reason = ''): ?arra
 }
 
 /**
- * Retrieve client information from the ERP webservice.
+ * Retrieve client information from the ERP-SINC webservice.
  *
  * @param string $nif VAT number to request.
  * @return array|null Entity data or null when the request fails.
  */
 function fetchAccountingEntityFromErp(string $nif): ?array {
     if (!function_exists('curl_init')) {
-        logErpMessage('Extensão cURL não disponível para sincronizar entidade ' . $nif);
+        logErpMessage('Extensão cURL não disponível para sincronizar entidade ' . $nif . ' via ERP-SINC.');
         return null;
     }
 
     $baseUrl = getSetting('erp_webservice_url', '');
     if ($baseUrl === null || trim($baseUrl) === '') {
-        logErpMessage('URL do ERP não configurada para sincronizar o NIF ' . $nif . '.');
-        return fetchAccountingEntityFromNifPt($nif, 'URL do ERP não configurada');
+        logErpMessage('URL do ERP-SINC não configurada para sincronizar o NIF ' . $nif . '.');
+        return null;
     }
 
     $endpoint = buildErpClientEndpoint($baseUrl, $nif);
     if ($endpoint === '') {
-        logErpMessage('URL do ERP inválida para o NIF ' . $nif . '.');
-        return fetchAccountingEntityFromNifPt($nif, 'URL do ERP inválida');
+        logErpMessage('URL do ERP-SINC inválida para o NIF ' . $nif . '.');
+        return null;
     }
 
     $token = getSetting('erp_token', '');
@@ -412,8 +415,8 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $handle = curl_init($endpoint);
     if ($handle === false) {
-        logErpMessage('Falha ao inicializar pedido ao ERP para o NIF ' . $nif);
-        return fetchAccountingEntityFromNifPt($nif, 'falha ao inicializar pedido ao ERP');
+        logErpMessage('Falha ao inicializar pedido ao ERP-SINC para o NIF ' . $nif . '.');
+        return null;
     }
 
     curl_setopt_array($handle, [
@@ -425,42 +428,33 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $response = curl_exec($handle);
     if ($response === false) {
-        logErpMessage('Erro cURL ao obter entidade ' . $nif . ': ' . curl_error($handle));
+        logErpMessage('Erro cURL ao obter entidade ' . $nif . ' do ERP-SINC: ' . curl_error($handle));
         curl_close($handle);
-        return fetchAccountingEntityFromNifPt($nif, 'erro cURL no ERP');
+        return null;
     }
 
     $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
     curl_close($handle);
 
     if ($status >= 400) {
-        logErpMessage('Webservice ERP devolveu HTTP ' . $status . ' para o NIF ' . $nif);
-        if (in_array($status, [404, 410], true)) {
-            $fallback = fetchAccountingEntityFromNifPt($nif, 'HTTP ' . $status . ' no ERP');
-            if ($fallback !== null) {
-                return $fallback;
-            }
-        }
+        logErpMessage('Webservice ERP-SINC devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.');
         return null;
     }
 
     if ($status === 204 || trim((string) $response) === '') {
-        logErpMessage('Webservice ERP devolveu resposta vazia para o NIF ' . $nif);
-        return fetchAccountingEntityFromNifPt($nif, 'resposta vazia do ERP');
+        logErpMessage('Webservice ERP-SINC devolveu resposta vazia para o NIF ' . $nif . '.');
+        return null;
     }
 
     $data = json_decode($response, true);
     if (!is_array($data)) {
-        logErpMessage('Resposta ERP inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
-        return fetchAccountingEntityFromNifPt($nif, 'resposta inválida do ERP');
+        logErpMessage('Resposta ERP-SINC inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
+        return null;
     }
 
     $entity = parseErpEntityPayload($data, $nif);
     if ($entity === null) {
-        $fallback = fetchAccountingEntityFromNifPt($nif, 'dados indisponíveis no ERP');
-        if ($fallback !== null) {
-            return $fallback;
-        }
+        logErpMessage('Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.');
         return null;
     }
 

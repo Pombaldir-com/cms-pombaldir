@@ -58,7 +58,7 @@ O projeto disponibiliza um endpoint simples em [`api.php`](api.php) para aceder 
 O endpoint responde com informação da taxonomia e a lista de termos associados.
 
 ## Integração ERP
-O módulo de contabilidade pode consultar um webservice ERP para sincronizar dados de clientes. Caso o ERP devolva um código HTTP 404 (ou não forneça dados utilizáveis) e exista um **Token NIF.PT** configurado em **Definições > ERP**, o sistema tenta obter a informação através do serviço [NIF.pt](https://www.nif.pt/). Certifique-se de que o token está ativo para que a sincronização consiga recorrer a este fallback.
+O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar dados de clientes. Certifique-se de que a URL e o token do serviço estão configurados em **Definições > ERP**. O sincronismo passa a depender exclusivamente do ERP-SINC, não recorrendo a dados alternativos do [NIF.pt](https://www.nif.pt/).
 
 ## Textract OCR
 O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com/textract/) para extrair dados de faturas. A integração é feita através do script Python `contabilidade/textract.py`, que requer a biblioteca `boto3`.
