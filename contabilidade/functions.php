@@ -69,69 +69,18 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
     }
 
     if (strpos($url, '{nif}') !== false) {
-        return str_replace('{nif}', rawurlencode($nif), $url);
+
+        return str_replace('{nif}', urlencode($nif), $url);
     }
 
     if (strpos($url, '%s') !== false) {
-        return sprintf($url, rawurlencode($nif));
+        return sprintf($url, urlencode($nif));
     }
 
-    $components = @parse_url($url);
-    if ($components === false) {
-        return '';
-    }
+    $base = rtrim($url, '/');
+    $separator = strpos($base, '?') === false ? '?' : '&';
+    return $base . $separator . 'nif=' . urlencode($nif);
 
-    $path = $components['path'] ?? '';
-    $path = $path === '' ? '' : rtrim($path, '/');
-    if ($path === '' || $path === '/') {
-        $path = '/clientes';
-    } elseif (stripos($path, '/clientes') === false) {
-        $path .= '/clientes';
-    }
-
-    $existingQuery = [];
-    if (isset($components['query'])) {
-        parse_str($components['query'], $existingQuery);
-    }
-
-    $defaults = [
-        'limit' => '1',
-        'offset' => '0',
-        'searchField' => 'strNumContrib',
-    ];
-
-    $query = $existingQuery + $defaults;
-    $query['q'] = $nif;
-
-    $scheme = $components['scheme'] ?? 'https';
-    $host = $components['host'] ?? '';
-    if ($host === '') {
-        return '';
-    }
-
-    $userInfo = '';
-    if (isset($components['user'])) {
-        $userInfo = $components['user'];
-        if (isset($components['pass'])) {
-            $userInfo .= ':' . $components['pass'];
-        }
-        $userInfo .= '@';
-    }
-
-    $endpoint = $scheme . '://' . $userInfo . $host;
-    if (isset($components['port'])) {
-        $endpoint .= ':' . $components['port'];
-    }
-    $endpoint .= $path;
-
-    $queryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
-    $endpoint .= '?' . $queryString;
-
-    if (isset($components['fragment'])) {
-        $endpoint .= '#' . $components['fragment'];
-    }
-
-    return $endpoint;
 }
 
 /**
@@ -156,7 +105,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates = [];
     $candidates[] = $payload;
 
-    $candidateKeys = ['data', 'cliente', 'clientes', 'result', 'results', 'aaData'];
+
+    $candidateKeys = ['data', 'cliente', 'clientes', 'result', 'results'];
+
     foreach ($candidateKeys as $key) {
         if (!isset($payload[$key])) {
             continue;
@@ -182,7 +133,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         }
 
         $candidateNif = '';
-        $nifKeys = ['nif', 'NIF', 'vat', 'VAT', 'vat_number', 'numero_contribuinte', 'NumeroContribuinte', 'strNumContrib'];
+
+        $nifKeys = ['nif', 'NIF', 'vat', 'VAT', 'vat_number', 'numero_contribuinte', 'NumeroContribuinte'];
+
         foreach ($nifKeys as $nifKey) {
             if (isset($candidate[$nifKey])) {
                 $candidateNif = extractVatNumber((string) $candidate[$nifKey]);
@@ -194,7 +147,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         }
 
         $name = '';
-        $nameKeys = ['name', 'Name', 'nome', 'Nome', 'nome_cliente', 'NomeCliente', 'razao_social', 'RazaoSocial', 'descricao', 'strNome'];
+
+        $nameKeys = ['name', 'Name', 'nome', 'Nome', 'nome_cliente', 'NomeCliente', 'razao_social', 'RazaoSocial', 'descricao'];
+
         foreach ($nameKeys as $nameKey) {
             if (!empty($candidate[$nameKey])) {
                 $name = trim((string) $candidate[$nameKey]);
@@ -202,8 +157,19 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             }
         }
 
+
+        $erpDatabase = '';
+        $dbKeys = ['erp_database', 'erpDatabase', 'database', 'db', 'BD', 'bd', 'base_dados'];
+        foreach ($dbKeys as $dbKey) {
+            if (isset($candidate[$dbKey])) {
+                $erpDatabase = trim((string) $candidate[$dbKey]);
+                break;
+            }
+        }
+
         $entityType = '';
-        $typeKeys = ['entity_type', 'entityType', 'tp_entidade', 'tipo', 'tipo_entidade', 'strTipoEntidade'];
+        $typeKeys = ['entity_type', 'entityType', 'tp_entidade', 'tipo', 'tipo_entidade'];
+
         foreach ($typeKeys as $typeKey) {
             if (isset($candidate[$typeKey])) {
                 $entityType = trim((string) $candidate[$typeKey]);
@@ -211,13 +177,11 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             }
         }
 
-        if ($entityType === '' && isset($candidate['bitConsumidorFinal'])) {
-            $entityType = (string) $candidate['bitConsumidorFinal'] === '1' ? 'consumidor_final' : 'adquirente';
-        }
 
         return [
             'nif' => $nif,
             'name' => $name,
+            'erp_database' => $erpDatabase,
             'entity_type' => $entityType,
         ];
     }
@@ -413,7 +377,9 @@ function ensureAccountingEntity(PDO $pdo, string $acquirerValue): ?array {
     $data = [
         'nif' => $nif,
         'name' => $name,
-        'erp_database' => '',
+
+        'erp_database' => trim((string) ($remote['erp_database'] ?? '')),
+
         'entity_type' => $entityType,
     ];
 
