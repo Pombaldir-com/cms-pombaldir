@@ -125,7 +125,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates = [];
     $candidates[] = $payload;
 
-    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results', 'aadata', 'aa_data'], true);
+
+    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results'], true);
+
 
     foreach ($payload as $payloadKey => $value) {
         if (!is_string($payloadKey)) {
@@ -174,6 +176,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib'];
 
+
         foreach ($nifKeys as $nifKey) {
             if (array_key_exists($nifKey, $normalisedCandidate)) {
                 $candidateNif = extractVatNumber((string) $normalisedCandidate[$nifKey]);
@@ -186,7 +189,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $name = '';
 
-        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao', 'strnome'];
+
+        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao', 'strNome'];
+
 
         foreach ($nameKeys as $nameKey) {
             if (array_key_exists($nameKey, $normalisedCandidate) && trim((string) $normalisedCandidate[$nameKey]) !== '') {
