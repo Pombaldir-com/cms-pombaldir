@@ -78,9 +78,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['erp_webservice_url'])) {
         $erpWebserviceUrl = trim($_POST['erp_webservice_url'] ?? '');
         $erpToken = trim($_POST['erp_token'] ?? '');
+        $erpNifPt = trim($_POST['erp_nif_pt'] ?? '');
 
         setSetting('erp_webservice_url', $erpWebserviceUrl);
         setSetting('erp_token', $erpToken);
+        setSetting('erp_nif_pt', $erpNifPt);
 
         $erpSaved = true;
     }
@@ -110,6 +112,7 @@ $currentAwsRegion = getSetting('aws_region', '');
 $currentOcrProvider = getSetting('ocr_provider', 'tesseract');
 $currentErpWebserviceUrl = getSetting('erp_webservice_url', '');
 $currentErpToken = getSetting('erp_token', '');
+$currentErpNifPt = getSetting('erp_nif_pt', '');
 $currentModules = getActiveModules();
 
 require_once __DIR__ . '/header.php';
@@ -261,6 +264,12 @@ require_once __DIR__ . '/header.php';
                     <div class="mb-3 col-md-6 col-sm-12">
                         <label for="erp_token" class="form-label">Token</label>
                         <input type="text" class="form-control" id="erp_token" name="erp_token" value="<?= htmlspecialchars($currentErpToken); ?>">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="erp_nif_pt" class="form-label">NIF.PT</label>
+                        <input type="url" class="form-control" id="erp_nif_pt" name="erp_nif_pt" value="<?= htmlspecialchars($currentErpNifPt); ?>">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
