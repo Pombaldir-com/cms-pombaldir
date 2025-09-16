@@ -121,9 +121,27 @@ window.addEventListener('load', function() {
     var modalTitleEl = document.getElementById('classifyModalLabel');
     var form = document.getElementById('classify-form');
     var rateInputs = {};
-    var costCenterInput = null;
+    var costCenterInputs = [];
     var currentRateData = {};
     var currentCostCenter = '';
+
+    function setCostCenterInputs(value, skipInput) {
+        var normalized = value === undefined || value === null ? '' : String(value);
+        currentCostCenter = normalized;
+        costCenterInputs.forEach(function(input) {
+            if (input !== skipInput && input.value !== normalized) {
+                input.value = normalized;
+            }
+        });
+    }
+
+    function getCostCenterValue() {
+        if (costCenterInputs.length === 0) {
+            return '';
+        }
+        return costCenterInputs[0].value.trim();
+    }
+
     if (form) {
         var rateRows = Array.prototype.slice.call(form.querySelectorAll('tbody tr[data-rate]'));
         rateRows.forEach(function(row) {
@@ -135,13 +153,24 @@ window.addEventListener('load', function() {
                 generalAccount: row.querySelector('.general-account-field')
             };
         });
-        costCenterInput = form.querySelector('.cost-center-field');
-        if (costCenterInput) {
-            costCenterInput.setAttribute('type', 'text');
-            costCenterInput.removeAttribute('readonly');
-            costCenterInput.disabled = false;
-        }
+        costCenterInputs = Array.prototype.slice.call(form.querySelectorAll('.cost-center-field'));
+        costCenterInputs.forEach(function(input) {
+            input.setAttribute('type', 'text');
+            input.removeAttribute('readonly');
+            input.removeAttribute('disabled');
+            input.readOnly = false;
+            input.disabled = false;
+            input.addEventListener('input', function() {
+                setCostCenterInputs(input.value, input);
+            });
+        });
     }
+    if (classifyModalEl && costCenterInputs.length > 0) {
+        classifyModalEl.addEventListener('shown.bs.modal', function() {
+            costCenterInputs[0].focus();
+        });
+    }
+
     var currentBtn = null;
     var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
     var linesContainer = document.getElementById('linesContainer');
@@ -167,10 +196,7 @@ window.addEventListener('load', function() {
             if (info.generalAccount) { info.generalAccount.value = data.general_account || ''; }
         });
 
-        currentCostCenter = btn.getAttribute('data-cost-center') || '';
-        if (costCenterInput) {
-            costCenterInput.value = currentCostCenter;
-        }
+        setCostCenterInputs(btn.getAttribute('data-cost-center') || '');
 
         var params = new URLSearchParams({
             action: 'get',
@@ -210,13 +236,11 @@ window.addEventListener('load', function() {
                     }
                 });
 
-                if (costCenterInput && res.cost_center !== undefined && res.cost_center !== null) {
-                    if (!costCenterInput.value) {
-                        costCenterInput.value = res.cost_center || '';
-                    }
+                if (res.cost_center !== undefined && res.cost_center !== null && !getCostCenterValue()) {
+                    setCostCenterInputs(res.cost_center || '');
                 }
 
-                currentCostCenter = costCenterInput ? costCenterInput.value : currentCostCenter;
+                currentCostCenter = getCostCenterValue() || currentCostCenter;
                 Object.keys(rateInputs).forEach(function(rate) {
                     var info = rateInputs[rate];
                     if (!currentRateData[rate]) {
@@ -252,7 +276,7 @@ window.addEventListener('load', function() {
             };
         });
 
-        var costCenterValue = costCenterInput ? costCenterInput.value.trim() : '';
+        var costCenterValue = getCostCenterValue();
         var body = new URLSearchParams({
             id: currentBtn.getAttribute('data-id') || '',
             A: currentBtn.getAttribute('data-emitter') || '',
@@ -273,13 +297,11 @@ window.addEventListener('load', function() {
             }
             if (res.success) {
                 if (res.cost_center !== undefined && res.cost_center !== null) {
-                    currentCostCenter = res.cost_center;
-                    if (costCenterInput) {
-                        costCenterInput.value = res.cost_center;
-                    }
+                    setCostCenterInputs(res.cost_center || '');
                 } else {
-                    currentCostCenter = costCenterValue;
+                    setCostCenterInputs(costCenterValue);
                 }
+                currentCostCenter = getCostCenterValue();
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
                     Object.keys(res.row_rates).forEach(function(rate) {
