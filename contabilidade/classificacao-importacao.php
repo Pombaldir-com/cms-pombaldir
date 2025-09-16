@@ -24,7 +24,8 @@ function prepareImportRow(array $row): array {
     if (is_array($lines) && count($lines) > 0) {
         $allFilled = true;
         foreach ($lines as $line) {
-            if (trim((string) ($line['ERP'] ?? '')) === '') {
+            $erpValue = trim((string) ($line['ERP'] ?? ''));
+            if ($erpValue === '') {
                 $allFilled = false;
                 break;
             }
