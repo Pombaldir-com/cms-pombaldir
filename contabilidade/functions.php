@@ -104,6 +104,44 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
 }
 
 /**
+ * Prepare an URL string for logging by masking sensitive query parameters.
+ *
+ * @param string $url Original URL.
+ * @return string URL safe to expose in logs.
+ */
+function sanitizeUrlForLog(string $url): string {
+    if ($url === '') {
+        return '';
+    }
+
+    $sanitized = preg_replace_callback(
+        '/([?&])([^=&#]+)=([^&#]*)/',
+        function (array $matches): string {
+            $param = strtolower($matches[2]);
+            foreach (['token', 'key', 'secret', 'password', 'auth'] as $keyword) {
+                if (strpos($param, $keyword) !== false) {
+                    return $matches[1] . $matches[2] . '=***';
+                }
+            }
+
+            return $matches[0];
+        },
+        $url
+    );
+
+    if ($sanitized === null) {
+        $sanitized = $url;
+    }
+
+    $sanitized = preg_replace('/^([a-z][a-z0-9+.-]*:\/\/[^:@\/]+):[^@\/]*@/i', '$1:***@', $sanitized);
+    if ($sanitized === null) {
+        return $url;
+    }
+
+    return $sanitized;
+}
+
+/**
  * Normalise the ERP response structure and extract relevant entity data.
  *
  * @param array  $payload     Raw payload returned by the ERP webservice.
@@ -406,6 +444,9 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
         return null;
     }
 
+    $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
+    $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
+
     $token = getSetting('erp_token', '');
     $headers = ['Accept: application/json'];
     if ($token !== null && $token !== '') {
@@ -415,7 +456,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $handle = curl_init($endpoint);
     if ($handle === false) {
-        logErpMessage('Falha ao inicializar pedido ao ERP-SINC para o NIF ' . $nif . '.');
+        logErpMessage('Falha ao inicializar pedido ao ERP-SINC para o NIF ' . $nif . '.' . $endpointInfo);
         return null;
     }
 
@@ -428,7 +469,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $response = curl_exec($handle);
     if ($response === false) {
-        logErpMessage('Erro cURL ao obter entidade ' . $nif . ' do ERP-SINC: ' . curl_error($handle));
+        logErpMessage('Erro cURL ao obter entidade ' . $nif . ' do ERP-SINC: ' . curl_error($handle) . $endpointInfo);
         curl_close($handle);
         return null;
     }
@@ -437,24 +478,24 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
     curl_close($handle);
 
     if ($status >= 400) {
-        logErpMessage('Webservice ERP-SINC devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.');
+        logErpMessage('Webservice ERP-SINC devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.' . $endpointInfo);
         return null;
     }
 
     if ($status === 204 || trim((string) $response) === '') {
-        logErpMessage('Webservice ERP-SINC devolveu resposta vazia para o NIF ' . $nif . '.');
+        logErpMessage('Webservice ERP-SINC devolveu resposta vazia para o NIF ' . $nif . '.' . $endpointInfo);
         return null;
     }
 
     $data = json_decode($response, true);
     if (!is_array($data)) {
-        logErpMessage('Resposta ERP-SINC inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
+        logErpMessage('Resposta ERP-SINC inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200) . $endpointInfo);
         return null;
     }
 
     $entity = parseErpEntityPayload($data, $nif);
     if ($entity === null) {
-        logErpMessage('Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.');
+        logErpMessage('Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.' . $endpointInfo);
         return null;
     }
 
