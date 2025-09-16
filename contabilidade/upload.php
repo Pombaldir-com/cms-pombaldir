@@ -46,17 +46,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo = getPDO();
 
-        // Preencher conta associada, se existir classificação e sincronizar entidade do adquirente
+        // Preencher conta associada, se existir classificação e sincronizar entidade do emitente
         $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
         $entityCache = [];
         foreach ($rows as &$row) {
             $a = $row['A'] ?? '';
             $b = $row['B'] ?? '';
             $d = $row['D'] ?? '';
-            if ($b !== '') {
-                $nif = extractVatNumber((string) $b);
+            if ($a !== '') {
+                $nif = extractVatNumber((string) $a);
                 if ($nif !== '' && !array_key_exists($nif, $entityCache)) {
-                    $entityCache[$nif] = ensureAccountingEntity($pdo, (string) $b);
+                    $entityCache[$nif] = ensureAccountingEntity($pdo, (string) $a);
                 }
             }
             $stmt->execute([$a, $b, $d]);
