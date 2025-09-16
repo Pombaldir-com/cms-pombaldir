@@ -190,7 +190,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         $name = '';
 
 
-        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao', 'strNome'];
+        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao', 'strnome'];
 
 
         foreach ($nameKeys as $nameKey) {
@@ -202,7 +202,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
 
         $erpDatabase = '';
-        $dbKeys = ['erp_database', 'erpdatabase', 'database', 'db', 'bd', 'base_dados', 'basedados'];
+        $dbKeys = ['erp_database', 'erpdatabase', 'database', 'db', 'bd', 'base_dados', 'basedados', 'intcodigo'];
         foreach ($dbKeys as $dbKey) {
             if (array_key_exists($dbKey, $normalisedCandidate)) {
                 $erpDatabase = trim((string) $normalisedCandidate[$dbKey]);
