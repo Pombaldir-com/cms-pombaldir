@@ -106,19 +106,21 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
 /**
  * Normalise the ERP response structure and extract relevant entity data.
  *
- * @param array  $payload Raw payload returned by the ERP webservice.
- * @param string $nif     VAT number requested.
+ * @param array  $payload     Raw payload returned by the ERP webservice.
+ * @param string $nif         VAT number requested.
+ * @param string $sourceLabel Human readable label for logging purposes.
+ * @param bool   $logEmpty    Whether to log when no usable data is found.
  * @return array|null Associative array with the extracted data or null if none was found.
  */
-function parseErpEntityPayload(array $payload, string $nif): ?array {
+function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel = 'Webservice ERP', bool $logEmpty = true): ?array {
     if (isset($payload['success']) && $payload['success'] === false) {
         $message = isset($payload['message']) ? (string) $payload['message'] : (string) ($payload['error'] ?? 'Resposta sem sucesso');
-        logErpMessage('Webservice ERP devolveu erro: ' . $message);
+        logErpMessage($sourceLabel . ' devolveu erro: ' . $message);
         return null;
     }
 
     if (isset($payload['error']) && !is_array($payload['error'])) {
-        logErpMessage('Webservice ERP devolveu erro: ' . (string) $payload['error']);
+        logErpMessage($sourceLabel . ' devolveu erro: ' . (string) $payload['error']);
         return null;
     }
 
@@ -126,7 +128,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates[] = $payload;
 
 
-    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results'], true);
+    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results', 'record', 'records'], true);
 
 
     foreach ($payload as $payloadKey => $value) {
@@ -149,11 +151,17 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
                 }
             } else {
                 $candidates[] = $value;
+                foreach ($value as $item) {
+                    if (is_array($item)) {
+                        $candidates[] = $item;
+                    }
+                }
             }
         }
     }
 
-    foreach ($candidates as $candidate) {
+    for ($i = 0, $total = count($candidates); $i < $total; $i++) {
+        $candidate = $candidates[$i];
         if (!is_array($candidate)) {
             continue;
         }
@@ -161,7 +169,12 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         $candidateNif = '';
 
         $normalisedCandidate = [];
+        $nestedCandidates = [];
         foreach ($candidate as $candidateKey => $candidateValue) {
+            if (is_array($candidateValue)) {
+                $nestedCandidates[] = $candidateValue;
+            }
+
             if (!is_string($candidateKey)) {
                 continue;
             }
@@ -172,6 +185,11 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             if ($compressed !== $lower && !array_key_exists($compressed, $normalisedCandidate)) {
                 $normalisedCandidate[$compressed] = $candidateValue;
             }
+        }
+
+        foreach ($nestedCandidates as $nestedCandidate) {
+            $candidates[] = $nestedCandidate;
+            $total = count($candidates);
         }
 
         $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib'];
@@ -231,6 +249,133 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         ];
     }
 
+    if ($logEmpty) {
+        logErpMessage($sourceLabel . ' sem dados reconhecíveis para o NIF ' . $nif);
+    }
+    return null;
+}
+
+/**
+ * Retrieve accounting entity information from the NIF.pt service as a fallback.
+ *
+ * @param string $nif    VAT number requested.
+ * @param string $reason Contextual reason for logging when the fallback is used.
+ * @return array|null Associative array with the extracted data or null when unavailable.
+ */
+function fetchAccountingEntityFromNifPt(string $nif, string $reason = ''): ?array {
+    $token = getSetting('erp_nif_pt', '');
+    if ($token === null) {
+        $token = '';
+    }
+
+    $token = trim($token);
+    if ($token === '') {
+        if ($reason !== '') {
+            logErpMessage('Não é possível recorrer ao NIF.pt para o NIF ' . $nif . ' (' . $reason . '): token não configurado.');
+        }
+        return null;
+    }
+
+    if (!function_exists('curl_init')) {
+        logErpMessage('Extensão cURL não disponível para sincronizar entidade ' . $nif . ' via NIF.pt.');
+        return null;
+    }
+
+    $query = [
+        'json' => '1',
+        'q'    => $nif,
+        'key'  => $token,
+    ];
+
+    $url = 'https://www.nif.pt/?' . http_build_query($query);
+    $handle = curl_init($url);
+    if ($handle === false) {
+        logErpMessage('Falha ao inicializar pedido ao NIF.pt para o NIF ' . $nif . '.');
+        return null;
+    }
+
+    curl_setopt_array($handle, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_USERAGENT => 'cms-pombaldir/1.0 (+https://github.com/Pombaldir-com/cms-pombaldir)',
+        CURLOPT_HTTPHEADER => ['Accept: application/json'],
+    ]);
+
+    $response = curl_exec($handle);
+    if ($response === false) {
+        logErpMessage('Erro cURL ao obter entidade ' . $nif . ' do NIF.pt: ' . curl_error($handle));
+        curl_close($handle);
+        return null;
+    }
+
+    $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    if ($status >= 400) {
+        logErpMessage('NIF.pt devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.');
+        return null;
+    }
+
+    if ($response === '') {
+        logErpMessage('NIF.pt devolveu resposta vazia para o NIF ' . $nif . '.');
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        logErpMessage('Resposta NIF.pt inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
+        return null;
+    }
+
+    $entity = parseErpEntityPayload($data, $nif, 'NIF.pt', false);
+    if ($entity !== null) {
+        $context = $reason !== '' ? ' (' . $reason . ')' : '';
+        logErpMessage('Dados do NIF ' . $nif . ' sincronizados via NIF.pt' . $context . '.');
+        return $entity;
+    }
+
+    $records = [];
+    if (isset($data['records']) && is_array($data['records'])) {
+        if (isset($data['records'][$nif]) && is_array($data['records'][$nif])) {
+            $records[] = $data['records'][$nif];
+        }
+        foreach ($data['records'] as $record) {
+            if (is_array($record)) {
+                $records[] = $record;
+            }
+        }
+    } elseif (isset($data['result']) && is_array($data['result'])) {
+        $records[] = $data['result'];
+    }
+
+    foreach ($records as $record) {
+        if (!is_array($record)) {
+            continue;
+        }
+
+        $candidateNif = extractVatNumber((string) ($record['nif'] ?? $record['numero_contribuinte'] ?? $record['numerocontribuinte'] ?? $record['contribuinte'] ?? ''));
+        if ($candidateNif !== '' && $candidateNif !== $nif) {
+            continue;
+        }
+
+        $name = trim((string) ($record['nome'] ?? $record['name'] ?? $record['title'] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+
+        $context = $reason !== '' ? ' (' . $reason . ')' : '';
+        logErpMessage('Dados do NIF ' . $nif . ' sincronizados via NIF.pt' . $context . '.');
+
+        return [
+            'nif' => $candidateNif !== '' ? $candidateNif : $nif,
+            'name' => $name,
+            'erp_database' => '',
+            'entity_type' => '',
+        ];
+    }
+
+    logErpMessage('NIF.pt sem dados reconhecíveis para o NIF ' . $nif . '.');
     return null;
 }
 
@@ -248,12 +393,14 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $baseUrl = getSetting('erp_webservice_url', '');
     if ($baseUrl === null || trim($baseUrl) === '') {
-        return null;
+        logErpMessage('URL do ERP não configurada para sincronizar o NIF ' . $nif . '.');
+        return fetchAccountingEntityFromNifPt($nif, 'URL do ERP não configurada');
     }
 
     $endpoint = buildErpClientEndpoint($baseUrl, $nif);
     if ($endpoint === '') {
-        return null;
+        logErpMessage('URL do ERP inválida para o NIF ' . $nif . '.');
+        return fetchAccountingEntityFromNifPt($nif, 'URL do ERP inválida');
     }
 
     $token = getSetting('erp_token', '');
@@ -266,7 +413,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
     $handle = curl_init($endpoint);
     if ($handle === false) {
         logErpMessage('Falha ao inicializar pedido ao ERP para o NIF ' . $nif);
-        return null;
+        return fetchAccountingEntityFromNifPt($nif, 'falha ao inicializar pedido ao ERP');
     }
 
     curl_setopt_array($handle, [
@@ -280,7 +427,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
     if ($response === false) {
         logErpMessage('Erro cURL ao obter entidade ' . $nif . ': ' . curl_error($handle));
         curl_close($handle);
-        return null;
+        return fetchAccountingEntityFromNifPt($nif, 'erro cURL no ERP');
     }
 
     $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
@@ -288,18 +435,32 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     if ($status >= 400) {
         logErpMessage('Webservice ERP devolveu HTTP ' . $status . ' para o NIF ' . $nif);
+        if (in_array($status, [404, 410], true)) {
+            $fallback = fetchAccountingEntityFromNifPt($nif, 'HTTP ' . $status . ' no ERP');
+            if ($fallback !== null) {
+                return $fallback;
+            }
+        }
         return null;
+    }
+
+    if ($status === 204 || trim((string) $response) === '') {
+        logErpMessage('Webservice ERP devolveu resposta vazia para o NIF ' . $nif);
+        return fetchAccountingEntityFromNifPt($nif, 'resposta vazia do ERP');
     }
 
     $data = json_decode($response, true);
     if (!is_array($data)) {
         logErpMessage('Resposta ERP inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
-        return null;
+        return fetchAccountingEntityFromNifPt($nif, 'resposta inválida do ERP');
     }
 
     $entity = parseErpEntityPayload($data, $nif);
     if ($entity === null) {
-        logErpMessage('Resposta ERP sem dados reconhecíveis para o NIF ' . $nif);
+        $fallback = fetchAccountingEntityFromNifPt($nif, 'dados indisponíveis no ERP');
+        if ($fallback !== null) {
+            return $fallback;
+        }
         return null;
     }
 
