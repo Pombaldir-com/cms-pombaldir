@@ -358,7 +358,7 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => 0.0,
             'base_display' => $formatAmount($base0),
             'iva_display' => $formatAmount(0.0),
-            'require_general' => abs($base0) > 0.0001,
+            'require_general' => false,
             'require_iva' => false,
         ],
         '6' => [
@@ -367,7 +367,7 @@ function computeImportRateSummaries(array $row): array {
             'base_display' => $formatAmount($base6, $row['field_I3'] ?? null),
             'iva_display' => $formatAmount($iva6, $row['field_I4'] ?? null),
 
-            'require_general' => abs($base6) > 0.0001,
+            'require_general' => abs($iva6) > 0.0001,
             'require_iva' => abs($iva6) > 0.0001,
 
         ],
@@ -376,7 +376,7 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => $iva13,
             'base_display' => $formatAmount($base13, $row['field_I5'] ?? null),
             'iva_display' => $formatAmount($iva13, $row['field_I6'] ?? null),
-            'require_general' => abs($base13) > 0.0001,
+            'require_general' => abs($iva13) > 0.0001,
             'require_iva' => abs($iva13) > 0.0001,
 
         ],
@@ -385,7 +385,7 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => $iva23,
             'base_display' => $formatAmount($base23, $row['field_I7'] ?? null),
             'iva_display' => $formatAmount($iva23, $row['field_I8'] ?? null),
-            'require_general' => abs($base23) > 0.0001,
+            'require_general' => abs($iva23) > 0.0001,
             'require_iva' => abs($iva23) > 0.0001,
         ],
     ];
