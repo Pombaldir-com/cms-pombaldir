@@ -15,13 +15,17 @@ command‑line option (default: 300).
 import sys
 import os
 import argparse
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 try:
     from pdf2image import convert_from_path, pdfinfo_from_path
 except Exception:
     convert_from_path = None
     pdfinfo_from_path = None
+
+from PIL import Image
+
+Image.MAX_IMAGE_PIXELS = None
 
 import cv2
 import numpy as np
@@ -96,6 +100,21 @@ STRATEGIES: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
 }
 
 ANGLES = [0, 5]
+
+
+def _parse_max_image_pixels(value: str) -> Optional[int]:
+    lowered = value.strip().lower()
+    if lowered in {"none", "disable", "disabled"}:
+        return None
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "max image pixels must be an integer or 'none'"
+        ) from exc
+    if limit <= 0:
+        raise argparse.ArgumentTypeError("max image pixels must be positive")
+    return limit
 
 
 def _decode_cv(image: np.ndarray) -> List[str]:
@@ -234,7 +253,16 @@ def main() -> int:
         default=300,
         help="resolution to use when converting PDFs (default: 300)",
     )
+    parser.add_argument(
+        "--max-image-pixels",
+        type=_parse_max_image_pixels,
+        default=None,
+        metavar="VALUE",
+        help="override Pillow's MAX_IMAGE_PIXELS (use 'none' to disable the limit)",
+    )
     args = parser.parse_args()
+
+    Image.MAX_IMAGE_PIXELS = args.max_image_pixels
 
     file_path = args.file
     if not os.path.exists(file_path):
