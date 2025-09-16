@@ -99,6 +99,7 @@ if ($action === 'data') {
         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         $costCenterAttr = htmlspecialchars($row['cost_center'] ?? '', ENT_QUOTES, 'UTF-8');
+
         if ($importType === 1) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                 . 'data-id="' . (int)$row['id'] . '" '
@@ -232,6 +233,8 @@ require_once __DIR__ . '/../header.php';
                             data-rates="<?= $ratesAttr; ?>"
                             data-requirements="<?= $requirementsAttr; ?>"
                             data-cost-center="<?= $costCenterAttr; ?>"
+
+
                             data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
                             data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                             data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
@@ -254,7 +257,7 @@ require_once __DIR__ . '/../header.php';
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Classificar</h5>
+                <h5 class="modal-title" id="classifyModalLabel">Classificar</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <form id="classify-form">
@@ -289,7 +292,9 @@ require_once __DIR__ . '/../header.php';
                                     <td><input type="text" class="form-control form-control-sm general-account-field" name="rates[<?= $rate; ?>][general_account]"></td>
                                     <?php if ($rate === '0'): ?>
                                     <td rowspan="<?= count($modalRates); ?>" class="align-middle">
+
                                         <input type="text" class="form-control cost-center-field" name="cost_center">
+
                                     </td>
                                     <?php endif; ?>
                                 </tr>

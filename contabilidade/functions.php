@@ -366,8 +366,10 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => $iva6,
             'base_display' => $formatAmount($base6, $row['field_I3'] ?? null),
             'iva_display' => $formatAmount($iva6, $row['field_I4'] ?? null),
+
             'require_general' => abs($base6) > 0.0001,
             'require_iva' => abs($iva6) > 0.0001,
+
         ],
         '13' => [
             'base_value' => $base13,
@@ -376,6 +378,7 @@ function computeImportRateSummaries(array $row): array {
             'iva_display' => $formatAmount($iva13, $row['field_I6'] ?? null),
             'require_general' => abs($base13) > 0.0001,
             'require_iva' => abs($iva13) > 0.0001,
+
         ],
         '23' => [
             'base_value' => $base23,
@@ -426,6 +429,7 @@ function determineClassificationButtonClass(array $requirements, array $payload)
     $requires = false;
     $allFilled = true;
     $hasAny = false;
+
 
     foreach ($requirements as $rate => $req) {
         $data = $payload[$rate] ?? [];

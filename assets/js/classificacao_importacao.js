@@ -55,6 +55,7 @@ window.addEventListener('load', function() {
         }
     }
 
+
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
         var requirements = parseJsonAttribute(btn, 'data-requirements') || {};
@@ -106,7 +107,9 @@ window.addEventListener('load', function() {
     refreshButtonClasses();
     table.on('draw.dt', refreshButtonClasses);
 
-    var classifyModal = new bootstrap.Modal(document.getElementById('classifyModal'));
+    var classifyModalEl = document.getElementById('classifyModal');
+    var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
+    var modalTitleEl = document.getElementById('classifyModalLabel');
     var form = document.getElementById('classify-form');
     var rateInputs = {};
     var costCenterInput = null;
@@ -137,6 +140,8 @@ window.addEventListener('load', function() {
         var emitter = btn.getAttribute('data-emitter') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
+
+
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
 
         Object.keys(rateInputs).forEach(function(rate) {
@@ -209,7 +214,9 @@ window.addEventListener('load', function() {
                     currentRateData[rate].general_account = info.generalAccount ? info.generalAccount.value : '';
                 });
 
+
                 classifyModal.show();
+
             })
             .catch(function(err) {
                 showError(err.message || 'Erro ao carregar');
@@ -293,7 +300,9 @@ window.addEventListener('load', function() {
                 currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
                 currentBtn.setAttribute('data-cost-center', currentCostCenter);
                 updateButtonClass(currentBtn);
-                classifyModal.hide();
+                if (classifyModal) {
+                    classifyModal.hide();
+                }
             } else {
                 showError(res.error || 'Erro ao guardar');
             }
