@@ -69,6 +69,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
     }
 
     if (strpos($url, '{nif}') !== false) {
+
         return str_replace('{nif}', urlencode($nif), $url);
     }
 
@@ -79,6 +80,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
     $base = rtrim($url, '/');
     $separator = strpos($base, '?') === false ? '?' : '&';
     return $base . $separator . 'nif=' . urlencode($nif);
+
 }
 
 /**
@@ -103,7 +105,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates = [];
     $candidates[] = $payload;
 
+
     $candidateKeys = ['data', 'cliente', 'clientes', 'result', 'results'];
+
     foreach ($candidateKeys as $key) {
         if (!isset($payload[$key])) {
             continue;
@@ -129,7 +133,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         }
 
         $candidateNif = '';
+
         $nifKeys = ['nif', 'NIF', 'vat', 'VAT', 'vat_number', 'numero_contribuinte', 'NumeroContribuinte'];
+
         foreach ($nifKeys as $nifKey) {
             if (isset($candidate[$nifKey])) {
                 $candidateNif = extractVatNumber((string) $candidate[$nifKey]);
@@ -141,13 +147,16 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
         }
 
         $name = '';
+
         $nameKeys = ['name', 'Name', 'nome', 'Nome', 'nome_cliente', 'NomeCliente', 'razao_social', 'RazaoSocial', 'descricao'];
+
         foreach ($nameKeys as $nameKey) {
             if (!empty($candidate[$nameKey])) {
                 $name = trim((string) $candidate[$nameKey]);
                 break;
             }
         }
+
 
         $erpDatabase = '';
         $dbKeys = ['erp_database', 'erpDatabase', 'database', 'db', 'BD', 'bd', 'base_dados'];
@@ -160,12 +169,14 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $entityType = '';
         $typeKeys = ['entity_type', 'entityType', 'tp_entidade', 'tipo', 'tipo_entidade'];
+
         foreach ($typeKeys as $typeKey) {
             if (isset($candidate[$typeKey])) {
                 $entityType = trim((string) $candidate[$typeKey]);
                 break;
             }
         }
+
 
         return [
             'nif' => $nif,
@@ -366,7 +377,9 @@ function ensureAccountingEntity(PDO $pdo, string $acquirerValue): ?array {
     $data = [
         'nif' => $nif,
         'name' => $name,
+
         'erp_database' => trim((string) ($remote['erp_database'] ?? '')),
+
         'entity_type' => $entityType,
     ];
 
