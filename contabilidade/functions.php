@@ -68,18 +68,38 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
         return '';
     }
 
-    if (strpos($url, '{nif}') !== false) {
+    $encodedNif = urlencode($nif);
 
-        return str_replace('{nif}', urlencode($nif), $url);
+    $placeholderPatterns = [
+        '/\{nif\}/i',
+        '/\{vat\}/i',
+        '/\{numero_contribuinte\}/i',
+        '/\{contribuinte\}/i',
+    ];
+
+    foreach ($placeholderPatterns as $pattern) {
+        if (preg_match($pattern, $url)) {
+            return preg_replace($pattern, $encodedNif, $url);
+        }
     }
 
     if (strpos($url, '%s') !== false) {
-        return sprintf($url, urlencode($nif));
+        return sprintf($url, $encodedNif);
+    }
+
+    foreach (['nif', 'vat', 'contrib'] as $queryKeyword) {
+        if (preg_match('/[?&][^=]*' . $queryKeyword . '[^=]*=$/i', $url)) {
+            return $url . $encodedNif;
+        }
+    }
+
+    if (substr($url, -1) === '?' || substr($url, -1) === '&') {
+        return $url . 'nif=' . $encodedNif;
     }
 
     $base = rtrim($url, '/');
     $separator = strpos($base, '?') === false ? '?' : '&';
-    return $base . $separator . 'nif=' . urlencode($nif);
+    return $base . $separator . 'nif=' . $encodedNif;
 
 }
 
@@ -105,14 +125,18 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates = [];
     $candidates[] = $payload;
 
+    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results'], true);
 
-    $candidateKeys = ['data', 'cliente', 'clientes', 'result', 'results'];
-
-    foreach ($candidateKeys as $key) {
-        if (!isset($payload[$key])) {
+    foreach ($payload as $payloadKey => $value) {
+        if (!is_string($payloadKey)) {
             continue;
         }
-        $value = $payload[$key];
+
+        $normalizedKey = strtolower($payloadKey);
+        if (!isset($candidateKeyMap[$normalizedKey])) {
+            continue;
+        }
+
         if (is_array($value)) {
             $isList = array_keys($value) === range(0, count($value) - 1);
             if ($isList) {
@@ -134,11 +158,25 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $candidateNif = '';
 
-        $nifKeys = ['nif', 'NIF', 'vat', 'VAT', 'vat_number', 'numero_contribuinte', 'NumeroContribuinte'];
+        $normalisedCandidate = [];
+        foreach ($candidate as $candidateKey => $candidateValue) {
+            if (!is_string($candidateKey)) {
+                continue;
+            }
+
+            $lower = strtolower($candidateKey);
+            $normalisedCandidate[$lower] = $candidateValue;
+            $compressed = preg_replace('/[^a-z0-9]/', '', $lower);
+            if ($compressed !== $lower && !array_key_exists($compressed, $normalisedCandidate)) {
+                $normalisedCandidate[$compressed] = $candidateValue;
+            }
+        }
+
+        $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte'];
 
         foreach ($nifKeys as $nifKey) {
-            if (isset($candidate[$nifKey])) {
-                $candidateNif = extractVatNumber((string) $candidate[$nifKey]);
+            if (array_key_exists($nifKey, $normalisedCandidate)) {
+                $candidateNif = extractVatNumber((string) $normalisedCandidate[$nifKey]);
                 break;
             }
         }
@@ -148,31 +186,31 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $name = '';
 
-        $nameKeys = ['name', 'Name', 'nome', 'Nome', 'nome_cliente', 'NomeCliente', 'razao_social', 'RazaoSocial', 'descricao'];
+        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao'];
 
         foreach ($nameKeys as $nameKey) {
-            if (!empty($candidate[$nameKey])) {
-                $name = trim((string) $candidate[$nameKey]);
+            if (array_key_exists($nameKey, $normalisedCandidate) && trim((string) $normalisedCandidate[$nameKey]) !== '') {
+                $name = trim((string) $normalisedCandidate[$nameKey]);
                 break;
             }
         }
 
 
         $erpDatabase = '';
-        $dbKeys = ['erp_database', 'erpDatabase', 'database', 'db', 'BD', 'bd', 'base_dados'];
+        $dbKeys = ['erp_database', 'erpdatabase', 'database', 'db', 'bd', 'base_dados', 'basedados'];
         foreach ($dbKeys as $dbKey) {
-            if (isset($candidate[$dbKey])) {
-                $erpDatabase = trim((string) $candidate[$dbKey]);
+            if (array_key_exists($dbKey, $normalisedCandidate)) {
+                $erpDatabase = trim((string) $normalisedCandidate[$dbKey]);
                 break;
             }
         }
 
         $entityType = '';
-        $typeKeys = ['entity_type', 'entityType', 'tp_entidade', 'tipo', 'tipo_entidade'];
+        $typeKeys = ['entity_type', 'entitytype', 'tp_entidade', 'tpentidade', 'tipo', 'tipo_entidade', 'tipoentidade'];
 
         foreach ($typeKeys as $typeKey) {
-            if (isset($candidate[$typeKey])) {
-                $entityType = trim((string) $candidate[$typeKey]);
+            if (array_key_exists($typeKey, $normalisedCandidate)) {
+                $entityType = trim((string) $normalisedCandidate[$typeKey]);
                 break;
             }
         }
