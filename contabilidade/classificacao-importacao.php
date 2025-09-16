@@ -39,7 +39,6 @@ function prepareImportRow(array $row): array {
 }
 
 if ($action === 'data') {
-    $csrfToken = generateCsrfToken();
     dropLegacyAccountColumns($pdo);
 
     $columns = [
