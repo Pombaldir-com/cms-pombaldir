@@ -103,7 +103,7 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    ensureAccountingEntity($pdo, (string) $b);
+    ensureAccountingEntity($pdo, (string) $a);
     $stmt = $pdo->prepare(
         'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
     );
@@ -146,7 +146,7 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    ensureAccountingEntity($pdo, (string) $b);
+    ensureAccountingEntity($pdo, (string) $a);
     try {
         $pdo->beginTransaction();
 

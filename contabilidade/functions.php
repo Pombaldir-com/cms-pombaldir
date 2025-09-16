@@ -125,7 +125,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates = [];
     $candidates[] = $payload;
 
+
     $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results'], true);
+
 
     foreach ($payload as $payloadKey => $value) {
         if (!is_string($payloadKey)) {
@@ -172,7 +174,8 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             }
         }
 
-        $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte'];
+        $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib'];
+
 
         foreach ($nifKeys as $nifKey) {
             if (array_key_exists($nifKey, $normalisedCandidate)) {
@@ -186,7 +189,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         $name = '';
 
-        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao'];
+
+        $nameKeys = ['name', 'nome', 'nomecliente', 'razao_social', 'razaosocial', 'descricao', 'designacao', 'strNome'];
+
 
         foreach ($nameKeys as $nameKey) {
             if (array_key_exists($nameKey, $normalisedCandidate) && trim((string) $normalisedCandidate[$nameKey]) !== '') {
@@ -214,10 +219,12 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
                 break;
             }
         }
-
+        if ($candidateNif === '' && $name === '' && $erpDatabase === '' && $entityType === '') {
+            continue;
+        }
 
         return [
-            'nif' => $nif,
+            'nif' => $candidateNif !== '' ? $candidateNif : $nif,
             'name' => $name,
             'erp_database' => $erpDatabase,
             'entity_type' => $entityType,
@@ -334,14 +341,14 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
 }
 
 /**
- * Derive a human readable name for the entity from the raw acquirer string.
+ * Derive a human readable name for the entity from the raw field value.
  *
- * @param string $rawAcquirer Original acquirer field.
- * @param string $nif         VAT number extracted from the acquirer.
+ * @param string $rawFieldValue Original emitter/acquirer field.
+ * @param string $nif           VAT number extracted from the field value.
  * @return string Derived name.
  */
-function deriveEntityNameFromAcquirer(string $rawAcquirer, string $nif): string {
-    $value = trim($rawAcquirer);
+function deriveEntityNameFromField(string $rawFieldValue, string $nif): string {
+    $value = trim($rawFieldValue);
     if ($value === '') {
         return 'Cliente ' . $nif;
     }
@@ -368,14 +375,14 @@ function deriveEntityNameFromAcquirer(string $rawAcquirer, string $nif): string 
  * Ensure that an accounting entity exists locally, fetching it from the ERP
  * when necessary.
  *
- * @param PDO    $pdo          Active database connection.
- * @param string $acquirerValue Raw acquirer value from the import.
+ * @param PDO    $pdo              Active database connection.
+ * @param string $entityFieldValue Raw entity value from the import (e.g., field_A).
  * @return array|null Entity information if available.
  */
-function ensureAccountingEntity(PDO $pdo, string $acquirerValue): ?array {
+function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
     static $cache = [];
 
-    $nif = extractVatNumber($acquirerValue);
+    $nif = extractVatNumber($entityFieldValue);
     if ($nif === '') {
         return null;
     }
@@ -404,12 +411,12 @@ function ensureAccountingEntity(PDO $pdo, string $acquirerValue): ?array {
 
     $name = trim((string) ($remote['name'] ?? ''));
     if ($name === '') {
-        $name = deriveEntityNameFromAcquirer($acquirerValue, $nif);
+        $name = deriveEntityNameFromField($entityFieldValue, $nif);
     }
 
     $entityType = trim((string) ($remote['entity_type'] ?? ''));
     if ($entityType === '') {
-        $entityType = 'adquirente';
+        $entityType = 'emitente';
     }
 
     $data = [
