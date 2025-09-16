@@ -87,14 +87,83 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
         return sprintf($url, $encodedNif);
     }
 
-    foreach (['nif', 'vat', 'contrib'] as $queryKeyword) {
-        if (preg_match('/[?&][^=]*' . $queryKeyword . '[^=]*=$/i', $url)) {
+    foreach (['nif', 'vat', 'contrib', 'q'] as $queryKeyword) {
+        if (preg_match('/(?:[?&][^#]*' . $queryKeyword . '[^=]*)=$/i', $url)) {
             return $url . $encodedNif;
         }
     }
 
     if (substr($url, -1) === '?' || substr($url, -1) === '&') {
         return $url . 'nif=' . $encodedNif;
+    }
+
+    $parsedUrl = @parse_url($url);
+    if (is_array($parsedUrl)) {
+        $host = strtolower($parsedUrl['host'] ?? '');
+        if ($host !== '' && strpos($host, 'erpsinc') !== false) {
+            $path = $parsedUrl['path'] ?? '';
+            $query = $parsedUrl['query'] ?? '';
+
+            $baseWithoutQuery = $url;
+            if ($query !== '') {
+                $questionPos = strpos($url, '?');
+                if ($questionPos !== false) {
+                    $baseWithoutQuery = substr($url, 0, $questionPos);
+                }
+            }
+            $baseWithoutQuery = rtrim($baseWithoutQuery, '/');
+
+            $normalizedPath = rtrim($path, '/');
+
+            if ($normalizedPath === '' || $normalizedPath === '/' || preg_match('#/v\d+\.\d+\.\d+$#', $normalizedPath)) {
+                $defaultQuery = [
+                    'limit' => 1,
+                    'offset' => 0,
+                    'q' => $nif,
+                    'searchField' => 'strNumContrib',
+                ];
+
+                return $baseWithoutQuery . '/clientes?' . http_build_query($defaultQuery, '', '&', PHP_QUERY_RFC3986);
+            }
+
+            if (substr($normalizedPath, -strlen('/clientes')) === '/clientes') {
+                $queryData = [];
+                if ($query !== '') {
+                    parse_str($query, $queryData);
+                }
+
+                $finalQuery = [];
+
+                if (array_key_exists('limit', $queryData)) {
+                    $finalQuery['limit'] = $queryData['limit'];
+                    unset($queryData['limit']);
+                } else {
+                    $finalQuery['limit'] = 1;
+                }
+
+                if (array_key_exists('offset', $queryData)) {
+                    $finalQuery['offset'] = $queryData['offset'];
+                    unset($queryData['offset']);
+                } else {
+                    $finalQuery['offset'] = 0;
+                }
+
+                $finalQuery['q'] = $nif;
+
+                if (array_key_exists('searchField', $queryData)) {
+                    $finalQuery['searchField'] = $queryData['searchField'];
+                    unset($queryData['searchField']);
+                } else {
+                    $finalQuery['searchField'] = 'strNumContrib';
+                }
+
+                foreach ($queryData as $key => $value) {
+                    $finalQuery[$key] = $value;
+                }
+
+                return $baseWithoutQuery . '?' . http_build_query($finalQuery, '', '&', PHP_QUERY_RFC3986);
+            }
+        }
     }
 
     $base = rtrim($url, '/');
