@@ -20,6 +20,426 @@ function logOcrMessage(string $message): void {
 }
 
 /**
+ * Append a message related to ERP webservice synchronisation to a log file.
+ *
+ * @param string $message Message to append.
+ * @return void
+ */
+function logErpMessage(string $message): void {
+    $logFile = __DIR__ . '/../data/erp.log';
+    $timestamp = date('Y-m-d H:i:s');
+    error_log("[$timestamp] $message\n", 3, $logFile);
+}
+
+/**
+ * Attempt to extract a VAT/NIF number from an arbitrary string.
+ *
+ * @param string $value Raw value that may contain a VAT number.
+ * @return string Normalised VAT number or empty string when none is found.
+ */
+function extractVatNumber(string $value): string {
+    $value = strtoupper(trim($value));
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/(\d{9})/', $value, $matches)) {
+        return $matches[1];
+    }
+
+    $digits = preg_replace('/\D+/', '', $value);
+    if ($digits === '') {
+        return '';
+    }
+
+    return substr($digits, 0, 30);
+}
+
+/**
+ * Build a request URL for the ERP client endpoint.
+ *
+ * @param string $baseUrl Base URL stored in the settings.
+ * @param string $nif     VAT number to query.
+ * @return string Fully qualified URL.
+ */
+function buildErpClientEndpoint(string $baseUrl, string $nif): string {
+    $url = trim($baseUrl);
+    if ($url === '') {
+        return '';
+    }
+
+    if (strpos($url, '{nif}') !== false) {
+        return str_replace('{nif}', rawurlencode($nif), $url);
+    }
+
+    if (strpos($url, '%s') !== false) {
+        return sprintf($url, rawurlencode($nif));
+    }
+
+    $components = @parse_url($url);
+    if ($components === false) {
+        return '';
+    }
+
+    $path = $components['path'] ?? '';
+    $path = $path === '' ? '' : rtrim($path, '/');
+    if ($path === '' || $path === '/') {
+        $path = '/clientes';
+    } elseif (stripos($path, '/clientes') === false) {
+        $path .= '/clientes';
+    }
+
+    $existingQuery = [];
+    if (isset($components['query'])) {
+        parse_str($components['query'], $existingQuery);
+    }
+
+    $defaults = [
+        'limit' => '1',
+        'offset' => '0',
+        'searchField' => 'strNumContrib',
+    ];
+
+    $query = $existingQuery + $defaults;
+    $query['q'] = $nif;
+
+    $scheme = $components['scheme'] ?? 'https';
+    $host = $components['host'] ?? '';
+    if ($host === '') {
+        return '';
+    }
+
+    $userInfo = '';
+    if (isset($components['user'])) {
+        $userInfo = $components['user'];
+        if (isset($components['pass'])) {
+            $userInfo .= ':' . $components['pass'];
+        }
+        $userInfo .= '@';
+    }
+
+    $endpoint = $scheme . '://' . $userInfo . $host;
+    if (isset($components['port'])) {
+        $endpoint .= ':' . $components['port'];
+    }
+    $endpoint .= $path;
+
+    $queryString = http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    $endpoint .= '?' . $queryString;
+
+    if (isset($components['fragment'])) {
+        $endpoint .= '#' . $components['fragment'];
+    }
+
+    return $endpoint;
+}
+
+/**
+ * Normalise the ERP response structure and extract relevant entity data.
+ *
+ * @param array  $payload Raw payload returned by the ERP webservice.
+ * @param string $nif     VAT number requested.
+ * @return array|null Associative array with the extracted data or null if none was found.
+ */
+function parseErpEntityPayload(array $payload, string $nif): ?array {
+    if (isset($payload['success']) && $payload['success'] === false) {
+        $message = isset($payload['message']) ? (string) $payload['message'] : (string) ($payload['error'] ?? 'Resposta sem sucesso');
+        logErpMessage('Webservice ERP devolveu erro: ' . $message);
+        return null;
+    }
+
+    if (isset($payload['error']) && !is_array($payload['error'])) {
+        logErpMessage('Webservice ERP devolveu erro: ' . (string) $payload['error']);
+        return null;
+    }
+
+    $candidates = [];
+    $candidates[] = $payload;
+
+    $candidateKeys = ['data', 'cliente', 'clientes', 'result', 'results', 'aaData'];
+    foreach ($candidateKeys as $key) {
+        if (!isset($payload[$key])) {
+            continue;
+        }
+        $value = $payload[$key];
+        if (is_array($value)) {
+            $isList = array_keys($value) === range(0, count($value) - 1);
+            if ($isList) {
+                foreach ($value as $item) {
+                    if (is_array($item)) {
+                        $candidates[] = $item;
+                    }
+                }
+            } else {
+                $candidates[] = $value;
+            }
+        }
+    }
+
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)) {
+            continue;
+        }
+
+        $candidateNif = '';
+        $nifKeys = ['nif', 'NIF', 'vat', 'VAT', 'vat_number', 'numero_contribuinte', 'NumeroContribuinte', 'strNumContrib'];
+        foreach ($nifKeys as $nifKey) {
+            if (isset($candidate[$nifKey])) {
+                $candidateNif = extractVatNumber((string) $candidate[$nifKey]);
+                break;
+            }
+        }
+        if ($candidateNif !== '' && $candidateNif !== $nif) {
+            continue;
+        }
+
+        $name = '';
+        $nameKeys = ['name', 'Name', 'nome', 'Nome', 'nome_cliente', 'NomeCliente', 'razao_social', 'RazaoSocial', 'descricao', 'strNome'];
+        foreach ($nameKeys as $nameKey) {
+            if (!empty($candidate[$nameKey])) {
+                $name = trim((string) $candidate[$nameKey]);
+                break;
+            }
+        }
+
+        $erpDatabase = '';
+        $dbKeys = ['erp_database', 'erpDatabase', 'database', 'db', 'BD', 'bd', 'base_dados'];
+        foreach ($dbKeys as $dbKey) {
+            if (isset($candidate[$dbKey])) {
+                $erpDatabase = trim((string) $candidate[$dbKey]);
+                break;
+            }
+        }
+
+        $entityType = '';
+        $typeKeys = ['entity_type', 'entityType', 'tp_entidade', 'tipo', 'tipo_entidade', 'strTipoEntidade'];
+        foreach ($typeKeys as $typeKey) {
+            if (isset($candidate[$typeKey])) {
+                $entityType = trim((string) $candidate[$typeKey]);
+                break;
+            }
+        }
+
+        if ($entityType === '' && isset($candidate['bitConsumidorFinal'])) {
+            $entityType = (string) $candidate['bitConsumidorFinal'] === '1' ? 'consumidor_final' : 'adquirente';
+        }
+
+        return [
+            'nif' => $nif,
+            'name' => $name,
+            'erp_database' => $erpDatabase,
+            'entity_type' => $entityType,
+        ];
+    }
+
+    return null;
+}
+
+/**
+ * Retrieve client information from the ERP webservice.
+ *
+ * @param string $nif VAT number to request.
+ * @return array|null Entity data or null when the request fails.
+ */
+function fetchAccountingEntityFromErp(string $nif): ?array {
+    if (!function_exists('curl_init')) {
+        logErpMessage('Extensão cURL não disponível para sincronizar entidade ' . $nif);
+        return null;
+    }
+
+    $baseUrl = getSetting('erp_webservice_url', '');
+    if ($baseUrl === null || trim($baseUrl) === '') {
+        return null;
+    }
+
+    $endpoint = buildErpClientEndpoint($baseUrl, $nif);
+    if ($endpoint === '') {
+        return null;
+    }
+
+    $token = getSetting('erp_token', '');
+    $headers = ['Accept: application/json'];
+    if ($token !== null && $token !== '') {
+        $headers[] = 'Authorization: Bearer ' . $token;
+        $headers[] = 'X-Auth-Token: ' . $token;
+    }
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        logErpMessage('Falha ao inicializar pedido ao ERP para o NIF ' . $nif);
+        return null;
+    }
+
+    curl_setopt_array($handle, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+
+    $response = curl_exec($handle);
+    if ($response === false) {
+        logErpMessage('Erro cURL ao obter entidade ' . $nif . ': ' . curl_error($handle));
+        curl_close($handle);
+        return null;
+    }
+
+    $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    if ($status >= 400) {
+        logErpMessage('Webservice ERP devolveu HTTP ' . $status . ' para o NIF ' . $nif);
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        logErpMessage('Resposta ERP inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200));
+        return null;
+    }
+
+    $entity = parseErpEntityPayload($data, $nif);
+    if ($entity === null) {
+        logErpMessage('Resposta ERP sem dados reconhecíveis para o NIF ' . $nif);
+        return null;
+    }
+
+    return $entity;
+}
+
+/**
+ * Fetch an accounting entity stored locally by VAT number.
+ *
+ * @param PDO    $pdo Active database connection.
+ * @param string $nif VAT number.
+ * @return array|null Matching entity or null when absent.
+ */
+function findAccountingEntity(PDO $pdo, string $nif): ?array {
+    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $stmt->execute([$nif]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row !== false ? $row : null;
+}
+
+/**
+ * Persist accounting entity information locally.
+ *
+ * @param PDO  $pdo    Active database connection.
+ * @param array $data  Associative array with entity fields.
+ * @return void
+ */
+function saveAccountingEntity(PDO $pdo, array $data): void {
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_entities (nif, name, erp_database, entity_type) VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE name = VALUES(name), erp_database = VALUES(erp_database), entity_type = VALUES(entity_type)'
+    );
+    $stmt->execute([
+        $data['nif'],
+        $data['name'],
+        $data['erp_database'],
+        $data['entity_type'],
+    ]);
+}
+
+/**
+ * Derive a human readable name for the entity from the raw acquirer string.
+ *
+ * @param string $rawAcquirer Original acquirer field.
+ * @param string $nif         VAT number extracted from the acquirer.
+ * @return string Derived name.
+ */
+function deriveEntityNameFromAcquirer(string $rawAcquirer, string $nif): string {
+    $value = trim($rawAcquirer);
+    if ($value === '') {
+        return 'Cliente ' . $nif;
+    }
+
+    $value = preg_replace('/' . preg_quote($nif, '/') . '/', '', $value);
+    if (strpos($value, '-') !== false) {
+        $parts = array_map('trim', explode('-', $value));
+        foreach ($parts as $part) {
+            if ($part !== '' && !preg_match('/^\d+$/', $part)) {
+                return preg_replace('/\s+/', ' ', $part);
+            }
+        }
+    }
+
+    $value = preg_replace('/\d+/', '', $value);
+    $value = preg_replace('/[\-–—,:]+/', ' ', $value);
+    $value = preg_replace('/\s+/', ' ', $value);
+    $value = trim($value);
+
+    return $value !== '' ? $value : 'Cliente ' . $nif;
+}
+
+/**
+ * Ensure that an accounting entity exists locally, fetching it from the ERP
+ * when necessary.
+ *
+ * @param PDO    $pdo          Active database connection.
+ * @param string $acquirerValue Raw acquirer value from the import.
+ * @return array|null Entity information if available.
+ */
+function ensureAccountingEntity(PDO $pdo, string $acquirerValue): ?array {
+    static $cache = [];
+
+    $nif = extractVatNumber($acquirerValue);
+    if ($nif === '') {
+        return null;
+    }
+
+    if (array_key_exists($nif, $cache)) {
+        return $cache[$nif] ?: null;
+    }
+
+    try {
+        $existing = findAccountingEntity($pdo, $nif);
+        if ($existing !== null) {
+            $cache[$nif] = $existing;
+            return $existing;
+        }
+    } catch (Throwable $e) {
+        logErpMessage('Erro ao pesquisar entidade ' . $nif . ': ' . $e->getMessage());
+        $cache[$nif] = null;
+        return null;
+    }
+
+    $remote = fetchAccountingEntityFromErp($nif);
+    if ($remote === null) {
+        $cache[$nif] = null;
+        return null;
+    }
+
+    $name = trim((string) ($remote['name'] ?? ''));
+    if ($name === '') {
+        $name = deriveEntityNameFromAcquirer($acquirerValue, $nif);
+    }
+
+    $entityType = trim((string) ($remote['entity_type'] ?? ''));
+    if ($entityType === '') {
+        $entityType = 'adquirente';
+    }
+
+    $data = [
+        'nif' => $nif,
+        'name' => $name,
+        'erp_database' => trim((string) ($remote['erp_database'] ?? '')),
+        'entity_type' => $entityType,
+    ];
+
+    try {
+        saveAccountingEntity($pdo, $data);
+        $stored = findAccountingEntity($pdo, $nif);
+        $cache[$nif] = $stored;
+        return $stored;
+    } catch (Throwable $e) {
+        logErpMessage('Erro ao guardar entidade ' . $nif . ': ' . $e->getMessage());
+        $cache[$nif] = null;
+        return null;
+    }
+}
+
+/**
  * Parse an invoice line from a text string produced by OCR.
  *
  * @param string $text OCR text for a single invoice line.
