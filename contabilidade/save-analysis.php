@@ -112,19 +112,20 @@ if ($action === 'get') {
     $classificationAccounts = normalizeAccountingAccounts($row['account'] ?? '');
 
     $rowAccounts = normalizeAccountingAccounts(null);
-    $costCenter = '';
+    $rowCostCenters = buildEmptyCostCenterMap();
     if ($id !== '') {
         $stmtRow = $pdo->prepare('SELECT account, cost_center FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
-        $costCenter = (string)($importRow['cost_center'] ?? '');
+        $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
     }
 
     echo json_encode([
         'rates' => $classificationAccounts,
         'row_rates' => $rowAccounts,
-        'cost_center' => $costCenter,
+        'cost_center' => serializeCostCenters($rowCostCenters),
+        'cost_centers' => $rowCostCenters,
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -156,7 +157,23 @@ if ($action === 'get') {
             $ratesData = [];
         }
         $submittedRates = sanitizeAccountInput($ratesData);
-        $costCenter = isset($_POST['cost_center']) ? trim((string) $_POST['cost_center']) : '';
+
+        $costCentersJson = $_POST['cost_centers'] ?? '';
+        $costCentersData = [];
+        if ($costCentersJson !== '') {
+            $decodedCostCenters = json_decode($costCentersJson, true);
+            if (!is_array($decodedCostCenters)) {
+                $decodedCostCenters = [];
+            }
+            $costCentersData = sanitizeCostCenterValues($decodedCostCenters);
+        } else {
+            $legacyCostCenter = isset($_POST['cost_center']) ? trim((string) $_POST['cost_center']) : '';
+            if ($legacyCostCenter === '') {
+                $costCentersData = sanitizeCostCenterValues([]);
+            } else {
+                $costCentersData = sanitizeCostCenterValues($legacyCostCenter);
+            }
+        }
 
         $stmtExisting = $pdo->prepare(
             'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
@@ -173,9 +190,10 @@ if ($action === 'get') {
 
         $serializedRow = serializeAccountingAccounts($rowAccounts);
         $serializedClass = serializeAccountingAccounts($classAccounts);
+        $serializedCostCenters = serializeCostCenters($costCentersData);
 
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ? WHERE id = ?');
-        $stmt->execute([$serializedRow, $costCenter, $id]);
+        $stmt->execute([$serializedRow, $serializedCostCenters, $id]);
 
         $stmt2 = $pdo->prepare(
             'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
@@ -188,7 +206,8 @@ if ($action === 'get') {
             'success' => true,
             'csrf_token' => generateCsrfToken(),
             'row_rates' => $rowAccounts,
-            'cost_center' => $costCenter
+            'cost_center' => $serializedCostCenters,
+            'cost_centers' => $costCentersData
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {

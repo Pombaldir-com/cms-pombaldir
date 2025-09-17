@@ -18,6 +18,7 @@ function prepareImportRow(array $row): array {
     [$payload, $requirements] = buildRatePayload($summaries, $accounts);
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
+    $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload);
     $row['line_btn_class'] = 'btn-info';
     $lines = json_decode($row['line_items'] ?? '', true);
@@ -98,14 +99,14 @@ if ($action === 'data') {
         $actionsParts = [];
         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-        $costCenterAttr = htmlspecialchars($row['cost_center'] ?? '', ENT_QUOTES, 'UTF-8');
+        $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
         if ($importType === 1) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                 . 'data-id="' . (int)$row['id'] . '" '
                 . 'data-rates="' . $ratesAttr . '" '
                 . 'data-requirements="' . $requirementsAttr . '" '
-                . 'data-cost-center="' . $costCenterAttr . '" '
+                . 'data-cost-centers="' . $costCentersAttr . '" '
                 . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
@@ -220,7 +221,7 @@ require_once __DIR__ . '/../header.php';
                     <?php
                         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-                        $costCenterAttr = htmlspecialchars($row['cost_center'] ?? '', ENT_QUOTES, 'UTF-8');
+                        $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
                     ?>
                     <td class="text-center">
@@ -232,7 +233,7 @@ require_once __DIR__ . '/../header.php';
                             data-id="<?= (int)$row['id']; ?>"
                             data-rates="<?= $ratesAttr; ?>"
                             data-requirements="<?= $requirementsAttr; ?>"
-                            data-cost-center="<?= $costCenterAttr; ?>"
+                            data-cost-centers="<?= $costCentersAttr; ?>"
 
 
                             data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
@@ -293,8 +294,8 @@ require_once __DIR__ . '/../header.php';
                                     <td class="align-middle">
                                         <input
                                             type="text"
-                                            class="form-control form-control-sm cost-center-field cost-center"
-                                            name="cost_center"
+                                            class="form-control form-control-sm cost-center-field"
+                                            name="cost_centers[<?= $rate; ?>]"
                                             placeholder="Introduza o centro de custo"
                                         >
                                     </td>

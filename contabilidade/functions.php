@@ -889,6 +889,117 @@ function serializeAccountingAccounts(array $rates): string {
 }
 
 /**
+ * Build an empty cost centre map keyed by VAT rate.
+ *
+ * @return array<string,string>
+ */
+function buildEmptyCostCenterMap(): array {
+    $result = [];
+    foreach (['0', '6', '13', '23'] as $rate) {
+        $result[$rate] = '';
+    }
+
+    return $result;
+}
+
+/**
+ * Sanitize arbitrary cost centre input ensuring expected VAT keys exist.
+ *
+ * The function accepts the different shapes that may appear either from
+ * previously stored JSON blobs or user-submitted payloads and always
+ * returns an array keyed by the supported VAT rates containing strings.
+ *
+ * @param mixed $input
+ * @return array<string,string>
+ */
+function sanitizeCostCenterValues($input): array {
+    $result = buildEmptyCostCenterMap();
+
+    if (is_string($input) || is_numeric($input)) {
+        $value = trim((string) $input);
+        if ($value === '') {
+            return $result;
+        }
+
+        foreach ($result as $rate => $_) {
+            $result[$rate] = $value;
+        }
+
+        return $result;
+    }
+
+    if (!is_array($input)) {
+        return $result;
+    }
+
+    if (isset($input['rates']) && is_array($input['rates'])) {
+        $input = $input['rates'];
+    }
+
+    foreach ($result as $rate => $_) {
+        if (!array_key_exists($rate, $input)) {
+            continue;
+        }
+
+        $value = $input[$rate];
+        if (is_array($value)) {
+            if (array_key_exists('cost_center', $value)) {
+                $value = $value['cost_center'];
+            } elseif (array_key_exists('value', $value)) {
+                $value = $value['value'];
+            }
+        }
+
+        if ($value === null) {
+            $result[$rate] = '';
+        } else {
+            $result[$rate] = trim((string) $value);
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Normalize stored cost centre information into a predictable structure.
+ *
+ * @param string|null $json JSON-encoded cost centre data or legacy value.
+ * @return array<string,string>
+ */
+function normalizeCostCenters(?string $json): array {
+    if ($json === null) {
+        return buildEmptyCostCenterMap();
+    }
+
+    $trimmed = trim($json);
+    if ($trimmed === '') {
+        return buildEmptyCostCenterMap();
+    }
+
+    $decoded = json_decode($trimmed, true);
+    if (json_last_error() === JSON_ERROR_NONE) {
+        return sanitizeCostCenterValues($decoded);
+    }
+
+    return sanitizeCostCenterValues($trimmed);
+}
+
+/**
+ * Serialize cost centre values to be stored in the database.
+ *
+ * @param array<string,mixed> $centers
+ * @return string
+ */
+function serializeCostCenters(array $centers): string {
+    $sanitized = sanitizeCostCenterValues($centers);
+
+    return json_encode([
+        'version' => 1,
+        'rates' => $sanitized,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/**
  * Calculate VAT rate amounts and requirements for an imported document row.
  *
  * @param array<string,mixed> $row

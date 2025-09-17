@@ -121,25 +121,109 @@ window.addEventListener('load', function() {
     var modalTitleEl = document.getElementById('classifyModalLabel');
     var form = document.getElementById('classify-form');
     var rateInputs = {};
-    var costCenterInputs = [];
+    var rateKeys = [];
     var currentRateData = {};
-    var currentCostCenter = '';
+    var currentCostCenters = {};
 
-    function setCostCenterInputs(value, skipInput) {
-        var normalized = value === undefined || value === null ? '' : String(value);
-        currentCostCenter = normalized;
-        costCenterInputs.forEach(function(input) {
-            if (input !== skipInput && input.value !== normalized) {
-                input.value = normalized;
+    function forEachRate(callback) {
+        var keys = rateKeys.length ? rateKeys : Object.keys(rateInputs);
+        keys.forEach(callback);
+    }
+
+    function createEmptyCostCenters() {
+        var result = {};
+        forEachRate(function(rate) {
+            result[rate] = '';
+        });
+        return result;
+    }
+
+    function normalizeCostCenterValues(value) {
+        var normalized = createEmptyCostCenters();
+        var keys = Object.keys(normalized);
+        if (keys.length === 0) {
+            return normalized;
+        }
+
+        if (value === null || value === undefined) {
+            return normalized;
+        }
+
+        if (typeof value === 'string' || typeof value === 'number') {
+            var stringValue = String(value).trim();
+            keys.forEach(function(rate) {
+                normalized[rate] = stringValue;
+            });
+            return normalized;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach(function(entry, index) {
+                var rate = keys[index];
+                if (rate !== undefined) {
+                    normalized[rate] = entry === null || entry === undefined ? '' : String(entry).trim();
+                }
+            });
+            return normalized;
+        }
+
+        if (typeof value === 'object') {
+            var source = value;
+            if (source && typeof source.rates === 'object') {
+                source = source.rates;
+            }
+            keys.forEach(function(rate) {
+                if (!Object.prototype.hasOwnProperty.call(source, rate)) {
+                    return;
+                }
+                var entry = source[rate];
+                if (entry !== null && typeof entry === 'object') {
+                    if (Object.prototype.hasOwnProperty.call(entry, 'cost_center')) {
+                        normalized[rate] = String(entry.cost_center || '').trim();
+                        return;
+                    }
+                    if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+                        normalized[rate] = String(entry.value || '').trim();
+                        return;
+                    }
+                }
+                normalized[rate] = entry === null || entry === undefined ? '' : String(entry).trim();
+            });
+            return normalized;
+        }
+
+        return normalized;
+    }
+
+    function applyCostCenterValues(value) {
+        var normalized = normalizeCostCenterValues(value);
+        forEachRate(function(rate) {
+            currentCostCenters[rate] = normalized[rate];
+            var info = rateInputs[rate];
+            if (info && info.costCenter && info.costCenter.value !== normalized[rate]) {
+                info.costCenter.value = normalized[rate];
             }
         });
     }
 
-    function getCostCenterValue() {
-        if (costCenterInputs.length === 0) {
-            return '';
-        }
-        return costCenterInputs[0].value.trim();
+    function getCostCenterValues() {
+        var values = createEmptyCostCenters();
+        forEachRate(function(rate) {
+            var info = rateInputs[rate];
+            if (info && info.costCenter) {
+                values[rate] = info.costCenter.value.trim();
+            } else if (Object.prototype.hasOwnProperty.call(currentCostCenters, rate)) {
+                values[rate] = (currentCostCenters[rate] || '').trim();
+            }
+        });
+        return values;
+    }
+
+    function hasAnyCostCenterValue() {
+        var values = getCostCenterValues();
+        return Object.keys(values).some(function(rate) {
+            return values[rate] !== '';
+        });
     }
 
     if (form) {
@@ -150,24 +234,38 @@ window.addEventListener('load', function() {
                 base: row.querySelector('.base-field'),
                 iva: row.querySelector('.iva-field'),
                 ivaAccount: row.querySelector('.iva-account-field'),
-                generalAccount: row.querySelector('.general-account-field')
+                generalAccount: row.querySelector('.general-account-field'),
+                costCenter: row.querySelector('.cost-center-field')
             };
         });
-        costCenterInputs = Array.prototype.slice.call(form.querySelectorAll('.cost-center-field'));
-        costCenterInputs.forEach(function(input) {
+        rateKeys = Object.keys(rateInputs);
+        currentCostCenters = createEmptyCostCenters();
+        rateKeys.forEach(function(rate) {
+            var info = rateInputs[rate];
+            if (!info || !info.costCenter) {
+                return;
+            }
+            var input = info.costCenter;
             input.setAttribute('type', 'text');
             input.removeAttribute('readonly');
             input.removeAttribute('disabled');
             input.readOnly = false;
             input.disabled = false;
             input.addEventListener('input', function() {
-                setCostCenterInputs(input.value, input);
+                currentCostCenters[rate] = input.value;
             });
         });
     }
-    if (classifyModalEl && costCenterInputs.length > 0) {
+    if (classifyModalEl) {
         classifyModalEl.addEventListener('shown.bs.modal', function() {
-            costCenterInputs[0].focus();
+            for (var i = 0; i < rateKeys.length; i += 1) {
+                var info = rateInputs[rateKeys[i]];
+                if (info && info.costCenter) {
+                    info.costCenter.focus();
+                    info.costCenter.select();
+                    break;
+                }
+            }
         });
     }
 
@@ -196,7 +294,11 @@ window.addEventListener('load', function() {
             if (info.generalAccount) { info.generalAccount.value = data.general_account || ''; }
         });
 
-        setCostCenterInputs(btn.getAttribute('data-cost-center') || '');
+        var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
+        if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
+            btnCostCenters = btn.getAttribute('data-cost-center') || '';
+        }
+        applyCostCenterValues(btnCostCenters);
 
         var params = new URLSearchParams({
             action: 'get',
@@ -236,11 +338,17 @@ window.addEventListener('load', function() {
                     }
                 });
 
-                if (res.cost_center !== undefined && res.cost_center !== null && !getCostCenterValue()) {
-                    setCostCenterInputs(res.cost_center || '');
+                var serverCostCenters = null;
+                if (Object.prototype.hasOwnProperty.call(res, 'cost_centers')) {
+                    serverCostCenters = res.cost_centers;
+                } else if (Object.prototype.hasOwnProperty.call(res, 'cost_center')) {
+                    serverCostCenters = res.cost_center;
+                }
+                if (serverCostCenters !== null && serverCostCenters !== undefined && !hasAnyCostCenterValue()) {
+                    applyCostCenterValues(serverCostCenters);
                 }
 
-                currentCostCenter = getCostCenterValue() || currentCostCenter;
+                currentCostCenters = getCostCenterValues();
                 Object.keys(rateInputs).forEach(function(rate) {
                     var info = rateInputs[rate];
                     if (!currentRateData[rate]) {
@@ -276,14 +384,14 @@ window.addEventListener('load', function() {
             };
         });
 
-        var costCenterValue = getCostCenterValue();
+        var costCentersPayload = getCostCenterValues();
         var body = new URLSearchParams({
             id: currentBtn.getAttribute('data-id') || '',
             A: currentBtn.getAttribute('data-emitter') || '',
             B: currentBtn.getAttribute('data-acquirer') || '',
             D: currentBtn.getAttribute('data-doctype') || '',
             rates: JSON.stringify(ratesPayload),
-            cost_center: costCenterValue,
+            cost_centers: JSON.stringify(costCentersPayload),
             csrf_token: csrfInput.value
         });
         fetchJson('contabilidade/save-analysis.php?action=save', {
@@ -296,12 +404,16 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                if (res.cost_center !== undefined && res.cost_center !== null) {
-                    setCostCenterInputs(res.cost_center || '');
+                var responseCostCenters = null;
+                if (Object.prototype.hasOwnProperty.call(res, 'cost_centers')) {
+                    responseCostCenters = res.cost_centers;
+                } else if (Object.prototype.hasOwnProperty.call(res, 'cost_center')) {
+                    responseCostCenters = res.cost_center;
                 } else {
-                    setCostCenterInputs(costCenterValue);
+                    responseCostCenters = costCentersPayload;
                 }
-                currentCostCenter = getCostCenterValue();
+                applyCostCenterValues(responseCostCenters);
+                currentCostCenters = getCostCenterValues();
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
                     Object.keys(res.row_rates).forEach(function(rate) {
@@ -334,7 +446,7 @@ window.addEventListener('load', function() {
                 }
 
                 currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
-                currentBtn.setAttribute('data-cost-center', currentCostCenter);
+                currentBtn.setAttribute('data-cost-centers', JSON.stringify(currentCostCenters));
                 updateButtonClass(currentBtn);
                 if (classifyModal) {
                     classifyModal.hide();
