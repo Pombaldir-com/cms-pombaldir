@@ -715,7 +715,7 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
 
     $entityType = trim((string) ($remote['entity_type'] ?? ''));
     if ($entityType === '') {
-        $entityType = 'emitente';
+        $entityType = 'emitter';
     }
 
     $data = [
