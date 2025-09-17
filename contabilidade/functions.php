@@ -213,13 +213,13 @@ function sanitizeUrlForLog(string $url): string {
 /**
  * Normalise the ERP response structure and extract relevant entity data.
  *
- * @param array  $payload     Raw payload returned by the ERP webservice.
- * @param string $nif         VAT number requested.
- * @param string $sourceLabel Human readable label for logging purposes.
- * @param bool   $logEmpty    Whether to log when no usable data is found.
+ * @param array  $payload Raw payload returned by the ERP webservice.
+ * @param string $nif     VAT number requested.
  * @return array|null Associative array with the extracted data or null if none was found.
  */
-function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel = 'Webservice ERP-SINC', bool $logEmpty = true): ?array {
+function parseErpEntityPayload(array $payload, string $nif): ?array {
+    $sourceLabel = 'Webservice ERP-SINC';
+
     if (isset($payload['success']) && $payload['success'] === false) {
         $message = isset($payload['message']) ? (string) $payload['message'] : (string) ($payload['error'] ?? 'Resposta sem sucesso');
         logErpMessage($sourceLabel . ' devolveu erro: ' . $message);
@@ -356,9 +356,7 @@ function parseErpEntityPayload(array $payload, string $nif, string $sourceLabel 
         ];
     }
 
-    if ($logEmpty) {
-        logErpMessage($sourceLabel . ' sem dados reconhecíveis para o NIF ' . $nif);
-    }
+    logErpMessage($sourceLabel . ' sem dados reconhecíveis para o NIF ' . $nif);
     return null;
 }
 
