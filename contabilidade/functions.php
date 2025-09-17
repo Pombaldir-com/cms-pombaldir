@@ -327,12 +327,17 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
 
         $erpDatabase = '';
-        $dbKeys = ['erp_database', 'erpdatabase', 'database', 'db', 'bd', 'base_dados', 'basedados', 'intcodigo'];
-        foreach ($dbKeys as $dbKey) {
+        $databaseKeys = ['erp_database', 'erpdatabase', 'database', 'db', 'bd', 'base_dados', 'basedados'];
+        foreach ($databaseKeys as $dbKey) {
             if (array_key_exists($dbKey, $normalisedCandidate)) {
                 $erpDatabase = trim((string) $normalisedCandidate[$dbKey]);
                 break;
             }
+        }
+
+        $erpClientCode = '';
+        if (array_key_exists('intcodigo', $normalisedCandidate)) {
+            $erpClientCode = trim((string) $normalisedCandidate['intcodigo']);
         }
 
         $entityType = '';
@@ -352,11 +357,13 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             'nif' => $candidateNif !== '' ? $candidateNif : $nif,
             'name' => $name,
             'erp_database' => $erpDatabase,
+            'erp_client_code' => $erpClientCode,
             'entity_type' => $entityType,
         ];
     }
 
     logErpMessage($sourceLabel . ' sem dados reconhecíveis para o NIF ' . $nif);
+
     return null;
 }
 
@@ -450,7 +457,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
-    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
@@ -460,19 +467,20 @@ function findAccountingEntity(PDO $pdo, string $nif): ?array {
  * Persist accounting entity information locally.
  *
  * @param PDO  $pdo    Active database connection.
- * @param array $data  Associative array with entity fields.
+ * @param array $data  Associative array with entity fields, including the ERP client code.
  * @return void
  */
 function saveAccountingEntity(PDO $pdo, array $data): void {
     $stmt = $pdo->prepare(
-        'INSERT INTO accounting_entities (nif, name, erp_database, entity_type) VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), erp_database = VALUES(erp_database), entity_type = VALUES(entity_type)'
+        'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code) VALUES (?, ?, ?, ?, ?)'
+        . ' ON DUPLICATE KEY UPDATE name = VALUES(name), erp_database = VALUES(erp_database), entity_type = VALUES(entity_type), erp_client_code = VALUES(erp_client_code)'
     );
     $stmt->execute([
         $data['nif'],
         $data['name'],
         $data['erp_database'],
         $data['entity_type'],
+        $data['erp_client_code'] ?? '',
     ]);
 }
 
@@ -584,9 +592,8 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
     $data = [
         'nif' => $nif,
         'name' => $name,
-
-        'erp_database' => trim((string) ($remote['erp_database'] ?? '')),
-
+        'erp_database' => '',
+        'erp_client_code' => trim((string) ($remote['erp_client_code'] ?? '')),
         'entity_type' => $entityType,
     ];
 
