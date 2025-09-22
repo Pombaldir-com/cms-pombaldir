@@ -272,7 +272,9 @@ require_once __DIR__ . '/../header.php';
                                     <th>IVA</th>
                                     <th>Conta IVA</th>
                                     <th>Conta Geral</th>
+                                    <?php if ($importType === 1): ?>
                                     <th>Centro de Custo</th>
+                                    <?php endif; ?>
                                 </tr>
                             </thead>
                             <tbody>
@@ -291,6 +293,7 @@ require_once __DIR__ . '/../header.php';
                                     <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
                                     <td><input type="text" class="form-control form-control-sm iva-account-field" name="rates[<?= $rate; ?>][iva_account]"></td>
                                     <td><input type="text" class="form-control form-control-sm general-account-field" name="rates[<?= $rate; ?>][general_account]"></td>
+                                    <?php if ($importType === 1): ?>
                                     <td class="align-middle">
                                         <input
                                             type="text"
@@ -299,6 +302,7 @@ require_once __DIR__ . '/../header.php';
                                             placeholder="Introduza o centro de custo"
                                         >
                                     </td>
+                                    <?php endif; ?>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
