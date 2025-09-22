@@ -214,10 +214,72 @@ function isLoggedIn(): bool {
  * login the user is returned to the originally requested page via the
  * `redirect` query parameter.
  */
+/**
+ * Validate and normalize a redirect target ensuring it stays within the
+ * current application. Returns the normalized path (including optional query
+ * string and fragment) or null when the provided value is not a safe
+ * application-local redirect.
+ *
+ * @param string|null $redirect
+ * @return string|null
+ */
+function normalizeRedirectTarget(?string $redirect): ?string {
+    if ($redirect === null) {
+        return null;
+    }
+
+    $redirect = trim($redirect);
+    if ($redirect === '') {
+        return null;
+    }
+
+    $decoded = rawurldecode($redirect);
+    if ($decoded === '') {
+        return null;
+    }
+
+    if (preg_match("/[\r\n]/", $decoded)) {
+        return null;
+    }
+
+    if (strncmp($decoded, '//', 2) === 0) {
+        return null;
+    }
+
+    $parts = parse_url($decoded);
+    if ($parts === false) {
+        return null;
+    }
+
+    if (isset($parts['scheme']) || isset($parts['host']) || isset($parts['port'])
+        || isset($parts['user']) || isset($parts['pass'])) {
+        return null;
+    }
+
+    $path = $parts['path'] ?? '';
+    if ($path === '' || $path[0] !== '/') {
+        return null;
+    }
+
+    $normalized = $path;
+    if (isset($parts['query']) && $parts['query'] !== '') {
+        $normalized .= '?' . $parts['query'];
+    }
+    if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+        $normalized .= '#' . $parts['fragment'];
+    }
+
+    return $normalized;
+}
+
 function requireLogin() {
     startSession();
     if (!isLoggedIn() || empty($_SESSION['company'])) {
-        $redirect = urlencode($_SERVER['REQUEST_URI'] ?? '/');
+        $requestedPath = normalizeRedirectTarget($_SERVER['REQUEST_URI'] ?? null);
+        if ($requestedPath === null) {
+            $requestedPath = BASE_URL . 'dashboard';
+        }
+        $redirect = urlencode($requestedPath);
         header('Location: ' . BASE_URL . 'login?redirect=' . $redirect);
         exit;
     }

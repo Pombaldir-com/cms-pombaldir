@@ -33,7 +33,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setCompanyContext($company);
             if (loginUser($username, $password)) {
                 // Redirect to dashboard or to a previously requested page
-                $redirect = $_GET['redirect'] ?? (BASE_URL . 'dashboard');
+                $redirect = normalizeRedirectTarget($_GET['redirect'] ?? null);
+                if ($redirect === null) {
+                    $redirect = BASE_URL . 'dashboard';
+                }
                 header('Location: ' . $redirect);
                 exit;
             } else {
