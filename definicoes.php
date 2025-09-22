@@ -48,16 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $accountingEnabled = isset($_POST['accounting_enabled']) ? '1' : '0';
-        setSetting('accounting_enabled', $accountingEnabled);
-
-        $accountingBaseCompany = trim($_POST['accounting_base_company'] ?? '');
-        if ($accountingEnabled) {
-            setSetting('accounting_base_company', $accountingBaseCompany);
-        } else {
-            setSetting('accounting_base_company', '');
-        }
-
         $generalSaved = true;
     }
     if (isset($_POST['smtp_host'])) {
@@ -96,6 +86,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $selectedModules = array_keys($_POST['modules'] ?? []);
         setSetting('active_modules', json_encode($selectedModules));
 
+        $accountingEnabled = in_array('contabilidade', $selectedModules, true);
+        setSetting('accounting_enabled', $accountingEnabled ? '1' : '0');
+
+        $accountingBaseCompany = trim($_POST['accounting_base_company'] ?? '');
+        if ($accountingEnabled) {
+            setSetting('accounting_base_company', $accountingBaseCompany);
+        } else {
+            setSetting('accounting_base_company', '');
+        }
+
         if (in_array('compras', $selectedModules, true)) {
             $comprasSection = trim($_POST['compras_section'] ?? '');
             $comprasWarehouse = trim($_POST['compras_warehouse'] ?? '');
@@ -112,7 +112,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $currentAppName = getSetting('app_name', '');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
 $currentApiToken = getSetting('api_token', '');
-$currentAccountingEnabled = (int)getSetting('accounting_enabled', '0');
 $currentAccountingBaseCompany = getSetting('accounting_base_company', '');
 $contentTypes = getContentTypes();
 $contentTypeApi = [];
@@ -178,22 +177,6 @@ require_once __DIR__ . '/header.php';
                         </div>
                     </div>
                 </div>
-                <div class="row">
-                    <div class="mb-3 col-md-6 col-sm-12">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="accounting_enabled" name="accounting_enabled" value="1" <?= $currentAccountingEnabled ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="accounting_enabled">Ativar Contabilidade</label>
-                        </div>
-                    </div>
-                </div>
-                <div id="accounting-settings" style="<?= $currentAccountingEnabled ? '' : 'display:none;'; ?>">
-                    <div class="row">
-                        <div class="mb-3 col-md-6 col-sm-12">
-                            <label for="accounting_base_company" class="form-label">Empresa Base</label>
-                            <input type="text" class="form-control" id="accounting_base_company" name="accounting_base_company" value="<?= htmlspecialchars($currentAccountingBaseCompany); ?>" <?= $currentAccountingEnabled ? '' : 'disabled'; ?>>
-                        </div>
-                    </div>
-                </div>
                 <div id="api-settings" style="<?= $currentApiEnabled ? '' : 'display:none;'; ?>">
                     <div class="row">
                         <div class="mb-3 col-md-6 col-sm-12">
@@ -223,37 +206,6 @@ require_once __DIR__ . '/header.php';
                         <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
                     </div>
                 </div>
-                <script>
-                    document.addEventListener('DOMContentLoaded', function () {
-                        var accountingCheckbox = document.getElementById('accounting_enabled');
-                        var accountingSettings = document.getElementById('accounting-settings');
-                        if (!accountingCheckbox || !accountingSettings) {
-                            return;
-                        }
-
-                        var accountingInputs = accountingSettings.querySelectorAll('input, select, textarea');
-
-                        function setInputsDisabled(disabled) {
-                            for (var i = 0; i < accountingInputs.length; i++) {
-                                accountingInputs[i].disabled = disabled;
-                            }
-                        }
-
-                        function toggleAccountingSettings() {
-                            if (accountingCheckbox.checked) {
-                                accountingSettings.style.display = '';
-                                setInputsDisabled(false);
-                            } else {
-                                accountingSettings.style.display = 'none';
-                                setInputsDisabled(true);
-                            }
-                        }
-
-                        toggleAccountingSettings();
-                        accountingCheckbox.addEventListener('change', toggleAccountingSettings);
-                    });
-                </script>
-
             </form>
         </div>
         <div class="tab-pane fade" id="email" role="tabpanel" aria-labelledby="email-tab">
@@ -343,6 +295,7 @@ require_once __DIR__ . '/header.php';
             <form method="post" class="mt-3">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <input type="hidden" name="modules_save" value="1">
+                <?php $accountingActive = in_array('contabilidade', $currentModules, true); ?>
                 <div class="row">
                     <div class="mb-3 col-md-6 col-sm-12">
                         <?php foreach ($availableModules as $key => $label): ?>
@@ -350,6 +303,12 @@ require_once __DIR__ . '/header.php';
                             <input class="form-check-input" type="checkbox" id="module_<?= $key; ?>" name="modules[<?= $key; ?>]" value="1" <?= in_array($key, $currentModules, true) ? 'checked' : ''; ?>>
                             <label class="form-check-label" for="module_<?= $key; ?>"><?= htmlspecialchars($label); ?></label>
                         </div>
+                        <?php if ($key === 'contabilidade'): ?>
+                        <div id="contabilidade-settings" class="mt-2" style="<?= $accountingActive ? '' : 'display:none;'; ?>">
+                            <label for="accounting_base_company" class="form-label">Empresa Base</label>
+                            <input type="text" class="form-control" id="accounting_base_company" name="accounting_base_company" value="<?= htmlspecialchars($currentAccountingBaseCompany); ?>" <?= $accountingActive ? '' : 'disabled'; ?>>
+                        </div>
+                        <?php endif; ?>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -374,32 +333,55 @@ require_once __DIR__ . '/header.php';
             </form>
             <script>
             document.addEventListener('DOMContentLoaded', function () {
+                var accountingCheckbox = document.getElementById('module_contabilidade');
+                var accountingSettings = document.getElementById('contabilidade-settings');
+                if (accountingCheckbox && accountingSettings) {
+                    var accountingInputs = accountingSettings.querySelectorAll('input, select, textarea');
+
+                    function setAccountingInputsDisabled(disabled) {
+                        for (var i = 0; i < accountingInputs.length; i++) {
+                            accountingInputs[i].disabled = disabled;
+                        }
+                    }
+
+                    function toggleAccountingSettings() {
+                        if (accountingCheckbox.checked) {
+                            accountingSettings.style.display = '';
+                            setAccountingInputsDisabled(false);
+                        } else {
+                            accountingSettings.style.display = 'none';
+                            setAccountingInputsDisabled(true);
+                        }
+                    }
+
+                    toggleAccountingSettings();
+                    accountingCheckbox.addEventListener('change', toggleAccountingSettings);
+                }
+
                 var comprasCheckbox = document.getElementById('module_compras');
                 var comprasSettings = document.getElementById('compras-settings');
-                if (!comprasCheckbox || !comprasSettings) {
-                    return;
-                }
+                if (comprasCheckbox && comprasSettings) {
+                    var comprasInputs = comprasSettings.querySelectorAll('input, select, textarea');
 
-                var comprasInputs = comprasSettings.querySelectorAll('input, select, textarea');
-
-                function setInputsDisabled(disabled) {
-                    for (var i = 0; i < comprasInputs.length; i++) {
-                        comprasInputs[i].disabled = disabled;
+                    function setComprasInputsDisabled(disabled) {
+                        for (var i = 0; i < comprasInputs.length; i++) {
+                            comprasInputs[i].disabled = disabled;
+                        }
                     }
-                }
 
-                function toggleComprasSettings() {
-                    if (comprasCheckbox.checked) {
-                        comprasSettings.style.display = '';
-                        setInputsDisabled(false);
-                    } else {
-                        comprasSettings.style.display = 'none';
-                        setInputsDisabled(true);
+                    function toggleComprasSettings() {
+                        if (comprasCheckbox.checked) {
+                            comprasSettings.style.display = '';
+                            setComprasInputsDisabled(false);
+                        } else {
+                            comprasSettings.style.display = 'none';
+                            setComprasInputsDisabled(true);
+                        }
                     }
-                }
 
-                toggleComprasSettings();
-                comprasCheckbox.addEventListener('change', toggleComprasSettings);
+                    toggleComprasSettings();
+                    comprasCheckbox.addEventListener('change', toggleComprasSettings);
+                }
             });
             </script>
         </div>
