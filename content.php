@@ -449,10 +449,17 @@ if ($action === 'add') {
         if ($title === '') {
             $error = 'Title is required';
         } else {
-            $contentId = createContent($typeId, currentUser()['id'], $title, $body);
+            $allowedImageMimes = [
+                'image/jpeg' => 'jpg',
+                'image/png'  => 'png',
+            ];
+            $scalarValues = [];
+            $multiValues = [];
+            $imageUploads = [];
+            $taxonomyAssignments = [];
+
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
-                $value = null;
                 if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
                     if ($field['type'] === 'taxonomy') {
                         $single = $_POST[$fieldName] ?? '';
@@ -460,46 +467,108 @@ if ($action === 'add') {
                     } else {
                         $termIds = isset($_POST[$fieldName]) ? array_map('intval', (array)$_POST[$fieldName]) : [];
                     }
-                    setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
+                    $taxonomyAssignments[] = [
+                        'taxonomy_id' => (int)$field['options'],
+                        'terms'       => $termIds,
+                    ];
                     continue;
                 }
+
                 if ($field['type'] === 'image') {
-                    if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
+                    if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] !== UPLOAD_ERR_NO_FILE) {
+                        if ($_FILES[$fieldName]['error'] !== UPLOAD_ERR_OK) {
+                            $error = 'Não foi possível carregar a imagem "' . $field['label'] . '". Tente novamente.';
+                            break;
+                        }
+                        $imageInfo = @getimagesize($_FILES[$fieldName]['tmp_name']);
+                        $mime = $imageInfo['mime'] ?? '';
+                        if (!$imageInfo || !isset($allowedImageMimes[$mime])) {
+                            $error = 'O ficheiro enviado para "' . $field['label'] . '" tem de ser uma imagem JPEG ou PNG.';
+                            break;
+                        }
+                        $extension = $allowedImageMimes[$mime];
+                        $baseName = pathinfo($_FILES[$fieldName]['name'], PATHINFO_FILENAME);
+                        $baseName = preg_replace('/[^A-Za-z0-9_-]/', '_', (string)$baseName);
+                        if ($baseName === '') {
+                            $baseName = 'image';
+                        }
+                        $uniqueId = str_replace('.', '', uniqid('', true));
+                        $filename = $uniqueId . '_' . $baseName . '.' . $extension;
                         $year = date('Y');
                         $month = date('m');
                         $uploadDir = __DIR__ . '/uploads/' . $slug . '/' . $year . '/' . $month . '/';
-                        if (!is_dir($uploadDir)) {
-                            mkdir($uploadDir, 0755, true);
-                        }
-                        $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
-                        $targetPath = $uploadDir . $filename;
-                        if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename;
+                        $imageUploads[$field['id']] = [
+                            'label'         => $field['label'],
+                            'tmp_name'      => $_FILES[$fieldName]['tmp_name'],
+                            'dir'           => $uploadDir,
+                            'absolute_path' => $uploadDir . $filename,
+                            'relative_path' => 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename,
+                        ];
+                    }
+                    continue;
+                }
+
+                if ($field['type'] === 'multicontent') {
+                    $values = $_POST[$fieldName] ?? [];
+                    $multiValues[$field['id']] = array_map('strval', (array)$values);
+                    continue;
+                }
+
+                $value = $_POST[$fieldName] ?? null;
+                if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
+                    $value = str_replace('T', ' ', substr($value, 0, 16));
+                }
+                $scalarValues[$field['id']] = $value;
+            }
+
+            if (empty($error) && !empty($imageUploads)) {
+                $movedFiles = [];
+                foreach ($imageUploads as $fieldId => $upload) {
+                    if (!is_dir($upload['dir'])) {
+                        if (!mkdir($upload['dir'], 0755, true) && !is_dir($upload['dir'])) {
+                            $error = 'Não foi possível criar a pasta de destino para as imagens.';
+                            break;
                         }
                     }
-                } else {
-                    $value = $_POST[$fieldName] ?? null;
-                    if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
-                        $value = str_replace('T', ' ', substr($value, 0, 16));
+                    if (!move_uploaded_file($upload['tmp_name'], $upload['absolute_path'])) {
+                        $error = 'Não foi possível guardar a imagem enviada para "' . $upload['label'] . '".';
+                        break;
                     }
-                    if ($field['type'] === 'multicontent') {
-                        foreach ((array)$value as $val) {
-                            saveCustomValue($contentId, $field['id'], (string)$val);
+                    $movedFiles[] = $upload['absolute_path'];
+                    $scalarValues[$fieldId] = $upload['relative_path'];
+                }
+                if (!empty($error)) {
+                    foreach ($movedFiles as $path) {
+                        if (is_file($path)) {
+                            unlink($path);
                         }
-                        continue;
                     }
                 }
-                if ($value !== null) {
-                    saveCustomValue($contentId, $field['id'], $value);
+            }
+
+            if (empty($error)) {
+                $contentId = createContent($typeId, currentUser()['id'], $title, $body);
+                foreach ($scalarValues as $fieldId => $value) {
+                    if ($value !== null) {
+                        saveCustomValue($contentId, $fieldId, $value);
+                    }
                 }
+                foreach ($multiValues as $fieldId => $values) {
+                    foreach ($values as $val) {
+                        saveCustomValue($contentId, $fieldId, (string)$val);
+                    }
+                }
+                foreach ($taxonomyAssignments as $assignment) {
+                    setContentTaxonomyTerms($contentId, $assignment['taxonomy_id'], $assignment['terms']);
+                }
+                foreach ($allTaxonomies as $taxonomy) {
+                    $termsKey = 'taxonomy_' . $taxonomy['id'];
+                    $termIds = isset($_POST[$termsKey]) ? (array)$_POST[$termsKey] : [];
+                    setContentTaxonomyTerms($contentId, $taxonomy['id'], $termIds);
+                }
+                header('Location: ' . BASE_URL . rawurlencode($typeSlug));
+                exit;
             }
-            foreach ($allTaxonomies as $taxonomy) {
-                $termsKey = 'taxonomy_' . $taxonomy['id'];
-                $termIds = isset($_POST[$termsKey]) ? (array)$_POST[$termsKey] : [];
-                setContentTaxonomyTerms($contentId, $taxonomy['id'], $termIds);
-            }
-            header('Location: ' . BASE_URL . rawurlencode($typeSlug));
-            exit;
         }
     }
 
@@ -668,11 +737,17 @@ if ($action === 'edit') {
         if ($title === '') {
             $error = 'Title is required';
         } else {
-            updateContent($contentId, $title, $body);
-            deleteCustomValuesForContent($contentId);
+            $allowedImageMimes = [
+                'image/jpeg' => 'jpg',
+                'image/png'  => 'png',
+            ];
+            $scalarValues = [];
+            $multiValues = [];
+            $imageUploads = [];
+            $taxonomyAssignments = [];
+
             foreach ($customFields as $field) {
                 $fieldName = 'field_' . $field['id'];
-                $value = null;
                 if ($field['type'] === 'taxonomy' || $field['type'] === 'multitaxonomy') {
                     if ($field['type'] === 'taxonomy') {
                         $single = $_POST[$fieldName] ?? '';
@@ -680,52 +755,117 @@ if ($action === 'edit') {
                     } else {
                         $termIds = isset($_POST[$fieldName]) ? array_map('intval', (array)$_POST[$fieldName]) : [];
                     }
-                    setContentTaxonomyTerms($contentId, (int)$field['options'], $termIds);
+                    $taxonomyAssignments[] = [
+                        'taxonomy_id' => (int)$field['options'],
+                        'terms'       => $termIds,
+                    ];
                     continue;
                 }
+
                 if ($field['type'] === 'image') {
                     $existing = $customValues[$field['id']][0] ?? '';
-                    if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] === UPLOAD_ERR_OK) {
+                    if ($existing !== '' && strpos($existing, 'uploads/' . $slug . '/') !== 0) {
+                        $existing = 'uploads/' . $slug . '/' . ltrim($existing, '/');
+                    }
+                    if ($existing !== '') {
+                        $scalarValues[$field['id']] = $existing;
+                    }
+                    if (isset($_FILES[$fieldName]) && $_FILES[$fieldName]['error'] !== UPLOAD_ERR_NO_FILE) {
+                        if ($_FILES[$fieldName]['error'] !== UPLOAD_ERR_OK) {
+                            $error = 'Não foi possível carregar a imagem "' . $field['label'] . '". Tente novamente.';
+                            break;
+                        }
+                        $imageInfo = @getimagesize($_FILES[$fieldName]['tmp_name']);
+                        $mime = $imageInfo['mime'] ?? '';
+                        if (!$imageInfo || !isset($allowedImageMimes[$mime])) {
+                            $error = 'O ficheiro enviado para "' . $field['label'] . '" tem de ser uma imagem JPEG ou PNG.';
+                            break;
+                        }
+                        $extension = $allowedImageMimes[$mime];
+                        $baseName = pathinfo($_FILES[$fieldName]['name'], PATHINFO_FILENAME);
+                        $baseName = preg_replace('/[^A-Za-z0-9_-]/', '_', (string)$baseName);
+                        if ($baseName === '') {
+                            $baseName = 'image';
+                        }
+                        $uniqueId = str_replace('.', '', uniqid('', true));
+                        $filename = $uniqueId . '_' . $baseName . '.' . $extension;
                         $year = date('Y');
                         $month = date('m');
                         $uploadDir = __DIR__ . '/uploads/' . $slug . '/' . $year . '/' . $month . '/';
-                        if (!is_dir($uploadDir)) {
-                            mkdir($uploadDir, 0755, true);
-                        }
-                        $filename = uniqid() . '_' . preg_replace('/[^A-Za-z0-9._-]/', '_', $_FILES[$fieldName]['name']);
-                        $targetPath = $uploadDir . $filename;
-                        if (move_uploaded_file($_FILES[$fieldName]['tmp_name'], $targetPath)) {
-                            $value = 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename;
-                        }
-                    } else {
-                        $value = $existing;
-                        if ($value !== '' && strpos($value, 'uploads/' . $slug . '/') !== 0) {
-                            $value = 'uploads/' . $slug . '/' . ltrim($value, '/');
+                        $imageUploads[$field['id']] = [
+                            'label'         => $field['label'],
+                            'tmp_name'      => $_FILES[$fieldName]['tmp_name'],
+                            'dir'           => $uploadDir,
+                            'absolute_path' => $uploadDir . $filename,
+                            'relative_path' => 'uploads/' . $slug . '/' . $year . '/' . $month . '/' . $filename,
+                        ];
+                        $scalarValues[$field['id']] = null;
+                    }
+                    continue;
+                }
+
+                if ($field['type'] === 'multicontent') {
+                    $values = $_POST[$fieldName] ?? [];
+                    $multiValues[$field['id']] = array_map('strval', (array)$values);
+                    continue;
+                }
+
+                $value = $_POST[$fieldName] ?? null;
+                if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
+                    $value = str_replace('T', ' ', substr($value, 0, 16));
+                }
+                $scalarValues[$field['id']] = $value;
+            }
+
+            if (empty($error) && !empty($imageUploads)) {
+                $movedFiles = [];
+                foreach ($imageUploads as $fieldId => $upload) {
+                    if (!is_dir($upload['dir'])) {
+                        if (!mkdir($upload['dir'], 0755, true) && !is_dir($upload['dir'])) {
+                            $error = 'Não foi possível criar a pasta de destino para as imagens.';
+                            break;
                         }
                     }
-                } else {
-                    $value = $_POST[$fieldName] ?? null;
-                    if ($value !== null && $field['type'] === 'datetime' && $value !== '') {
-                        $value = str_replace('T', ' ', substr($value, 0, 16));
+                    if (!move_uploaded_file($upload['tmp_name'], $upload['absolute_path'])) {
+                        $error = 'Não foi possível guardar a imagem enviada para "' . $upload['label'] . '".';
+                        break;
                     }
-                    if ($field['type'] === 'multicontent') {
-                        foreach ((array)$value as $val) {
-                            saveCustomValue($contentId, $field['id'], (string)$val);
+                    $movedFiles[] = $upload['absolute_path'];
+                    $scalarValues[$fieldId] = $upload['relative_path'];
+                }
+                if (!empty($error)) {
+                    foreach ($movedFiles as $path) {
+                        if (is_file($path)) {
+                            unlink($path);
                         }
-                        continue;
                     }
                 }
-                if ($value !== null) {
-                    saveCustomValue($contentId, $field['id'], $value);
+            }
+
+            if (empty($error)) {
+                updateContent($contentId, $title, $body);
+                deleteCustomValuesForContent($contentId);
+                foreach ($scalarValues as $fieldId => $value) {
+                    if ($value !== null) {
+                        saveCustomValue($contentId, $fieldId, $value);
+                    }
                 }
+                foreach ($multiValues as $fieldId => $values) {
+                    foreach ($values as $val) {
+                        saveCustomValue($contentId, $fieldId, (string)$val);
+                    }
+                }
+                foreach ($taxonomyAssignments as $assignment) {
+                    setContentTaxonomyTerms($contentId, $assignment['taxonomy_id'], $assignment['terms']);
+                }
+                foreach ($allTaxonomies as $taxonomy) {
+                    $termsKey = 'taxonomy_' . $taxonomy['id'];
+                    $termIds = isset($_POST[$termsKey]) ? (array)$_POST[$termsKey] : [];
+                    setContentTaxonomyTerms($contentId, $taxonomy['id'], $termIds);
+                }
+                header('Location: ' . BASE_URL . rawurlencode($typeSlug));
+                exit;
             }
-            foreach ($allTaxonomies as $taxonomy) {
-                $termsKey = 'taxonomy_' . $taxonomy['id'];
-                $termIds = isset($_POST[$termsKey]) ? (array)$_POST[$termsKey] : [];
-                setContentTaxonomyTerms($contentId, $taxonomy['id'], $termIds);
-            }
-            header('Location: ' . BASE_URL . rawurlencode($typeSlug));
-            exit;
         }
     }
 
