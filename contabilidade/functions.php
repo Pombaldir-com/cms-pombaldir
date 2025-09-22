@@ -746,14 +746,29 @@ function dropLegacyAccountColumns(PDO $pdo): void {
     $tables = ['accounting_imports', 'accounting_classifications'];
 
     foreach ($tables as $table) {
-        $stmt = $pdo->query("SHOW COLUMNS FROM {$table}");
+        if (! tableExists($pdo, $table)) {
+            continue;
+        }
+
+        $quotedTable = "`" . str_replace("`", "``", $table) . "`";
+        $stmt = $pdo->query("SHOW COLUMNS FROM {$quotedTable}");
         $existing = $stmt->fetchAll(PDO::FETCH_COLUMN);
         foreach ($legacyCols as $col) {
             if (in_array($col, $existing, true)) {
-                $pdo->exec("ALTER TABLE {$table} DROP COLUMN {$col}");
+                $quotedColumn = "`" . str_replace("`", "``", $col) . "`";
+                $pdo->exec("ALTER TABLE {$quotedTable} DROP COLUMN {$quotedColumn}");
             }
         }
     }
+}
+
+/**
+ * Check if a table exists in the current database schema.
+ */
+function tableExists(PDO $pdo, string $table): bool {
+    $stmt = $pdo->prepare('SHOW TABLES LIKE :table');
+    $stmt->execute([':table' => $table]);
+    return $stmt->fetchColumn() !== false;
 }
 
 /**
