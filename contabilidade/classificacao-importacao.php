@@ -76,10 +76,6 @@ if ($action === 'data') {
         $length = 10;
     }
 
-    $totalStmt = $pdo->prepare('SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType');
-    $totalStmt->execute([':importType' => $importType]);
-    $total = (int)$totalStmt->fetchColumn();
-
     $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
     $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
     $stmt = $pdo->prepare($sql);
@@ -145,8 +141,8 @@ if ($action === 'data') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'draw' => $draw,
-        'recordsTotal' => $total,
-        'recordsFiltered' => $total,
+        'recordsTotal' => count($rows),
+        'recordsFiltered' => count($rows),
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
     exit;
