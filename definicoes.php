@@ -87,6 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['modules_save']) && ($user['role'] ?? 3) == 1) {
         $selectedModules = array_keys($_POST['modules'] ?? []);
         setSetting('active_modules', json_encode($selectedModules));
+
+        if (in_array('compras', $selectedModules, true)) {
+            $comprasSection = trim($_POST['compras_section'] ?? '');
+            $comprasWarehouse = trim($_POST['compras_warehouse'] ?? '');
+            $comprasDocumentType = trim($_POST['compras_document_type'] ?? '');
+
+            setSetting('compras_section', $comprasSection);
+            setSetting('compras_warehouse', $comprasWarehouse);
+            setSetting('compras_document_type', $comprasDocumentType);
+        }
+
         $modulesSaved = true;
     }
 }
@@ -111,6 +122,9 @@ $currentOcrProvider = getSetting('ocr_provider', 'tesseract');
 $currentErpWebserviceUrl = getSetting('erp_webservice_url', '');
 $currentErpToken = getSetting('erp_token', '');
 $currentModules = getActiveModules();
+$currentComprasSection = getSetting('compras_section', '');
+$currentComprasWarehouse = getSetting('compras_warehouse', '');
+$currentComprasDocumentType = getSetting('compras_document_type', '');
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -284,8 +298,55 @@ require_once __DIR__ . '/header.php';
                         <?php endforeach; ?>
                     </div>
                 </div>
+                <?php $comprasActive = in_array('compras', $currentModules, true); ?>
+                <div id="compras-settings" style="<?= $comprasActive ? '' : 'display:none;'; ?>">
+                    <div class="row">
+                        <div class="mb-3 col-md-4 col-sm-12">
+                            <label for="compras_section" class="form-label">Secção</label>
+                            <input type="text" class="form-control" id="compras_section" name="compras_section" value="<?= htmlspecialchars($currentComprasSection); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                        </div>
+                        <div class="mb-3 col-md-4 col-sm-12">
+                            <label for="compras_warehouse" class="form-label">Armazém</label>
+                            <input type="text" class="form-control" id="compras_warehouse" name="compras_warehouse" value="<?= htmlspecialchars($currentComprasWarehouse); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                        </div>
+                        <div class="mb-3 col-md-4 col-sm-12">
+                            <label for="compras_document_type" class="form-label">Tipo de Documento</label>
+                            <input type="text" class="form-control" id="compras_document_type" name="compras_document_type" value="<?= htmlspecialchars($currentComprasDocumentType); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                        </div>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </form>
+            <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var comprasCheckbox = document.getElementById('module_compras');
+                var comprasSettings = document.getElementById('compras-settings');
+                if (!comprasCheckbox || !comprasSettings) {
+                    return;
+                }
+
+                var comprasInputs = comprasSettings.querySelectorAll('input, select, textarea');
+
+                function setInputsDisabled(disabled) {
+                    for (var i = 0; i < comprasInputs.length; i++) {
+                        comprasInputs[i].disabled = disabled;
+                    }
+                }
+
+                function toggleComprasSettings() {
+                    if (comprasCheckbox.checked) {
+                        comprasSettings.style.display = '';
+                        setInputsDisabled(false);
+                    } else {
+                        comprasSettings.style.display = 'none';
+                        setInputsDisabled(true);
+                    }
+                }
+
+                toggleComprasSettings();
+                comprasCheckbox.addEventListener('change', toggleComprasSettings);
+            });
+            </script>
         </div>
         <?php endif; ?>
     </div>
