@@ -40,8 +40,6 @@ function prepareImportRow(array $row): array {
 }
 
 if ($action === 'data') {
-    dropLegacyAccountColumns($pdo);
-
     $columns = [
         'id',
         'account',

@@ -730,48 +730,6 @@ function parseInvoiceLineTextract(string $filePath): array {
 }
 
 /**
- * Remove legacy account columns from accounting tables if they exist.
- *
- * Previous iterations stored account information directly in dedicated
- * columns.  The current schema uses a JSON field instead, so these old
- * columns should be dropped.  The function is safe to run multiple
- * times because it checks for a column's existence before attempting
- * to drop it.
- *
- * @param PDO $pdo Active database connection
- * @return void
- */
-function dropLegacyAccountColumns(PDO $pdo): void {
-    $legacyCols = ['account_iva6', 'account_iva13', 'account_iva23', 'account_novat'];
-    $tables = ['accounting_imports', 'accounting_classifications'];
-
-    foreach ($tables as $table) {
-        if (! tableExists($pdo, $table)) {
-            continue;
-        }
-
-        $quotedTable = "`" . str_replace("`", "``", $table) . "`";
-        $stmt = $pdo->query("SHOW COLUMNS FROM {$quotedTable}");
-        $existing = $stmt->fetchAll(PDO::FETCH_COLUMN);
-        foreach ($legacyCols as $col) {
-            if (in_array($col, $existing, true)) {
-                $quotedColumn = "`" . str_replace("`", "``", $col) . "`";
-                $pdo->exec("ALTER TABLE {$quotedTable} DROP COLUMN {$quotedColumn}");
-            }
-        }
-    }
-}
-
-/**
- * Check if a table exists in the current database schema.
- */
-function tableExists(PDO $pdo, string $table): bool {
-    $stmt = $pdo->prepare('SHOW TABLES LIKE :table');
-    $stmt->execute([':table' => $table]);
-    return $stmt->fetchColumn() !== false;
-}
-
-/**
  * Normalize stored account information into a structure keyed by VAT rate.
  *
  * @param string|null $json JSON-encoded account data.
