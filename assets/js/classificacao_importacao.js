@@ -25,7 +25,11 @@ window.addEventListener('load', function() {
     }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
-    var importType = importTypeInput ? importTypeInput.value : 1;
+    var importType = importTypeInput ? parseInt(importTypeInput.value, 10) : 1;
+    if (isNaN(importType)) {
+        importType = 1;
+    }
+    var showLineCostCenter = importType === 1;
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
@@ -527,9 +531,11 @@ window.addEventListener('load', function() {
             '<th>Descrição</th>' +
             '<th>Qtd.</th>' +
             '<th>P. Un.</th>' +
-            '<th>Preço</th>' +
-            '<th>Centro de Custo</th>' +
-            '</tr></thead><tbody>';
+            '<th>Preço</th>';
+        if (showLineCostCenter) {
+            html += '<th>Centro de Custo</th>';
+        }
+        html += '</tr></thead><tbody>';
         lines.forEach(function(line) {
             var erp = line.ERP || '';
             var iva = line.IVA_TAXA || line.OTHER || '';
@@ -539,7 +545,10 @@ window.addEventListener('load', function() {
             var unitPrice = line.UNIT_PRICE || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.UNIT_PRICE) || '';
             var price = line.PRICE || '';
             var priceVat = line.PRICE_VAT || '';
-            var costCenter = line.COST_CENTER || line.cost_center || '';
+            var costCenter = '';
+            if (showLineCostCenter) {
+                costCenter = line.COST_CENTER || line.cost_center || '';
+            }
             if (!priceVat) {
                 var priceNum = parseFloat(String(price).replace(',', '.'));
                 var ivaNum = parseFloat(String(iva).replace(',', '.'));
@@ -554,9 +563,11 @@ window.addEventListener('load', function() {
                 '<td class="item">' + escapeHtml(item) + '</td>' +
                 '<td class="quantity">' + escapeHtml(quantity) + '</td>' +
                 '<td class="unit-price">' + escapeHtml(unitPrice) + '</td>' +
-                '<td class="price">' + escapeHtml(price) + '</td>' +
-                '<td><input type="text" class="form-control cost-center-input" value="' + escapeHtml(costCenter) + '"></td>' +
-                '</tr>';
+                '<td class="price">' + escapeHtml(price) + '</td>';
+            if (showLineCostCenter) {
+                html += '<td><input type="text" class="form-control cost-center-input" value="' + escapeHtml(costCenter) + '"></td>';
+            }
+            html += '</tr>';
         });
         html += '</tbody></table>';
         linesContainer.innerHTML = html;
@@ -578,12 +589,12 @@ window.addEventListener('load', function() {
             var unitPrice = row.querySelector('.unit-price').textContent.trim();
             var price = row.querySelector('.price').textContent.trim();
             var priceVat = row.querySelector('.price-vat').value;
-            var costCenterInputEl = row.querySelector('.cost-center-input');
+            var costCenterInputEl = showLineCostCenter ? row.querySelector('.cost-center-input') : null;
             var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
             if (!erp) {
                 allErpFilled = false;
             }
-            linesToSave.push({
+            var linePayload = {
                 ERP: erp,
                 IVA_TAXA: iva,
                 PRODUCT_CODE: productCode,
@@ -591,9 +602,12 @@ window.addEventListener('load', function() {
                 QUANTITY: quantity,
                 UNIT_PRICE: unitPrice,
                 PRICE: price,
-                PRICE_VAT: priceVat,
-                COST_CENTER: costCenter
-            });
+                PRICE_VAT: priceVat
+            };
+            if (showLineCostCenter) {
+                linePayload.COST_CENTER = costCenter;
+            }
+            linesToSave.push(linePayload);
         });
         var body = new URLSearchParams({
             action: 'save_lines',
