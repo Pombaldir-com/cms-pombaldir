@@ -76,10 +76,6 @@ if ($action === 'data') {
         $length = 10;
     }
 
-    $totalStmt = $pdo->prepare('SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType');
-    $totalStmt->execute([':importType' => $importType]);
-    $total = (int)$totalStmt->fetchColumn();
-
     $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
     $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
     $stmt = $pdo->prepare($sql);
@@ -145,8 +141,8 @@ if ($action === 'data') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'draw' => $draw,
-        'recordsTotal' => $total,
-        'recordsFiltered' => $total,
+        'recordsTotal' => count($rows),
+        'recordsFiltered' => count($rows),
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
     exit;
@@ -272,7 +268,9 @@ require_once __DIR__ . '/../header.php';
                                     <th>IVA</th>
                                     <th>Conta IVA</th>
                                     <th>Conta Geral</th>
+                                    <?php if ($importType === 1): ?>
                                     <th>Centro de Custo</th>
+                                    <?php endif; ?>
                                 </tr>
                             </thead>
                             <tbody>
@@ -291,6 +289,7 @@ require_once __DIR__ . '/../header.php';
                                     <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
                                     <td><input type="text" class="form-control form-control-sm iva-account-field" name="rates[<?= $rate; ?>][iva_account]"></td>
                                     <td><input type="text" class="form-control form-control-sm general-account-field" name="rates[<?= $rate; ?>][general_account]"></td>
+                                    <?php if ($importType === 1): ?>
                                     <td class="align-middle">
                                         <input
                                             type="text"
@@ -299,6 +298,7 @@ require_once __DIR__ . '/../header.php';
                                             placeholder="Introduza o centro de custo"
                                         >
                                     </td>
+                                    <?php endif; ?>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
