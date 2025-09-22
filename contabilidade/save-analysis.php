@@ -11,6 +11,179 @@ require_once __DIR__ . '/functions.php';
 startSession();
 
 
+/**
+ * Normalize a supplier party identifier (emitter/acquirer).
+ */
+function normalizeSupplierPartyValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 255, 'UTF-8');
+    }
+
+    return substr($string, 0, 255);
+}
+
+/**
+ * Uppercase helper compatible with environments without mbstring.
+ */
+function supplierToUpper(string $value): string {
+    if (function_exists('mb_strtoupper')) {
+        return mb_strtoupper($value, 'UTF-8');
+    }
+
+    return strtoupper($value);
+}
+
+/**
+ * Normalize the document/article code extracted from invoice lines.
+ */
+function normalizeSupplierDocumentCode($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    $string = supplierToUpper($string);
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 255, 'UTF-8');
+    }
+
+    return substr($string, 0, 255);
+}
+
+/**
+ * Normalize ERP codes stored by the user.
+ */
+function normalizeErpCodeValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 255, 'UTF-8');
+    }
+
+    return substr($string, 0, 255);
+}
+
+/**
+ * Attempt to obtain the document/article code from a parsed invoice line.
+ *
+ * @param array $line Parsed line data.
+ */
+function extractDocumentCodeFromLine(array $line): string {
+    $candidates = [];
+
+    $candidates[] = $line['PRODUCT_CODE'] ?? null;
+    $candidates[] = $line['ITEM_CODE'] ?? null;
+
+    if (isset($line['ITEM_QUANTITY_UNIT_PRICE']) && is_array($line['ITEM_QUANTITY_UNIT_PRICE'])) {
+        $iqp = $line['ITEM_QUANTITY_UNIT_PRICE'];
+        $candidates[] = $iqp['PRODUCT_CODE'] ?? null;
+        $candidates[] = $iqp['ITEM_CODE'] ?? null;
+    }
+
+    foreach ($candidates as $candidate) {
+        $normalized = normalizeSupplierDocumentCode($candidate);
+        if ($normalized !== '') {
+            return $normalized;
+        }
+    }
+
+    $itemName = $line['ITEM'] ?? null;
+    $normalizedItem = normalizeSupplierDocumentCode($itemName);
+    if ($normalizedItem !== '') {
+        return $normalizedItem;
+    }
+
+    return '';
+}
+
+/**
+ * Apply stored ERP mappings for supplier documents to parsed lines.
+ *
+ * @param PDO    $pdo      Active database connection.
+ * @param string $emitter  Emitter identifier.
+ * @param string $acquirer Acquirer identifier.
+ * @param array  $items    Parsed line items.
+ *
+ * @return array Lines with pre-filled ERP codes when available.
+ */
+function applySupplierDocumentMappings(PDO $pdo, $emitter, $acquirer, array $items): array {
+    if (empty($items)) {
+        return $items;
+    }
+
+    $normalizedEmitter = normalizeSupplierPartyValue($emitter);
+    $normalizedAcquirer = normalizeSupplierPartyValue($acquirer);
+    if ($normalizedEmitter === '' || $normalizedAcquirer === '') {
+        return $items;
+    }
+
+    $docCodes = [];
+    foreach ($items as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $code = extractDocumentCodeFromLine($line);
+        if ($code !== '') {
+            $docCodes[$code] = true;
+        }
+    }
+
+    if (empty($docCodes)) {
+        return $items;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($docCodes), '?'));
+    $sql = 'SELECT doc_codigo, erp_codigo FROM supplier_documents WHERE emitter = ? AND acquirer = ? AND doc_codigo IN (' . $placeholders . ')';
+    $stmt = $pdo->prepare($sql);
+    $params = [$normalizedEmitter, $normalizedAcquirer];
+    foreach (array_keys($docCodes) as $code) {
+        $params[] = $code;
+    }
+    $stmt->execute($params);
+
+    $mappings = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $docCode = normalizeSupplierDocumentCode($row['doc_codigo'] ?? '');
+        $erpCode = normalizeErpCodeValue($row['erp_codigo'] ?? '');
+        if ($docCode === '' || $erpCode === '') {
+            continue;
+        }
+        $mappings[$docCode] = $erpCode;
+    }
+
+    if (empty($mappings)) {
+        return $items;
+    }
+
+    foreach ($items as &$line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $existingErp = normalizeErpCodeValue($line['ERP'] ?? '');
+        if ($existingErp !== '') {
+            continue;
+        }
+        $code = extractDocumentCodeFromLine($line);
+        if ($code === '' || !isset($mappings[$code])) {
+            continue;
+        }
+        $line['ERP'] = $mappings[$code];
+    }
+    unset($line);
+
+    return $items;
+}
+
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 if ($action === 'lines') {
@@ -32,7 +205,7 @@ if ($action === 'lines') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    $stmt = $pdo->prepare('SELECT id, filename, line_items FROM accounting_imports WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, filename, line_items, field_A, field_B FROM accounting_imports WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (! $row) {
@@ -45,6 +218,7 @@ if ($action === 'lines') {
         if (!is_array($items)) {
             $items = [];
         }
+        $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
         header('Content-Type: application/json');
         echo json_encode($items, JSON_UNESCAPED_UNICODE);
         exit;
@@ -62,6 +236,10 @@ if ($action === 'lines') {
 
     try {
         $items = parseInvoiceLineTextract($path);
+        if (!is_array($items)) {
+            $items = [];
+        }
+        $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
         // Store OCR result so subsequent requests can reuse it.
         $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
         $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
@@ -243,9 +421,64 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
-    $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
-    $stmt->execute([json_encode($lines, JSON_UNESCAPED_UNICODE), $id]);
-    echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    $stmtImport = $pdo->prepare('SELECT field_A, field_B FROM accounting_imports WHERE id = ? LIMIT 1');
+    $stmtImport->execute([$id]);
+    $importRow = $stmtImport->fetch(PDO::FETCH_ASSOC);
+    if (!$importRow) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Importação inexistente', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+
+    foreach ($lines as &$line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        if (array_key_exists('ERP', $line)) {
+            $line['ERP'] = normalizeErpCodeValue($line['ERP']);
+        }
+    }
+    unset($line);
+
+    $normalizedEmitter = normalizeSupplierPartyValue($importRow['field_A'] ?? '');
+    $normalizedAcquirer = normalizeSupplierPartyValue($importRow['field_B'] ?? '');
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmtUpdate = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+        $stmtUpdate->execute([json_encode($lines, JSON_UNESCAPED_UNICODE), $id]);
+
+        if ($normalizedEmitter !== '' && $normalizedAcquirer !== '') {
+            $stmtDoc = $pdo->prepare(
+                'INSERT INTO supplier_documents (emitter, acquirer, doc_codigo, erp_codigo) ' .
+                'VALUES (?, ?, ?, ?) ' .
+                'ON DUPLICATE KEY UPDATE erp_codigo = VALUES(erp_codigo)'
+            );
+
+            foreach ($lines as $line) {
+                if (!is_array($line)) {
+                    continue;
+                }
+                $docCode = extractDocumentCodeFromLine($line);
+                $erpCode = normalizeErpCodeValue($line['ERP'] ?? '');
+                if ($docCode === '' || $erpCode === '') {
+                    continue;
+                }
+                $stmtDoc->execute([$normalizedEmitter, $normalizedAcquirer, $docCode, $erpCode]);
+            }
+        }
+
+        $pdo->commit();
+        echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('save-analysis save_lines error: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Erro ao guardar linhas', 'csrf_token' => generateCsrfToken()]);
+    }
     exit;
 } elseif ($action === 'remove') {
     $token = $_POST['csrf_token'] ?? '';
