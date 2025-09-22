@@ -7,6 +7,7 @@ $csrfToken = generateCsrfToken();
 $profileMode = isset($_GET['profile']);
 $action = $_GET['action'] ?? 'list';
 $errors = [];
+$listErrors = [];
 $slug = getCompanySlug();
 
 if ($profileMode) {
@@ -18,13 +19,22 @@ if ($profileMode) {
     requireRole(2);
     $selfEdit = false;
 
-    if (isset($_GET['delete_id'])) {
-        $idDel = (int)$_GET['delete_id'];
-        if ($idDel !== (int)($_SESSION['user_id'] ?? 0)) {
-            deleteUser($idDel);
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_user_id'])) {
+        if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            http_response_code(400);
+            $listErrors[] = 'Token CSRF inválido.';
+            $csrfToken = generateCsrfToken(true);
+        } else {
+            $idDel = (int)$_POST['delete_user_id'];
+            if ($idDel === (int)($_SESSION['user_id'] ?? 0)) {
+                $listErrors[] = 'Não pode eliminar o próprio utilizador.';
+                $csrfToken = generateCsrfToken(true);
+            } else {
+                deleteUser($idDel);
+                header('Location: ' . BASE_URL . 'users');
+                exit;
+            }
         }
-        header('Location: ' . BASE_URL . 'users');
-        exit;
     }
 
     $id = $action === 'edit' ? (int)($_GET['id'] ?? 0) : null;
@@ -40,6 +50,9 @@ if ($action === 'list') {
     ?>
 <div class="container-fluid">
     <h2>Utilizadores</h2>
+    <?php foreach ($listErrors as $err): ?>
+        <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
+    <?php endforeach; ?>
     <table class="table table-striped">
         <thead>
             <tr>
@@ -66,7 +79,11 @@ if ($action === 'list') {
                 <td>
                     <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
                     <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
-                    <a href="<?= BASE_URL ?>users/delete/<?= $u['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar utilizador?');">Eliminar</a>
+                    <form method="post" action="<?= BASE_URL ?>users" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar utilizador?');">Eliminar</button>
+                    </form>
                     <?php endif; ?>
                 </td>
             </tr>
