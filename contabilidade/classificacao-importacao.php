@@ -421,13 +421,14 @@ require_once __DIR__ . '/../header.php';
                 <div class="d-flex flex-wrap gap-2 w-100 justify-content-between">
 
                     <?php if ($importType === 1): ?>
-
-                    <div>
-                        <button type="button" class="btn btn-outline-primary" id="addLineBtn">
-                            <i class="fa fa-plus me-1"></i>
-                            Adicionar linha
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-outline-primary d-inline-flex align-items-center gap-2"
+                        id="addLineBtn"
+                    >
+                        <i class="fa fa-plus"></i>
+                        <span>Adicionar linha</span>
+                    </button>
                     <?php endif; ?>
 
                     <div class="ms-auto">

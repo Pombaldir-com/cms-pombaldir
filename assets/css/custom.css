@@ -5103,6 +5103,17 @@ ul.project_files li a i {
     margin: 0;
 }
 
+#linesModal #addLineBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+#linesModal #addLineBtn[disabled] {
+    opacity: 1;
+    cursor: not-allowed;
+}
+
 #linesContainer .price {
     font-size: inherit;
     font-weight: inherit;
