@@ -125,12 +125,21 @@ window.addEventListener('load', function() {
     var modalTitleEl = document.getElementById('classifyModalLabel');
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
+    var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
     var customRateRowTemplate = document.getElementById('customRateRowTemplate');
     var rateInputs = {};
     var currentRateData = {};
     var currentCostCenters = {};
+    var storedRowRates = {};
+    var storedDefaultRates = {};
     var dynamicRateCounter = 0;
-    var defaultRates = ['0', '6', '13', '23'];
+    var defaultRateLabels = {
+        '0': '0%',
+        '6': '6%',
+        '13': '13%',
+        '23': '23%'
+    };
+    var defaultRates = Object.keys(defaultRateLabels);
 
     function updateDynamicCounter(rate) {
         var match = /^custom_(\d+)$/.exec(rate);
@@ -168,6 +177,13 @@ window.addEventListener('load', function() {
         return '';
     }
 
+    function getDefaultRateLabel(rate) {
+        if (Object.prototype.hasOwnProperty.call(defaultRateLabels, rate)) {
+            return defaultRateLabels[rate];
+        }
+        return '';
+    }
+
     function registerRateRow(row, explicitRate) {
         if (!row) {
             return null;
@@ -193,6 +209,8 @@ window.addEventListener('load', function() {
             removeBtn: row.querySelector('.remove-rate-row') || null,
             custom: row.getAttribute('data-custom-rate') === '1'
         };
+        info.rate = rate;
+        info.key = rate;
         rateInputs[rate] = info;
         if (!Object.prototype.hasOwnProperty.call(currentCostCenters, rate)) {
             currentCostCenters[rate] = '';
@@ -220,13 +238,13 @@ window.addEventListener('load', function() {
                 removeRateRow(rate);
             });
         }
+        if (info.labelText && info.labelText.textContent.trim() === '') {
+            info.labelText.textContent = getDefaultRateLabel(rate);
+        }
         return info;
     }
 
     function removeRateRow(rate) {
-        if (defaultRates.indexOf(rate) !== -1) {
-            return;
-        }
         var info = rateInputs[rate];
         if (!info) {
             return;
@@ -235,8 +253,38 @@ window.addEventListener('load', function() {
             info.row.parentNode.removeChild(info.row);
         }
         delete rateInputs[rate];
-        delete currentCostCenters[rate];
-        delete currentRateData[rate];
+        if (!Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
+            delete currentCostCenters[rate];
+        }
+        if (defaultRates.indexOf(rate) === -1 && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
+            delete currentRateData[rate];
+        }
+    }
+
+    function createDefaultRateRow(rate, label) {
+        if (!vatRateRowTemplate || !form) {
+            return null;
+        }
+        var fragment = vatRateRowTemplate.content ? vatRateRowTemplate.content.cloneNode(true) : null;
+        if (!fragment) {
+            return null;
+        }
+        var row = fragment.querySelector('tr');
+        if (!row) {
+            return null;
+        }
+        row.setAttribute('data-rate', rate);
+        row.setAttribute('data-custom-rate', '0');
+        var labelEl = row.querySelector('.rate-label-static');
+        if (labelEl) {
+            labelEl.textContent = label || getDefaultRateLabel(rate);
+        }
+        var tbody = form.querySelector('tbody');
+        if (!tbody) {
+            return null;
+        }
+        tbody.appendChild(row);
+        return registerRateRow(row, rate);
     }
 
     function createDynamicRateRow(rate, label) {
@@ -254,6 +302,7 @@ window.addEventListener('load', function() {
         }
         row.setAttribute('data-rate', key);
         row.setAttribute('data-custom-rate', '1');
+        var shouldFocus = !rate || rate === '';
         var tbody = form.querySelector('tbody');
         if (!tbody) {
             return null;
@@ -263,8 +312,10 @@ window.addEventListener('load', function() {
         if (info && info.labelInput) {
             info.labelInput.value = label || '';
             info.labelInput.dispatchEvent(new Event('input'));
-            info.labelInput.focus();
-            info.labelInput.select();
+            if (shouldFocus) {
+                info.labelInput.focus();
+                info.labelInput.select();
+            }
         }
         if (!currentRateData[key]) {
             currentRateData[key] = {};
@@ -272,10 +323,12 @@ window.addEventListener('load', function() {
         return info;
     }
 
-    function ensureRateRow(rate, data) {
+    function ensureRateRow(rate, data, options) {
         if (!rate) {
             return null;
         }
+        var opts = options || {};
+        var allowCreate = opts.allowCreate === true;
         var info = rateInputs[rate];
         if (info) {
             if (info.labelInput && data && typeof data.label === 'string') {
@@ -285,17 +338,27 @@ window.addEventListener('load', function() {
             }
             return info;
         }
+        if (!allowCreate) {
+            return null;
+        }
         var label = data && typeof data.label === 'string' ? data.label : '';
+        if (Object.prototype.hasOwnProperty.call(defaultRateLabels, rate)) {
+            if (!label) {
+                label = getDefaultRateLabel(rate);
+            }
+            return createDefaultRateRow(rate, label);
+        }
         return createDynamicRateRow(rate, label);
     }
 
-    function ensureRowsForRates(value) {
+    function ensureRowsForRates(value, options) {
         if (!value) {
             return;
         }
+        var opts = options || {};
         if (Array.isArray(value)) {
             value.forEach(function(entry) {
-                ensureRowsForRates(entry);
+                ensureRowsForRates(entry, opts);
             });
             return;
         }
@@ -312,15 +375,28 @@ window.addEventListener('load', function() {
             }
             var rate = String(key);
             if (!rateInputs[rate]) {
-                ensureRateRow(rate, typeof source[key] === 'object' ? source[key] : null);
+                ensureRateRow(rate, typeof source[key] === 'object' ? source[key] : null, opts);
             }
         });
     }
 
     function createEmptyCostCenters() {
         var result = {};
+        defaultRates.forEach(function(rate) {
+            result[rate] = '';
+        });
+        Object.keys(currentCostCenters).forEach(function(rate) {
+            if (!Object.prototype.hasOwnProperty.call(result, rate)) {
+                result[rate] = '';
+            }
+        });
         getRateKeys().forEach(function(rate) {
             result[rate] = '';
+        });
+        Object.keys(currentRateData).forEach(function(rate) {
+            if (!Object.prototype.hasOwnProperty.call(result, rate)) {
+                result[rate] = '';
+            }
         });
         return result;
     }
@@ -382,29 +458,37 @@ window.addEventListener('load', function() {
         return normalized;
     }
 
-    function applyCostCenterValues(value) {
-        ensureRowsForRates(value);
+    function applyCostCenterValues(value, options) {
+        var opts = options || {};
+        if (!opts.skipEnsure) {
+            ensureRowsForRates(value, opts);
+        }
         var normalized = normalizeCostCenterValues(value);
-        getRateKeys().forEach(function(rate) {
-            if (!Object.prototype.hasOwnProperty.call(normalized, rate)) {
-                normalized[rate] = '';
-            }
+        currentCostCenters = {};
+        Object.keys(normalized).forEach(function(rate) {
             currentCostCenters[rate] = normalized[rate];
+        });
+        getRateKeys().forEach(function(rate) {
             var info = rateInputs[rate];
-            if (info && info.costCenter && info.costCenter.value !== normalized[rate]) {
-                info.costCenter.value = normalized[rate];
+            if (!info || !info.costCenter) {
+                return;
+            }
+            var newValue = Object.prototype.hasOwnProperty.call(normalized, rate) ? normalized[rate] : '';
+            if (info.costCenter.value !== newValue) {
+                info.costCenter.value = newValue;
             }
         });
     }
 
     function getCostCenterValues() {
-        var values = createEmptyCostCenters();
+        var values = {};
+        Object.keys(currentCostCenters).forEach(function(rate) {
+            values[rate] = (currentCostCenters[rate] || '').trim();
+        });
         getRateKeys().forEach(function(rate) {
             var info = rateInputs[rate];
             if (info && info.costCenter) {
                 values[rate] = info.costCenter.value.trim();
-            } else if (Object.prototype.hasOwnProperty.call(currentCostCenters, rate)) {
-                values[rate] = (currentCostCenters[rate] || '').trim();
             }
         });
         return values;
@@ -417,31 +501,196 @@ window.addEventListener('load', function() {
         });
     }
 
-    if (form) {
-        var rateRows = Array.prototype.slice.call(form.querySelectorAll('tbody tr[data-rate]'));
-        rateRows.forEach(function(row) {
-            var rate = row.getAttribute('data-rate') || '';
-            registerRateRow(row, rate);
+    function hasAccountData(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return false;
+        }
+        var iva = typeof entry.iva_account === 'string' ? entry.iva_account.trim() : '';
+        var general = typeof entry.general_account === 'string' ? entry.general_account.trim() : '';
+        return iva !== '' || general !== '';
+    }
+
+    function rateHasStoredAccounts(rate) {
+        if (Object.prototype.hasOwnProperty.call(storedRowRates, rate) && hasAccountData(storedRowRates[rate])) {
+            return true;
+        }
+        if (Object.prototype.hasOwnProperty.call(storedDefaultRates, rate) && hasAccountData(storedDefaultRates[rate])) {
+            return true;
+        }
+        return false;
+    }
+
+    function rateHasBaseValues(rate) {
+        if (!currentRateData[rate]) {
+            return false;
+        }
+        var base = currentRateData[rate].base !== undefined ? String(currentRateData[rate].base).trim() : '';
+        var iva = currentRateData[rate].iva !== undefined ? String(currentRateData[rate].iva).trim() : '';
+        return base !== '' || iva !== '';
+    }
+
+    function populateRateRow(rate) {
+        var info = rateInputs[rate];
+        if (!info) {
+            return;
+        }
+        if (!currentRateData[rate]) {
+            currentRateData[rate] = {};
+        }
+        var baseData = currentRateData[rate];
+        var rowData = storedRowRates[rate] || {};
+        var defaultData = storedDefaultRates[rate] || {};
+        if (info.base) {
+            info.base.value = baseData.base || '';
+        }
+        if (info.iva) {
+            info.iva.value = baseData.iva || '';
+        }
+        var ivaAccount = rowData.iva_account || baseData.iva_account || defaultData.iva_account || '';
+        var generalAccount = rowData.general_account || baseData.general_account || defaultData.general_account || '';
+        if (info.ivaAccount && info.ivaAccount.value !== ivaAccount) {
+            info.ivaAccount.value = ivaAccount;
+        }
+        if (info.generalAccount && info.generalAccount.value !== generalAccount) {
+            info.generalAccount.value = generalAccount;
+        }
+        var label = '';
+        if (typeof baseData.label === 'string' && baseData.label.trim() !== '') {
+            label = baseData.label.trim();
+        } else if (typeof rowData.label === 'string' && rowData.label.trim() !== '') {
+            label = rowData.label.trim();
+        } else if (typeof defaultData.label === 'string' && defaultData.label.trim() !== '') {
+            label = defaultData.label.trim();
+        } else {
+            label = getDefaultRateLabel(rate);
+        }
+        if (info.labelInput && info.labelInput.value !== label) {
+            info.labelInput.value = label;
+        }
+        if (info.labelText) {
+            info.labelText.textContent = label;
+        }
+        currentRateData[rate].label = label;
+        if (info.ivaAccount) {
+            currentRateData[rate].iva_account = info.ivaAccount.value;
+        }
+        if (info.generalAccount) {
+            currentRateData[rate].general_account = info.generalAccount.value;
+        }
+        if (info.base) {
+            currentRateData[rate].base = info.base.value;
+        }
+        if (info.iva) {
+            currentRateData[rate].iva = info.iva.value;
+        }
+        if (info.costCenter) {
+            var storedValue = Object.prototype.hasOwnProperty.call(currentCostCenters, rate) ? currentCostCenters[rate] : '';
+            if (info.costCenter.value !== storedValue) {
+                info.costCenter.value = storedValue;
+            }
+        }
+    }
+
+    function focusRateInput(info) {
+        if (!info) {
+            return;
+        }
+        var focusTarget = null;
+        if (info.custom) {
+            focusTarget = info.labelInput || info.ivaAccount || info.generalAccount || info.costCenter;
+        } else {
+            focusTarget = info.ivaAccount || info.generalAccount || info.costCenter || info.labelInput;
+        }
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus();
+            if (typeof focusTarget.select === 'function') {
+                focusTarget.select();
+            }
+        }
+    }
+
+    function addVatRowForRate(rate) {
+        var data = currentRateData[rate] || storedRowRates[rate] || storedDefaultRates[rate] || {};
+        var info = ensureRateRow(rate, data, { allowCreate: true });
+        if (info) {
+            populateRateRow(rate);
+        }
+        return info;
+    }
+
+    function findNextDefaultRate() {
+        var missing = defaultRates.filter(function(rate) { return !rateInputs[rate]; });
+        if (missing.length === 0) {
+            return null;
+        }
+        var prioritized = missing.filter(function(rate) {
+            return rateHasStoredAccounts(rate) || rateHasBaseValues(rate);
         });
-        currentCostCenters = createEmptyCostCenters();
+        if (prioritized.length > 0) {
+            return prioritized[0];
+        }
+        return missing[0];
+    }
+
+    function resetRateRows() {
+        Object.keys(rateInputs).forEach(function(rate) {
+            var info = rateInputs[rate];
+            if (info && info.row && info.row.parentNode) {
+                info.row.parentNode.removeChild(info.row);
+            }
+        });
+        rateInputs = {};
+        dynamicRateCounter = 0;
+    }
+
+    function restoreSavedRates() {
+        var created = [];
+        Object.keys(storedRowRates).forEach(function(rate) {
+            if (!rateHasStoredAccounts(rate)) {
+                return;
+            }
+            var info = addVatRowForRate(rate);
+            if (info) {
+                created.push(rate);
+            }
+        });
+        Object.keys(storedDefaultRates).forEach(function(rate) {
+            if (rateInputs[rate] || !rateHasStoredAccounts(rate)) {
+                return;
+            }
+            var info = addVatRowForRate(rate);
+            if (info) {
+                created.push(rate);
+            }
+        });
+        return created;
+    }
+
+    if (form) {
+        currentCostCenters = {};
     }
 
     if (addVatLineBtn) {
         addVatLineBtn.addEventListener('click', function() {
-            createDynamicRateRow('', '');
+            var nextRate = findNextDefaultRate();
+            if (nextRate) {
+                var info = addVatRowForRate(nextRate);
+                focusRateInput(info);
+                return;
+            }
+            var customInfo = createDynamicRateRow('', '');
+            if (customInfo) {
+                populateRateRow(customInfo.key);
+                focusRateInput(customInfo);
+            }
         });
     }
 
     if (classifyModalEl) {
         classifyModalEl.addEventListener('shown.bs.modal', function() {
             var keys = getRateKeys();
-            for (var i = 0; i < keys.length; i += 1) {
-                var info = rateInputs[keys[i]];
-                if (info && info.costCenter) {
-                    info.costCenter.focus();
-                    info.costCenter.select();
-                    break;
-                }
+            if (keys.length > 0) {
+                focusRateInput(rateInputs[keys[0]]);
             }
         });
     }
@@ -459,25 +708,26 @@ window.addEventListener('load', function() {
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
 
+        resetRateRows();
+        storedRowRates = {};
+        storedDefaultRates = {};
+        currentCostCenters = {};
 
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
-        ensureRowsForRates(currentRateData);
-
-        getRateKeys().forEach(function(rate) {
-            var info = rateInputs[rate];
-            if (!info) {
-                return;
+        if (!currentRateData || typeof currentRateData !== 'object') {
+            currentRateData = {};
+        }
+        Object.keys(currentRateData).forEach(function(rate) {
+            if (!currentRateData[rate] || typeof currentRateData[rate] !== 'object') {
+                currentRateData[rate] = {};
             }
-            var data = currentRateData[rate] || {};
-            currentRateData[rate] = data;
-            if (info.base) { info.base.value = data.base || ''; }
-            if (info.iva) { info.iva.value = data.iva || ''; }
-            if (info.ivaAccount) { info.ivaAccount.value = data.iva_account || ''; }
-            if (info.generalAccount) { info.generalAccount.value = data.general_account || ''; }
-            if (info.labelInput) {
-                info.labelInput.value = typeof data.label === 'string' ? data.label : '';
-            } else if (info.labelText && data.label) {
-                info.labelText.textContent = data.label;
+        });
+        defaultRates.forEach(function(rate) {
+            if (!currentRateData[rate]) {
+                currentRateData[rate] = {};
+            }
+            if (typeof currentRateData[rate].label !== 'string' || currentRateData[rate].label.trim() === '') {
+                currentRateData[rate].label = getDefaultRateLabel(rate);
             }
         });
 
@@ -485,7 +735,7 @@ window.addEventListener('load', function() {
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
             btnCostCenters = btn.getAttribute('data-cost-center') || '';
         }
-        applyCostCenterValues(btnCostCenters);
+        applyCostCenterValues(btnCostCenters, { skipEnsure: true });
 
         var params = new URLSearchParams({
             action: 'get',
@@ -501,47 +751,48 @@ window.addEventListener('load', function() {
                     csrfInput.value = res.csrf_token;
                 }
 
-                var rowRates = res.row_rates || {};
-                ensureRowsForRates(rowRates);
-                getRateKeys().forEach(function(rate) {
-                    var info = rateInputs[rate];
-                    if (!info) {
-                        return;
+                storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
+                storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
+
+                Object.keys(storedRowRates).forEach(function(rate) {
+                    if (!currentRateData[rate]) {
+                        currentRateData[rate] = {};
                     }
-                    var rowData = rowRates[rate] || {};
-                    if (info.ivaAccount && Object.prototype.hasOwnProperty.call(rowData, 'iva_account')) {
-                        info.ivaAccount.value = rowData.iva_account || '';
-                    }
-                    if (info.generalAccount && Object.prototype.hasOwnProperty.call(rowData, 'general_account')) {
-                        info.generalAccount.value = rowData.general_account || '';
-                    }
-                    if (info.labelInput && Object.prototype.hasOwnProperty.call(rowData, 'label')) {
-                        info.labelInput.value = rowData.label || '';
-                    } else if (info.labelText && rowData.label) {
-                        info.labelText.textContent = rowData.label;
+                    var rowData = storedRowRates[rate];
+                    if (rowData && typeof rowData === 'object') {
+                        if (rowData.iva_account && !currentRateData[rate].iva_account) {
+                            currentRateData[rate].iva_account = rowData.iva_account;
+                        }
+                        if (rowData.general_account && !currentRateData[rate].general_account) {
+                            currentRateData[rate].general_account = rowData.general_account;
+                        }
+                        if (rowData.label && !currentRateData[rate].label) {
+                            currentRateData[rate].label = rowData.label;
+                        }
+                        if (rowData.base && !currentRateData[rate].base) {
+                            currentRateData[rate].base = rowData.base;
+                        }
+                        if (rowData.iva && !currentRateData[rate].iva) {
+                            currentRateData[rate].iva = rowData.iva;
+                        }
                     }
                 });
 
-                var defaults = res.rates || {};
-                ensureRowsForRates(defaults);
-                getRateKeys().forEach(function(rate) {
-                    var info = rateInputs[rate];
-                    if (!info) {
-                        return;
+                Object.keys(storedDefaultRates).forEach(function(rate) {
+                    if (!currentRateData[rate]) {
+                        currentRateData[rate] = {};
                     }
-                    var defaultData = defaults[rate] || {};
-                    if (info.ivaAccount && !info.ivaAccount.value) {
-                        info.ivaAccount.value = defaultData.iva_account || '';
-                    }
-                    if (info.generalAccount && !info.generalAccount.value) {
-                        info.generalAccount.value = defaultData.general_account || '';
-                    }
-                    if (info.labelInput && !info.labelInput.value && Object.prototype.hasOwnProperty.call(defaults, rate)) {
-                        if (Object.prototype.hasOwnProperty.call(defaultData, 'label')) {
-                            info.labelInput.value = defaultData.label || '';
+                    var defaultData = storedDefaultRates[rate];
+                    if (defaultData && typeof defaultData === 'object') {
+                        if (!currentRateData[rate].iva_account && defaultData.iva_account) {
+                            currentRateData[rate].iva_account = defaultData.iva_account;
                         }
-                    } else if (info.labelText && defaultData.label) {
-                        info.labelText.textContent = defaultData.label;
+                        if (!currentRateData[rate].general_account && defaultData.general_account) {
+                            currentRateData[rate].general_account = defaultData.general_account;
+                        }
+                        if (!currentRateData[rate].label && defaultData.label) {
+                            currentRateData[rate].label = defaultData.label;
+                        }
                     }
                 });
 
@@ -551,29 +802,21 @@ window.addEventListener('load', function() {
                 } else if (Object.prototype.hasOwnProperty.call(res, 'cost_center')) {
                     serverCostCenters = res.cost_center;
                 }
-                if (serverCostCenters !== null && serverCostCenters !== undefined && !hasAnyCostCenterValue()) {
-                    applyCostCenterValues(serverCostCenters);
+                if (serverCostCenters !== null && serverCostCenters !== undefined) {
+                    if (!hasAnyCostCenterValue()) {
+                        applyCostCenterValues(serverCostCenters, { skipEnsure: true });
+                    }
                 }
 
-                currentCostCenters = getCostCenterValues();
+                var restored = restoreSavedRates();
                 getRateKeys().forEach(function(rate) {
-                    var info = rateInputs[rate];
-                    if (!currentRateData[rate]) {
-                        currentRateData[rate] = {};
-                    }
-                    currentRateData[rate].base = info.base ? info.base.value : '';
-                    currentRateData[rate].iva = info.iva ? info.iva.value : '';
-                    currentRateData[rate].iva_account = info.ivaAccount ? info.ivaAccount.value : '';
-                    currentRateData[rate].general_account = info.generalAccount ? info.generalAccount.value : '';
-                    currentRateData[rate].label = getRateLabel(rate);
+                    populateRateRow(rate);
                 });
+                currentCostCenters = getCostCenterValues();
 
-                Object.keys(currentRateData).forEach(function(rate) {
-                    if (!rateInputs[rate]) {
-                        delete currentRateData[rate];
-                    }
-                });
-
+                if (restored.length > 0) {
+                    focusRateInput(rateInputs[restored[0]]);
+                }
 
                 classifyModal.show();
 
@@ -628,35 +871,24 @@ window.addEventListener('load', function() {
                 } else {
                     responseCostCenters = costCentersPayload;
                 }
-                applyCostCenterValues(responseCostCenters);
+                applyCostCenterValues(responseCostCenters, { skipEnsure: true });
                 currentCostCenters = getCostCenterValues();
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
-                    ensureRowsForRates(res.row_rates);
+                    storedRowRates = res.row_rates;
                     Object.keys(res.row_rates).forEach(function(rate) {
-                        var info = rateInputs[rate];
-                        if (!info) {
-                            return;
-                        }
                         if (!currentRateData[rate]) {
                             currentRateData[rate] = {};
                         }
-                        currentRateData[rate].base = info.base ? info.base.value : '';
-                        currentRateData[rate].iva = info.iva ? info.iva.value : '';
-                        currentRateData[rate].iva_account = (res.row_rates[rate] && res.row_rates[rate].iva_account) || '';
-                        currentRateData[rate].general_account = (res.row_rates[rate] && res.row_rates[rate].general_account) || '';
-                        if (info.ivaAccount) {
-                            info.ivaAccount.value = currentRateData[rate].iva_account;
+                        var rowData = res.row_rates[rate] || {};
+                        currentRateData[rate].iva_account = rowData.iva_account || '';
+                        currentRateData[rate].general_account = rowData.general_account || '';
+                        if (rowData.label) {
+                            currentRateData[rate].label = rowData.label;
                         }
-                        if (info.generalAccount) {
-                            info.generalAccount.value = currentRateData[rate].general_account;
+                        if (rateInputs[rate]) {
+                            populateRateRow(rate);
                         }
-                        if (info.labelInput && Object.prototype.hasOwnProperty.call(res.row_rates[rate], 'label')) {
-                            info.labelInput.value = res.row_rates[rate].label || '';
-                        } else if (info.labelText && res.row_rates[rate] && res.row_rates[rate].label) {
-                            info.labelText.textContent = res.row_rates[rate].label;
-                        }
-                        currentRateData[rate].label = getRateLabel(rate);
                     });
                 } else {
                     getRateKeys().forEach(function(rate) {
@@ -676,7 +908,7 @@ window.addEventListener('load', function() {
                 }
 
                 Object.keys(currentRateData).forEach(function(rate) {
-                    if (!rateInputs[rate]) {
+                    if (!rateInputs[rate] && defaultRates.indexOf(rate) === -1 && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
                         delete currentRateData[rate];
                     }
                 });
