@@ -770,6 +770,54 @@ function buildVatRateLabel(string $rate): string {
 }
 
 /**
+ * Attempt to extract a trimmed string value from a mixed data structure.
+ *
+ * Some legacy accounting configurations store account identifiers inside
+ * nested arrays (e.g. {"value": "123"}). Newer payloads provide plain
+ * strings. This helper normalises both representations while ignoring
+ * unexpected structures to avoid PHP "Array to string conversion" notices.
+ *
+ * @param mixed $value Raw value to normalise.
+ * @param string[] $preferredKeys Keys that should be inspected first when
+ *                                 traversing nested arrays.
+ * @return string|null Trimmed string or null when no scalar value is present.
+ */
+function extractStringValue($value, array $preferredKeys = []): ?string {
+    if (is_string($value) || is_numeric($value)) {
+        return trim((string) $value);
+    }
+
+    if (!is_array($value)) {
+        return null;
+    }
+
+    foreach ($preferredKeys as $key) {
+        if (array_key_exists($key, $value)) {
+            $candidate = extractStringValue($value[$key], $preferredKeys);
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+    }
+
+    if (array_key_exists('value', $value)) {
+        $candidate = extractStringValue($value['value'], $preferredKeys);
+        if ($candidate !== null) {
+            return $candidate;
+        }
+    }
+
+    foreach ($value as $nested) {
+        $candidate = extractStringValue($nested, $preferredKeys);
+        if ($candidate !== null) {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
  * Normalize stored account information into a structure keyed by VAT rate.
  *
  * @param string|null $json JSON-encoded account data.
@@ -818,24 +866,37 @@ function normalizeAccountingAccounts(?string $json): array {
                 ];
             }
             if (is_array($value)) {
+                $ivaAccount = null;
                 if (array_key_exists('iva_account', $value)) {
-                    $result[$keyString]['iva_account'] = (string) $value['iva_account'];
+                    $ivaAccount = extractStringValue($value['iva_account'], ['account', 'code']);
                 } elseif (array_key_exists('iva', $value)) {
-                    $result[$keyString]['iva_account'] = (string) $value['iva'];
+                    $ivaAccount = extractStringValue($value['iva'], ['account', 'code']);
                 }
+                if ($ivaAccount !== null) {
+                    $result[$keyString]['iva_account'] = $ivaAccount;
+                }
+
+                $generalAccount = null;
                 if (array_key_exists('general_account', $value)) {
-                    $result[$keyString]['general_account'] = (string) $value['general_account'];
+                    $generalAccount = extractStringValue($value['general_account'], ['account', 'code']);
                 } elseif (array_key_exists('general', $value)) {
-                    $result[$keyString]['general_account'] = (string) $value['general'];
+                    $generalAccount = extractStringValue($value['general'], ['account', 'code']);
                 }
+                if ($generalAccount !== null) {
+                    $result[$keyString]['general_account'] = $generalAccount;
+                }
+
                 if (array_key_exists('label', $value)) {
-                    $labelValue = trim((string) $value['label']);
-                    if ($labelValue !== '') {
+                    $labelValue = extractStringValue($value['label'], ['label', 'text']);
+                    if ($labelValue !== null && $labelValue !== '') {
                         $result[$keyString]['label'] = $labelValue;
                     }
                 }
-            } elseif (is_string($value) || is_numeric($value)) {
-                $result[$keyString]['general_account'] = (string) $value;
+            } else {
+                $generalAccount = extractStringValue($value, ['account', 'code']);
+                if ($generalAccount !== null) {
+                    $result[$keyString]['general_account'] = $generalAccount;
+                }
             }
         }
     }
@@ -862,7 +923,10 @@ function normalizeAccountingAccounts(?string $json): array {
                     'label' => buildVatRateLabel($rate),
                 ];
             }
-            $result[$rate][$info['field']] = (string) $source[$legacyKey];
+            $legacyValue = extractStringValue($source[$legacyKey], ['account', 'code']);
+            if ($legacyValue !== null) {
+                $result[$rate][$info['field']] = $legacyValue;
+            }
         }
     }
 
@@ -895,32 +959,60 @@ function sanitizeAccountInput(array $input): array {
         $label = '';
 
         if (is_array($rateInput)) {
+            $ivaCandidate = null;
             if (array_key_exists('iva_account', $rateInput)) {
-                $ivaAccount = trim((string) $rateInput['iva_account']);
+                $ivaCandidate = extractStringValue($rateInput['iva_account'], ['account', 'code']);
             } elseif (array_key_exists('iva', $rateInput)) {
-                $ivaAccount = trim((string) $rateInput['iva']);
+                $ivaCandidate = extractStringValue($rateInput['iva'], ['account', 'code']);
             }
+            if ($ivaCandidate !== null) {
+                $ivaAccount = $ivaCandidate;
+            }
+
+            $generalCandidate = null;
             if (array_key_exists('general_account', $rateInput)) {
-                $generalAccount = trim((string) $rateInput['general_account']);
+                $generalCandidate = extractStringValue($rateInput['general_account'], ['account', 'code']);
             } elseif (array_key_exists('general', $rateInput)) {
-                $generalAccount = trim((string) $rateInput['general']);
+                $generalCandidate = extractStringValue($rateInput['general'], ['account', 'code']);
             }
+            if ($generalCandidate !== null) {
+                $generalAccount = $generalCandidate;
+            }
+
             if (array_key_exists('label', $rateInput)) {
-                $label = trim((string) $rateInput['label']);
+                $labelCandidate = extractStringValue($rateInput['label'], ['label', 'text']);
+                if ($labelCandidate !== null) {
+                    $label = $labelCandidate;
+                }
             }
         } elseif ($rateInput !== null) {
-            $generalAccount = trim((string) $rateInput);
+            $generalCandidate = extractStringValue($rateInput, ['account', 'code']);
+            if ($generalCandidate !== null) {
+                $generalAccount = $generalCandidate;
+            }
         }
 
         if ($rate === '6' && isset($input['iva6']) && $ivaAccount === '') {
-            $ivaAccount = trim((string) $input['iva6']);
+            $fallback = extractStringValue($input['iva6'], ['account', 'code']);
+            if ($fallback !== null) {
+                $ivaAccount = $fallback;
+            }
         } elseif ($rate === '13' && isset($input['iva13']) && $ivaAccount === '') {
-            $ivaAccount = trim((string) $input['iva13']);
+            $fallback = extractStringValue($input['iva13'], ['account', 'code']);
+            if ($fallback !== null) {
+                $ivaAccount = $fallback;
+            }
         } elseif ($rate === '23' && isset($input['iva23']) && $ivaAccount === '') {
-            $ivaAccount = trim((string) $input['iva23']);
+            $fallback = extractStringValue($input['iva23'], ['account', 'code']);
+            if ($fallback !== null) {
+                $ivaAccount = $fallback;
+            }
         }
         if ($rate === '0' && isset($input['novat']) && $generalAccount === '') {
-            $generalAccount = trim((string) $input['novat']);
+            $fallback = extractStringValue($input['novat'], ['account', 'code']);
+            if ($fallback !== null) {
+                $generalAccount = $fallback;
+            }
         }
 
         $effectiveLabel = $label !== '' ? $label : buildVatRateLabel($rate);
