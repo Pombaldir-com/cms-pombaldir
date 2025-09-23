@@ -29,6 +29,7 @@ window.addEventListener('load', function() {
     if (isNaN(importType)) {
         importType = 1;
     }
+    var allowDynamicLines = importType === 2;
     var showLineCostCenter = importType === 1;
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -741,6 +742,7 @@ window.addEventListener('load', function() {
     }
 
     function renderLines(lines) {
+
         var normalized = normalizeLinesPayload(lines);
         linesContainer.innerHTML = '';
 
@@ -810,12 +812,14 @@ window.addEventListener('load', function() {
     }
 
 
+
     confirmLinesBtn.addEventListener('click', function() {
         if (!currentLinesId) {
             return;
         }
         var rows = linesContainer.querySelectorAll('tbody tr');
         var linesToSave = [];
+
 
         var allLinesComplete = true;
         rows.forEach(function(row) {
@@ -840,6 +844,7 @@ window.addEventListener('load', function() {
             var rateNumber = parseLocalizedNumber(taxRate);
             if (!price && base !== '') {
                 price = base;
+
             }
             if (!priceVat) {
                 if (baseNumber !== null && ivaNumber !== null) {
@@ -848,6 +853,7 @@ window.addEventListener('load', function() {
                     priceVat = formatLocalizedNumber(baseNumber * (1 + rateNumber / 100));
                 }
             }
+
             row.dataset.price = price;
             row.dataset.priceVat = priceVat;
 

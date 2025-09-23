@@ -419,12 +419,17 @@ require_once __DIR__ . '/../header.php';
             </div>
             <div class="modal-footer">
                 <div class="d-flex flex-wrap gap-2 w-100 justify-content-between">
+
+                    <?php if ($importType === 1): ?>
+
                     <div>
                         <button type="button" class="btn btn-outline-primary" id="addLineBtn">
                             <i class="fa fa-plus me-1"></i>
                             Adicionar linha
                         </button>
                     </div>
+                    <?php endif; ?>
+
                     <div class="ms-auto">
                         <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
                     </div>
