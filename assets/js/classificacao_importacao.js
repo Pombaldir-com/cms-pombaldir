@@ -731,6 +731,16 @@ window.addEventListener('load', function() {
             }
         });
 
+        defaultRates.forEach(function(rate) {
+            if (!rateInputs[rate]) {
+                addVatRowForRate(rate);
+            }
+        });
+        ensureRowsForRates(currentRateData, { allowCreate: true });
+        getRateKeys().forEach(function(rate) {
+            populateRateRow(rate);
+        });
+
         var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
             btnCostCenters = btn.getAttribute('data-cost-center') || '';
