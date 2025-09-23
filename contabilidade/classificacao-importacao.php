@@ -25,12 +25,101 @@ function prepareImportRow(array $row): array {
     if (is_array($lines) && count($lines) > 0) {
         $allFilled = true;
         foreach ($lines as $line) {
-            $erpValue = trim((string) ($line['ERP'] ?? ''));
-            if ($erpValue === '') {
+            if (!is_array($line)) {
+                $allFilled = false;
+                break;
+            }
+            $erpValue = isset($line['ERP']) && is_scalar($line['ERP']) ? trim((string) $line['ERP']) : '';
+            if ($erpValue !== '') {
+                continue;
+            }
+
+            $taxRate = '';
+            foreach (['TAXA', 'taxa', 'IVA_TAXA', 'iva_taxa', 'IVA', 'iva', 'TAX_RATE', 'tax_rate'] as $key) {
+                if (!array_key_exists($key, $line)) {
+                    continue;
+                }
+                $value = $line[$key];
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $stringValue = trim((string) $value);
+                if ($stringValue !== '') {
+                    $taxRate = $stringValue;
+                    break;
+                }
+            }
+
+            $baseValue = '';
+            foreach (['BASE', 'base', 'BASE_IMPONIVEL', 'base_imponivel', 'PRICE', 'price', 'PRECO', 'preco', 'VALOR', 'valor'] as $key) {
+                if (!array_key_exists($key, $line)) {
+                    continue;
+                }
+                $value = $line[$key];
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $stringValue = trim((string) $value);
+                if ($stringValue !== '') {
+                    $baseValue = $stringValue;
+                    break;
+                }
+            }
+
+            $ivaValue = '';
+            foreach (['IVA', 'iva', 'IVA_TOTAL', 'iva_total', 'IVA_VALOR', 'iva_valor', 'TAX_AMOUNT', 'tax_amount'] as $key) {
+                if (!array_key_exists($key, $line)) {
+                    continue;
+                }
+                $value = $line[$key];
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $stringValue = trim((string) $value);
+                if ($stringValue !== '') {
+                    $ivaValue = $stringValue;
+                    break;
+                }
+            }
+
+            $ivaAccountValue = '';
+            foreach (['CONTA_IVA', 'conta_iva', 'IVA_ACCOUNT', 'iva_account'] as $key) {
+                if (!array_key_exists($key, $line)) {
+                    continue;
+                }
+                $value = $line[$key];
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $stringValue = trim((string) $value);
+                if ($stringValue !== '') {
+                    $ivaAccountValue = $stringValue;
+                    break;
+                }
+            }
+
+            $generalAccountValue = '';
+            foreach (['CONTA_GERAL', 'conta_geral', 'GENERAL_ACCOUNT', 'general_account'] as $key) {
+                if (!array_key_exists($key, $line)) {
+                    continue;
+                }
+                $value = $line[$key];
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $stringValue = trim((string) $value);
+                if ($stringValue !== '') {
+                    $generalAccountValue = $stringValue;
+                    break;
+                }
+            }
+
+            if ($taxRate === '' || $baseValue === '' || $ivaValue === '' || $ivaAccountValue === '' || $generalAccountValue === '') {
                 $allFilled = false;
                 break;
             }
         }
+
         if ($allFilled) {
             $row['line_btn_class'] = 'btn-success';
         }
@@ -329,7 +418,17 @@ require_once __DIR__ . '/../header.php';
                 <div id="linesContainer"></div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
+                <div class="d-flex flex-wrap gap-2 w-100 justify-content-between">
+                    <div>
+                        <button type="button" class="btn btn-outline-primary" id="addLineBtn">
+                            <i class="fa fa-plus me-1"></i>
+                            Adicionar linha
+                        </button>
+                    </div>
+                    <div class="ms-auto">
+                        <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
