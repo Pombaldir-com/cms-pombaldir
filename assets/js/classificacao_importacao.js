@@ -215,9 +215,13 @@ window.addEventListener('load', function() {
             { className: 'base-input', value: baseValue },
             { className: 'iva-amount-input', value: ivaValue },
             { className: 'iva-account-input', value: ivaAccount },
-            { className: 'general-account-input', value: generalAccount },
-            { className: 'cost-center-input', value: costCenter }
+            { className: 'general-account-input', value: generalAccount }
         ];
+
+        if (showLineCostCenter) {
+            cells.push({ className: 'cost-center-input', value: costCenter });
+        }
+
 
         cells.forEach(function(cell) {
             var td = document.createElement('td');
@@ -446,10 +450,29 @@ window.addEventListener('load', function() {
     }
 
     var currentBtn = null;
-    var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
+    var linesModalEl = document.getElementById('linesModal');
+    var linesModal = linesModalEl ? new bootstrap.Modal(linesModalEl) : null;
     var linesContainer = document.getElementById('linesContainer');
     var confirmLinesBtn = document.getElementById('confirmLinesBtn');
+    var addLineBtn = document.getElementById('addLineBtn');
     var currentLinesId = null;
+
+    if (addLineBtn) {
+        addLineBtn.disabled = true;
+    }
+
+    if (linesModalEl) {
+        linesModalEl.addEventListener('hidden.bs.modal', function() {
+            currentLinesId = null;
+            if (addLineBtn) {
+                addLineBtn.disabled = true;
+                addLineBtn.onclick = null;
+            }
+            if (linesContainer) {
+                linesContainer.innerHTML = '';
+            }
+        });
+    }
 
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
@@ -669,8 +692,15 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.analyze-lines', function() {
         var btn = this;
         var id = btn.getAttribute('data-id');
+        if (!linesModal || !linesContainer) {
+            return;
+        }
         currentLinesId = id;
         linesContainer.innerHTML = '<div class="d-flex justify-content-center my-3"><div class="spinner-border" role="status"><span class="visually-hidden">A carregar...</span></div></div>';
+        if (addLineBtn) {
+            addLineBtn.disabled = true;
+            addLineBtn.onclick = null;
+        }
         linesModal.show();
         var params = new URLSearchParams({
             action: 'lines',
@@ -679,14 +709,18 @@ window.addEventListener('load', function() {
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
                 if (res.error) {
-                    linesModal.hide();
+                    if (linesModal) {
+                        linesModal.hide();
+                    }
                     showError(res.error);
                     return;
                 }
                 renderLines(res);
             })
             .catch(function(err) {
-                linesModal.hide();
+                if (linesModal) {
+                    linesModal.hide();
+                }
                 showError(err.message || 'Erro na análise');
             });
     });
@@ -763,6 +797,7 @@ window.addEventListener('load', function() {
             if (!btn) {
                 return;
             }
+
             var row = btn.closest('tr');
             if (!row) {
                 return;
@@ -774,12 +809,14 @@ window.addEventListener('load', function() {
         });
     }
 
+
     confirmLinesBtn.addEventListener('click', function() {
         if (!currentLinesId) {
             return;
         }
         var rows = linesContainer.querySelectorAll('tbody tr');
         var linesToSave = [];
+
         var allLinesComplete = true;
         rows.forEach(function(row) {
             var erp = row.querySelector('.erp-input').value.trim();
@@ -866,7 +903,9 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                linesModal.hide();
+                if (linesModal) {
+                    linesModal.hide();
+                }
                 var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
                 if (analyzeBtn) {
                     analyzeBtn.classList.remove('btn-info', 'btn-success');
@@ -879,6 +918,7 @@ window.addEventListener('load', function() {
         .catch(function(err) {
             showError(err.message || 'Erro ao guardar linhas');
         });
-    });
+        });
+    }
 });
 
