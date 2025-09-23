@@ -264,6 +264,11 @@ require_once __DIR__ . '/../header.php';
             </div>
             <form id="classify-form">
                 <div class="modal-body">
+                    <div class="d-flex justify-content-end align-items-center mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="addVatLineBtn">
+                            <i class="fa fa-plus"></i> Adicionar linha de IVA
+                        </button>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle mb-0">
                             <thead>
@@ -276,6 +281,7 @@ require_once __DIR__ . '/../header.php';
                                     <?php if ($importType === 1): ?>
                                     <th>Centro de Custo</th>
                                     <?php endif; ?>
+                                    <th class="text-center" width="1%">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -288,8 +294,8 @@ require_once __DIR__ . '/../header.php';
                                 ];
                                 foreach ($modalRates as $rate => $label):
                                 ?>
-                                <tr data-rate="<?= $rate; ?>">
-                                    <td class="align-middle"><?= $label; ?></td>
+                                <tr data-rate="<?= $rate; ?>" data-custom-rate="0">
+                                    <td class="align-middle"><span class="rate-label-static"><?= $label; ?></span></td>
                                     <td><input type="text" class="form-control form-control-sm base-field" readonly></td>
                                     <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
                                     <td><input type="text" class="form-control form-control-sm iva-account-field" name="rates[<?= $rate; ?>][iva_account]"></td>
@@ -304,6 +310,7 @@ require_once __DIR__ . '/../header.php';
                                         >
                                     </td>
                                     <?php endif; ?>
+                                    <td class="text-center align-middle actions-cell"></td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -315,9 +322,34 @@ require_once __DIR__ . '/../header.php';
                     <button type="submit" class="btn btn-primary">Guardar</button>
                 </div>
             </form>
+        </div>
+    </div>
 </div>
-</div>
-</div>
+<template id="customRateRowTemplate">
+    <tr data-custom-rate="1">
+        <td>
+            <input type="text" class="form-control form-control-sm rate-label-field" placeholder="Identificador da taxa">
+        </td>
+        <td><input type="text" class="form-control form-control-sm base-field" readonly></td>
+        <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
+        <td><input type="text" class="form-control form-control-sm iva-account-field"></td>
+        <td><input type="text" class="form-control form-control-sm general-account-field"></td>
+        <?php if ($importType === 1): ?>
+        <td>
+            <input
+                type="text"
+                class="form-control form-control-sm cost-center-field"
+                placeholder="Introduza o centro de custo"
+            >
+        </td>
+        <?php endif; ?>
+        <td class="text-center align-middle">
+            <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
+                <i class="fa fa-trash"></i>
+            </button>
+        </td>
+    </tr>
+</template>
 <div class="modal fade" id="linesModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
