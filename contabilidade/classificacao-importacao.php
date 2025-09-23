@@ -202,7 +202,7 @@ if ($action === 'data') {
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
         }
         if ($importType === 1) {
-            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '" title="Adicionar linhas de IVA" aria-label="Adicionar linhas de IVA"><i class="fa fa-plus"></i><span class="visually-hidden">Adicionar linhas de IVA</span></button>';
+            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '" title="Adicionar linhas de IVA" aria-label="Adicionar linhas de IVA">Linhas</button>';
         } elseif ($importType === 2) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
         }
@@ -341,8 +341,7 @@ require_once __DIR__ . '/../header.php';
                             title="Adicionar linhas de IVA"
                             aria-label="Adicionar linhas de IVA"
                         >
-                            <i class="fa fa-plus"></i>
-                            <span class="visually-hidden">Adicionar linhas de IVA</span>
+                            Linhas
                         </button>
                         <?php elseif ($importType === 2): ?>
                         <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
