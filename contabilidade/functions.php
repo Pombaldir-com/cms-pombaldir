@@ -730,18 +730,59 @@ function parseInvoiceLineTextract(string $filePath): array {
 }
 
 /**
+ * Retrieve the default VAT rates and their display labels.
+ *
+ * @return array<string,string>
+ */
+function getDefaultVatRates(): array {
+    return [
+        '0' => '0%',
+        '6' => '6%',
+        '13' => '13%',
+        '23' => '23%',
+    ];
+}
+
+/**
+ * Build a fallback label for a VAT rate when none is explicitly provided.
+ */
+function buildVatRateLabel(string $rate): string {
+    $defaults = getDefaultVatRates();
+    if (array_key_exists($rate, $defaults)) {
+        return $defaults[$rate];
+    }
+
+    $trimmed = trim($rate);
+    if ($trimmed === '') {
+        return '';
+    }
+
+    $normalized = str_replace(',', '.', $trimmed);
+    if (is_numeric($normalized)) {
+        $formatted = rtrim(rtrim($normalized, '0'), '.');
+        if ($formatted === '') {
+            $formatted = '0';
+        }
+        return $formatted . '%';
+    }
+
+    return $trimmed;
+}
+
+/**
  * Normalize stored account information into a structure keyed by VAT rate.
  *
  * @param string|null $json JSON-encoded account data.
  * @return array<string,array<string,string>>
  */
 function normalizeAccountingAccounts(?string $json): array {
-    $rates = ['0', '6', '13', '23'];
+    $defaults = getDefaultVatRates();
     $result = [];
-    foreach ($rates as $rate) {
+    foreach ($defaults as $rate => $label) {
         $result[$rate] = [
             'iva_account' => '',
             'general_account' => '',
+            'label' => $label,
         ];
     }
 
@@ -757,45 +798,71 @@ function normalizeAccountingAccounts(?string $json): array {
     $sources = [];
     if (isset($data['rates']) && is_array($data['rates'])) {
         $sources[] = $data['rates'];
-    } else {
-        $sources[] = $data;
     }
+    $sources[] = $data;
 
     foreach ($sources as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
         foreach ($source as $key => $value) {
             $keyString = (string) $key;
-            if (in_array($keyString, $rates, true)) {
-                if (is_array($value)) {
-                    if (array_key_exists('iva_account', $value)) {
-                        $result[$keyString]['iva_account'] = (string) $value['iva_account'];
-                    } elseif (array_key_exists('iva', $value)) {
-                        $result[$keyString]['iva_account'] = (string) $value['iva'];
-                    }
-                    if (array_key_exists('general_account', $value)) {
-                        $result[$keyString]['general_account'] = (string) $value['general_account'];
-                    } elseif (array_key_exists('general', $value)) {
-                        $result[$keyString]['general_account'] = (string) $value['general'];
-                    }
-                } elseif (is_string($value) || is_numeric($value)) {
-                    $result[$keyString]['general_account'] = (string) $value;
-                }
+            if ($keyString === 'version') {
                 continue;
             }
-
-            switch ($keyString) {
-                case 'iva6':
-                    $result['6']['iva_account'] = (string) $value;
-                    break;
-                case 'iva13':
-                    $result['13']['iva_account'] = (string) $value;
-                    break;
-                case 'iva23':
-                    $result['23']['iva_account'] = (string) $value;
-                    break;
-                case 'novat':
-                    $result['0']['general_account'] = (string) $value;
-                    break;
+            if (!array_key_exists($keyString, $result)) {
+                $result[$keyString] = [
+                    'iva_account' => '',
+                    'general_account' => '',
+                    'label' => buildVatRateLabel($keyString),
+                ];
             }
+            if (is_array($value)) {
+                if (array_key_exists('iva_account', $value)) {
+                    $result[$keyString]['iva_account'] = (string) $value['iva_account'];
+                } elseif (array_key_exists('iva', $value)) {
+                    $result[$keyString]['iva_account'] = (string) $value['iva'];
+                }
+                if (array_key_exists('general_account', $value)) {
+                    $result[$keyString]['general_account'] = (string) $value['general_account'];
+                } elseif (array_key_exists('general', $value)) {
+                    $result[$keyString]['general_account'] = (string) $value['general'];
+                }
+                if (array_key_exists('label', $value)) {
+                    $labelValue = trim((string) $value['label']);
+                    if ($labelValue !== '') {
+                        $result[$keyString]['label'] = $labelValue;
+                    }
+                }
+            } elseif (is_string($value) || is_numeric($value)) {
+                $result[$keyString]['general_account'] = (string) $value;
+            }
+        }
+    }
+
+    $legacyMap = [
+        'iva6' => ['rate' => '6', 'field' => 'iva_account'],
+        'iva13' => ['rate' => '13', 'field' => 'iva_account'],
+        'iva23' => ['rate' => '23', 'field' => 'iva_account'],
+        'novat' => ['rate' => '0', 'field' => 'general_account'],
+    ];
+    foreach ($sources as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+        foreach ($legacyMap as $legacyKey => $info) {
+            if (!array_key_exists($legacyKey, $source)) {
+                continue;
+            }
+            $rate = $info['rate'];
+            if (!array_key_exists($rate, $result)) {
+                $result[$rate] = [
+                    'iva_account' => '',
+                    'general_account' => '',
+                    'label' => buildVatRateLabel($rate),
+                ];
+            }
+            $result[$rate][$info['field']] = (string) $source[$legacyKey];
         }
     }
 
@@ -809,17 +876,62 @@ function normalizeAccountingAccounts(?string $json): array {
  * @return array<string,array<string,string>>
  */
 function sanitizeAccountInput(array $input): array {
-    $rates = ['0', '6', '13', '23'];
+    if (isset($input['rates']) && is_array($input['rates'])) {
+        $input = $input['rates'];
+    }
+
+    $defaults = getDefaultVatRates();
+    $detectedRates = array_keys($defaults);
+    foreach ($input as $key => $_) {
+        $detectedRates[] = (string) $key;
+    }
+    $detectedRates = array_values(array_unique(array_map('strval', $detectedRates)));
+
     $result = [];
-    foreach ($rates as $rate) {
-        $rateInput = $input[$rate] ?? [];
-        if (!is_array($rateInput)) {
-            $rateInput = [];
+    foreach ($detectedRates as $rate) {
+        $rateInput = $input[$rate] ?? null;
+        $ivaAccount = '';
+        $generalAccount = '';
+        $label = '';
+
+        if (is_array($rateInput)) {
+            if (array_key_exists('iva_account', $rateInput)) {
+                $ivaAccount = trim((string) $rateInput['iva_account']);
+            } elseif (array_key_exists('iva', $rateInput)) {
+                $ivaAccount = trim((string) $rateInput['iva']);
+            }
+            if (array_key_exists('general_account', $rateInput)) {
+                $generalAccount = trim((string) $rateInput['general_account']);
+            } elseif (array_key_exists('general', $rateInput)) {
+                $generalAccount = trim((string) $rateInput['general']);
+            }
+            if (array_key_exists('label', $rateInput)) {
+                $label = trim((string) $rateInput['label']);
+            }
+        } elseif ($rateInput !== null) {
+            $generalAccount = trim((string) $rateInput);
         }
+
+        if ($rate === '6' && isset($input['iva6']) && $ivaAccount === '') {
+            $ivaAccount = trim((string) $input['iva6']);
+        } elseif ($rate === '13' && isset($input['iva13']) && $ivaAccount === '') {
+            $ivaAccount = trim((string) $input['iva13']);
+        } elseif ($rate === '23' && isset($input['iva23']) && $ivaAccount === '') {
+            $ivaAccount = trim((string) $input['iva23']);
+        }
+        if ($rate === '0' && isset($input['novat']) && $generalAccount === '') {
+            $generalAccount = trim((string) $input['novat']);
+        }
+
+        $effectiveLabel = $label !== '' ? $label : buildVatRateLabel($rate);
+
         $result[$rate] = [
-            'iva_account' => isset($rateInput['iva_account']) ? trim((string) $rateInput['iva_account']) : '',
-            'general_account' => isset($rateInput['general_account']) ? trim((string) $rateInput['general_account']) : '',
+            'iva_account' => $ivaAccount,
+            'general_account' => $generalAccount,
         ];
+        if ($effectiveLabel !== '') {
+            $result[$rate]['label'] = $effectiveLabel;
+        }
     }
 
     return $result;
@@ -836,15 +948,35 @@ function mergeAccountingAccounts(array $base, array $override): array {
     $baseSanitized = sanitizeAccountInput($base);
     $overrideSanitized = sanitizeAccountInput($override);
 
-    foreach (['0', '6', '13', '23'] as $rate) {
-        foreach (['iva_account', 'general_account'] as $field) {
-            if (array_key_exists($field, $overrideSanitized[$rate])) {
-                $baseSanitized[$rate][$field] = $overrideSanitized[$rate][$field];
+    $allRates = array_unique(array_merge(array_keys($baseSanitized), array_keys($overrideSanitized)));
+    $result = [];
+
+    foreach ($allRates as $rate) {
+        $result[$rate] = [
+            'iva_account' => $baseSanitized[$rate]['iva_account'] ?? '',
+            'general_account' => $baseSanitized[$rate]['general_account'] ?? '',
+        ];
+        if (isset($baseSanitized[$rate]['label'])) {
+            $result[$rate]['label'] = $baseSanitized[$rate]['label'];
+        }
+
+        if (array_key_exists($rate, $overrideSanitized)) {
+            foreach (['iva_account', 'general_account'] as $field) {
+                if (array_key_exists($field, $overrideSanitized[$rate])) {
+                    $result[$rate][$field] = $overrideSanitized[$rate][$field];
+                }
             }
+            if (array_key_exists('label', $overrideSanitized[$rate]) && $overrideSanitized[$rate]['label'] !== '') {
+                $result[$rate]['label'] = $overrideSanitized[$rate]['label'];
+            }
+        }
+
+        if (!array_key_exists('label', $result[$rate]) || $result[$rate]['label'] === '') {
+            $result[$rate]['label'] = buildVatRateLabel($rate);
         }
     }
 
-    return $baseSanitized;
+    return $result;
 }
 
 /**
@@ -866,9 +998,16 @@ function serializeAccountingAccounts(array $rates): string {
  *
  * @return array<string,string>
  */
-function buildEmptyCostCenterMap(): array {
+function buildEmptyCostCenterMap(array $additionalRates = []): array {
+    $baseRates = array_keys(getDefaultVatRates());
+    $allRates = [];
+    foreach (array_merge($baseRates, $additionalRates) as $rate) {
+        $allRates[] = (string) $rate;
+    }
+    $allRates = array_values(array_unique($allRates));
+
     $result = [];
-    foreach (['0', '6', '13', '23'] as $rate) {
+    foreach ($allRates as $rate) {
         $result[$rate] = '';
     }
 
@@ -886,7 +1025,19 @@ function buildEmptyCostCenterMap(): array {
  * @return array<string,string>
  */
 function sanitizeCostCenterValues($input): array {
-    $result = buildEmptyCostCenterMap();
+    $detectedRates = array_keys(getDefaultVatRates());
+
+    if (is_array($input)) {
+        $source = $input;
+        if (isset($input['rates']) && is_array($input['rates'])) {
+            $source = $input['rates'];
+        }
+        foreach ($source as $key => $_) {
+            $detectedRates[] = (string) $key;
+        }
+    }
+
+    $result = buildEmptyCostCenterMap($detectedRates);
 
     if (is_string($input) || is_numeric($input)) {
         $value = trim((string) $input);
@@ -909,12 +1060,12 @@ function sanitizeCostCenterValues($input): array {
         $input = $input['rates'];
     }
 
-    foreach ($result as $rate => $_) {
-        if (!array_key_exists($rate, $input)) {
-            continue;
+    foreach ($input as $rate => $value) {
+        $rateKey = (string) $rate;
+        if (!array_key_exists($rateKey, $result)) {
+            $result[$rateKey] = '';
         }
 
-        $value = $input[$rate];
         if (is_array($value)) {
             if (array_key_exists('cost_center', $value)) {
                 $value = $value['cost_center'];
@@ -924,9 +1075,9 @@ function sanitizeCostCenterValues($input): array {
         }
 
         if ($value === null) {
-            $result[$rate] = '';
+            $result[$rateKey] = '';
         } else {
-            $result[$rate] = trim((string) $value);
+            $result[$rateKey] = trim((string) $value);
         }
     }
 
@@ -1076,12 +1227,24 @@ function buildRatePayload(array $summaries, array $accounts): array {
     $payload = [];
     $requirements = [];
 
-    foreach ($summaries as $rate => $info) {
+    $allRates = array_unique(array_merge(array_keys($summaries), array_keys($accounts)));
+    foreach ($allRates as $rate) {
+        $info = $summaries[$rate] ?? [];
+        $accountInfo = $accounts[$rate] ?? [];
+        $label = '';
+        if (is_array($accountInfo) && array_key_exists('label', $accountInfo)) {
+            $label = trim((string) $accountInfo['label']);
+        }
+        if ($label === '') {
+            $label = buildVatRateLabel((string) $rate);
+        }
+
         $payload[$rate] = [
+            'label' => $label,
             'base' => $info['base_display'] ?? '',
             'iva' => $info['iva_display'] ?? '',
-            'iva_account' => $accounts[$rate]['iva_account'] ?? '',
-            'general_account' => $accounts[$rate]['general_account'] ?? '',
+            'iva_account' => $accountInfo['iva_account'] ?? '',
+            'general_account' => $accountInfo['general_account'] ?? '',
         ];
         $requirements[$rate] = [
             'general' => !empty($info['require_general']),
