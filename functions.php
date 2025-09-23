@@ -1300,13 +1300,37 @@ function createContent(int $content_type_id, int $user_id, string $title, ?strin
  *
  * @param int $content_id
  * @param int $field_id
- * @param string $value
+ * @param string|array|null $value
  * @return void
  */
-function saveCustomValue(int $content_id, int $field_id, string $value): void {
+function saveCustomValue(int $content_id, int $field_id, $value): void {
+    $values = [];
+    $collect = function ($item) use (&$collect, &$values): void {
+        if ($item === null) {
+            return;
+        }
+        if (is_array($item)) {
+            foreach ($item as $subItem) {
+                $collect($subItem);
+            }
+            return;
+        }
+        if (is_scalar($item) || (is_object($item) && method_exists($item, '__toString'))) {
+            $values[] = (string)$item;
+        }
+    };
+
+    $collect($value);
+
+    if (empty($values)) {
+        return;
+    }
+
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO custom_values (content_id, field_id, value) VALUES (?, ?, ?)');
-    $stmt->execute([$content_id, $field_id, $value]);
+    foreach ($values as $scalarValue) {
+        $stmt->execute([$content_id, $field_id, $scalarValue]);
+    }
 }
 
 /**
