@@ -549,9 +549,16 @@ if ($action === 'add') {
             if (empty($error)) {
                 $contentId = createContent($typeId, currentUser()['id'], $title, $body);
                 foreach ($scalarValues as $fieldId => $value) {
-                    if ($value !== null) {
-                        saveCustomValue($contentId, $fieldId, $value);
+                    if ($value === null) {
+                        continue;
                     }
+                    if (is_array($value)) {
+                        foreach ($value as $val) {
+                            saveCustomValue($contentId, $fieldId, (string)$val);
+                        }
+                        continue;
+                    }
+                    saveCustomValue($contentId, $fieldId, (string)$value);
                 }
                 foreach ($multiValues as $fieldId => $values) {
                     foreach ($values as $val) {
@@ -846,9 +853,16 @@ if ($action === 'edit') {
                 updateContent($contentId, $title, $body);
                 deleteCustomValuesForContent($contentId);
                 foreach ($scalarValues as $fieldId => $value) {
-                    if ($value !== null) {
-                        saveCustomValue($contentId, $fieldId, $value);
+                    if ($value === null) {
+                        continue;
                     }
+                    if (is_array($value)) {
+                        foreach ($value as $val) {
+                            saveCustomValue($contentId, $fieldId, (string)$val);
+                        }
+                        continue;
+                    }
+                    saveCustomValue($contentId, $fieldId, (string)$value);
                 }
                 foreach ($multiValues as $fieldId => $values) {
                     foreach ($values as $val) {
