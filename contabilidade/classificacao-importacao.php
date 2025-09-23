@@ -201,7 +201,9 @@ if ($action === 'data') {
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
         }
-        if ($importType === 2) {
+        if ($importType === 1) {
+            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '" title="Adicionar linhas de IVA" aria-label="Adicionar linhas de IVA"><i class="fa fa-plus"></i><span class="visually-hidden">Adicionar linhas de IVA</span></button>';
+        } elseif ($importType === 2) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
         }
         $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
@@ -331,7 +333,18 @@ require_once __DIR__ . '/../header.php';
                             data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <?php endif; ?>
 
-                        <?php if ($importType === 2): ?>
+                        <?php if ($importType === 1): ?>
+                        <button
+                            type="button"
+                            class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines"
+                            data-id="<?= (int)$row['id']; ?>"
+                            title="Adicionar linhas de IVA"
+                            aria-label="Adicionar linhas de IVA"
+                        >
+                            <i class="fa fa-plus"></i>
+                            <span class="visually-hidden">Adicionar linhas de IVA</span>
+                        </button>
+                        <?php elseif ($importType === 2): ?>
                         <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
