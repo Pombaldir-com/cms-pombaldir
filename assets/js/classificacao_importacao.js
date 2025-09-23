@@ -68,6 +68,58 @@ window.addEventListener('load', function() {
             .replace(/'/g, '&#39;');
     }
 
+    function extractScalarFromMixed(value) {
+        if (typeof value === 'string' || typeof value === 'number') {
+            return String(value).trim();
+        }
+        if (!value || typeof value !== 'object') {
+            return '';
+        }
+        if (Array.isArray(value)) {
+            for (var i = 0; i < value.length; i += 1) {
+                var nested = extractScalarFromMixed(value[i]);
+                if (nested !== '') {
+                    return nested;
+                }
+            }
+            return '';
+        }
+        if (Object.prototype.hasOwnProperty.call(value, 'value')) {
+            var viaValue = extractScalarFromMixed(value.value);
+            if (viaValue !== '') {
+                return viaValue;
+            }
+        }
+        var preferredKeys = ['account', 'code', 'label', 'text'];
+        for (var k = 0; k < preferredKeys.length; k += 1) {
+            var key = preferredKeys[k];
+            if (Object.prototype.hasOwnProperty.call(value, key)) {
+                var preferred = extractScalarFromMixed(value[key]);
+                if (preferred !== '') {
+                    return preferred;
+                }
+            }
+        }
+        return '';
+    }
+
+    function hasMeaningfulRateEntry(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return false;
+        }
+        var fields = ['iva_account', 'general_account', 'label', 'base', 'iva', 'cost_center', 'value'];
+        for (var i = 0; i < fields.length; i += 1) {
+            var field = fields[i];
+            if (!Object.prototype.hasOwnProperty.call(entry, field)) {
+                continue;
+            }
+            if (extractScalarFromMixed(entry[field]) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -370,13 +422,18 @@ window.addEventListener('load', function() {
             source = source.rates;
         }
         Object.keys(source).forEach(function(key) {
-            if (key === 'version') {
+            if (key === 'version' || key === 'rates') {
                 return;
             }
             var rate = String(key);
-            if (!rateInputs[rate]) {
-                ensureRateRow(rate, typeof source[key] === 'object' ? source[key] : null, opts);
+            if (rateInputs[rate]) {
+                return;
             }
+            var entry = source[key];
+            if (!hasMeaningfulRateEntry(entry)) {
+                return;
+            }
+            ensureRateRow(rate, entry && typeof entry === 'object' ? entry : null, opts);
         });
     }
 
