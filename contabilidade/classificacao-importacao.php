@@ -420,7 +420,7 @@ require_once __DIR__ . '/../header.php';
             <div class="modal-footer">
                 <div class="d-flex flex-wrap gap-2 w-100 justify-content-between">
 
-                    <?php if ($importType === 1): ?>
+                    <?php if ($importType === 2): ?>
 
                     <div>
                         <button type="button" class="btn btn-outline-primary" id="addLineBtn">
