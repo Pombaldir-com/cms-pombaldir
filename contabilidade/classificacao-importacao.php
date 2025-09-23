@@ -25,101 +25,12 @@ function prepareImportRow(array $row): array {
     if (is_array($lines) && count($lines) > 0) {
         $allFilled = true;
         foreach ($lines as $line) {
-            if (!is_array($line)) {
-                $allFilled = false;
-                break;
-            }
-            $erpValue = isset($line['ERP']) && is_scalar($line['ERP']) ? trim((string) $line['ERP']) : '';
-            if ($erpValue !== '') {
-                continue;
-            }
-
-            $taxRate = '';
-            foreach (['TAXA', 'taxa', 'IVA_TAXA', 'iva_taxa', 'IVA', 'iva', 'TAX_RATE', 'tax_rate'] as $key) {
-                if (!array_key_exists($key, $line)) {
-                    continue;
-                }
-                $value = $line[$key];
-                if (!is_scalar($value)) {
-                    continue;
-                }
-                $stringValue = trim((string) $value);
-                if ($stringValue !== '') {
-                    $taxRate = $stringValue;
-                    break;
-                }
-            }
-
-            $baseValue = '';
-            foreach (['BASE', 'base', 'BASE_IMPONIVEL', 'base_imponivel', 'PRICE', 'price', 'PRECO', 'preco', 'VALOR', 'valor'] as $key) {
-                if (!array_key_exists($key, $line)) {
-                    continue;
-                }
-                $value = $line[$key];
-                if (!is_scalar($value)) {
-                    continue;
-                }
-                $stringValue = trim((string) $value);
-                if ($stringValue !== '') {
-                    $baseValue = $stringValue;
-                    break;
-                }
-            }
-
-            $ivaValue = '';
-            foreach (['IVA', 'iva', 'IVA_TOTAL', 'iva_total', 'IVA_VALOR', 'iva_valor', 'TAX_AMOUNT', 'tax_amount'] as $key) {
-                if (!array_key_exists($key, $line)) {
-                    continue;
-                }
-                $value = $line[$key];
-                if (!is_scalar($value)) {
-                    continue;
-                }
-                $stringValue = trim((string) $value);
-                if ($stringValue !== '') {
-                    $ivaValue = $stringValue;
-                    break;
-                }
-            }
-
-            $ivaAccountValue = '';
-            foreach (['CONTA_IVA', 'conta_iva', 'IVA_ACCOUNT', 'iva_account'] as $key) {
-                if (!array_key_exists($key, $line)) {
-                    continue;
-                }
-                $value = $line[$key];
-                if (!is_scalar($value)) {
-                    continue;
-                }
-                $stringValue = trim((string) $value);
-                if ($stringValue !== '') {
-                    $ivaAccountValue = $stringValue;
-                    break;
-                }
-            }
-
-            $generalAccountValue = '';
-            foreach (['CONTA_GERAL', 'conta_geral', 'GENERAL_ACCOUNT', 'general_account'] as $key) {
-                if (!array_key_exists($key, $line)) {
-                    continue;
-                }
-                $value = $line[$key];
-                if (!is_scalar($value)) {
-                    continue;
-                }
-                $stringValue = trim((string) $value);
-                if ($stringValue !== '') {
-                    $generalAccountValue = $stringValue;
-                    break;
-                }
-            }
-
-            if ($taxRate === '' || $baseValue === '' || $ivaValue === '' || $ivaAccountValue === '' || $generalAccountValue === '') {
+            $erpValue = trim((string) ($line['ERP'] ?? ''));
+            if ($erpValue === '') {
                 $allFilled = false;
                 break;
             }
         }
-
         if ($allFilled) {
             $row['line_btn_class'] = 'btn-success';
         }
@@ -163,6 +74,13 @@ if ($action === 'data') {
         $length = 10;
     }
 
+    $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType';
+    $countStmt = $pdo->prepare($countSql);
+    $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+    $countStmt->execute();
+    $totalCount = (int)$countStmt->fetchColumn();
+    $filteredCount = $totalCount;
+
     $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
     $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
     $stmt = $pdo->prepare($sql);
@@ -194,9 +112,7 @@ if ($action === 'data') {
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
         }
-        if ($importType === 1) {
-            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '" title="Adicionar linhas de IVA" aria-label="Adicionar linhas de IVA">Linhas</button>';
-        } elseif ($importType === 2) {
+        if ($importType === 2) {
             $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
         }
         $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
@@ -230,8 +146,8 @@ if ($action === 'data') {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'draw' => $draw,
-        'recordsTotal' => count($rows),
-        'recordsFiltered' => count($rows),
+        'recordsTotal' => $totalCount,
+        'recordsFiltered' => $filteredCount,
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
     exit;
@@ -326,17 +242,7 @@ require_once __DIR__ . '/../header.php';
                             data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <?php endif; ?>
 
-                        <?php if ($importType === 1): ?>
-                        <button
-                            type="button"
-                            class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines"
-                            data-id="<?= (int)$row['id']; ?>"
-                            title="Adicionar linhas de IVA"
-                            aria-label="Adicionar linhas de IVA"
-                        >
-                            Linhas
-                        </button>
-                        <?php elseif ($importType === 2): ?>
+                        <?php if ($importType === 2): ?>
                         <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
@@ -423,23 +329,7 @@ require_once __DIR__ . '/../header.php';
                 <div id="linesContainer"></div>
             </div>
             <div class="modal-footer">
-                <div class="d-flex flex-wrap gap-2 w-100 justify-content-between">
-
-                    <?php if ($importType === 1): ?>
-                    <button
-                        type="button"
-                        class="btn btn-outline-primary d-inline-flex align-items-center gap-2"
-                        id="addLineBtn"
-                    >
-                        <i class="fa fa-plus"></i>
-                        <span>Adicionar linha</span>
-                    </button>
-                    <?php endif; ?>
-
-                    <div class="ms-auto">
-                        <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
-                    </div>
-                </div>
+                <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
             </div>
         </div>
     </div>

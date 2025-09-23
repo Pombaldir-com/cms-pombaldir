@@ -29,7 +29,6 @@ window.addEventListener('load', function() {
     if (isNaN(importType)) {
         importType = 1;
     }
-    var allowDynamicLines = importType === 1;
     var showLineCostCenter = importType === 1;
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -69,184 +68,6 @@ window.addEventListener('load', function() {
             .replace(/'/g, '&#39;');
     }
 
-    function trimmedString(value) {
-        if (value === null || value === undefined) {
-            return '';
-        }
-        return String(value).trim();
-    }
-
-    function extractLineValue(line, keys) {
-        if (!line || typeof line !== 'object') {
-            return '';
-        }
-        for (var i = 0; i < keys.length; i += 1) {
-            var key = keys[i];
-            if (Object.prototype.hasOwnProperty.call(line, key)) {
-                var directValue = line[key];
-                if (directValue !== null && directValue !== undefined) {
-                    var directString = trimmedString(directValue);
-                    if (directString !== '') {
-                        return directString;
-                    }
-                }
-            }
-            var lowerKey = typeof key === 'string' ? key.toLowerCase() : key;
-            if (lowerKey !== key && Object.prototype.hasOwnProperty.call(line, lowerKey)) {
-                var lowerValue = line[lowerKey];
-                if (lowerValue !== null && lowerValue !== undefined) {
-                    var lowerString = trimmedString(lowerValue);
-                    if (lowerString !== '') {
-                        return lowerString;
-                    }
-                }
-            }
-            var upperKey = typeof key === 'string' ? key.toUpperCase() : key;
-            if (upperKey !== key && Object.prototype.hasOwnProperty.call(line, upperKey)) {
-                var upperValue = line[upperKey];
-                if (upperValue !== null && upperValue !== undefined) {
-                    var upperString = trimmedString(upperValue);
-                    if (upperString !== '') {
-                        return upperString;
-                    }
-                }
-            }
-        }
-        return '';
-    }
-
-    function normalizeRateDisplay(value) {
-        var rate = trimmedString(value);
-        if (rate.endsWith('%')) {
-            rate = rate.slice(0, -1).trim();
-        }
-        return rate;
-    }
-
-    function parseLocalizedNumber(value) {
-        if (value === null || value === undefined) {
-            return null;
-        }
-        var stringValue = String(value).trim();
-        if (!stringValue) {
-            return null;
-        }
-        stringValue = stringValue.replace(/%/g, '').replace(/\s+/g, '');
-        var commaIndex = stringValue.lastIndexOf(',');
-        var dotIndex = stringValue.lastIndexOf('.');
-        if (commaIndex > -1 && dotIndex > -1) {
-            if (commaIndex > dotIndex) {
-                stringValue = stringValue.replace(/\./g, '').replace(',', '.');
-            } else {
-                stringValue = stringValue.replace(/,/g, '');
-            }
-        } else if (commaIndex > -1) {
-            stringValue = stringValue.replace(/\./g, '').replace(',', '.');
-        }
-        var result = parseFloat(stringValue);
-        return Number.isNaN(result) ? null : result;
-    }
-
-    function formatLocalizedNumber(value) {
-        if (typeof value !== 'number' || !isFinite(value)) {
-            return '';
-        }
-        return value.toFixed(2);
-    }
-
-    function buildLineRow(line) {
-        var data = line && typeof line === 'object' ? line : {};
-        var erp = extractLineValue(data, ['ERP']);
-        var taxRate = normalizeRateDisplay(extractLineValue(data, ['TAXA', 'IVA_TAXA', 'IVA', 'TAX_RATE', 'IVA TAXA', 'OTHER']));
-        var baseValue = extractLineValue(data, ['BASE', 'BASE_IMPONIVEL', 'BASE IMPONIVEL', 'PRICE', 'PRECO', 'VALOR']);
-        var ivaValue = extractLineValue(data, ['IVA', 'IVA_TOTAL', 'IVA_VALOR', 'IVA VALOR', 'TAX_AMOUNT']);
-        var ivaAccount = extractLineValue(data, ['CONTA_IVA', 'CONTA IVA', 'IVA_ACCOUNT']);
-        var generalAccount = extractLineValue(data, ['CONTA_GERAL', 'CONTA GERAL', 'GENERAL_ACCOUNT']);
-        var costCenter = extractLineValue(data, ['CENTRO_CUSTO', 'CENTRO DE CUSTO', 'CENTRO_DE_CUSTO', 'COST_CENTER']);
-        var productCode = extractLineValue(data, ['PRODUCT_CODE', 'CODIGO', 'CÓDIGO', 'COD ARTIGO']);
-        var item = extractLineValue(data, ['ITEM', 'DESCRICAO', 'DESCRIÇÃO']);
-        var quantity = extractLineValue(data, ['QUANTITY', 'QTD', 'QUANTIDADE']);
-        var unitPrice = extractLineValue(data, ['UNIT_PRICE', 'PRECO_UNITARIO', 'PREÇO_UNITARIO', 'PREÇO UNITÁRIO']);
-        var price = extractLineValue(data, ['PRICE', 'PRECO', 'VALOR']);
-        if (data.ITEM_QUANTITY_UNIT_PRICE && typeof data.ITEM_QUANTITY_UNIT_PRICE === 'object') {
-            var nested = data.ITEM_QUANTITY_UNIT_PRICE;
-            if (!item) {
-                item = trimmedString(extractLineValue(nested, ['ITEM', 'DESCRICAO', 'DESCRIÇÃO']));
-            }
-            if (!quantity) {
-                quantity = trimmedString(extractLineValue(nested, ['QUANTITY', 'QTD', 'QUANTIDADE']));
-            }
-            if (!unitPrice) {
-                unitPrice = trimmedString(extractLineValue(nested, ['UNIT_PRICE', 'PRECO_UNITARIO', 'PREÇO_UNITARIO', 'PREÇO UNITÁRIO']));
-            }
-            if (!price) {
-                price = trimmedString(extractLineValue(nested, ['PRICE', 'PRECO', 'VALOR']));
-            }
-        }
-        if (!baseValue && price) {
-            baseValue = price;
-        }
-        var priceVat = extractLineValue(data, ['PRICE_VAT', 'TOTAL_COM_IVA', 'TOTAL IVA', 'TOTAL']);
-        var baseNumber = parseLocalizedNumber(baseValue);
-        var ivaNumber = parseLocalizedNumber(ivaValue);
-        var rateNumber = parseLocalizedNumber(taxRate);
-        if (!ivaValue && baseNumber !== null && rateNumber !== null) {
-            ivaValue = formatLocalizedNumber(baseNumber * (rateNumber / 100));
-            ivaNumber = parseLocalizedNumber(ivaValue);
-        }
-        if (!priceVat) {
-            if (baseNumber !== null && ivaNumber !== null) {
-                priceVat = formatLocalizedNumber(baseNumber + ivaNumber);
-            } else if (baseNumber !== null && rateNumber !== null) {
-                priceVat = formatLocalizedNumber(baseNumber * (1 + rateNumber / 100));
-            }
-        }
-
-        var row = document.createElement('tr');
-        row.dataset.productCode = productCode;
-        row.dataset.item = item;
-        row.dataset.quantity = quantity;
-        row.dataset.unitPrice = unitPrice;
-        row.dataset.price = price || baseValue;
-        row.dataset.priceVat = priceVat || '';
-
-        var cells = [
-            { className: 'erp-input', value: erp },
-            { className: 'tax-rate-input', value: taxRate },
-            { className: 'base-input', value: baseValue },
-            { className: 'iva-amount-input', value: ivaValue },
-            { className: 'iva-account-input', value: ivaAccount },
-            { className: 'general-account-input', value: generalAccount }
-        ];
-
-        if (showLineCostCenter) {
-            cells.push({ className: 'cost-center-input', value: costCenter });
-        }
-
-
-        cells.forEach(function(cell) {
-            var td = document.createElement('td');
-            var input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'form-control form-control-sm ' + cell.className;
-            input.value = cell.value || '';
-            td.appendChild(input);
-            row.appendChild(td);
-        });
-
-        if (allowDynamicLines) {
-            var actionsTd = document.createElement('td');
-            actionsTd.className = 'text-center';
-            var removeBtn = document.createElement('button');
-            removeBtn.type = 'button';
-            removeBtn.className = 'btn btn-sm btn-outline-danger remove-line-btn';
-            removeBtn.innerHTML = '<i class="fa fa-trash"></i>';
-            actionsTd.appendChild(removeBtn);
-            row.appendChild(actionsTd);
-        }
-
-        return row;
-    }
 
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -453,34 +274,10 @@ window.addEventListener('load', function() {
     }
 
     var currentBtn = null;
-    var linesModalEl = document.getElementById('linesModal');
-    var linesModal = linesModalEl ? new bootstrap.Modal(linesModalEl) : null;
+    var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
     var linesContainer = document.getElementById('linesContainer');
     var confirmLinesBtn = document.getElementById('confirmLinesBtn');
-    var addLineBtn = document.getElementById('addLineBtn');
     var currentLinesId = null;
-
-    if (addLineBtn) {
-        addLineBtn.disabled = true;
-        if (!allowDynamicLines) {
-            addLineBtn.classList.add('d-none');
-        } else {
-            addLineBtn.classList.remove('d-none');
-        }
-    }
-
-    if (linesModalEl) {
-        linesModalEl.addEventListener('hidden.bs.modal', function() {
-            currentLinesId = null;
-            if (addLineBtn) {
-                addLineBtn.disabled = true;
-                addLineBtn.onclick = null;
-            }
-            if (linesContainer) {
-                linesContainer.innerHTML = '';
-            }
-        });
-    }
 
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
@@ -700,15 +497,8 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.analyze-lines', function() {
         var btn = this;
         var id = btn.getAttribute('data-id');
-        if (!linesModal || !linesContainer) {
-            return;
-        }
         currentLinesId = id;
         linesContainer.innerHTML = '<div class="d-flex justify-content-center my-3"><div class="spinner-border" role="status"><span class="visually-hidden">A carregar...</span></div></div>';
-        if (addLineBtn) {
-            addLineBtn.disabled = true;
-            addLineBtn.onclick = null;
-        }
         linesModal.show();
         var params = new URLSearchParams({
             action: 'lines',
@@ -717,242 +507,137 @@ window.addEventListener('load', function() {
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
                 if (res.error) {
-                    if (linesModal) {
-                        linesModal.hide();
-                    }
+                    linesModal.hide();
                     showError(res.error);
                     return;
                 }
                 renderLines(res);
             })
             .catch(function(err) {
-                if (linesModal) {
-                    linesModal.hide();
-                }
+                linesModal.hide();
                 showError(err.message || 'Erro na análise');
             });
     });
 
-    function normalizeLinesPayload(raw) {
-        if (Array.isArray(raw)) {
-            return raw;
-        }
-        if (raw && typeof raw === 'object') {
-            if (Array.isArray(raw.lines)) {
-                return raw.lines;
-            }
-            if (Array.isArray(raw.items)) {
-                return raw.items;
-            }
-        }
-        return [];
-    }
-
     function renderLines(lines) {
-
-        var normalized = normalizeLinesPayload(lines);
-        linesContainer.innerHTML = '';
-
-        var wrapper = document.createElement('div');
-        var addButton = null;
-
-        if (allowDynamicLines) {
-            var actionsRow = document.createElement('div');
-            actionsRow.className = 'd-flex justify-content-end mb-2';
-            addButton = document.createElement('button');
-            addButton.type = 'button';
-            addButton.className = 'btn btn-sm btn-outline-primary add-line-btn';
-            addButton.textContent = 'Adicionar linha';
-            actionsRow.appendChild(addButton);
-            wrapper.appendChild(actionsRow);
+        if (!Array.isArray(lines) || lines.length === 0) {
+            linesContainer.innerHTML = '<p>Sem linhas detectadas</p>';
+            return;
         }
-
-        var table = document.createElement('table');
-        table.className = 'table table-striped align-middle';
-        var thead = document.createElement('thead');
-        var headerRow = document.createElement('tr');
-        var headerLabels = ['ERP', 'Taxa', 'Base', 'IVA', 'Conta IVA', 'Conta Geral'];
+        var html = '<table class="table table-striped"><thead><tr>' +
+            '<th>ERP</th>' +
+            '<th>IVA</th>' +
+            '<th>Código</th>' +
+            '<th>Descrição</th>' +
+            '<th>Qtd.</th>' +
+            '<th>P. Un.</th>' +
+            '<th>Preço</th>';
         if (showLineCostCenter) {
-            headerLabels.push('Centro de Custo');
+            html += '<th>Centro de Custo</th>';
         }
-        if (allowDynamicLines) {
-            headerLabels.push('');
+        html += '</tr></thead><tbody>';
+        lines.forEach(function(line) {
+            var erp = line.ERP || '';
+            var iva = line.IVA_TAXA || line.OTHER || '';
+            var productCode = line.PRODUCT_CODE || '';
+            var item = line.ITEM || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.ITEM) || '';
+            var quantity = line.QUANTITY || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.QUANTITY) || '';
+            var unitPrice = line.UNIT_PRICE || (line.ITEM_QUANTITY_UNIT_PRICE && line.ITEM_QUANTITY_UNIT_PRICE.UNIT_PRICE) || '';
+            var price = line.PRICE || '';
+            var priceVat = line.PRICE_VAT || '';
+            var costCenter = '';
+            if (showLineCostCenter) {
+                costCenter = line.COST_CENTER || line.cost_center || '';
+            }
+            if (!priceVat) {
+                var priceNum = parseFloat(String(price).replace(',', '.'));
+                var ivaNum = parseFloat(String(iva).replace(',', '.'));
+                if (!isNaN(priceNum) && !isNaN(ivaNum)) {
+                    priceVat = (priceNum * (1 + ivaNum / 100)).toFixed(2);
+                }
+            }
+            html += '<tr>' +
+                '<td><input type="text" class="form-control erp-input" value="' + escapeHtml(erp) + '"><input type="hidden" class="price-vat" value="' + escapeHtml(priceVat) + '"></td>' +
+                '<td class="iva-taxa">' + escapeHtml(iva) + '</td>' +
+                '<td class="product-code">' + escapeHtml(productCode) + '</td>' +
+                '<td class="item">' + escapeHtml(item) + '</td>' +
+                '<td class="quantity">' + escapeHtml(quantity) + '</td>' +
+                '<td class="unit-price">' + escapeHtml(unitPrice) + '</td>' +
+                '<td class="price">' + escapeHtml(price) + '</td>';
+            if (showLineCostCenter) {
+                html += '<td><input type="text" class="form-control cost-center-input" value="' + escapeHtml(costCenter) + '"></td>';
+            }
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        linesContainer.innerHTML = html;
+    }
+
+    confirmLinesBtn.addEventListener('click', function() {
+        if (!currentLinesId) {
+            return;
         }
-        headerLabels.forEach(function(label) {
-            var th = document.createElement('th');
-            if (label === '') {
-                th.className = 'text-center';
+        var rows = linesContainer.querySelectorAll('tbody tr');
+        var linesToSave = [];
+        var allErpFilled = true;
+        rows.forEach(function(row) {
+            var erp = row.querySelector('.erp-input').value.trim();
+            var iva = row.querySelector('.iva-taxa').textContent.trim();
+            var productCode = row.querySelector('.product-code').textContent.trim();
+            var item = row.querySelector('.item').textContent.trim();
+            var quantity = row.querySelector('.quantity').textContent.trim();
+            var unitPrice = row.querySelector('.unit-price').textContent.trim();
+            var price = row.querySelector('.price').textContent.trim();
+            var priceVat = row.querySelector('.price-vat').value;
+            var costCenterInputEl = showLineCostCenter ? row.querySelector('.cost-center-input') : null;
+            var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
+            if (!erp) {
+                allErpFilled = false;
+            }
+            var linePayload = {
+                ERP: erp,
+                IVA_TAXA: iva,
+                PRODUCT_CODE: productCode,
+                ITEM: item,
+                QUANTITY: quantity,
+                UNIT_PRICE: unitPrice,
+                PRICE: price,
+                PRICE_VAT: priceVat
+            };
+            if (showLineCostCenter) {
+                linePayload.COST_CENTER = costCenter;
+            }
+            linesToSave.push(linePayload);
+        });
+        var body = new URLSearchParams({
+            action: 'save_lines',
+            id: currentLinesId,
+            lines: JSON.stringify(linesToSave),
+            csrf_token: csrfInput.value
+        });
+        fetchJson('contabilidade/save-analysis.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        })
+        .then(function(res) {
+            if (res.csrf_token) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success) {
+                linesModal.hide();
+                var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
+                if (analyzeBtn) {
+                    analyzeBtn.classList.remove('btn-info', 'btn-success');
+                    analyzeBtn.classList.add(allErpFilled ? 'btn-success' : 'btn-info');
+                }
             } else {
-                th.textContent = label;
+                showError(res.error || 'Erro ao guardar linhas');
             }
-            headerRow.appendChild(th);
+        })
+        .catch(function(err) {
+            showError(err.message || 'Erro ao guardar linhas');
         });
-        thead.appendChild(headerRow);
-        table.appendChild(thead);
-
-        var tbody = document.createElement('tbody');
-        table.appendChild(tbody);
-        wrapper.appendChild(table);
-        linesContainer.appendChild(wrapper);
-
-        function appendRow(data) {
-            tbody.appendChild(buildLineRow(data));
-        }
-
-        if (normalized.length > 0) {
-            normalized.forEach(function(line) {
-                appendRow(line);
-            });
-        } else {
-            appendRow({});
-        }
-
-        if (allowDynamicLines) {
-            if (addButton) {
-                addButton.addEventListener('click', function() {
-                    appendRow({});
-                });
-            }
-            if (addLineBtn) {
-                addLineBtn.disabled = false;
-                addLineBtn.onclick = function() {
-                    appendRow({});
-                };
-            }
-            tbody.addEventListener('click', function(event) {
-                var btn = event.target.closest('.remove-line-btn');
-                if (!btn) {
-                    return;
-                }
-
-                var row = btn.closest('tr');
-                if (!row) {
-                    return;
-                }
-                row.remove();
-                if (!tbody.querySelector('tr')) {
-                    appendRow({});
-                }
-            });
-        } else if (addLineBtn) {
-            addLineBtn.disabled = true;
-            addLineBtn.onclick = null;
-        }
-    }
-
-    if (confirmLinesBtn) {
-        confirmLinesBtn.addEventListener('click', function() {
-            if (!currentLinesId) {
-                return;
-            }
-            var rows = linesContainer.querySelectorAll('tbody tr');
-            var linesToSave = [];
-
-
-            var allLinesComplete = true;
-            rows.forEach(function(row) {
-                var erp = row.querySelector('.erp-input').value.trim();
-                var taxRate = row.querySelector('.tax-rate-input').value.trim();
-                var base = row.querySelector('.base-input').value.trim();
-                var ivaAmount = row.querySelector('.iva-amount-input').value.trim();
-                var ivaAccount = row.querySelector('.iva-account-input').value.trim();
-                var generalAccount = row.querySelector('.general-account-input').value.trim();
-                var costCenterInputEl = row.querySelector('.cost-center-input');
-                var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
-
-                var productCode = row.dataset.productCode || '';
-                var item = row.dataset.item || '';
-                var quantity = row.dataset.quantity || '';
-                var unitPrice = row.dataset.unitPrice || '';
-                var price = row.dataset.price || base;
-                var priceVat = row.dataset.priceVat || '';
-
-                var baseNumber = parseLocalizedNumber(base);
-                var ivaNumber = parseLocalizedNumber(ivaAmount);
-                var rateNumber = parseLocalizedNumber(taxRate);
-                if (!price && base !== '') {
-                    price = base;
-
-                }
-                if (!priceVat) {
-                    if (baseNumber !== null && ivaNumber !== null) {
-                        priceVat = formatLocalizedNumber(baseNumber + ivaNumber);
-                    } else if (baseNumber !== null && rateNumber !== null) {
-                        priceVat = formatLocalizedNumber(baseNumber * (1 + rateNumber / 100));
-                    }
-                }
-
-                row.dataset.price = price;
-                row.dataset.priceVat = priceVat;
-
-                var linePayload = {
-                    ERP: erp,
-                    IVA_TAXA: taxRate,
-                    TAXA: taxRate,
-                    BASE: base,
-                    IVA: ivaAmount,
-                    CONTA_IVA: ivaAccount,
-                    CONTA_GERAL: generalAccount,
-                    PRODUCT_CODE: productCode,
-                    ITEM: item,
-                    QUANTITY: quantity,
-                    UNIT_PRICE: unitPrice,
-                    PRICE: price,
-                    PRICE_VAT: priceVat,
-                    COST_CENTER: costCenter,
-                    CENTRO_CUSTO: costCenter
-                };
-                if (ivaAccount) {
-                    linePayload.IVA_ACCOUNT = ivaAccount;
-                }
-                if (generalAccount) {
-                    linePayload.GENERAL_ACCOUNT = generalAccount;
-                }
-                linesToSave.push(linePayload);
-
-                var rowComplete = erp !== '' || (
-                    taxRate !== '' &&
-                    base !== '' &&
-                    ivaAmount !== '' &&
-                    ivaAccount !== '' &&
-                    generalAccount !== ''
-                );
-                if (!rowComplete) {
-                    allLinesComplete = false;
-                }
-            });
-            var body = new URLSearchParams({
-                action: 'save_lines',
-                id: currentLinesId,
-                lines: JSON.stringify(linesToSave),
-                csrf_token: csrfInput.value
-            });
-            fetchJson('contabilidade/save-analysis.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: body.toString()
-            })
-            .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-                if (res.success) {
-                    if (linesModal) {
-                        linesModal.hide();
-                    }
-                    var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
-                    if (analyzeBtn) {
-                        analyzeBtn.classList.remove('btn-info', 'btn-success');
-                        analyzeBtn.classList.add(allLinesComplete ? 'btn-success' : 'btn-info');
-                    }
-                } else {
-                    showError(res.error || 'Erro ao guardar linhas');
-                }
-            })
-            .catch(function(err) {
-                showError(err.message || 'Erro ao guardar linhas');
-            });
-        });
-    }
+    });
 });
 
