@@ -750,13 +750,23 @@ window.addEventListener('load', function() {
                 focusRateInput(rateInputs[keys[0]]);
             }
         });
+        classifyModalEl.addEventListener('hidden.bs.modal', function() {
+            table.ajax.reload(null, false);
+        });
     }
 
     var currentBtn = null;
-    var linesModal = new bootstrap.Modal(document.getElementById('linesModal'));
+    var linesModalEl = document.getElementById('linesModal');
+    var linesModal = linesModalEl ? new bootstrap.Modal(linesModalEl) : null;
     var linesContainer = document.getElementById('linesContainer');
     var confirmLinesBtn = document.getElementById('confirmLinesBtn');
     var currentLinesId = null;
+
+    if (linesModalEl) {
+        linesModalEl.addEventListener('hidden.bs.modal', function() {
+            table.ajax.reload(null, false);
+        });
+    }
 
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
