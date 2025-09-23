@@ -29,7 +29,7 @@ window.addEventListener('load', function() {
     if (isNaN(importType)) {
         importType = 1;
     }
-    var allowDynamicLines = importType === 2;
+    var allowDynamicLines = importType === 1;
     var showLineCostCenter = importType === 1;
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -234,14 +234,16 @@ window.addEventListener('load', function() {
             row.appendChild(td);
         });
 
-        var actionsTd = document.createElement('td');
-        actionsTd.className = 'text-center';
-        var removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'btn btn-sm btn-outline-danger remove-line-btn';
-        removeBtn.innerHTML = '<i class="fa fa-trash"></i>';
-        actionsTd.appendChild(removeBtn);
-        row.appendChild(actionsTd);
+        if (allowDynamicLines) {
+            var actionsTd = document.createElement('td');
+            actionsTd.className = 'text-center';
+            var removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-sm btn-outline-danger remove-line-btn';
+            removeBtn.innerHTML = '<i class="fa fa-trash"></i>';
+            actionsTd.appendChild(removeBtn);
+            row.appendChild(actionsTd);
+        }
 
         return row;
     }
@@ -460,6 +462,11 @@ window.addEventListener('load', function() {
 
     if (addLineBtn) {
         addLineBtn.disabled = true;
+        if (!allowDynamicLines) {
+            addLineBtn.classList.add('d-none');
+        } else {
+            addLineBtn.classList.remove('d-none');
+        }
     }
 
     if (linesModalEl) {
@@ -747,21 +754,31 @@ window.addEventListener('load', function() {
         linesContainer.innerHTML = '';
 
         var wrapper = document.createElement('div');
+        var addButton = null;
 
-        var actionsRow = document.createElement('div');
-        actionsRow.className = 'd-flex justify-content-end mb-2';
-        var addButton = document.createElement('button');
-        addButton.type = 'button';
-        addButton.className = 'btn btn-sm btn-outline-primary add-line-btn';
-        addButton.textContent = 'Adicionar linha';
-        actionsRow.appendChild(addButton);
-        wrapper.appendChild(actionsRow);
+        if (allowDynamicLines) {
+            var actionsRow = document.createElement('div');
+            actionsRow.className = 'd-flex justify-content-end mb-2';
+            addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'btn btn-sm btn-outline-primary add-line-btn';
+            addButton.textContent = 'Adicionar linha';
+            actionsRow.appendChild(addButton);
+            wrapper.appendChild(actionsRow);
+        }
 
         var table = document.createElement('table');
         table.className = 'table table-striped align-middle';
         var thead = document.createElement('thead');
         var headerRow = document.createElement('tr');
-        ['ERP', 'Taxa', 'Base', 'IVA', 'Conta IVA', 'Conta Geral', 'Centro de Custo', ''].forEach(function(label, index) {
+        var headerLabels = ['ERP', 'Taxa', 'Base', 'IVA', 'Conta IVA', 'Conta Geral'];
+        if (showLineCostCenter) {
+            headerLabels.push('Centro de Custo');
+        }
+        if (allowDynamicLines) {
+            headerLabels.push('');
+        }
+        headerLabels.forEach(function(label) {
             var th = document.createElement('th');
             if (label === '') {
                 th.className = 'text-center';
@@ -790,25 +807,37 @@ window.addEventListener('load', function() {
             appendRow({});
         }
 
-        addButton.addEventListener('click', function() {
-            appendRow({});
-        });
+        if (allowDynamicLines) {
+            if (addButton) {
+                addButton.addEventListener('click', function() {
+                    appendRow({});
+                });
+            }
+            if (addLineBtn) {
+                addLineBtn.disabled = false;
+                addLineBtn.onclick = function() {
+                    appendRow({});
+                };
+            }
+            tbody.addEventListener('click', function(event) {
+                var btn = event.target.closest('.remove-line-btn');
+                if (!btn) {
+                    return;
+                }
 
-        tbody.addEventListener('click', function(event) {
-            var btn = event.target.closest('.remove-line-btn');
-            if (!btn) {
-                return;
-            }
-
-            var row = btn.closest('tr');
-            if (!row) {
-                return;
-            }
-            row.remove();
-            if (!tbody.querySelector('tr')) {
-                appendRow({});
-            }
-        });
+                var row = btn.closest('tr');
+                if (!row) {
+                    return;
+                }
+                row.remove();
+                if (!tbody.querySelector('tr')) {
+                    appendRow({});
+                }
+            });
+        } else if (addLineBtn) {
+            addLineBtn.disabled = true;
+            addLineBtn.onclick = null;
+        }
     }
 
 
