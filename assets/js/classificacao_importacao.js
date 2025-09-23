@@ -840,119 +840,118 @@ window.addEventListener('load', function() {
         }
     }
 
-
-
-    confirmLinesBtn.addEventListener('click', function() {
-        if (!currentLinesId) {
-            return;
-        }
-        var rows = linesContainer.querySelectorAll('tbody tr');
-        var linesToSave = [];
-
-
-        var allLinesComplete = true;
-        rows.forEach(function(row) {
-            var erp = row.querySelector('.erp-input').value.trim();
-            var taxRate = row.querySelector('.tax-rate-input').value.trim();
-            var base = row.querySelector('.base-input').value.trim();
-            var ivaAmount = row.querySelector('.iva-amount-input').value.trim();
-            var ivaAccount = row.querySelector('.iva-account-input').value.trim();
-            var generalAccount = row.querySelector('.general-account-input').value.trim();
-            var costCenterInputEl = row.querySelector('.cost-center-input');
-            var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
-
-            var productCode = row.dataset.productCode || '';
-            var item = row.dataset.item || '';
-            var quantity = row.dataset.quantity || '';
-            var unitPrice = row.dataset.unitPrice || '';
-            var price = row.dataset.price || base;
-            var priceVat = row.dataset.priceVat || '';
-
-            var baseNumber = parseLocalizedNumber(base);
-            var ivaNumber = parseLocalizedNumber(ivaAmount);
-            var rateNumber = parseLocalizedNumber(taxRate);
-            if (!price && base !== '') {
-                price = base;
-
+    if (confirmLinesBtn) {
+        confirmLinesBtn.addEventListener('click', function() {
+            if (!currentLinesId) {
+                return;
             }
-            if (!priceVat) {
-                if (baseNumber !== null && ivaNumber !== null) {
-                    priceVat = formatLocalizedNumber(baseNumber + ivaNumber);
-                } else if (baseNumber !== null && rateNumber !== null) {
-                    priceVat = formatLocalizedNumber(baseNumber * (1 + rateNumber / 100));
+            var rows = linesContainer.querySelectorAll('tbody tr');
+            var linesToSave = [];
+
+
+            var allLinesComplete = true;
+            rows.forEach(function(row) {
+                var erp = row.querySelector('.erp-input').value.trim();
+                var taxRate = row.querySelector('.tax-rate-input').value.trim();
+                var base = row.querySelector('.base-input').value.trim();
+                var ivaAmount = row.querySelector('.iva-amount-input').value.trim();
+                var ivaAccount = row.querySelector('.iva-account-input').value.trim();
+                var generalAccount = row.querySelector('.general-account-input').value.trim();
+                var costCenterInputEl = row.querySelector('.cost-center-input');
+                var costCenter = costCenterInputEl ? costCenterInputEl.value.trim() : '';
+
+                var productCode = row.dataset.productCode || '';
+                var item = row.dataset.item || '';
+                var quantity = row.dataset.quantity || '';
+                var unitPrice = row.dataset.unitPrice || '';
+                var price = row.dataset.price || base;
+                var priceVat = row.dataset.priceVat || '';
+
+                var baseNumber = parseLocalizedNumber(base);
+                var ivaNumber = parseLocalizedNumber(ivaAmount);
+                var rateNumber = parseLocalizedNumber(taxRate);
+                if (!price && base !== '') {
+                    price = base;
+
                 }
-            }
-
-            row.dataset.price = price;
-            row.dataset.priceVat = priceVat;
-
-            var linePayload = {
-                ERP: erp,
-                IVA_TAXA: taxRate,
-                TAXA: taxRate,
-                BASE: base,
-                IVA: ivaAmount,
-                CONTA_IVA: ivaAccount,
-                CONTA_GERAL: generalAccount,
-                PRODUCT_CODE: productCode,
-                ITEM: item,
-                QUANTITY: quantity,
-                UNIT_PRICE: unitPrice,
-                PRICE: price,
-                PRICE_VAT: priceVat,
-                COST_CENTER: costCenter,
-                CENTRO_CUSTO: costCenter
-            };
-            if (ivaAccount) {
-                linePayload.IVA_ACCOUNT = ivaAccount;
-            }
-            if (generalAccount) {
-                linePayload.GENERAL_ACCOUNT = generalAccount;
-            }
-            linesToSave.push(linePayload);
-
-            var rowComplete = erp !== '' || (
-                taxRate !== '' &&
-                base !== '' &&
-                ivaAmount !== '' &&
-                ivaAccount !== '' &&
-                generalAccount !== ''
-            );
-            if (!rowComplete) {
-                allLinesComplete = false;
-            }
-        });
-        var body = new URLSearchParams({
-            action: 'save_lines',
-            id: currentLinesId,
-            lines: JSON.stringify(linesToSave),
-            csrf_token: csrfInput.value
-        });
-        fetchJson('contabilidade/save-analysis.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body.toString()
-        })
-        .then(function(res) {
-            if (res.csrf_token) {
-                csrfInput.value = res.csrf_token;
-            }
-            if (res.success) {
-                if (linesModal) {
-                    linesModal.hide();
+                if (!priceVat) {
+                    if (baseNumber !== null && ivaNumber !== null) {
+                        priceVat = formatLocalizedNumber(baseNumber + ivaNumber);
+                    } else if (baseNumber !== null && rateNumber !== null) {
+                        priceVat = formatLocalizedNumber(baseNumber * (1 + rateNumber / 100));
+                    }
                 }
-                var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
-                if (analyzeBtn) {
-                    analyzeBtn.classList.remove('btn-info', 'btn-success');
-                    analyzeBtn.classList.add(allLinesComplete ? 'btn-success' : 'btn-info');
+
+                row.dataset.price = price;
+                row.dataset.priceVat = priceVat;
+
+                var linePayload = {
+                    ERP: erp,
+                    IVA_TAXA: taxRate,
+                    TAXA: taxRate,
+                    BASE: base,
+                    IVA: ivaAmount,
+                    CONTA_IVA: ivaAccount,
+                    CONTA_GERAL: generalAccount,
+                    PRODUCT_CODE: productCode,
+                    ITEM: item,
+                    QUANTITY: quantity,
+                    UNIT_PRICE: unitPrice,
+                    PRICE: price,
+                    PRICE_VAT: priceVat,
+                    COST_CENTER: costCenter,
+                    CENTRO_CUSTO: costCenter
+                };
+                if (ivaAccount) {
+                    linePayload.IVA_ACCOUNT = ivaAccount;
                 }
-            } else {
-                showError(res.error || 'Erro ao guardar linhas');
-            }
-        })
-        .catch(function(err) {
-            showError(err.message || 'Erro ao guardar linhas');
-        });
+                if (generalAccount) {
+                    linePayload.GENERAL_ACCOUNT = generalAccount;
+                }
+                linesToSave.push(linePayload);
+
+                var rowComplete = erp !== '' || (
+                    taxRate !== '' &&
+                    base !== '' &&
+                    ivaAmount !== '' &&
+                    ivaAccount !== '' &&
+                    generalAccount !== ''
+                );
+                if (!rowComplete) {
+                    allLinesComplete = false;
+                }
+            });
+            var body = new URLSearchParams({
+                action: 'save_lines',
+                id: currentLinesId,
+                lines: JSON.stringify(linesToSave),
+                csrf_token: csrfInput.value
+            });
+            fetchJson('contabilidade/save-analysis.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(function(res) {
+                if (res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (res.success) {
+                    if (linesModal) {
+                        linesModal.hide();
+                    }
+                    var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
+                    if (analyzeBtn) {
+                        analyzeBtn.classList.remove('btn-info', 'btn-success');
+                        analyzeBtn.classList.add(allLinesComplete ? 'btn-success' : 'btn-info');
+                    }
+                } else {
+                    showError(res.error || 'Erro ao guardar linhas');
+                }
+            })
+            .catch(function(err) {
+                showError(err.message || 'Erro ao guardar linhas');
+            });
         });
     }
 });
