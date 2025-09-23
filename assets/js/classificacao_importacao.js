@@ -222,6 +222,7 @@ window.addEventListener('load', function() {
             cells.push({ className: 'cost-center-input', value: costCenter });
         }
 
+
         cells.forEach(function(cell) {
             var td = document.createElement('td');
             var input = document.createElement('input');
@@ -740,19 +741,16 @@ window.addEventListener('load', function() {
     }
 
     function renderLines(lines) {
-        if (!linesContainer) {
-            return;
-        }
         var normalized = normalizeLinesPayload(lines);
         linesContainer.innerHTML = '';
 
         var wrapper = document.createElement('div');
 
         var actionsRow = document.createElement('div');
-        actionsRow.className = 'd-flex justify-content-end mb-3';
+        actionsRow.className = 'd-flex justify-content-end mb-2';
         var addButton = document.createElement('button');
         addButton.type = 'button';
-        addButton.className = 'btn btn-sm btn-primary add-line-btn';
+        addButton.className = 'btn btn-sm btn-outline-primary add-line-btn';
         addButton.textContent = 'Adicionar linha';
         actionsRow.appendChild(addButton);
         wrapper.appendChild(actionsRow);
@@ -761,12 +759,7 @@ window.addEventListener('load', function() {
         table.className = 'table table-striped align-middle';
         var thead = document.createElement('thead');
         var headerRow = document.createElement('tr');
-        var headerLabels = ['ERP', 'Taxa', 'Base', 'IVA', 'Conta IVA', 'Conta Geral'];
-        if (showLineCostCenter) {
-            headerLabels.push('Centro de Custo');
-        }
-        headerLabels.push('');
-        headerLabels.forEach(function(label) {
+        ['ERP', 'Taxa', 'Base', 'IVA', 'Conta IVA', 'Conta Geral', 'Centro de Custo', ''].forEach(function(label, index) {
             var th = document.createElement('th');
             if (label === '') {
                 th.className = 'text-center';
@@ -799,18 +792,12 @@ window.addEventListener('load', function() {
             appendRow({});
         });
 
-        if (addLineBtn) {
-            addLineBtn.disabled = false;
-            addLineBtn.onclick = function() {
-                appendRow({});
-            };
-        }
-
         tbody.addEventListener('click', function(event) {
             var btn = event.target.closest('.remove-line-btn');
             if (!btn) {
                 return;
             }
+
             var row = btn.closest('tr');
             if (!row) {
                 return;
@@ -822,13 +809,14 @@ window.addEventListener('load', function() {
         });
     }
 
-    if (confirmLinesBtn && linesContainer) {
-        confirmLinesBtn.addEventListener('click', function() {
-            if (!currentLinesId) {
-                return;
-            }
-            var rows = linesContainer.querySelectorAll('tbody tr');
-            var linesToSave = [];
+
+    confirmLinesBtn.addEventListener('click', function() {
+        if (!currentLinesId) {
+            return;
+        }
+        var rows = linesContainer.querySelectorAll('tbody tr');
+        var linesToSave = [];
+
         var allLinesComplete = true;
         rows.forEach(function(row) {
             var erp = row.querySelector('.erp-input').value.trim();
