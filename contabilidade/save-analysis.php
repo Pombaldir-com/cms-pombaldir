@@ -336,6 +336,24 @@ if ($action === 'get') {
         }
         $submittedRates = sanitizeAccountInput($ratesData);
 
+        $removedJson = $_POST['removed_rates'] ?? '[]';
+        $removedRates = json_decode($removedJson, true);
+        if (!is_array($removedRates)) {
+            $removedRates = [];
+        }
+        $removedRates = array_values(array_filter(array_map(
+            static function ($rate) {
+                if (is_string($rate) || is_numeric($rate)) {
+                    $string = trim((string) $rate);
+                    if ($string !== '') {
+                        return $string;
+                    }
+                }
+                return null;
+            },
+            $removedRates
+        )));
+
         $costCentersJson = $_POST['cost_centers'] ?? '';
         $costCentersData = [];
         if ($costCentersJson !== '') {
@@ -365,6 +383,10 @@ if ($action === 'get') {
 
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
         $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
+
+        foreach ($removedRates as $rate) {
+            unset($rowAccounts[$rate], $classAccounts[$rate], $costCentersData[$rate]);
+        }
 
         $serializedRow = serializeAccountingAccounts($rowAccounts);
         $serializedClass = serializeAccountingAccounts($classAccounts);
