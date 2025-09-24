@@ -109,7 +109,12 @@ if ($isLayout) {
         const grid = GridStack.init({float: true});
         grid.on('change', function(event, items) {
             items.forEach(item => {
-                const fieldId = item.id || (item.el ? item.el.getAttribute('gs-id') : '');
+                // GridStack emits a temporary "dummy" node without any of our
+                // metadata while dragging items. That placeholder should not be
+                // persisted, so rely solely on the DOM element's gs-id
+                // attribute (when available) instead of the library-provided
+                // identifier.
+                const fieldId = item.el ? item.el.getAttribute('gs-id') : '';
                 if (!fieldId) {
                     return;
                 }
