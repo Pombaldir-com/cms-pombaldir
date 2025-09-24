@@ -184,6 +184,7 @@ window.addEventListener('load', function() {
     var currentCostCenters = {};
     var storedRowRates = {};
     var storedDefaultRates = {};
+    var removedRates = {};
     var dynamicRateCounter = 0;
     var defaultRateLabels = {
         '0': '0%',
@@ -264,6 +265,9 @@ window.addEventListener('load', function() {
         info.rate = rate;
         info.key = rate;
         rateInputs[rate] = info;
+        if (Object.prototype.hasOwnProperty.call(removedRates, rate)) {
+            delete removedRates[rate];
+        }
         if (!Object.prototype.hasOwnProperty.call(currentCostCenters, rate)) {
             currentCostCenters[rate] = '';
         }
@@ -305,11 +309,15 @@ window.addEventListener('load', function() {
             info.row.parentNode.removeChild(info.row);
         }
         delete rateInputs[rate];
-        if (!Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
-            delete currentCostCenters[rate];
-        }
-        if (defaultRates.indexOf(rate) === -1 && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
+        delete currentCostCenters[rate];
+        if (defaultRates.indexOf(rate) === -1 || !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
             delete currentRateData[rate];
+        }
+        if (
+            Object.prototype.hasOwnProperty.call(storedRowRates, rate) ||
+            Object.prototype.hasOwnProperty.call(storedDefaultRates, rate)
+        ) {
+            removedRates[rate] = true;
         }
     }
 
@@ -706,6 +714,7 @@ window.addEventListener('load', function() {
         });
         rateInputs = {};
         dynamicRateCounter = 0;
+        removedRates = {};
     }
 
     function restoreSavedRates() {
@@ -787,6 +796,7 @@ window.addEventListener('load', function() {
         storedRowRates = {};
         storedDefaultRates = {};
         currentCostCenters = {};
+        removedRates = {};
 
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
         if (!currentRateData || typeof currentRateData !== 'object') {
@@ -838,6 +848,7 @@ window.addEventListener('load', function() {
 
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
+                removedRates = {};
 
                 Object.keys(storedRowRates).forEach(function(rate) {
                     if (!currentRateData[rate]) {
@@ -928,6 +939,10 @@ window.addEventListener('load', function() {
                 };
             });
 
+            var removedPayload = Object.keys(removedRates).filter(function(rate) {
+                return removedRates[rate];
+            });
+
             var costCentersPayload = getCostCenterValues();
             var body = new URLSearchParams({
                 id: currentBtn.getAttribute('data-id') || '',
@@ -935,6 +950,7 @@ window.addEventListener('load', function() {
                 B: currentBtn.getAttribute('data-acquirer') || '',
                 D: currentBtn.getAttribute('data-doctype') || '',
                 rates: JSON.stringify(ratesPayload),
+                removed_rates: JSON.stringify(removedPayload),
                 cost_centers: JSON.stringify(costCentersPayload),
                 csrf_token: csrfInput.value
             });
@@ -992,6 +1008,10 @@ window.addEventListener('load', function() {
                     });
                 }
 
+                removedPayload.forEach(function(rate) {
+                    delete currentRateData[rate];
+                });
+
                 Object.keys(currentRateData).forEach(function(rate) {
                     if (!rateInputs[rate] && defaultRates.indexOf(rate) === -1 && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
                         delete currentRateData[rate];
@@ -1001,6 +1021,7 @@ window.addEventListener('load', function() {
                 currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
                 currentBtn.setAttribute('data-cost-centers', JSON.stringify(currentCostCenters));
                 updateButtonClass(currentBtn);
+                removedRates = {};
                 if (classifyModal) {
                     classifyModal.hide();
                 }
