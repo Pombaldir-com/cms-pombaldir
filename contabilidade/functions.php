@@ -887,7 +887,7 @@ function normalizeAccountingAccounts(?string $json): array {
                 }
 
                 if (array_key_exists('label', $value)) {
-                    $labelValue = extractStringValue($value['label'], ['label', 'text']);
+                    $labelValue = extractStringValue($value['label'], ['value', 'label', 'text']);
                     if ($labelValue !== null && $labelValue !== '') {
                         $result[$keyString]['label'] = $labelValue;
                     }
@@ -980,7 +980,7 @@ function sanitizeAccountInput(array $input): array {
             }
 
             if (array_key_exists('label', $rateInput)) {
-                $labelCandidate = extractStringValue($rateInput['label'], ['label', 'text']);
+                $labelCandidate = extractStringValue($rateInput['label'], ['value', 'label', 'text']);
                 if ($labelCandidate !== null) {
                     $label = $labelCandidate;
                 }
