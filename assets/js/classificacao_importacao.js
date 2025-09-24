@@ -421,8 +421,16 @@ window.addEventListener('load', function() {
         if (source && typeof source.rates === 'object') {
             source = source.rates;
         }
+        var metadataKeys = {
+            version: true,
+            rates: true,
+            label: true,
+            labels: true,
+            title: true
+        };
         Object.keys(source).forEach(function(key) {
-            if (key === 'version' || key === 'rates') {
+            var normalizedKey = String(key).toLowerCase();
+            if (Object.prototype.hasOwnProperty.call(metadataKeys, normalizedKey)) {
                 return;
             }
             var rate = String(key);

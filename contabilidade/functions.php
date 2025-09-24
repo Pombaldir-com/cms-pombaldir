@@ -849,13 +849,15 @@ function normalizeAccountingAccounts(?string $json): array {
     }
     $sources[] = $data;
 
+    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title'];
+
     foreach ($sources as $source) {
         if (!is_array($source)) {
             continue;
         }
         foreach ($source as $key => $value) {
             $keyString = (string) $key;
-            if ($keyString === 'version') {
+            if (in_array(strtolower($keyString), $metadataKeys, true)) {
                 continue;
             }
             if (!array_key_exists($keyString, $result)) {
@@ -951,9 +953,15 @@ function sanitizeAccountInput(array $input): array {
     }
     $detectedRates = array_values(array_unique(array_map('strval', $detectedRates)));
 
+    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title'];
+
     $result = [];
     foreach ($detectedRates as $rate) {
-        $rateInput = $input[$rate] ?? null;
+        $normalizedRateKey = strtolower((string) $rate);
+        if (in_array($normalizedRateKey, $metadataKeys, true)) {
+            continue;
+        }
+        $rateInput = $input[$rate] ?? ($input[$normalizedRateKey] ?? null);
         $ivaAccount = '';
         $generalAccount = '';
         $label = '';
