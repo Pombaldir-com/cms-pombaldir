@@ -194,6 +194,158 @@ window.addEventListener('load', function() {
     };
     var defaultRates = Object.keys(defaultRateLabels);
 
+    function ensureRateData(rate) {
+        if (!currentRateData[rate] || typeof currentRateData[rate] !== 'object') {
+            currentRateData[rate] = {};
+        }
+        return currentRateData[rate];
+    }
+
+    function parsePercentageValue(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        var stringValue = String(value).trim();
+        if (stringValue === '') {
+            return null;
+        }
+        var normalized = stringValue.replace(/,/g, '.');
+        var match = normalized.match(/-?\d+(?:\.\d+)?/);
+        if (!match) {
+            return null;
+        }
+        var number = parseFloat(match[0]);
+        return isNaN(number) ? null : number;
+    }
+
+    function parseDecimalValue(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        var stringValue = String(value).trim();
+        if (stringValue === '') {
+            return null;
+        }
+        var sanitized = stringValue.replace(/\s+/g, '');
+        var hasComma = sanitized.indexOf(',') !== -1;
+        var hasDot = sanitized.indexOf('.') !== -1;
+        if (hasComma && hasDot) {
+            if (sanitized.lastIndexOf(',') > sanitized.lastIndexOf('.')) {
+                sanitized = sanitized.replace(/\./g, '');
+                sanitized = sanitized.replace(/,/g, '.');
+            } else {
+                sanitized = sanitized.replace(/,/g, '');
+            }
+        } else if (hasComma) {
+            sanitized = sanitized.replace(/,/g, '.');
+        }
+        sanitized = sanitized.replace(/[^0-9.\-]/g, '');
+        var firstDot = sanitized.indexOf('.');
+        if (firstDot !== -1) {
+            var before = sanitized.slice(0, firstDot + 1);
+            var after = sanitized.slice(firstDot + 1).replace(/\./g, '');
+            sanitized = before + after;
+        }
+        var number = parseFloat(sanitized);
+        return isNaN(number) ? null : number;
+    }
+
+    function formatDecimalValue(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+            return '';
+        }
+        return value.toFixed(2);
+    }
+
+    function extractPercentageFromData(data) {
+        if (!data || typeof data !== 'object') {
+            return null;
+        }
+        var fields = ['rate', 'tax', 'percentage', 'value', 'label'];
+        for (var i = 0; i < fields.length; i += 1) {
+            var field = fields[i];
+            if (!Object.prototype.hasOwnProperty.call(data, field)) {
+                continue;
+            }
+            var parsed = parsePercentageValue(data[field]);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    function getRatePercentage(rate) {
+        if (!rate) {
+            return null;
+        }
+        var direct = parsePercentageValue(rate);
+        if (direct !== null) {
+            return direct;
+        }
+        var info = rateInputs[rate];
+        if (info) {
+            if (info.labelInput) {
+                var fromInput = parsePercentageValue(info.labelInput.value);
+                if (fromInput !== null) {
+                    return fromInput;
+                }
+            }
+            if (info.labelText) {
+                var fromText = parsePercentageValue(info.labelText.textContent || '');
+                if (fromText !== null) {
+                    return fromText;
+                }
+            }
+        }
+        var dataSources = [currentRateData[rate], storedRowRates[rate], storedDefaultRates[rate]];
+        for (var i = 0; i < dataSources.length; i += 1) {
+            var source = dataSources[i];
+            var parsed = extractPercentageFromData(source);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    function recalculateVatForRate(rate, options) {
+        var info = rateInputs[rate];
+        if (!info || !info.base) {
+            return;
+        }
+        var opts = options || {};
+        var rateData = ensureRateData(rate);
+        var rawBaseValue = info.base.value;
+        rateData.base = rawBaseValue;
+        var baseNumber = parseDecimalValue(rawBaseValue);
+        var percentage = getRatePercentage(rate);
+        if (rawBaseValue.trim() === '' || baseNumber === null || percentage === null) {
+            if (info.iva) {
+                info.iva.value = '';
+            }
+            rateData.iva = '';
+            if (opts.formatBase && rawBaseValue.trim() === '') {
+                info.base.value = '';
+                rateData.base = '';
+            }
+            return;
+        }
+        var ivaValue = baseNumber * (percentage / 100);
+        var formattedIva = formatDecimalValue(ivaValue);
+        if (info.iva && info.iva.value !== formattedIva) {
+            info.iva.value = formattedIva;
+        }
+        rateData.iva = formattedIva;
+        if (opts.formatBase && baseNumber !== null) {
+            var formattedBase = formatDecimalValue(baseNumber);
+            if (info.base.value !== formattedBase) {
+                info.base.value = formattedBase;
+            }
+            rateData.base = info.base.value;
+        }
+    }
+
     function updateDynamicCounter(rate) {
         var match = /^custom_(\d+)$/.exec(rate);
         if (match) {
@@ -281,12 +433,25 @@ window.addEventListener('load', function() {
                 currentCostCenters[rate] = info.costCenter.value;
             });
         }
+        if (info.base) {
+            info.base.removeAttribute('readonly');
+            info.base.readOnly = false;
+            info.base.addEventListener('input', function() {
+                ensureRateData(rate).base = info.base.value;
+                recalculateVatForRate(rate);
+            });
+            info.base.addEventListener('blur', function() {
+                recalculateVatForRate(rate, { formatBase: true });
+            });
+        }
+        if (info.iva) {
+            info.iva.readOnly = true;
+        }
         if (info.labelInput) {
             info.labelInput.addEventListener('input', function() {
-                if (!currentRateData[rate]) {
-                    currentRateData[rate] = {};
-                }
-                currentRateData[rate].label = info.labelInput.value;
+                var rateData = ensureRateData(rate);
+                rateData.label = info.labelInput.value;
+                recalculateVatForRate(rate);
             });
         }
         if (info.removeBtn) {
@@ -660,6 +825,13 @@ window.addEventListener('load', function() {
             var storedValue = Object.prototype.hasOwnProperty.call(currentCostCenters, rate) ? currentCostCenters[rate] : '';
             if (info.costCenter.value !== storedValue) {
                 info.costCenter.value = storedValue;
+            }
+        }
+        if (info.base && info.iva) {
+            var hasBaseValue = info.base.value && info.base.value.trim() !== '';
+            var hasIvaValue = info.iva.value && info.iva.value.trim() !== '';
+            if (hasBaseValue && !hasIvaValue) {
+                recalculateVatForRate(rate);
             }
         }
     }
