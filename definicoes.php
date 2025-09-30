@@ -305,8 +305,12 @@ require_once __DIR__ . '/header.php';
                         </div>
                         <?php if ($key === 'contabilidade'): ?>
                         <div id="contabilidade-settings" class="mt-2" style="<?= $accountingActive ? '' : 'display:none;'; ?>">
-                            <label for="accounting_base_company" class="form-label">Empresa Base</label>
-                            <input type="text" class="form-control" id="accounting_base_company" name="accounting_base_company" value="<?= htmlspecialchars($currentAccountingBaseCompany); ?>" <?= $accountingActive ? '' : 'disabled'; ?>>
+                            <div class="row g-2 module-settings-row">
+                                <div class="col-12 col-sm-auto">
+                                    <label for="accounting_base_company" class="form-label">Empresa Base</label>
+                                    <input type="text" class="form-control input-compact" id="accounting_base_company" name="accounting_base_company" maxlength="8" value="<?= htmlspecialchars($currentAccountingBaseCompany); ?>" <?= $accountingActive ? '' : 'disabled'; ?>>
+                                </div>
+                            </div>
                         </div>
                         <?php endif; ?>
                         <?php endforeach; ?>
@@ -314,18 +318,18 @@ require_once __DIR__ . '/header.php';
                 </div>
                 <?php $comprasActive = in_array('compras', $currentModules, true); ?>
                 <div id="compras-settings" style="<?= $comprasActive ? '' : 'display:none;'; ?>">
-                    <div class="row">
-                        <div class="mb-3 col-md-4 col-sm-12">
+                    <div class="row g-2 module-settings-row">
+                        <div class="mb-3 col-12 col-sm-auto">
                             <label for="compras_section" class="form-label">Secção</label>
-                            <input type="text" class="form-control" id="compras_section" name="compras_section" value="<?= htmlspecialchars($currentComprasSection); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                            <input type="text" class="form-control input-compact" id="compras_section" name="compras_section" value="<?= htmlspecialchars($currentComprasSection); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
                         </div>
-                        <div class="mb-3 col-md-4 col-sm-12">
+                        <div class="mb-3 col-12 col-sm-auto">
                             <label for="compras_warehouse" class="form-label">Armazém</label>
-                            <input type="text" class="form-control" id="compras_warehouse" name="compras_warehouse" value="<?= htmlspecialchars($currentComprasWarehouse); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                            <input type="text" class="form-control input-compact" id="compras_warehouse" name="compras_warehouse" value="<?= htmlspecialchars($currentComprasWarehouse); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
                         </div>
-                        <div class="mb-3 col-md-4 col-sm-12">
+                        <div class="mb-3 col-12 col-sm-auto">
                             <label for="compras_document_type" class="form-label">Tipo de Documento</label>
-                            <input type="text" class="form-control" id="compras_document_type" name="compras_document_type" value="<?= htmlspecialchars($currentComprasDocumentType); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
+                            <input type="text" class="form-control input-compact" id="compras_document_type" name="compras_document_type" value="<?= htmlspecialchars($currentComprasDocumentType); ?>" <?= $comprasActive ? '' : 'disabled'; ?>>
                         </div>
                     </div>
                 </div>
@@ -384,10 +388,19 @@ require_once __DIR__ . '/header.php';
                 }
             });
             </script>
+            <style>
+            .module-settings-row .input-compact {
+                max-width: 12ch;
+            }
+            @media (max-width: 575.98px) {
+                .module-settings-row .input-compact {
+                    max-width: 100%;
+                }
+            }
+            </style>
         </div>
         <?php endif; ?>
     </div>
 </div>
-<?php
-require_once __DIR__ . '/footer.php';
+<?php require_once __DIR__ . '/footer.php';
 
