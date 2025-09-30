@@ -144,7 +144,7 @@ require_once __DIR__ . '/header.php';
             <a class="nav-link active" id="geral-tab" data-bs-toggle="tab" href="#geral" role="tab" aria-controls="geral" aria-selected="true">Geral</a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" id="email-tab" data-bs-toggle="tab" href="#email" role="tab" aria-controls="email" aria-selected="false">E-mail</a>
+            <a class="nav-link" id="email-tab" data-bs-toggle="tab" href="#email" role="tab" aria-controls="email" aria-selected="false">Serviços</a>
         </li>
         <li class="nav-item">
             <a class="nav-link" id="erp-tab" data-bs-toggle="tab" href="#erp" role="tab" aria-controls="erp" aria-selected="false">ERP</a>
@@ -273,13 +273,11 @@ require_once __DIR__ . '/header.php';
             <form method="post" class="mt-3">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row">
-                    <div class="mb-3 col-md-6 col-sm-12">
+                    <div class="mb-3 col-md-8 col-sm-12">
                         <label for="erp_webservice_url" class="form-label">Url Webservice</label>
                         <input type="text" class="form-control" id="erp_webservice_url" name="erp_webservice_url" value="<?= htmlspecialchars($currentErpWebserviceUrl); ?>">
                     </div>
-                </div>
-                <div class="row">
-                    <div class="mb-3 col-md-6 col-sm-12">
+                    <div class="mb-3 col-md-4 col-sm-12">
                         <label for="erp_token" class="form-label">Token</label>
                         <input type="text" class="form-control" id="erp_token" name="erp_token" value="<?= htmlspecialchars($currentErpToken); ?>">
                     </div>
