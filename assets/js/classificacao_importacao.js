@@ -1244,13 +1244,13 @@ window.addEventListener('load', function() {
                     }
                     var rowData = storedRowRates[rate];
                     if (rowData && typeof rowData === 'object') {
-                        if (rowData.iva_account && !currentRateData[rate].iva_account) {
+                        if (rowData.iva_account) {
                             currentRateData[rate].iva_account = rowData.iva_account;
                         }
-                        if (rowData.general_account && !currentRateData[rate].general_account) {
+                        if (rowData.general_account) {
                             currentRateData[rate].general_account = rowData.general_account;
                         }
-                        if (rowData.label && !currentRateData[rate].label) {
+                        if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
                         var rowBase = getEntryAmount(rowData, 'base');
@@ -1272,13 +1272,13 @@ window.addEventListener('load', function() {
                     }
                     var defaultData = storedDefaultRates[rate];
                     if (defaultData && typeof defaultData === 'object') {
-                        if (!currentRateData[rate].iva_account && defaultData.iva_account) {
+                        if (defaultData.iva_account) {
                             currentRateData[rate].iva_account = defaultData.iva_account;
                         }
-                        if (!currentRateData[rate].general_account && defaultData.general_account) {
+                        if (defaultData.general_account) {
                             currentRateData[rate].general_account = defaultData.general_account;
                         }
-                        if (!currentRateData[rate].label && defaultData.label) {
+                        if (defaultData.label) {
                             currentRateData[rate].label = defaultData.label;
                         }
                     }
