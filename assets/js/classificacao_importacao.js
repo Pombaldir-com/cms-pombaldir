@@ -100,12 +100,14 @@ window.addEventListener('load', function() {
         if (!importCtbButton.length || importType !== 1) {
             showImportButtonWrapper();
 
+
             return;
         }
 
         var container = table.table().container();
         if (!container) {
             showImportButtonWrapper();
+
 
             return;
         }
@@ -129,6 +131,7 @@ window.addEventListener('load', function() {
         }
 
         hideImportButtonWrapper();
+
 
     }
 
@@ -202,6 +205,13 @@ window.addEventListener('load', function() {
         moveImportButtonToFilter();
     });
 
+    table.on('init.dt', function() {
+        moveImportButtonToFilter();
+        updateImportButtonState();
+
+    });
+
+    moveImportButtonToFilter();
     updateImportButtonState();
     moveImportButtonToFilter();
 
