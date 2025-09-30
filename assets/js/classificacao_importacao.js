@@ -23,6 +23,27 @@ window.addEventListener('load', function() {
             });
         });
     }
+
+    function debugJson(label, value) {
+        if (!window.console) {
+            return;
+        }
+        var prefix = '[Classificação] ' + label;
+        try {
+            var safe = JSON.parse(JSON.stringify(value));
+            if (typeof console.debug === 'function') {
+                console.debug(prefix, safe);
+            } else {
+                console.log(prefix, safe);
+            }
+        } catch (err) {
+            if (typeof console.debug === 'function') {
+                console.debug(prefix, value);
+            } else {
+                console.log(prefix, value);
+            }
+        }
+    }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
     var importType = importTypeInput ? parseInt(importTypeInput.value, 10) : 1;
@@ -47,16 +68,52 @@ window.addEventListener('load', function() {
         ]
     });
 
-    function parseJsonAttribute(el, attr) {
-        var value = el.getAttribute(attr);
-        if (!value) {
+    function decodeHtmlEntities(value) {
+        if (typeof value !== 'string' || value.indexOf('&') === -1) {
+            return value;
+        }
+        var textarea = document.createElement('textarea');
+        textarea.innerHTML = value;
+        return textarea.value;
+    }
+
+    function tryParseJson(value) {
+        if (typeof value !== 'string' || value.trim() === '') {
             return null;
         }
         try {
             return JSON.parse(value);
-        } catch (e) {
+        } catch (err) {
             return null;
         }
+    }
+
+    function parseJsonAttribute(el, attr) {
+        var rawValue = el.getAttribute(attr);
+        if (!rawValue) {
+            return null;
+        }
+
+        var candidates = [];
+        candidates.push(rawValue);
+
+        var decoded = decodeHtmlEntities(rawValue);
+        if (decoded !== rawValue) {
+            candidates.push(decoded);
+        }
+
+        if (decoded.length >= 2 && decoded[0] === '"' && decoded[decoded.length - 1] === '"') {
+            candidates.push(decoded.slice(1, -1));
+        }
+
+        for (var i = 0; i < candidates.length; i += 1) {
+            var parsed = tryParseJson(candidates[i]);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     function escapeHtml(value) {
@@ -895,18 +952,33 @@ window.addEventListener('load', function() {
         return baseString !== '' || ivaString !== '';
     }
 
+    function normalizeAmountValue(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value === 'number') {
+            return isFinite(value) ? value : null;
+        }
+        if (typeof value === 'string') {
+            var trimmed = value.trim();
+            if (trimmed === '') {
+                return null;
+            }
+            return trimmed;
+        }
+        return null;
+    }
+
     function getEntryAmount(entry, field) {
         if (!entry || typeof entry !== 'object') {
             return null;
         }
-        if (Object.prototype.hasOwnProperty.call(entry, field)) {
-            return entry[field];
+        var direct = normalizeAmountValue(entry[field]);
+        if (direct !== null && direct !== undefined) {
+            return direct;
         }
         var altField = field === 'base' ? 'base_value' : 'iva_value';
-        if (Object.prototype.hasOwnProperty.call(entry, altField)) {
-            return entry[altField];
-        }
-        return null;
+        return normalizeAmountValue(entry[altField]);
     }
 
     function populateRateRow(rate) {
@@ -1158,6 +1230,7 @@ window.addEventListener('load', function() {
                 entry.iva_value = entry.iva;
             }
         });
+        debugJson('dados iniciais do botão', currentRateData);
         defaultRates.forEach(function(rate) {
             if (!currentRateData[rate]) {
                 currentRateData[rate] = {};
@@ -1198,6 +1271,8 @@ window.addEventListener('load', function() {
                     csrfInput.value = res.csrf_token;
                 }
 
+                debugJson('resposta save-analysis', res);
+
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
                 removedRates = {};
@@ -1208,13 +1283,13 @@ window.addEventListener('load', function() {
                     }
                     var rowData = storedRowRates[rate];
                     if (rowData && typeof rowData === 'object') {
-                        if (rowData.iva_account && !currentRateData[rate].iva_account) {
+                        if (rowData.iva_account) {
                             currentRateData[rate].iva_account = rowData.iva_account;
                         }
-                        if (rowData.general_account && !currentRateData[rate].general_account) {
+                        if (rowData.general_account) {
                             currentRateData[rate].general_account = rowData.general_account;
                         }
-                        if (rowData.label && !currentRateData[rate].label) {
+                        if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
                         var rowBase = getEntryAmount(rowData, 'base');
@@ -1236,13 +1311,13 @@ window.addEventListener('load', function() {
                     }
                     var defaultData = storedDefaultRates[rate];
                     if (defaultData && typeof defaultData === 'object') {
-                        if (!currentRateData[rate].iva_account && defaultData.iva_account) {
+                        if (defaultData.iva_account) {
                             currentRateData[rate].iva_account = defaultData.iva_account;
                         }
-                        if (!currentRateData[rate].general_account && defaultData.general_account) {
+                        if (defaultData.general_account) {
                             currentRateData[rate].general_account = defaultData.general_account;
                         }
-                        if (!currentRateData[rate].label && defaultData.label) {
+                        if (defaultData.label) {
                             currentRateData[rate].label = defaultData.label;
                         }
                     }
@@ -1259,6 +1334,8 @@ window.addEventListener('load', function() {
                         applyCostCenterValues(serverCostCenters, { skipEnsure: true });
                     }
                 }
+
+                debugJson('dados de taxas após merge', currentRateData);
 
                 var restored = restoreSavedRates();
                 getRateKeys().forEach(function(rate) {
