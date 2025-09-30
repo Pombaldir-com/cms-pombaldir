@@ -12,6 +12,19 @@ window.addEventListener('load', function() {
         }
     }
 
+    function showSuccess(message) {
+        if (window.PNotify) {
+            new PNotify({
+                title: 'Sucesso',
+                text: message,
+                type: 'success',
+                styling: 'bootstrap3'
+            });
+        } else {
+            alert(message);
+        }
+    }
+
     function fetchJson(url, options) {
         return fetch(url, options).then(function(res) {
             return res.text().then(function(text) {
@@ -51,6 +64,7 @@ window.addEventListener('load', function() {
         importType = 1;
     }
     var showLineCostCenter = importType === 1;
+    var importCtbButton = null;
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
@@ -67,6 +81,96 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    function updateImportButtonState() {
+        if (!importCtbButton || importType !== 1) {
+            return;
+        }
+        if (importCtbButton.data('loading')) {
+            importCtbButton.prop('disabled', true);
+            return;
+        }
+        var readyCount = $('#classify-table').find('.classify-row.btn-success').length;
+        importCtbButton.prop('disabled', readyCount === 0);
+    }
+
+    function handleImportCtbClick() {
+        if (!importCtbButton || importCtbButton.data('loading')) {
+            return;
+        }
+        var ids = [];
+        $('#classify-table').find('.classify-row.btn-success').each(function() {
+            var id = this.getAttribute('data-id');
+            if (id) {
+                ids.push(id);
+            }
+        });
+        if (ids.length === 0) {
+            showError('Não existem linhas prontas para importar.');
+            return;
+        }
+        importCtbButton.data('loading', true);
+        importCtbButton.prop('disabled', true);
+        var payload = {
+            ids: ids,
+            import_type: importType,
+            csrf_token: csrfInput ? csrfInput.value : ''
+        };
+        fetchJson('contabilidade/classificacao-importacao/import-ctb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (!res || !res.success) {
+                    var error = (res && res.error) ? res.error : 'Erro ao importar';
+                    throw new Error(error);
+                }
+                showSuccess('Importação CTB concluída com sucesso.');
+                table.ajax.reload(null, false);
+            })
+            .catch(function(err) {
+                showError(err.message || 'Erro ao importar');
+            })
+            .finally(function() {
+                if (importCtbButton) {
+                    importCtbButton.data('loading', false);
+                }
+                updateImportButtonState();
+            });
+    }
+
+    function ensureImportButton() {
+        if (importType !== 1) {
+            return;
+        }
+        var wrapper = $('#classify-table_wrapper');
+        if (!wrapper.length) {
+            return;
+        }
+        var paginate = wrapper.find('div.dataTables_paginate');
+        if (!paginate.length) {
+            return;
+        }
+        if (!importCtbButton) {
+            importCtbButton = $('<button type="button" class="btn btn-sm btn-primary me-2" id="importCtbButton">Importar Ctb</button>');
+            importCtbButton.on('click', handleImportCtbClick);
+        }
+        if (!importCtbButton.parent().length) {
+            importCtbButton.insertBefore(paginate);
+        }
+        updateImportButtonState();
+    }
+
+    table.on('draw', function() {
+        ensureImportButton();
+        updateImportButtonState();
+    });
+
+    ensureImportButton();
 
     function decodeHtmlEntities(value) {
         if (typeof value !== 'string' || value.indexOf('&') === -1) {
@@ -217,6 +321,8 @@ window.addEventListener('load', function() {
         } else {
             btn.classList.add('btn-secondary');
         }
+
+        updateImportButtonState();
 
     }
 
