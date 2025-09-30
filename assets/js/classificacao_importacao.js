@@ -385,6 +385,7 @@ window.addEventListener('load', function() {
         var info = rateInputs[rate];
         if (!info || !info.row || !info.base) {
             return;
+
         }
         var originalEntry = originalRateValues[rate];
         var restoreBtn = info.restoreBaseBtn || null;
@@ -405,6 +406,7 @@ window.addEventListener('load', function() {
             }
             return;
         }
+
 
         var currentNormalized = normalizeAmountForComparison(info.base.value);
         if (originalNormalized !== currentNormalized) {
@@ -505,6 +507,7 @@ window.addEventListener('load', function() {
             labelInput: row.querySelector('.rate-label-field') || null,
             labelText: row.querySelector('.rate-label-static') || null,
             removeBtn: row.querySelector('.remove-rate-row') || null,
+            restoreBaseBtn: row.querySelector('.restore-base-btn') || null,
             custom: row.getAttribute('data-custom-rate') === '1'
         };
         info.rate = rate;
@@ -1061,7 +1064,7 @@ window.addEventListener('load', function() {
     function restoreSavedRates() {
         var created = [];
         Object.keys(storedRowRates).forEach(function(rate) {
-            if (!rateHasStoredAccounts(rate)) {
+            if (!rateHasStoredAccounts(rate) && !rateHasBaseValues(rate)) {
                 return;
             }
             var info = addVatRowForRate(rate);
@@ -1070,7 +1073,7 @@ window.addEventListener('load', function() {
             }
         });
         Object.keys(storedDefaultRates).forEach(function(rate) {
-            if (rateInputs[rate] || !rateHasStoredAccounts(rate)) {
+            if (rateInputs[rate] || (!rateHasStoredAccounts(rate) && !rateHasBaseValues(rate))) {
                 return;
             }
             var info = addVatRowForRate(rate);
