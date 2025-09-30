@@ -184,7 +184,7 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : ''
         };
         debugJson('Import CTB request payload', payload);
-        fetchJson('contabilidade/classificacao-importacao/import-ctb', {
+        fetchJson('Url Webservice/ctb/import-ctb', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
