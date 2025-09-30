@@ -65,6 +65,8 @@ window.addEventListener('load', function() {
     }
     var showLineCostCenter = importType === 1;
     var importCtbButton = null;
+    var importCtbWrapper = null;
+
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
@@ -159,6 +161,7 @@ window.addEventListener('load', function() {
             importCtbButton = $('<button type="button" class="btn btn-sm btn-primary me-2" id="importCtbButton">Importar Ctb</button>');
             importCtbButton.on('click', handleImportCtbClick);
         }
+
         if (!importCtbButton.parent().length) {
             importCtbButton.insertBefore(paginate);
         }
