@@ -47,16 +47,52 @@ window.addEventListener('load', function() {
         ]
     });
 
-    function parseJsonAttribute(el, attr) {
-        var value = el.getAttribute(attr);
-        if (!value) {
+    function decodeHtmlEntities(value) {
+        if (typeof value !== 'string' || value.indexOf('&') === -1) {
+            return value;
+        }
+        var textarea = document.createElement('textarea');
+        textarea.innerHTML = value;
+        return textarea.value;
+    }
+
+    function tryParseJson(value) {
+        if (typeof value !== 'string' || value.trim() === '') {
             return null;
         }
         try {
             return JSON.parse(value);
-        } catch (e) {
+        } catch (err) {
             return null;
         }
+    }
+
+    function parseJsonAttribute(el, attr) {
+        var rawValue = el.getAttribute(attr);
+        if (!rawValue) {
+            return null;
+        }
+
+        var candidates = [];
+        candidates.push(rawValue);
+
+        var decoded = decodeHtmlEntities(rawValue);
+        if (decoded !== rawValue) {
+            candidates.push(decoded);
+        }
+
+        if (decoded.length >= 2 && decoded[0] === '"' && decoded[decoded.length - 1] === '"') {
+            candidates.push(decoded.slice(1, -1));
+        }
+
+        for (var i = 0; i < candidates.length; i += 1) {
+            var parsed = tryParseJson(candidates[i]);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     function escapeHtml(value) {
