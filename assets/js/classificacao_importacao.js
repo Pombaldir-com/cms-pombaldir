@@ -65,6 +65,7 @@ window.addEventListener('load', function() {
     }
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
+    var importCtbWrapper = $('#importCtbButtonWrapper');
 
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -82,6 +83,51 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    function hideImportButtonWrapper() {
+        if (importCtbWrapper.length) {
+            importCtbWrapper.addClass('d-none').attr('aria-hidden', 'true');
+        }
+    }
+
+    function showImportButtonWrapper() {
+        if (importCtbWrapper.length) {
+            importCtbWrapper.removeClass('d-none').removeAttr('aria-hidden');
+        }
+    }
+
+    function moveImportButtonToFilter() {
+        if (!importCtbButton.length || importType !== 1) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        var container = table.table().container();
+        if (!container) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        var filter = $(container).find('div.dataTables_filter');
+        if (!filter.length) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        filter.addClass('d-flex align-items-center justify-content-end flex-wrap gap-2');
+
+        var label = filter.find('label');
+        if (label.length) {
+            label.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
+            if (!label.find('#importCtbButton').length) {
+                importCtbButton.prependTo(label);
+            }
+        } else if (!filter.find('#importCtbButton').length) {
+            importCtbButton.prependTo(filter);
+        }
+
+        hideImportButtonWrapper();
+    }
 
     function updateImportButtonState() {
         if (!importCtbButton.length || importType !== 1) {
@@ -150,9 +196,11 @@ window.addEventListener('load', function() {
 
     table.on('draw', function() {
         updateImportButtonState();
+        moveImportButtonToFilter();
     });
 
     updateImportButtonState();
+    moveImportButtonToFilter();
 
     function decodeHtmlEntities(value) {
         if (typeof value !== 'string' || value.indexOf('&') === -1) {
