@@ -987,6 +987,7 @@ window.addEventListener('load', function() {
                 }
                 currentRateData[rate].iva = '';
                 currentRateData[rate].iva_value = '';
+
             } else {
                 var baseNumber = parseDecimalValue(info.base.value);
                 var percentage = getRatePercentage(rate);
