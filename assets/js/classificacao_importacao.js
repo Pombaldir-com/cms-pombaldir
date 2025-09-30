@@ -99,16 +99,32 @@ window.addEventListener('load', function() {
     function moveImportButtonToFilter() {
         if (!importCtbButton.length || importType !== 1) {
             showImportButtonWrapper();
-
-
             return;
         }
 
         var container = table.table().container();
         if (!container) {
             showImportButtonWrapper();
+            return;
+        }
 
+        var layoutEnd = $(container).find('.dt-layout-end').first();
+        if (layoutEnd.length) {
+            layoutEnd.addClass('d-md-flex justify-content-between align-items-center gap-2 flex-wrap');
+            if (!layoutEnd.find('#importCtbButton').length) {
+                importCtbButton.prependTo(layoutEnd);
+            }
 
+            var dtSearch = layoutEnd.find('.dt-search').first();
+            if (dtSearch.length) {
+                dtSearch.addClass('d-flex align-items-center flex-wrap gap-2');
+                var dtLabel = dtSearch.find('label').first();
+                if (dtLabel.length) {
+                    dtLabel.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
+                }
+            }
+
+            hideImportButtonWrapper();
             return;
         }
 
@@ -131,8 +147,6 @@ window.addEventListener('load', function() {
         }
 
         hideImportButtonWrapper();
-
-
     }
 
     function updateImportButtonState() {
