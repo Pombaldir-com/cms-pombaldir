@@ -82,8 +82,39 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
     $result['response'] = $response;
 
     if ($status >= 400) {
-        $result['error'] = 'O webservice de contabilidade devolveu um erro (HTTP ' . $status . ').';
-        logErpMessage('Webservice CTB devolveu HTTP ' . $status . ' ao importar movimentos.' . $endpointInfo . ' Resposta: ' . substr((string) $response, 0, 500));
+        $detail = '';
+        $decoded = json_decode((string) $response, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $detailKeys = ['message', 'error', 'detail', 'descricao', 'mensagem'];
+            foreach ($detailKeys as $detailKey) {
+                if (array_key_exists($detailKey, $decoded) && trim((string) $decoded[$detailKey]) !== '') {
+                    $detail = trim((string) $decoded[$detailKey]);
+                    break;
+                }
+            }
+        }
+
+        if ($detail === '' && is_string($response)) {
+            $snippetSource = trim($response);
+            if ($snippetSource !== '') {
+                if (function_exists('mb_substr')) {
+                    $detail = trim(mb_substr($snippetSource, 0, 200));
+                } else {
+                    $detail = trim(substr($snippetSource, 0, 200));
+                }
+            }
+        }
+
+        $baseErrorMessage = 'O webservice de contabilidade devolveu um erro (HTTP ' . $status . ').';
+        if ($detail !== '') {
+            $result['error_detail'] = $detail;
+            $result['error'] = $baseErrorMessage . ' Detalhe: ' . $detail;
+        } else {
+            $result['error'] = $baseErrorMessage;
+        }
+
+        $logResponse = is_string($response) ? $response : json_encode($response);
+        logErpMessage('Webservice CTB devolveu HTTP ' . $status . ' ao importar movimentos.' . $endpointInfo . ' Resposta: ' . substr((string) $logResponse, 0, 500));
         return $result;
     }
 
@@ -182,6 +213,10 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($serviceResult['error'])) {
         $responsePayload['error'] = $serviceResult['error'];
+    }
+
+    if (!empty($serviceResult['error_detail'])) {
+        $responsePayload['error_detail'] = $serviceResult['error_detail'];
     }
 
     if (array_key_exists('response', $serviceResult)) {
