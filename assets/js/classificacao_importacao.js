@@ -835,10 +835,22 @@ window.addEventListener('load', function() {
             }
         }
         if (info.base && info.iva) {
-            var hasBaseValue = info.base.value && info.base.value.trim() !== '';
-            var hasIvaValue = info.iva.value && info.iva.value.trim() !== '';
-            if (hasBaseValue && !hasIvaValue) {
-                recalculateVatForRate(rate);
+            var baseValue = info.base.value !== undefined ? String(info.base.value).trim() : '';
+            if (baseValue === '') {
+                if (info.iva.value !== '') {
+                    info.iva.value = '';
+                }
+                currentRateData[rate].iva = '';
+            } else {
+                var baseNumber = parseDecimalValue(info.base.value);
+                var percentage = getRatePercentage(rate);
+                if (baseNumber !== null && percentage !== null) {
+                    var expectedIva = formatDecimalValue(baseNumber * (percentage / 100));
+                    if (info.iva.value !== expectedIva) {
+                        info.iva.value = expectedIva;
+                    }
+                    currentRateData[rate].iva = expectedIva;
+                }
             }
         }
     }
