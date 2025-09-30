@@ -12,6 +12,11 @@ $pdo = getPDO();
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 
+function import_CTB(PDO $pdo, array $ids, int $importType): bool {
+    // Placeholder implementation. Replace with real import logic when available.
+    return true;
+}
+
 function prepareImportRow(array $row): array {
     $accounts = normalizeAccountingAccounts($row['account'] ?? '');
     $summaries = computeImportRateSummaries($row);
@@ -37,6 +42,67 @@ function prepareImportRow(array $row): array {
     }
 
     return $row;
+}
+
+if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $rawBody = file_get_contents('php://input');
+    $payload = json_decode($rawBody ?? '', true);
+
+    if (!is_array($payload)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Pedido inválido',
+            'csrf_token' => generateCsrfToken(true)
+        ]);
+        exit;
+    }
+
+    $csrfToken = (string)($payload['csrf_token'] ?? '');
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Token CSRF inválido',
+            'csrf_token' => generateCsrfToken(true)
+        ]);
+        exit;
+    }
+
+    $ids = [];
+    foreach ($payload['ids'] ?? [] as $value) {
+        if (is_numeric($value)) {
+            $id = (int)$value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+    }
+    $ids = array_values($ids);
+
+    if (empty($ids)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nenhuma linha seleccionada para importar',
+            'csrf_token' => generateCsrfToken(true)
+        ]);
+        exit;
+    }
+
+    $requestedImportType = (int)($payload['import_type'] ?? $importType);
+    if ($requestedImportType <= 0) {
+        $requestedImportType = 1;
+    }
+
+    $success = import_CTB($pdo, $ids, $requestedImportType);
+
+    echo json_encode([
+        'success' => (bool)$success,
+        'ids' => $ids,
+        'import_type' => $requestedImportType,
+        'csrf_token' => generateCsrfToken()
+    ]);
+    exit;
 }
 
 if ($action === 'data') {

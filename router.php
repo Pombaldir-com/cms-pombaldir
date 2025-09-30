@@ -177,6 +177,14 @@ switch (true) {
         $_GET['action'] = 'data';
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/import-ctb',
+        'contabilidade/classificacao-importacao/import_ctb',
+        'contabilidade/classificacao-importacao-import-ctb.php'
+    ], true):
+        $_GET['action'] = 'import_ctb';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
