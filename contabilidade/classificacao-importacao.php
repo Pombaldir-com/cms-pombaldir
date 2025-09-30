@@ -34,7 +34,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         return $result;
     }
 
-    $endpoint = rtrim($baseUrl, '/') . '/ctb/movimentos';
+    $endpoint = rtrim($baseUrl, '/') . '/contabilidade/movimentos';
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
     $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
 
@@ -61,6 +61,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         'act' => 'movimentos',
         'accao' => 'movimentos',
     ];
+
 
     $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
 
