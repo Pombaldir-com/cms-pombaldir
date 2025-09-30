@@ -47,16 +47,52 @@ window.addEventListener('load', function() {
         ]
     });
 
-    function parseJsonAttribute(el, attr) {
-        var value = el.getAttribute(attr);
-        if (!value) {
+    function decodeHtmlEntities(value) {
+        if (typeof value !== 'string' || value.indexOf('&') === -1) {
+            return value;
+        }
+        var textarea = document.createElement('textarea');
+        textarea.innerHTML = value;
+        return textarea.value;
+    }
+
+    function tryParseJson(value) {
+        if (typeof value !== 'string' || value.trim() === '') {
             return null;
         }
         try {
             return JSON.parse(value);
-        } catch (e) {
+        } catch (err) {
             return null;
         }
+    }
+
+    function parseJsonAttribute(el, attr) {
+        var rawValue = el.getAttribute(attr);
+        if (!rawValue) {
+            return null;
+        }
+
+        var candidates = [];
+        candidates.push(rawValue);
+
+        var decoded = decodeHtmlEntities(rawValue);
+        if (decoded !== rawValue) {
+            candidates.push(decoded);
+        }
+
+        if (decoded.length >= 2 && decoded[0] === '"' && decoded[decoded.length - 1] === '"') {
+            candidates.push(decoded.slice(1, -1));
+        }
+
+        for (var i = 0; i < candidates.length; i += 1) {
+            var parsed = tryParseJson(candidates[i]);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     function escapeHtml(value) {
@@ -1208,13 +1244,13 @@ window.addEventListener('load', function() {
                     }
                     var rowData = storedRowRates[rate];
                     if (rowData && typeof rowData === 'object') {
-                        if (rowData.iva_account && !currentRateData[rate].iva_account) {
+                        if (rowData.iva_account) {
                             currentRateData[rate].iva_account = rowData.iva_account;
                         }
-                        if (rowData.general_account && !currentRateData[rate].general_account) {
+                        if (rowData.general_account) {
                             currentRateData[rate].general_account = rowData.general_account;
                         }
-                        if (rowData.label && !currentRateData[rate].label) {
+                        if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
                         var rowBase = getEntryAmount(rowData, 'base');
@@ -1236,13 +1272,13 @@ window.addEventListener('load', function() {
                     }
                     var defaultData = storedDefaultRates[rate];
                     if (defaultData && typeof defaultData === 'object') {
-                        if (!currentRateData[rate].iva_account && defaultData.iva_account) {
+                        if (defaultData.iva_account) {
                             currentRateData[rate].iva_account = defaultData.iva_account;
                         }
-                        if (!currentRateData[rate].general_account && defaultData.general_account) {
+                        if (defaultData.general_account) {
                             currentRateData[rate].general_account = defaultData.general_account;
                         }
-                        if (!currentRateData[rate].label && defaultData.label) {
+                        if (defaultData.label) {
                             currentRateData[rate].label = defaultData.label;
                         }
                     }
