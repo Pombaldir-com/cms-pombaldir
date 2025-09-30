@@ -23,6 +23,27 @@ window.addEventListener('load', function() {
             });
         });
     }
+
+    function debugJson(label, value) {
+        if (!window.console) {
+            return;
+        }
+        var prefix = '[Classificação] ' + label;
+        try {
+            var safe = JSON.parse(JSON.stringify(value));
+            if (typeof console.debug === 'function') {
+                console.debug(prefix, safe);
+            } else {
+                console.log(prefix, safe);
+            }
+        } catch (err) {
+            if (typeof console.debug === 'function') {
+                console.debug(prefix, value);
+            } else {
+                console.log(prefix, value);
+            }
+        }
+    }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
     var importType = importTypeInput ? parseInt(importTypeInput.value, 10) : 1;
@@ -931,18 +952,33 @@ window.addEventListener('load', function() {
         return baseString !== '' || ivaString !== '';
     }
 
+    function normalizeAmountValue(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        if (typeof value === 'number') {
+            return isFinite(value) ? value : null;
+        }
+        if (typeof value === 'string') {
+            var trimmed = value.trim();
+            if (trimmed === '') {
+                return null;
+            }
+            return trimmed;
+        }
+        return null;
+    }
+
     function getEntryAmount(entry, field) {
         if (!entry || typeof entry !== 'object') {
             return null;
         }
-        if (Object.prototype.hasOwnProperty.call(entry, field)) {
-            return entry[field];
+        var direct = normalizeAmountValue(entry[field]);
+        if (direct !== null && direct !== undefined) {
+            return direct;
         }
         var altField = field === 'base' ? 'base_value' : 'iva_value';
-        if (Object.prototype.hasOwnProperty.call(entry, altField)) {
-            return entry[altField];
-        }
-        return null;
+        return normalizeAmountValue(entry[altField]);
     }
 
     function populateRateRow(rate) {
@@ -1194,6 +1230,7 @@ window.addEventListener('load', function() {
                 entry.iva_value = entry.iva;
             }
         });
+        debugJson('dados iniciais do botão', currentRateData);
         defaultRates.forEach(function(rate) {
             if (!currentRateData[rate]) {
                 currentRateData[rate] = {};
@@ -1233,6 +1270,8 @@ window.addEventListener('load', function() {
                 if (res.csrf_token) {
                     csrfInput.value = res.csrf_token;
                 }
+
+                debugJson('resposta save-analysis', res);
 
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
@@ -1295,6 +1334,8 @@ window.addEventListener('load', function() {
                         applyCostCenterValues(serverCostCenters, { skipEnsure: true });
                     }
                 }
+
+                debugJson('dados de taxas após merge', currentRateData);
 
                 var restored = restoreSavedRates();
                 getRateKeys().forEach(function(rate) {
