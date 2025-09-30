@@ -65,6 +65,7 @@ window.addEventListener('load', function() {
     }
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
+    var importCtbWrapper = $('#importCtbButtonWrapper');
 
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -82,6 +83,60 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    function hideImportButtonWrapper() {
+        if (importCtbWrapper.length) {
+            importCtbWrapper.addClass('d-none').attr('aria-hidden', 'true');
+        }
+    }
+
+    function showImportButtonWrapper() {
+        if (importCtbWrapper.length) {
+            importCtbWrapper.removeClass('d-none').removeAttr('aria-hidden');
+        }
+    }
+
+    function moveImportButtonToFilter() {
+        if (!importCtbButton.length || importType !== 1) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        var container = table && table.table ? table.table().container() : null;
+        if (!container) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        var filter = $(container).find('div.dataTables_filter');
+        if (!filter.length) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        var label = filter.find('label');
+        var target = label.length ? label : filter;
+
+        var alreadyInside = target.find('#importCtbButton').length > 0;
+        if (!alreadyInside) {
+            importCtbButton.prependTo(target);
+            alreadyInside = target.find('#importCtbButton').length > 0;
+        }
+
+        if (!alreadyInside) {
+            showImportButtonWrapper();
+            return;
+        }
+
+        filter.addClass('d-flex align-items-center justify-content-end flex-wrap gap-2');
+        if (label.length) {
+            label.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
+        } else {
+            target.addClass('d-flex align-items-center flex-wrap gap-2');
+        }
+
+        hideImportButtonWrapper();
+    }
 
     function updateImportButtonState() {
         if (!importCtbButton.length || importType !== 1) {
@@ -150,8 +205,15 @@ window.addEventListener('load', function() {
 
     table.on('draw', function() {
         updateImportButtonState();
+        moveImportButtonToFilter();
     });
 
+    table.on('init.dt', function() {
+        moveImportButtonToFilter();
+        updateImportButtonState();
+    });
+
+    moveImportButtonToFilter();
     updateImportButtonState();
 
     function decodeHtmlEntities(value) {
