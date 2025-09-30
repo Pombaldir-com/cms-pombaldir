@@ -12,9 +12,85 @@ $pdo = getPDO();
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 
-function import_CTB(PDO $pdo, array $ids, int $importType): bool {
-    // Placeholder implementation. Replace with real import logic when available.
-    return true;
+function import_CTB(PDO $pdo, array $ids, int $importType): array {
+    $result = [
+        'success' => false,
+        'error' => '',
+        'status' => 0,
+        'response' => null,
+    ];
+
+    if (!function_exists('curl_init')) {
+        $result['error'] = 'Extensão cURL não disponível no servidor.';
+        logErpMessage('Extensão cURL não disponível para importar movimentos CTB.');
+        return $result;
+    }
+
+    $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
+    if ($baseUrl === '') {
+        $result['error'] = 'URL do webservice ERP não está configurada.';
+        logErpMessage('URL do ERP-SINC não configurada para importar movimentos CTB.');
+        return $result;
+    }
+
+    $endpoint = rtrim($baseUrl, '/') . '/ctb/movimentos';
+    $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
+    $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        $result['error'] = 'Não foi possível iniciar o pedido ao webservice de contabilidade.';
+        logErpMessage('Falha ao inicializar pedido para importar movimentos CTB.' . $endpointInfo);
+        return $result;
+    }
+
+    $headers = [
+        'Accept: application/json',
+        'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
+    ];
+
+    $token = trim((string) getSetting('erp_token', ''));
+    if ($token !== '') {
+        $headers[] = 'Authorization: Bearer ' . $token;
+        $headers[] = 'X-API-KEY: ' . $token;
+    }
+
+    $postFields = http_build_query(['tp' => 'importMovim'], '', '&', PHP_QUERY_RFC3986);
+
+    curl_setopt_array($handle, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => $postFields,
+    ]);
+
+    $response = curl_exec($handle);
+    if ($response === false) {
+        $errorMessage = curl_error($handle);
+        curl_close($handle);
+        $result['error'] = 'Erro ao comunicar com o webservice de contabilidade.';
+        logErpMessage('Erro cURL ao importar movimentos CTB: ' . $errorMessage . $endpointInfo);
+        return $result;
+    }
+
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    $result['status'] = $status;
+    $result['response'] = $response;
+
+    if ($status >= 400) {
+        $result['error'] = 'O webservice de contabilidade devolveu um erro (HTTP ' . $status . ').';
+        logErpMessage('Webservice CTB devolveu HTTP ' . $status . ' ao importar movimentos.' . $endpointInfo . ' Resposta: ' . substr((string) $response, 0, 500));
+        return $result;
+    }
+
+    logErpMessage('Pedido de importação CTB enviado com sucesso. HTTP ' . $status . '. IDs: ' . implode(', ', $ids));
+    $result['success'] = true;
+
+    return $result;
 }
 
 function prepareImportRow(array $row): array {
@@ -94,14 +170,29 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $requestedImportType = 1;
     }
 
-    $success = import_CTB($pdo, $ids, $requestedImportType);
+    $serviceResult = import_CTB($pdo, $ids, $requestedImportType);
 
-    echo json_encode([
-        'success' => (bool)$success,
+    $responsePayload = [
+        'success' => (bool)($serviceResult['success'] ?? false),
         'ids' => $ids,
         'import_type' => $requestedImportType,
-        'csrf_token' => generateCsrfToken()
-    ]);
+        'csrf_token' => generateCsrfToken(),
+        'http_status' => $serviceResult['status'] ?? 0,
+    ];
+
+    if (!empty($serviceResult['error'])) {
+        $responsePayload['error'] = $serviceResult['error'];
+    }
+
+    if (array_key_exists('response', $serviceResult)) {
+        $responsePayload['service_response'] = $serviceResult['response'];
+    }
+
+    if (!empty($serviceResult['success'])) {
+        $responsePayload['message'] = 'OK';
+    }
+
+    echo json_encode($responsePayload);
     exit;
 }
 
