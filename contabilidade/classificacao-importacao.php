@@ -57,11 +57,8 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
     }
 
     $postPayload = [
-        'tp' => 'importMovim',
-        'act' => 'movimentos',
-        'accao' => 'movimentos',
+        'act' => 'importMovim',
     ];
-
 
     $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
 
