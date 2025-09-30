@@ -313,6 +313,13 @@ require_once __DIR__ . '/../header.php';
         </td>
         <?php endif; ?>
         <td class="text-center align-middle actions-cell">
+            <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
+                title="Repor base original"
+            >
+                <i class="fa fa-undo"></i>
+            </button>
             <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
                 <i class="fa fa-trash"></i>
             </button>
@@ -338,6 +345,13 @@ require_once __DIR__ . '/../header.php';
         </td>
         <?php endif; ?>
         <td class="text-center align-middle">
+            <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
+                title="Repor base original"
+            >
+                <i class="fa fa-undo"></i>
+            </button>
             <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
                 <i class="fa fa-trash"></i>
             </button>
