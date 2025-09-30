@@ -99,12 +99,16 @@ window.addEventListener('load', function() {
     function moveImportButtonToFilter() {
         if (!importCtbButton.length || importType !== 1) {
             showImportButtonWrapper();
+
+
             return;
         }
 
-        var container = table && table.table ? table.table().container() : null;
+        var container = table.table().container();
         if (!container) {
             showImportButtonWrapper();
+
+
             return;
         }
 
@@ -114,28 +118,21 @@ window.addEventListener('load', function() {
             return;
         }
 
-        var label = filter.find('label');
-        var target = label.length ? label : filter;
-
-        var alreadyInside = target.find('#importCtbButton').length > 0;
-        if (!alreadyInside) {
-            importCtbButton.prependTo(target);
-            alreadyInside = target.find('#importCtbButton').length > 0;
-        }
-
-        if (!alreadyInside) {
-            showImportButtonWrapper();
-            return;
-        }
-
         filter.addClass('d-flex align-items-center justify-content-end flex-wrap gap-2');
+
+        var label = filter.find('label');
         if (label.length) {
             label.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
-        } else {
-            target.addClass('d-flex align-items-center flex-wrap gap-2');
+            if (!label.find('#importCtbButton').length) {
+                importCtbButton.prependTo(label);
+            }
+        } else if (!filter.find('#importCtbButton').length) {
+            importCtbButton.prependTo(filter);
         }
 
         hideImportButtonWrapper();
+
+
     }
 
     function updateImportButtonState() {
@@ -211,10 +208,12 @@ window.addEventListener('load', function() {
     table.on('init.dt', function() {
         moveImportButtonToFilter();
         updateImportButtonState();
+
     });
 
     moveImportButtonToFilter();
     updateImportButtonState();
+    moveImportButtonToFilter();
 
     function decodeHtmlEntities(value) {
         if (typeof value !== 'string' || value.indexOf('&') === -1) {
