@@ -63,6 +63,17 @@ window.addEventListener('load', function() {
     if (isNaN(importType)) {
         importType = 1;
     }
+    var erpWebserviceUrl = '';
+    if (typeof window.erpWebserviceUrl === 'string') {
+        erpWebserviceUrl = window.erpWebserviceUrl;
+    }
+
+    function buildImportCtbUrl() {
+        if (typeof erpWebserviceUrl === 'string' && erpWebserviceUrl.trim() !== '') {
+            return erpWebserviceUrl.replace(/\/+$/, '') + '/ctb/import-ctb';
+        }
+        return '';
+    }
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
     var importCtbWrapper = $('#importCtbButtonWrapper');
@@ -181,10 +192,21 @@ window.addEventListener('load', function() {
         var payload = {
             ids: ids,
             import_type: importType,
-            csrf_token: csrfInput ? csrfInput.value : ''
+            csrf_token: csrfInput ? csrfInput.value : '',
+            act: 'import-ctb'
         };
         debugJson('Import CTB request payload', payload);
-        fetchJson('contabilidade/classificacao-importacao/import-ctb', {
+        var importUrl = buildImportCtbUrl();
+        if (!importUrl) {
+            if (typeof window.console !== 'undefined') {
+                console.error('[Classificação] URL do webservice ERP não configurada.');
+            }
+            showError('URL do webservice ERP não está configurada.');
+            importCtbButton.data('loading', false);
+            updateImportButtonState();
+            return;
+        }
+        fetchJson(importUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
