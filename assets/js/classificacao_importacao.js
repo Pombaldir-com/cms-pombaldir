@@ -183,12 +183,14 @@ window.addEventListener('load', function() {
             import_type: importType,
             csrf_token: csrfInput ? csrfInput.value : ''
         };
+        debugJson('Import CTB request payload', payload);
         fetchJson('contabilidade/classificacao-importacao/import-ctb', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
             .then(function(res) {
+                debugJson('Import CTB response payload', res);
                 if (res && res.csrf_token && csrfInput) {
                     csrfInput.value = res.csrf_token;
                 }
@@ -196,10 +198,20 @@ window.addEventListener('load', function() {
                     var error = (res && res.error) ? res.error : 'Erro ao importar';
                     throw new Error(error);
                 }
-                showSuccess('Importação CTB concluída com sucesso.');
+                if (res && res.service_response) {
+                    debugJson('Import CTB service response', res.service_response);
+                }
+                var message = (res && res.message) ? res.message : 'OK';
+                showSuccess(message);
+                if (typeof window.console !== 'undefined') {
+                    console.log('[Classificação] Import CTB concluído. HTTP:', res.http_status, 'IDs:', ids);
+                }
                 table.ajax.reload(null, false);
             })
             .catch(function(err) {
+                if (typeof window.console !== 'undefined') {
+                    console.error('[Classificação] Erro na importação CTB:', err);
+                }
                 showError(err.message || 'Erro ao importar');
             })
             .finally(function() {
