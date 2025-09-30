@@ -818,6 +818,120 @@ function extractStringValue($value, array $preferredKeys = []): ?string {
 }
 
 /**
+ * Determine whether the provided value resembles an account reference.
+ *
+ * Older payloads may store account identifiers inside the generic "iva"
+ * field. To keep backwards compatibility while allowing the same key to
+ * represent monetary amounts, this helper attempts to differentiate both
+ * cases by looking at the structure and characters present in the value.
+ *
+ * @param mixed $value
+ */
+function looksLikeAccountReference($value): bool {
+    if (is_array($value)) {
+        return array_key_exists('account', $value) || array_key_exists('code', $value);
+    }
+
+    if (!is_string($value) && !is_numeric($value)) {
+        return false;
+    }
+
+    $string = trim((string) $value);
+    if ($string === '') {
+        return false;
+    }
+
+    // Numeric VAT amounts are always normalised with decimal separators.
+    if (strpos($string, '.') !== false || strpos($string, ',') !== false) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Normalise decimal amounts into strings with two decimal places.
+ *
+ * @param mixed $value
+ * @return string|null Returns null when no numeric value can be extracted.
+ */
+function extractDecimalAmount($value): ?string {
+    if (is_array($value)) {
+        $preferredKeys = ['value', 'amount', 'base', 'iva'];
+        foreach ($preferredKeys as $key) {
+            if (array_key_exists($key, $value)) {
+                $candidate = extractDecimalAmount($value[$key]);
+                if ($candidate !== null) {
+                    return $candidate;
+                }
+            }
+        }
+        foreach ($value as $nested) {
+            $candidate = extractDecimalAmount($nested);
+            if ($candidate !== null) {
+                return $candidate;
+            }
+        }
+        return null;
+    }
+
+    if (!is_string($value) && !is_numeric($value)) {
+        return null;
+    }
+
+    $string = trim((string) $value);
+    if ($string === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/\s+/u', '', $string);
+    if ($normalized === null) {
+        $normalized = $string;
+    }
+
+    $hasComma = strpos($normalized, ',') !== false;
+    $hasDot = strpos($normalized, '.') !== false;
+    if ($hasComma && $hasDot) {
+        if (strrpos($normalized, ',') > strrpos($normalized, '.')) {
+            $normalized = str_replace('.', '', $normalized);
+            $normalized = str_replace(',', '.', $normalized);
+        } else {
+            $normalized = str_replace(',', '', $normalized);
+        }
+    } elseif ($hasComma) {
+        $normalized = str_replace(',', '.', $normalized);
+    }
+
+    $normalized = preg_replace('/[^0-9.\-]/', '', $normalized);
+    if ($normalized === null) {
+        return null;
+    }
+
+    if ($normalized === '' || $normalized === '-' || $normalized === '.') {
+        return '';
+    }
+
+    $firstDot = strpos($normalized, '.');
+    if ($firstDot !== false) {
+        $before = substr($normalized, 0, $firstDot + 1);
+        $after = substr($normalized, $firstDot + 1);
+        $after = str_replace('.', '', $after);
+        $normalized = $before . $after;
+    }
+
+    if (!is_numeric($normalized)) {
+        return null;
+    }
+
+    $number = (float) $normalized;
+    if (!is_finite($number)) {
+        return null;
+    }
+
+    return number_format($number, 2, '.', '');
+}
+
+/**
  * Normalize stored account information into a structure keyed by VAT rate.
  *
  * @param string|null $json JSON-encoded account data.
@@ -831,6 +945,8 @@ function normalizeAccountingAccounts(?string $json): array {
             'iva_account' => '',
             'general_account' => '',
             'label' => $label,
+            'base' => '',
+            'iva' => '',
         ];
     }
 
@@ -865,13 +981,15 @@ function normalizeAccountingAccounts(?string $json): array {
                     'iva_account' => '',
                     'general_account' => '',
                     'label' => buildVatRateLabel($keyString),
+                    'base' => '',
+                    'iva' => '',
                 ];
             }
             if (is_array($value)) {
                 $ivaAccount = null;
                 if (array_key_exists('iva_account', $value)) {
                     $ivaAccount = extractStringValue($value['iva_account'], ['account', 'code']);
-                } elseif (array_key_exists('iva', $value)) {
+                } elseif (array_key_exists('iva', $value) && looksLikeAccountReference($value['iva'])) {
                     $ivaAccount = extractStringValue($value['iva'], ['account', 'code']);
                 }
                 if ($ivaAccount !== null) {
@@ -893,6 +1011,28 @@ function normalizeAccountingAccounts(?string $json): array {
                     if ($labelValue !== null && $labelValue !== '') {
                         $result[$keyString]['label'] = $labelValue;
                     }
+                }
+
+                $baseValue = null;
+                if (array_key_exists('base_value', $value)) {
+                    $baseValue = extractDecimalAmount($value['base_value']);
+                }
+                if ($baseValue === null && array_key_exists('base', $value)) {
+                    $baseValue = extractDecimalAmount($value['base']);
+                }
+                if ($baseValue !== null) {
+                    $result[$keyString]['base'] = $baseValue;
+                }
+
+                $ivaValue = null;
+                if (array_key_exists('iva_value', $value)) {
+                    $ivaValue = extractDecimalAmount($value['iva_value']);
+                }
+                if ($ivaValue === null && array_key_exists('iva', $value) && !looksLikeAccountReference($value['iva'])) {
+                    $ivaValue = extractDecimalAmount($value['iva']);
+                }
+                if ($ivaValue !== null) {
+                    $result[$keyString]['iva'] = $ivaValue;
                 }
             } else {
                 $generalAccount = extractStringValue($value, ['account', 'code']);
@@ -965,16 +1105,21 @@ function sanitizeAccountInput(array $input): array {
         $ivaAccount = '';
         $generalAccount = '';
         $label = '';
+        $baseValue = '';
+        $ivaValue = '';
 
         if (is_array($rateInput)) {
-            $ivaCandidate = null;
+            $ivaAccountCandidate = null;
             if (array_key_exists('iva_account', $rateInput)) {
-                $ivaCandidate = extractStringValue($rateInput['iva_account'], ['account', 'code']);
-            } elseif (array_key_exists('iva', $rateInput)) {
-                $ivaCandidate = extractStringValue($rateInput['iva'], ['account', 'code']);
+                $ivaAccountCandidate = $rateInput['iva_account'];
+            } elseif (array_key_exists('iva', $rateInput) && looksLikeAccountReference($rateInput['iva'])) {
+                $ivaAccountCandidate = $rateInput['iva'];
             }
-            if ($ivaCandidate !== null) {
-                $ivaAccount = $ivaCandidate;
+            if ($ivaAccountCandidate !== null) {
+                $ivaCandidate = extractStringValue($ivaAccountCandidate, ['account', 'code']);
+                if ($ivaCandidate !== null) {
+                    $ivaAccount = $ivaCandidate;
+                }
             }
 
             $generalCandidate = null;
@@ -991,6 +1136,32 @@ function sanitizeAccountInput(array $input): array {
                 $labelCandidate = extractStringValue($rateInput['label'], ['value', 'label', 'text']);
                 if ($labelCandidate !== null) {
                     $label = $labelCandidate;
+                }
+            }
+
+            if (array_key_exists('base_value', $rateInput)) {
+                $baseCandidate = extractDecimalAmount($rateInput['base_value']);
+                if ($baseCandidate !== null) {
+                    $baseValue = $baseCandidate;
+                }
+            }
+            if ($baseValue === '' && array_key_exists('base', $rateInput)) {
+                $baseCandidate = extractDecimalAmount($rateInput['base']);
+                if ($baseCandidate !== null) {
+                    $baseValue = $baseCandidate;
+                }
+            }
+
+            if (array_key_exists('iva_value', $rateInput)) {
+                $ivaCandidateValue = extractDecimalAmount($rateInput['iva_value']);
+                if ($ivaCandidateValue !== null) {
+                    $ivaValue = $ivaCandidateValue;
+                }
+            }
+            if ($ivaValue === '' && array_key_exists('iva', $rateInput) && !looksLikeAccountReference($rateInput['iva'])) {
+                $ivaCandidateValue = extractDecimalAmount($rateInput['iva']);
+                if ($ivaCandidateValue !== null) {
+                    $ivaValue = $ivaCandidateValue;
                 }
             }
         } elseif ($rateInput !== null) {
@@ -1028,6 +1199,8 @@ function sanitizeAccountInput(array $input): array {
         $result[$rate] = [
             'iva_account' => $ivaAccount,
             'general_account' => $generalAccount,
+            'base' => $baseValue,
+            'iva' => $ivaValue,
         ];
         if ($effectiveLabel !== '') {
             $result[$rate]['label'] = $effectiveLabel;
@@ -1055,13 +1228,15 @@ function mergeAccountingAccounts(array $base, array $override): array {
         $result[$rate] = [
             'iva_account' => $baseSanitized[$rate]['iva_account'] ?? '',
             'general_account' => $baseSanitized[$rate]['general_account'] ?? '',
+            'base' => $baseSanitized[$rate]['base'] ?? '',
+            'iva' => $baseSanitized[$rate]['iva'] ?? '',
         ];
         if (isset($baseSanitized[$rate]['label'])) {
             $result[$rate]['label'] = $baseSanitized[$rate]['label'];
         }
 
         if (array_key_exists($rate, $overrideSanitized)) {
-            foreach (['iva_account', 'general_account'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva'] as $field) {
                 if (array_key_exists($field, $overrideSanitized[$rate])) {
                     $result[$rate][$field] = $overrideSanitized[$rate][$field];
                 }
@@ -1339,10 +1514,28 @@ function buildRatePayload(array $summaries, array $accounts): array {
             $label = buildVatRateLabel((string) $rate);
         }
 
+        $baseDisplay = $info['base_display'] ?? '';
+        $ivaDisplay = $info['iva_display'] ?? '';
+
+        if (is_array($accountInfo) && array_key_exists('base', $accountInfo)) {
+            $storedBase = trim((string) $accountInfo['base']);
+            if ($storedBase !== '') {
+                $baseDisplay = $storedBase;
+            }
+        }
+        if (is_array($accountInfo) && array_key_exists('iva', $accountInfo)) {
+            $storedIva = trim((string) $accountInfo['iva']);
+            if ($storedIva !== '') {
+                $ivaDisplay = $storedIva;
+            }
+        }
+
         $payload[$rate] = [
             'label' => $label,
-            'base' => $info['base_display'] ?? '',
-            'iva' => $info['iva_display'] ?? '',
+            'base' => $baseDisplay,
+            'iva' => $ivaDisplay,
+            'base_value' => $baseDisplay,
+            'iva_value' => $ivaDisplay,
             'iva_account' => $accountInfo['iva_account'] ?? '',
             'general_account' => $accountInfo['general_account'] ?? '',
         ];
