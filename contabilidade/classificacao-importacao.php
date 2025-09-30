@@ -13,6 +13,58 @@ $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 
+function buildDocumentFileAttachment(string $relativePath): ?array {
+    $trimmedPath = trim($relativePath);
+    if ($trimmedPath === '') {
+        return null;
+    }
+
+    $relativePath = ltrim($trimmedPath, '/');
+    $projectRoot = dirname(__DIR__);
+    $absolutePath = realpath($projectRoot . '/' . $relativePath);
+
+    if ($absolutePath === false || !is_file($absolutePath) || !is_readable($absolutePath)) {
+        logErpMessage('Ficheiro associado ao documento CTB não encontrado ou inacessível: ' . $trimmedPath);
+        return null;
+    }
+
+    $uploadsDir = realpath($projectRoot . '/uploads');
+    if ($uploadsDir !== false && strpos($absolutePath, $uploadsDir) !== 0) {
+        logErpMessage('Ficheiro CTB fora do diretório permitido: ' . $trimmedPath);
+        return null;
+    }
+
+    $content = file_get_contents($absolutePath);
+    if ($content === false) {
+        logErpMessage('Falha ao ler ficheiro CTB: ' . $trimmedPath);
+        return null;
+    }
+
+    $size = filesize($absolutePath);
+    if ($size === false) {
+        $size = strlen($content);
+    }
+
+    $mimeType = 'application/pdf';
+    if (class_exists(finfo::class)) {
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detected = $finfo->file($absolutePath);
+            if (is_string($detected) && $detected !== '') {
+                $mimeType = $detected;
+            }
+        }
+    }
+
+    return [
+        'path' => $relativePath,
+        'filename' => basename($absolutePath),
+        'size' => $size,
+        'mime_type' => $mimeType,
+        'content_base64' => base64_encode($content),
+    ];
+}
+
 function import_CTB(PDO $pdo, array $ids, int $importType): array {
     $result = [
         'success' => false,
@@ -56,10 +108,55 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         $headers[] = 'X-API-KEY: ' . $token;
     }
 
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $documentSql = 'SELECT * FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id';
+    $documentStmt = $pdo->prepare($documentSql);
+    $documentStmt->bindValue(1, $importType, PDO::PARAM_INT);
+    foreach ($ids as $index => $id) {
+        $documentStmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+
+    $documentStmt->execute();
+    $documents = $documentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($documents)) {
+        $result['error'] = 'Nenhum documento encontrado para importar.';
+        logErpMessage('Importação CTB abortada: nenhum documento encontrado para os IDs ' . implode(', ', $ids));
+        return $result;
+    }
+
+    $documentsPayload = array_map(static function (array $document): array {
+        if (array_key_exists('line_items', $document)) {
+            $decodedLineItems = json_decode((string) $document['line_items'], true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $document['line_items'] = $decodedLineItems;
+            }
+        }
+
+        if (isset($document['filename'])) {
+            $attachment = buildDocumentFileAttachment((string) $document['filename']);
+            if ($attachment !== null) {
+                $document['file_attachment'] = $attachment;
+            }
+        }
+
+        return $document;
+    }, $documents);
+
+    $documentsJson = json_encode($documentsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($documentsJson === false) {
+        $result['error'] = 'Falha ao preparar os documentos para envio.';
+        logErpMessage('Erro ao codificar JSON dos documentos CTB: ' . json_last_error_msg());
+        return $result;
+    }
+
     $postPayload = [
         'tp' => 'importMovim',
-        'act' => 'movimentos',
+        'act' => 'importMovim',
         'accao' => 'movimentos',
+        'import_type' => $importType,
+        'document_ids' => implode(',', $ids),
+        'documents' => $documentsJson,
     ];
 
 
