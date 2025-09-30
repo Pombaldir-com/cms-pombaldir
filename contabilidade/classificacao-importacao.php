@@ -299,7 +299,7 @@ require_once __DIR__ . '/../header.php';
         <td class="align-middle">
             <span class="rate-label-static"></span>
         </td>
-        <td><input type="text" class="form-control form-control-sm base-field" readonly></td>
+        <td><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
         <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
         <td><input type="text" class="form-control form-control-sm iva-account-field"></td>
         <td><input type="text" class="form-control form-control-sm general-account-field"></td>
@@ -324,7 +324,7 @@ require_once __DIR__ . '/../header.php';
         <td>
             <input type="text" class="form-control form-control-sm rate-label-field" placeholder="Identificador da taxa">
         </td>
-        <td><input type="text" class="form-control form-control-sm base-field" readonly></td>
+        <td><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
         <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
         <td><input type="text" class="form-control form-control-sm iva-account-field"></td>
         <td><input type="text" class="form-control form-control-sm general-account-field"></td>
