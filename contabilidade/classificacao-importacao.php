@@ -56,10 +56,48 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         $headers[] = 'X-API-KEY: ' . $token;
     }
 
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $documentSql = 'SELECT * FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id';
+    $documentStmt = $pdo->prepare($documentSql);
+    $documentStmt->bindValue(1, $importType, PDO::PARAM_INT);
+    foreach ($ids as $index => $id) {
+        $documentStmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+
+    $documentStmt->execute();
+    $documents = $documentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($documents)) {
+        $result['error'] = 'Nenhum documento encontrado para importar.';
+        logErpMessage('Importação CTB abortada: nenhum documento encontrado para os IDs ' . implode(', ', $ids));
+        return $result;
+    }
+
+    $documentsPayload = array_map(static function (array $document): array {
+        if (array_key_exists('line_items', $document)) {
+            $decodedLineItems = json_decode((string) $document['line_items'], true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $document['line_items'] = $decodedLineItems;
+            }
+        }
+
+        return $document;
+    }, $documents);
+
+    $documentsJson = json_encode($documentsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($documentsJson === false) {
+        $result['error'] = 'Falha ao preparar os documentos para envio.';
+        logErpMessage('Erro ao codificar JSON dos documentos CTB: ' . json_last_error_msg());
+        return $result;
+    }
+
     $postPayload = [
         'tp' => 'importMovim',
-        'act' => 'movimentos',
+        'act' => 'importMovim',
         'accao' => 'movimentos',
+        'import_type' => $importType,
+        'document_ids' => implode(',', $ids),
+        'documents' => $documentsJson,
     ];
 
 
