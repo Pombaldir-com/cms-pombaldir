@@ -9,6 +9,6 @@ O payload enviado para o ERP é construído em [`contabilidade/classificacao-imp
 - `accao = movimentos`
 - `import_type` com o tipo de importação activo
 - `document_ids` com a lista de IDs seleccionados
-- `documents` com um JSON que contém todas as colunas de cada linha existente na tabela `accounting_imports` (incluindo, quando presente, o conteúdo estruturado de `line_items`). Cada entrada inclui ainda `file_attachment` com metadados (`path`, `filename`, `size`, `mime_type`) e o conteúdo em Base64 (`content_base64`) do ficheiro PDF associado ao documento.
+- `documents` com um JSON que contém todas as colunas de cada linha existente na tabela `accounting_imports` (incluindo, quando presente, o conteúdo estruturado de `line_items`).
 
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).
