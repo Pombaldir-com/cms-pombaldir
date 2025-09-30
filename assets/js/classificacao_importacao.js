@@ -385,6 +385,7 @@ window.addEventListener('load', function() {
         var info = rateInputs[rate];
         if (!info || !info.row || !info.base) {
             return;
+
         }
         var originalEntry = originalRateValues[rate];
         var restoreBtn = info.restoreBaseBtn || null;
@@ -405,6 +406,7 @@ window.addEventListener('load', function() {
             }
             return;
         }
+
 
         var currentNormalized = normalizeAmountForComparison(info.base.value);
         if (originalNormalized !== currentNormalized) {
@@ -988,6 +990,7 @@ window.addEventListener('load', function() {
                 }
                 currentRateData[rate].iva = '';
                 currentRateData[rate].iva_value = '';
+
             } else {
                 var baseNumber = parseDecimalValue(info.base.value);
                 var percentage = getRatePercentage(rate);
