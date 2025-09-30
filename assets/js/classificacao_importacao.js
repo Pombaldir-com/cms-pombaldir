@@ -99,12 +99,14 @@ window.addEventListener('load', function() {
     function moveImportButtonToFilter() {
         if (!importCtbButton.length || importType !== 1) {
             showImportButtonWrapper();
+
             return;
         }
 
         var container = table.table().container();
         if (!container) {
             showImportButtonWrapper();
+
             return;
         }
 
@@ -127,6 +129,7 @@ window.addEventListener('load', function() {
         }
 
         hideImportButtonWrapper();
+
     }
 
     function updateImportButtonState() {
