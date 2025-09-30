@@ -288,6 +288,7 @@ window.addEventListener('load', function() {
                     return strict;
                 }
             }
+
         }
         var info = rateInputs[rate];
         if (info) {
