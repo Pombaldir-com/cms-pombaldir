@@ -279,9 +279,16 @@ window.addEventListener('load', function() {
         if (!rate) {
             return null;
         }
-        var direct = parsePercentageValue(rate);
-        if (direct !== null) {
-            return direct;
+        var rateString = String(rate).trim();
+        if (rateString !== '') {
+            var compact = rateString.replace(/\s+/g, '');
+            if (/^[-+]?\d+(?:[.,]\d+)?%?$/.test(compact)) {
+                var strict = parsePercentageValue(rateString);
+                if (strict !== null) {
+                    return strict;
+                }
+            }
+
         }
         var info = rateInputs[rate];
         if (info) {
