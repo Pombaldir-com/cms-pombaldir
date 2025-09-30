@@ -66,6 +66,7 @@ window.addEventListener('load', function() {
     var showLineCostCenter = importType === 1;
     var importCtbButton = null;
     var importCtbWrapper = null;
+
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
@@ -160,20 +161,10 @@ window.addEventListener('load', function() {
             importCtbButton = $('<button type="button" class="btn btn-sm btn-primary me-2" id="importCtbButton">Importar Ctb</button>');
             importCtbButton.on('click', handleImportCtbClick);
         }
-        if (!importCtbWrapper) {
-            importCtbWrapper = $('<div class="dt-import-ctb-wrapper pull-right"></div>');
-            importCtbWrapper.css('margin-right', '0.5rem');
-        }
 
-        if (!importCtbWrapper.parent().length) {
-            paginate.before(importCtbWrapper);
+        if (!importCtbButton.parent().length) {
+            importCtbButton.insertBefore(paginate);
         }
-
-        if (!importCtbButton.parent().is(importCtbWrapper)) {
-            importCtbWrapper.empty().append(importCtbButton);
-        }
-
-        paginate.addClass('pull-right');
         updateImportButtonState();
     }
 
