@@ -64,8 +64,7 @@ window.addEventListener('load', function() {
         importType = 1;
     }
     var showLineCostCenter = importType === 1;
-    var importCtbButton = null;
-    var importCtbWrapper = null;
+    var importCtbButton = $('#importCtbButton');
 
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -85,7 +84,7 @@ window.addEventListener('load', function() {
     });
 
     function updateImportButtonState() {
-        if (!importCtbButton || importType !== 1) {
+        if (!importCtbButton.length || importType !== 1) {
             return;
         }
         if (importCtbButton.data('loading')) {
@@ -97,7 +96,7 @@ window.addEventListener('load', function() {
     }
 
     function handleImportCtbClick() {
-        if (!importCtbButton || importCtbButton.data('loading')) {
+        if (!importCtbButton.length || importCtbButton.data('loading')) {
             return;
         }
         var ids = [];
@@ -138,42 +137,22 @@ window.addEventListener('load', function() {
                 showError(err.message || 'Erro ao importar');
             })
             .finally(function() {
-                if (importCtbButton) {
+                if (importCtbButton.length) {
                     importCtbButton.data('loading', false);
                 }
                 updateImportButtonState();
             });
     }
 
-    function ensureImportButton() {
-        if (importType !== 1) {
-            return;
-        }
-        var wrapper = $('#classify-table_wrapper');
-        if (!wrapper.length) {
-            return;
-        }
-        var paginate = wrapper.find('div.dataTables_paginate');
-        if (!paginate.length) {
-            return;
-        }
-        if (!importCtbButton) {
-            importCtbButton = $('<button type="button" class="btn btn-sm btn-primary me-2" id="importCtbButton">Importar Ctb</button>');
-            importCtbButton.on('click', handleImportCtbClick);
-        }
-
-        if (!importCtbButton.parent().length) {
-            importCtbButton.insertBefore(paginate);
-        }
-        updateImportButtonState();
+    if (importCtbButton.length) {
+        importCtbButton.on('click', handleImportCtbClick);
     }
 
     table.on('draw', function() {
-        ensureImportButton();
         updateImportButtonState();
     });
 
-    ensureImportButton();
+    updateImportButtonState();
 
     function decodeHtmlEntities(value) {
         if (typeof value !== 'string' || value.indexOf('&') === -1) {

@@ -235,6 +235,11 @@ require_once __DIR__ . '/../header.php';
 <input type="hidden" id="import_type" value="<?= htmlspecialchars($importType); ?>">
 <div class="row mb-3">
     <div class="col-12">
+        <?php if ($importType === 1): ?>
+        <div class="d-flex justify-content-end mb-2">
+            <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>Importar Ctb</button>
+        </div>
+        <?php endif; ?>
         <table id="classify-table" class="table table-striped">
             <thead>
                 <tr>
