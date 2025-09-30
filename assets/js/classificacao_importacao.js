@@ -107,7 +107,7 @@ window.addEventListener('load', function() {
         if (!entry || typeof entry !== 'object') {
             return false;
         }
-        var fields = ['iva_account', 'general_account', 'label', 'base', 'iva', 'cost_center', 'value'];
+        var fields = ['iva_account', 'general_account', 'label', 'base', 'iva', 'base_value', 'iva_value', 'cost_center', 'value'];
         for (var i = 0; i < fields.length; i += 1) {
             var field = fields[i];
             if (!Object.prototype.hasOwnProperty.call(entry, field)) {
@@ -184,6 +184,7 @@ window.addEventListener('load', function() {
     var currentCostCenters = {};
     var storedRowRates = {};
     var storedDefaultRates = {};
+    var originalRateValues = {};
     var removedRates = {};
     var dynamicRateCounter = 0;
     var defaultRateLabels = {
@@ -198,7 +199,14 @@ window.addEventListener('load', function() {
         if (!currentRateData[rate] || typeof currentRateData[rate] !== 'object') {
             currentRateData[rate] = {};
         }
-        return currentRateData[rate];
+        var data = currentRateData[rate];
+        if (data.base === undefined && data.base_value !== undefined) {
+            data.base = data.base_value;
+        }
+        if (data.iva === undefined && data.iva_value !== undefined) {
+            data.iva = data.iva_value;
+        }
+        return data;
     }
 
     function parsePercentageValue(value) {
@@ -325,6 +333,7 @@ window.addEventListener('load', function() {
         var rateData = ensureRateData(rate);
         var rawBaseValue = info.base.value;
         rateData.base = rawBaseValue;
+        rateData.base_value = rawBaseValue;
         var baseNumber = parseDecimalValue(rawBaseValue);
         var percentage = getRatePercentage(rate);
         if (rawBaseValue.trim() === '' || baseNumber === null || percentage === null) {
@@ -332,9 +341,11 @@ window.addEventListener('load', function() {
                 info.iva.value = '';
             }
             rateData.iva = '';
+            rateData.iva_value = '';
             if (opts.formatBase && rawBaseValue.trim() === '') {
                 info.base.value = '';
                 rateData.base = '';
+                rateData.base_value = '';
             }
             return;
         }
@@ -344,13 +355,88 @@ window.addEventListener('load', function() {
             info.iva.value = formattedIva;
         }
         rateData.iva = formattedIva;
+        rateData.iva_value = formattedIva;
         if (opts.formatBase && baseNumber !== null) {
             var formattedBase = formatDecimalValue(baseNumber);
             if (info.base.value !== formattedBase) {
                 info.base.value = formattedBase;
             }
             rateData.base = info.base.value;
+            rateData.base_value = info.base.value;
         }
+    }
+
+    function normalizeAmountForComparison(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        var stringValue = String(value).trim();
+        if (stringValue === '') {
+            return '';
+        }
+        var parsed = parseDecimalValue(stringValue);
+        if (parsed === null) {
+            return stringValue;
+        }
+        return formatDecimalValue(parsed);
+    }
+
+    function updateRowDirtyState(rate) {
+        var info = rateInputs[rate];
+        if (!info || !info.row || !info.base) {
+            return;
+        }
+        var originalEntry = originalRateValues[rate];
+        var restoreBtn = info.restoreBaseBtn || null;
+
+        if (!originalEntry) {
+            info.row.classList.remove('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.add('d-none');
+            }
+            return;
+        }
+
+        var originalNormalized = normalizeAmountForComparison(originalEntry.base);
+        if (originalNormalized === '') {
+            info.row.classList.remove('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.add('d-none');
+            }
+            return;
+        }
+
+        var currentNormalized = normalizeAmountForComparison(info.base.value);
+        if (originalNormalized !== currentNormalized) {
+            info.row.classList.add('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.remove('d-none');
+                restoreBtn.disabled = false;
+            }
+        } else {
+            info.row.classList.remove('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.add('d-none');
+            }
+        }
+    }
+
+    function captureOriginalRateValues() {
+        originalRateValues = {};
+        getRateKeys().forEach(function(rate) {
+            var info = rateInputs[rate];
+            if (!info || !info.row) {
+                return;
+            }
+            originalRateValues[rate] = {
+                base: info.base ? info.base.value : '',
+                iva: info.iva ? info.iva.value : ''
+            };
+            info.row.classList.remove('table-warning');
+            if (info.restoreBaseBtn) {
+                info.restoreBaseBtn.classList.add('d-none');
+            }
+        });
     }
 
     function updateDynamicCounter(rate) {
@@ -444,11 +530,15 @@ window.addEventListener('load', function() {
             info.base.removeAttribute('readonly');
             info.base.readOnly = false;
             info.base.addEventListener('input', function() {
-                ensureRateData(rate).base = info.base.value;
+                var rateData = ensureRateData(rate);
+                rateData.base = info.base.value;
+                rateData.base_value = info.base.value;
                 recalculateVatForRate(rate);
+                updateRowDirtyState(rate);
             });
             info.base.addEventListener('blur', function() {
                 recalculateVatForRate(rate, { formatBase: true });
+                updateRowDirtyState(rate);
             });
         }
         if (info.iva) {
@@ -469,6 +559,29 @@ window.addEventListener('load', function() {
         if (info.labelText && info.labelText.textContent.trim() === '') {
             info.labelText.textContent = getDefaultRateLabel(rate);
         }
+        if (info.restoreBaseBtn) {
+            info.restoreBaseBtn.addEventListener('click', function() {
+                var original = originalRateValues[rate] || {};
+                var originalBase = original.base !== undefined ? String(original.base) : '';
+                var originalIva = original.iva !== undefined ? String(original.iva) : '';
+                if (info.base && info.base.value !== originalBase) {
+                    info.base.value = originalBase;
+                }
+                if (info.iva && info.iva.value !== originalIva) {
+                    info.iva.value = originalIva;
+                }
+                var rateData = ensureRateData(rate);
+                rateData.base = info.base ? info.base.value : '';
+                rateData.base_value = rateData.base;
+                rateData.iva = info.iva ? info.iva.value : '';
+                rateData.iva_value = rateData.iva;
+                updateRowDirtyState(rate);
+                if (info.base) {
+                    info.base.focus();
+                    info.base.select();
+                }
+            });
+        }
         return info;
     }
 
@@ -482,6 +595,9 @@ window.addEventListener('load', function() {
         }
         delete rateInputs[rate];
         delete currentCostCenters[rate];
+        if (Object.prototype.hasOwnProperty.call(originalRateValues, rate)) {
+            delete originalRateValues[rate];
+        }
         if (defaultRates.indexOf(rate) === -1 || !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
             delete currentRateData[rate];
         }
@@ -769,9 +885,25 @@ window.addEventListener('load', function() {
         if (!currentRateData[rate]) {
             return false;
         }
-        var base = currentRateData[rate].base !== undefined ? String(currentRateData[rate].base).trim() : '';
-        var iva = currentRateData[rate].iva !== undefined ? String(currentRateData[rate].iva).trim() : '';
-        return base !== '' || iva !== '';
+        var baseAmount = getEntryAmount(currentRateData[rate], 'base');
+        var ivaAmount = getEntryAmount(currentRateData[rate], 'iva');
+        var baseString = baseAmount !== null && baseAmount !== undefined ? String(baseAmount).trim() : '';
+        var ivaString = ivaAmount !== null && ivaAmount !== undefined ? String(ivaAmount).trim() : '';
+        return baseString !== '' || ivaString !== '';
+    }
+
+    function getEntryAmount(entry, field) {
+        if (!entry || typeof entry !== 'object') {
+            return null;
+        }
+        if (Object.prototype.hasOwnProperty.call(entry, field)) {
+            return entry[field];
+        }
+        var altField = field === 'base' ? 'base_value' : 'iva_value';
+        if (Object.prototype.hasOwnProperty.call(entry, altField)) {
+            return entry[altField];
+        }
+        return null;
     }
 
     function populateRateRow(rate) {
@@ -779,17 +911,28 @@ window.addEventListener('load', function() {
         if (!info) {
             return;
         }
-        if (!currentRateData[rate]) {
-            currentRateData[rate] = {};
-        }
-        var baseData = currentRateData[rate];
+        var baseData = ensureRateData(rate);
         var rowData = storedRowRates[rate] || {};
         var defaultData = storedDefaultRates[rate] || {};
+        var resolvedBase = getEntryAmount(baseData, 'base');
+        if (resolvedBase === null) {
+            resolvedBase = getEntryAmount(rowData, 'base');
+        }
+        if (resolvedBase === null) {
+            resolvedBase = getEntryAmount(defaultData, 'base');
+        }
         if (info.base) {
-            info.base.value = baseData.base || '';
+            info.base.value = resolvedBase !== null ? String(resolvedBase) : '';
+        }
+        var resolvedIva = getEntryAmount(baseData, 'iva');
+        if (resolvedIva === null) {
+            resolvedIva = getEntryAmount(rowData, 'iva');
+        }
+        if (resolvedIva === null) {
+            resolvedIva = getEntryAmount(defaultData, 'iva');
         }
         if (info.iva) {
-            info.iva.value = baseData.iva || '';
+            info.iva.value = resolvedIva !== null ? String(resolvedIva) : '';
         }
         var ivaAccount = rowData.iva_account || baseData.iva_account || defaultData.iva_account || '';
         var generalAccount = rowData.general_account || baseData.general_account || defaultData.general_account || '';
@@ -824,9 +967,11 @@ window.addEventListener('load', function() {
         }
         if (info.base) {
             currentRateData[rate].base = info.base.value;
+            currentRateData[rate].base_value = info.base.value;
         }
         if (info.iva) {
             currentRateData[rate].iva = info.iva.value;
+            currentRateData[rate].iva_value = info.iva.value;
         }
         if (info.costCenter) {
             var storedValue = Object.prototype.hasOwnProperty.call(currentCostCenters, rate) ? currentCostCenters[rate] : '';
@@ -835,12 +980,27 @@ window.addEventListener('load', function() {
             }
         }
         if (info.base && info.iva) {
-            var hasBaseValue = info.base.value && info.base.value.trim() !== '';
-            var hasIvaValue = info.iva.value && info.iva.value.trim() !== '';
-            if (hasBaseValue && !hasIvaValue) {
-                recalculateVatForRate(rate);
+            var baseValue = info.base.value !== undefined ? String(info.base.value).trim() : '';
+            if (baseValue === '') {
+                if (info.iva.value !== '') {
+                    info.iva.value = '';
+                }
+                currentRateData[rate].iva = '';
+                currentRateData[rate].iva_value = '';
+            } else {
+                var baseNumber = parseDecimalValue(info.base.value);
+                var percentage = getRatePercentage(rate);
+                if (baseNumber !== null && percentage !== null) {
+                    var expectedIva = formatDecimalValue(baseNumber * (percentage / 100));
+                    if (info.iva.value !== expectedIva) {
+                        info.iva.value = expectedIva;
+                    }
+                    currentRateData[rate].iva = expectedIva;
+                    currentRateData[rate].iva_value = expectedIva;
+                }
             }
         }
+        updateRowDirtyState(rate);
     }
 
     function focusRateInput(info) {
@@ -894,6 +1054,7 @@ window.addEventListener('load', function() {
         rateInputs = {};
         dynamicRateCounter = 0;
         removedRates = {};
+        originalRateValues = {};
     }
 
     function restoreSavedRates() {
@@ -985,6 +1146,13 @@ window.addEventListener('load', function() {
             if (!currentRateData[rate] || typeof currentRateData[rate] !== 'object') {
                 currentRateData[rate] = {};
             }
+            var entry = currentRateData[rate];
+            if (entry.base_value === undefined && entry.base !== undefined) {
+                entry.base_value = entry.base;
+            }
+            if (entry.iva_value === undefined && entry.iva !== undefined) {
+                entry.iva_value = entry.iva;
+            }
         });
         defaultRates.forEach(function(rate) {
             if (!currentRateData[rate]) {
@@ -1004,6 +1172,7 @@ window.addEventListener('load', function() {
         getRateKeys().forEach(function(rate) {
             populateRateRow(rate);
         });
+        captureOriginalRateValues();
 
         var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
@@ -1044,11 +1213,15 @@ window.addEventListener('load', function() {
                         if (rowData.label && !currentRateData[rate].label) {
                             currentRateData[rate].label = rowData.label;
                         }
-                        if (rowData.base && !currentRateData[rate].base) {
-                            currentRateData[rate].base = rowData.base;
+                        var rowBase = getEntryAmount(rowData, 'base');
+                        if (rowBase !== null && rowBase !== undefined) {
+                            currentRateData[rate].base = String(rowBase);
+                            currentRateData[rate].base_value = String(rowBase);
                         }
-                        if (rowData.iva && !currentRateData[rate].iva) {
-                            currentRateData[rate].iva = rowData.iva;
+                        var rowIva = getEntryAmount(rowData, 'iva');
+                        if (rowIva !== null && rowIva !== undefined) {
+                            currentRateData[rate].iva = String(rowIva);
+                            currentRateData[rate].iva_value = String(rowIva);
                         }
                     }
                 });
@@ -1087,6 +1260,7 @@ window.addEventListener('load', function() {
                 getRateKeys().forEach(function(rate) {
                     populateRateRow(rate);
                 });
+                captureOriginalRateValues();
                 currentCostCenters = getCostCenterValues();
 
                 if (restored.length > 0) {
@@ -1108,13 +1282,24 @@ window.addEventListener('load', function() {
                 return;
             }
 
+            getRateKeys().forEach(function(rate) {
+                recalculateVatForRate(rate, { formatBase: true });
+                updateRowDirtyState(rate);
+            });
+
             var ratesPayload = {};
             getRateKeys().forEach(function(rate) {
                 var info = rateInputs[rate];
+                var baseValue = info.base ? String(info.base.value || '').trim() : '';
+                var ivaValue = info.iva ? String(info.iva.value || '').trim() : '';
                 ratesPayload[rate] = {
                     iva_account: info.ivaAccount ? info.ivaAccount.value.trim() : '',
                     general_account: info.generalAccount ? info.generalAccount.value.trim() : '',
-                    label: getRateLabel(rate)
+                    label: getRateLabel(rate),
+                    base: baseValue,
+                    iva: ivaValue,
+                    base_value: baseValue,
+                    iva_value: ivaValue
                 };
             });
 
@@ -1166,6 +1351,16 @@ window.addEventListener('load', function() {
                         if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
+                        var savedBase = getEntryAmount(rowData, 'base');
+                        if (savedBase !== null && savedBase !== undefined) {
+                            currentRateData[rate].base = String(savedBase);
+                            currentRateData[rate].base_value = String(savedBase);
+                        }
+                        var savedIva = getEntryAmount(rowData, 'iva');
+                        if (savedIva !== null && savedIva !== undefined) {
+                            currentRateData[rate].iva = String(savedIva);
+                            currentRateData[rate].iva_value = String(savedIva);
+                        }
                         if (rateInputs[rate]) {
                             populateRateRow(rate);
                         }
@@ -1180,12 +1375,16 @@ window.addEventListener('load', function() {
                             currentRateData[rate] = {};
                         }
                         currentRateData[rate].base = info.base ? info.base.value : '';
+                        currentRateData[rate].base_value = currentRateData[rate].base;
                         currentRateData[rate].iva = info.iva ? info.iva.value : '';
+                        currentRateData[rate].iva_value = currentRateData[rate].iva;
                         currentRateData[rate].iva_account = ratesPayload[rate] ? ratesPayload[rate].iva_account : '';
                         currentRateData[rate].general_account = ratesPayload[rate] ? ratesPayload[rate].general_account : '';
                         currentRateData[rate].label = getRateLabel(rate);
                     });
                 }
+
+                captureOriginalRateValues();
 
                 removedPayload.forEach(function(rate) {
                     delete currentRateData[rate];
