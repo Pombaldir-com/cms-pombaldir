@@ -68,11 +68,25 @@ window.addEventListener('load', function() {
         erpWebserviceUrl = window.erpWebserviceUrl;
     }
 
+    var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
+
     function buildImportCtbUrl() {
         if (typeof erpWebserviceUrl === 'string' && erpWebserviceUrl.trim() !== '') {
-            return erpWebserviceUrl.replace(/\/+$/, '') + '/ctb/import-ctb';
+            try {
+                var parsedUrl = new URL(erpWebserviceUrl, window.location.href);
+                if (parsedUrl.origin === window.location.origin) {
+                    return parsedUrl.href.replace(/\/+$/, '') + '/ctb/import-ctb';
+                }
+                if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
+                    window.console.warn('[Classificação] ERP webservice URL com origem diferente detectada. A usar endpoint local para evitar problemas de CORS.');
+                }
+            } catch (urlError) {
+                if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
+                    window.console.warn('[Classificação] ERP webservice URL inválida. A usar endpoint local.', urlError);
+                }
+            }
         }
-        return '';
+        return importCtbRelativeUrl;
     }
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
