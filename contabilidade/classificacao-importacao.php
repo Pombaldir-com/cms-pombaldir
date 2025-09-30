@@ -236,7 +236,7 @@ require_once __DIR__ . '/../header.php';
 <div class="row mb-3">
     <div class="col-12">
         <?php if ($importType === 1): ?>
-        <div class="d-flex justify-content-end mb-2">
+        <div id="importCtbButtonWrapper" class="d-none">
             <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>Importar Ctb</button>
         </div>
         <?php endif; ?>
