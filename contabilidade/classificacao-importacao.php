@@ -13,6 +13,58 @@ $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 
+function buildDocumentFileAttachment(string $relativePath): ?array {
+    $trimmedPath = trim($relativePath);
+    if ($trimmedPath === '') {
+        return null;
+    }
+
+    $relativePath = ltrim($trimmedPath, '/');
+    $projectRoot = dirname(__DIR__);
+    $absolutePath = realpath($projectRoot . '/' . $relativePath);
+
+    if ($absolutePath === false || !is_file($absolutePath) || !is_readable($absolutePath)) {
+        logErpMessage('Ficheiro associado ao documento CTB não encontrado ou inacessível: ' . $trimmedPath);
+        return null;
+    }
+
+    $uploadsDir = realpath($projectRoot . '/uploads');
+    if ($uploadsDir !== false && strpos($absolutePath, $uploadsDir) !== 0) {
+        logErpMessage('Ficheiro CTB fora do diretório permitido: ' . $trimmedPath);
+        return null;
+    }
+
+    $content = file_get_contents($absolutePath);
+    if ($content === false) {
+        logErpMessage('Falha ao ler ficheiro CTB: ' . $trimmedPath);
+        return null;
+    }
+
+    $size = filesize($absolutePath);
+    if ($size === false) {
+        $size = strlen($content);
+    }
+
+    $mimeType = 'application/pdf';
+    if (class_exists(finfo::class)) {
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        if ($finfo !== false) {
+            $detected = $finfo->file($absolutePath);
+            if (is_string($detected) && $detected !== '') {
+                $mimeType = $detected;
+            }
+        }
+    }
+
+    return [
+        'path' => $relativePath,
+        'filename' => basename($absolutePath),
+        'size' => $size,
+        'mime_type' => $mimeType,
+        'content_base64' => base64_encode($content),
+    ];
+}
+
 function import_CTB(PDO $pdo, array $ids, int $importType): array {
     $result = [
         'success' => false,
@@ -81,6 +133,14 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
             }
         }
 
+        if (isset($document['filename'])) {
+            $attachment = buildDocumentFileAttachment((string) $document['filename']);
+            if ($attachment !== null) {
+                $document['file_attachment'] = $attachment;
+            }
+        }
+
+
         return $document;
     }, $documents);
 
@@ -92,7 +152,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
     }
 
     $postPayload = [
-        'act' => 'importMovim',
+        'act' => 'importMovim'
     ];
 
     $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
