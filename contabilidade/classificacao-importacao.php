@@ -56,7 +56,13 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         $headers[] = 'X-API-KEY: ' . $token;
     }
 
-    $postFields = http_build_query(['tp' => 'importMovim'], '', '&', PHP_QUERY_RFC3986);
+    $postPayload = [
+        'tp' => 'importMovim',
+        'act' => 'movimentos',
+        'accao' => 'movimentos',
+    ];
+
+    $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
 
     curl_setopt_array($handle, [
         CURLOPT_POST => true,
@@ -119,8 +125,59 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         return $result;
     }
 
+    $decodedResponse = json_decode((string) $response, true);
+    if (json_last_error() === JSON_ERROR_NONE && is_array($decodedResponse)) {
+        $result['decoded'] = $decodedResponse;
+
+        $webserviceSuccess = null;
+        if (array_key_exists('success', $decodedResponse)) {
+            $webserviceSuccess = filter_var($decodedResponse['success'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($webserviceSuccess === null && is_numeric($decodedResponse['success'])) {
+                $webserviceSuccess = (int) $decodedResponse['success'] === 1;
+            }
+        }
+
+        if ($webserviceSuccess === false) {
+            $errorDetail = '';
+            $errorFields = ['errormsg', 'error', 'mensagem', 'message'];
+            foreach ($errorFields as $errorField) {
+                if (isset($decodedResponse[$errorField]) && trim((string) $decodedResponse[$errorField]) !== '') {
+                    $errorDetail = trim((string) $decodedResponse[$errorField]);
+                    break;
+                }
+            }
+
+            if ($errorDetail !== '') {
+                $result['error'] = $errorDetail;
+            } else {
+                $result['error'] = 'O webservice de contabilidade devolveu um erro ao importar os movimentos.';
+            }
+
+            if (isset($decodedResponse['logmsg'])) {
+                $result['log'] = $decodedResponse['logmsg'];
+            }
+
+            $logDetail = $errorDetail !== '' ? (' Detalhe: ' . $errorDetail) : '';
+            logErpMessage('Webservice CTB devolveu sucesso=0 ao importar movimentos.' . $endpointInfo . $logDetail);
+
+            $result['success'] = false;
+            return $result;
+        }
+
+        if ($webserviceSuccess === true) {
+            $result['success'] = true;
+        }
+
+        if (isset($decodedResponse['logmsg'])) {
+            $result['log'] = $decodedResponse['logmsg'];
+        }
+    }
+
+    if (empty($result['success'])) {
+        $result['success'] = true;
+    }
+
     logErpMessage('Pedido de importação CTB enviado com sucesso. HTTP ' . $status . '. IDs: ' . implode(', ', $ids));
-    $result['success'] = true;
 
     return $result;
 }
@@ -224,6 +281,14 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (array_key_exists('response', $serviceResult)) {
         $responsePayload['service_response'] = $serviceResult['response'];
+    }
+
+    if (array_key_exists('decoded', $serviceResult)) {
+        $responsePayload['service_payload'] = $serviceResult['decoded'];
+    }
+
+    if (array_key_exists('log', $serviceResult)) {
+        $responsePayload['log'] = $serviceResult['log'];
     }
 
     if (!empty($serviceResult['success'])) {
