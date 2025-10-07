@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1b1b1f" />
+      <stop offset="50%" stop-color="#2b1039" />
+      <stop offset="100%" stop-color="#40180f" />
+    </linearGradient>
+    <radialGradient id="spotlight" cx="50%" cy="0%" r="70%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.65)" />
+      <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+    </radialGradient>
+    <linearGradient id="strings" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d8d8d8" />
+      <stop offset="100%" stop-color="#8f8f8f" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="600" fill="url(#bgGradient)" />
+  <ellipse cx="600" cy="200" rx="520" ry="320" fill="url(#spotlight)" opacity="0.5" />
+  <g opacity="0.2" fill="#ffffff">
+    <circle cx="160" cy="120" r="6" />
+    <circle cx="260" cy="80" r="5" />
+    <circle cx="860" cy="110" r="7" />
+    <circle cx="960" cy="60" r="4" />
+    <circle cx="1040" cy="140" r="6" />
+    <circle cx="520" cy="70" r="5" />
+    <circle cx="700" cy="40" r="4" />
+  </g>
+  <g opacity="0.12" fill="#fcb045">
+    <circle cx="210" cy="260" r="70" />
+    <circle cx="990" cy="250" r="80" />
+    <circle cx="600" cy="500" r="160" />
+  </g>
+  <g transform="translate(360 140) scale(0.85)">
+    <path fill="#0f0f14" d="M230 420c-26 16-54 22-87 16-46-8-86-33-101-62-9-18-8-33 2-46l38-47-14-21c-8-12-11-25-7-35l9-23c4-10 14-19 26-23l8-3 11-26c4-10 12-18 23-22 21-8 44 1 52 21 5 12 3 25-4 36l-11 17 44 66 27-6c29-6 55 6 61 29 3 11 0 22-7 32l-70 94c-4 6-8 10-11 13z" />
+    <rect x="210" y="168" width="14" height="230" fill="url(#strings)" />
+    <rect x="230" y="160" width="14" height="236" fill="url(#strings)" />
+    <rect x="250" y="150" width="14" height="244" fill="url(#strings)" />
+    <circle cx="258" cy="150" r="28" fill="#0f0f14" />
+    <circle cx="220" cy="166" r="8" fill="#f0f0f0" opacity="0.8" />
+    <circle cx="242" cy="158" r="7" fill="#f0f0f0" opacity="0.8" />
+  </g>
+  <g fill="#ff6f61" opacity="0.65">
+    <polygon points="70,520 170,520 120,400" />
+    <polygon points="1030,520 1130,520 1080,410" />
+  </g>
+  <rect y="520" width="1200" height="80" fill="rgba(0,0,0,0.45)" />
+</svg>

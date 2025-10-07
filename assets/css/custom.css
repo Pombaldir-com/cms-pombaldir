@@ -1188,6 +1188,41 @@
     display: none;
 }
 
+.profile.artist-profile {
+    position: relative;
+    margin: 20px 15px 10px;
+    padding: 22px 18px;
+    border-radius: 14px;
+    background: #1a1a1f url('../images/artist-profile-bg.svg') center/cover no-repeat;
+    box-shadow: 0 18px 32px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+.profile.artist-profile::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(145deg, rgba(10, 10, 14, 0.75), rgba(34, 12, 40, 0.55));
+    mix-blend-mode: multiply;
+}
+
+.profile.artist-profile .profile_info,
+.profile.artist-profile .profile_pic {
+    position: relative;
+    z-index: 1;
+}
+
+.profile.artist-profile .profile_info {
+    width: 100%;
+    float: none;
+    padding: 18px 8px 4px;
+}
+
+.profile.artist-profile .profile_info span,
+.profile.artist-profile .profile_info h2 {
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
+}
+
 .menu_section {
     margin-bottom: 35px;
 }
