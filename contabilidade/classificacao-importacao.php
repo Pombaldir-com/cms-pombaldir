@@ -281,7 +281,8 @@ function prepareImportRow(array $row): array {
     $rawEmitter = (string)($row['field_A'] ?? '');
     $rawEmitterNif = (string)($row['field_C'] ?? '');
     $normalizedEmitterNif = preg_replace('/\D+/', '', $rawEmitterNif);
-    $emitterName = trim($rawEmitter);
+    $emitterRawValue = trim($rawEmitter);
+    $emitterName = $emitterRawValue;
 
     if ($normalizedEmitterNif !== '') {
         static $entityNameCache = [];
@@ -309,6 +310,7 @@ function prepareImportRow(array $row): array {
         $emitterName = $normalizedEmitterNif !== '' ? $normalizedEmitterNif : trim($rawEmitterNif);
     }
 
+    $row['emitter_raw_value'] = $emitterRawValue;
     $row['emitter_display_name'] = $emitterName;
     if ($normalizedEmitterNif !== '') {
         $row['emitter_nif_normalized'] = $normalizedEmitterNif;
@@ -488,8 +490,17 @@ if ($action === 'data') {
 
     $data = [];
     foreach ($rows as $row) {
-        $emitterDisplay = (string)($row['emitter_display_name'] ?? ($row['field_A'] ?? ''));
+        $emitterDisplay = (string)($row['emitter_display_name'] ?? '');
+        $emitterRawValue = (string)($row['emitter_raw_value'] ?? '');
+        if ($emitterDisplay === '') {
+            $emitterDisplay = (string)($row['field_A'] ?? '');
+        }
+        if ($emitterRawValue === '') {
+            $emitterRawValue = (string)($row['field_A'] ?? '');
+        }
         $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
+        $emitterDisplayEscaped = htmlspecialchars($emitterDisplay, ENT_QUOTES, 'UTF-8');
+        $emitterRawEscaped = htmlspecialchars($emitterRawValue, ENT_QUOTES, 'UTF-8');
         $actionsParts = [];
         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
@@ -501,7 +512,8 @@ if ($action === 'data') {
                 . 'data-rates="' . $ratesAttr . '" '
                 . 'data-requirements="' . $requirementsAttr . '" '
                 . 'data-cost-centers="' . $costCentersAttr . '" '
-                . 'data-emitter="' . htmlspecialchars($emitterDisplay) . '" '
+                . 'data-emitter="' . $emitterRawEscaped . '" '
+                . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
                 . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                 . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
@@ -514,7 +526,7 @@ if ($action === 'data') {
         $actions = implode(' ', $actionsParts);
         $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
         $data[] = [
-            htmlspecialchars($emitterDisplay),
+            $emitterDisplayEscaped,
             htmlspecialchars($row['field_B'] ?? ''),
             htmlspecialchars($row['field_C'] ?? ''),
             htmlspecialchars($row['field_D'] ?? ''),
@@ -603,7 +615,14 @@ require_once __DIR__ . '/../header.php';
 
             <?php foreach ($rows as $row): ?>
                 <?php
-                    $emitterDisplay = (string)($row['emitter_display_name'] ?? ($row['field_A'] ?? ''));
+                    $emitterDisplay = (string)($row['emitter_display_name'] ?? '');
+                    $emitterRawValue = (string)($row['emitter_raw_value'] ?? '');
+                    if ($emitterDisplay === '') {
+                        $emitterDisplay = (string)($row['field_A'] ?? '');
+                    }
+                    if ($emitterRawValue === '') {
+                        $emitterRawValue = (string)($row['field_A'] ?? '');
+                    }
                     $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
                 ?>
                 <tr>
@@ -636,20 +655,19 @@ require_once __DIR__ . '/../header.php';
                     <td class="text-center">
 
                         <?php if ($importType === 1): ?>
-                        <button
-                            type="button"
-                            class="btn btn-xs <?= $btnClass; ?> classify-row"
-                            data-id="<?= (int)$row['id']; ?>"
-                            data-rates="<?= $ratesAttr; ?>"
-                            data-requirements="<?= $requirementsAttr; ?>"
-                            data-cost-centers="<?= $costCentersAttr; ?>"
-
-
-                            data-emitter="<?= htmlspecialchars($emitterDisplay); ?>"
-                            data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
-                            data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
-                            data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
-                            data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
+                            <button
+                                type="button"
+                                class="btn btn-xs <?= $btnClass; ?> classify-row"
+                                data-id="<?= (int)$row['id']; ?>"
+                                data-rates="<?= $ratesAttr; ?>"
+                                data-requirements="<?= $requirementsAttr; ?>"
+                                data-cost-centers="<?= $costCentersAttr; ?>"
+                                data-emitter="<?= htmlspecialchars($emitterRawValue); ?>"
+                                data-emitter-display="<?= htmlspecialchars($emitterDisplay); ?>"
+                                data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
+                                data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
+                                data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
+                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <?php endif; ?>
 
                         <?php if ($importType === 2): ?>

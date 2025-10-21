@@ -787,10 +787,11 @@ window.addEventListener('load', function() {
         if (!btn) {
             return null;
         }
+        var emitterKey = btn.getAttribute('data-emitter') || btn.getAttribute('data-emitter-display') || '';
         var parts = [
             importType,
             btn.getAttribute('data-id') || '',
-            btn.getAttribute('data-emitter') || '',
+            emitterKey,
             btn.getAttribute('data-acquirer') || '',
             btn.getAttribute('data-doctype') || ''
         ];
@@ -1648,7 +1649,8 @@ window.addEventListener('load', function() {
         var btn = this;
         currentBtn = btn;
         currentOriginalRatesKey = buildOriginalRatesStorageKey(btn);
-        var emitter = btn.getAttribute('data-emitter') || '';
+        var emitterRaw = btn.getAttribute('data-emitter') || '';
+        var emitterDisplay = btn.getAttribute('data-emitter-display') || '';
         var emitterNif = btn.getAttribute('data-emitter-nif') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
@@ -1657,8 +1659,12 @@ window.addEventListener('load', function() {
         if (modalTitleEl) {
             var baseTitle = defaultModalTitle || 'Classificar';
             var docPart = docNumber.trim();
-            var emitterPart = emitter.trim();
+            var emitterPart = emitterDisplay.trim();
+            var emitterRawPart = emitterRaw.trim();
             var emitterNifPart = emitterNif.trim();
+            if (!emitterPart && emitterRawPart) {
+                emitterPart = emitterRawPart;
+            }
             if (!emitterPart && emitterNifPart) {
                 emitterPart = emitterNifPart;
             }
