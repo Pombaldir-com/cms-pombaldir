@@ -84,6 +84,11 @@ window.addEventListener('load', function() {
         erpWebserviceUrl = window.erpWebserviceUrl;
     }
 
+    var erpWebserviceToken = '';
+    if (typeof window.erpWebserviceToken === 'string') {
+        erpWebserviceToken = window.erpWebserviceToken.trim();
+    }
+
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
     var remoteImportPath = '/contabilidade/movimentos';
 
@@ -249,8 +254,12 @@ window.addEventListener('load', function() {
                 }
             });
             requestOptions.headers = {
+                'Accept': 'application/json',
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
             };
+            if (erpWebserviceToken !== '') {
+                requestOptions.headers['X-API-KEY'] = erpWebserviceToken;
+            }
             requestOptions.body = params.toString();
         } else {
             requestOptions.headers = {
