@@ -104,8 +104,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
 
     $token = trim((string) getSetting('erp_token', ''));
     if ($token !== '') {
-        $headers[] = 'Authorization: Bearer ' . $token;
-        $headers[] = 'X-Api-Key: ' . $token;
+        $headers[] = 'X-API-KEY: ' . $token;
     }
 
     $placeholders = implode(', ', array_fill(0, count($ids), '?'));
