@@ -12,6 +12,7 @@ $pdo = getPDO();
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
+$currentErpToken = trim((string) getSetting('erp_token', ''));
 
 function buildDocumentFileAttachment(string $relativePath): ?array {
     $trimmedPath = trim($relativePath);
