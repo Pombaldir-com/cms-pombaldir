@@ -276,6 +276,44 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
 }
 
 function prepareImportRow(array $row): array {
+    global $pdo;
+
+    $rawEmitter = (string)($row['field_A'] ?? '');
+    $rawEmitterNif = (string)($row['field_C'] ?? '');
+    $normalizedEmitterNif = preg_replace('/\D+/', '', $rawEmitterNif);
+    $emitterName = trim($rawEmitter);
+
+    if ($normalizedEmitterNif !== '') {
+        static $entityNameCache = [];
+        if (!array_key_exists($normalizedEmitterNif, $entityNameCache)) {
+            $cachedName = null;
+            if (isset($pdo) && $pdo instanceof PDO && function_exists('findAccountingEntity')) {
+                $entity = findAccountingEntity($pdo, $normalizedEmitterNif);
+                if (is_array($entity)) {
+                    $candidate = trim((string)($entity['name'] ?? ''));
+                    if ($candidate !== '') {
+                        $cachedName = $candidate;
+                    }
+                }
+            }
+            $entityNameCache[$normalizedEmitterNif] = $cachedName;
+        }
+
+        $cachedName = $entityNameCache[$normalizedEmitterNif];
+        if (is_string($cachedName) && $cachedName !== '') {
+            $emitterName = $cachedName;
+        }
+    }
+
+    if ($emitterName === '') {
+        $emitterName = $normalizedEmitterNif !== '' ? $normalizedEmitterNif : trim($rawEmitterNif);
+    }
+
+    $row['emitter_display_name'] = $emitterName;
+    if ($normalizedEmitterNif !== '') {
+        $row['emitter_nif_normalized'] = $normalizedEmitterNif;
+    }
+
     $accounts = normalizeAccountingAccounts($row['account'] ?? '');
     $summaries = computeImportRateSummaries($row);
     [$payload, $requirements] = buildRatePayload($summaries, $accounts);
@@ -450,6 +488,8 @@ if ($action === 'data') {
 
     $data = [];
     foreach ($rows as $row) {
+        $emitterDisplay = (string)($row['emitter_display_name'] ?? ($row['field_A'] ?? ''));
+        $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
         $actionsParts = [];
         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
@@ -461,8 +501,8 @@ if ($action === 'data') {
                 . 'data-rates="' . $ratesAttr . '" '
                 . 'data-requirements="' . $requirementsAttr . '" '
                 . 'data-cost-centers="' . $costCentersAttr . '" '
-                . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
-                . 'data-emitter-nif="' . htmlspecialchars($row['field_C'] ?? '') . '" '
+                . 'data-emitter="' . htmlspecialchars($emitterDisplay) . '" '
+                . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                 . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
@@ -474,7 +514,7 @@ if ($action === 'data') {
         $actions = implode(' ', $actionsParts);
         $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
         $data[] = [
-            htmlspecialchars($row['field_A'] ?? ''),
+            htmlspecialchars($emitterDisplay),
             htmlspecialchars($row['field_B'] ?? ''),
             htmlspecialchars($row['field_C'] ?? ''),
             htmlspecialchars($row['field_D'] ?? ''),
@@ -562,8 +602,12 @@ require_once __DIR__ . '/../header.php';
             <tbody>
 
             <?php foreach ($rows as $row): ?>
+                <?php
+                    $emitterDisplay = (string)($row['emitter_display_name'] ?? ($row['field_A'] ?? ''));
+                    $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
+                ?>
                 <tr>
-                    <td class="text-start"><?= htmlspecialchars($row['field_A'] ?? ''); ?></td>
+                    <td class="text-start"><?= htmlspecialchars($emitterDisplay); ?></td>
                     <td class="text-start"><?= htmlspecialchars($row['field_B'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_C'] ?? ''); ?></td>
                     <td class="text-middle"><?= htmlspecialchars($row['field_D'] ?? ''); ?></td>
@@ -601,8 +645,8 @@ require_once __DIR__ . '/../header.php';
                             data-cost-centers="<?= $costCentersAttr; ?>"
 
 
-                            data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
-                            data-emitter-nif="<?= htmlspecialchars($row['field_C'] ?? ''); ?>"
+                            data-emitter="<?= htmlspecialchars($emitterDisplay); ?>"
+                            data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                             data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                             data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                             data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
