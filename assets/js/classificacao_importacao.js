@@ -1,4 +1,19 @@
 window.addEventListener('load', function() {
+    function triggerPNotify(options) {
+        if (!window.PNotify) {
+            return false;
+        }
+        if (typeof window.PNotify.alert === 'function') {
+            window.PNotify.alert(options);
+            return true;
+        }
+        if (typeof window.PNotify === 'function') {
+            window.PNotify(options);
+            return true;
+        }
+        return false;
+    }
+
     function showError(message) {
         if (window.Swal && typeof window.Swal.fire === 'function') {
             window.Swal.fire({
@@ -8,16 +23,15 @@ window.addEventListener('load', function() {
             });
             return;
         }
-        if (window.PNotify) {
-            new PNotify({
-                title: 'Erro',
-                text: message,
-                type: 'error',
-                styling: 'bootstrap3'
-            });
-        } else {
-            alert(message);
+        if (triggerPNotify({
+            title: 'Erro',
+            text: message,
+            type: 'error',
+            styling: 'bootstrap3'
+        })) {
+            return;
         }
+        alert(message);
     }
 
     function showSuccess(message) {
@@ -29,16 +43,15 @@ window.addEventListener('load', function() {
             });
             return;
         }
-        if (window.PNotify) {
-            new PNotify({
-                title: 'Sucesso',
-                text: message,
-                type: 'success',
-                styling: 'bootstrap3'
-            });
-        } else {
-            alert(message);
+        if (triggerPNotify({
+            title: 'Sucesso',
+            text: message,
+            type: 'success',
+            styling: 'bootstrap3'
+        })) {
+            return;
         }
+        alert(message);
     }
 
     function fetchJson(url, options) {
