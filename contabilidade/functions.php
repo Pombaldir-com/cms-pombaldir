@@ -398,7 +398,7 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
     $headers = ['Accept: application/json'];
     if ($token !== null && $token !== '') {
         $headers[] = 'Authorization: Bearer ' . $token;
-        $headers[] = 'X-API-KEY: ' . $token;
+        $headers[] = 'X-Api-Key: ' . $token;
     }
 
     $handle = curl_init($endpoint);
