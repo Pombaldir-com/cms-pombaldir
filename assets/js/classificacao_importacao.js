@@ -456,6 +456,22 @@ window.addEventListener('load', function() {
     var originalRateValues = {};
     var removedRates = {};
     var dynamicRateCounter = 0;
+    var originalRatesStoragePrefix = 'classificationOriginalRates:v1:';
+    var currentOriginalRatesKey = null;
+    var canUseOriginalRatesStorage = (function() {
+        try {
+            var storage = window.localStorage;
+            if (!storage) {
+                return false;
+            }
+            var testKey = originalRatesStoragePrefix + 'test';
+            storage.setItem(testKey, '1');
+            storage.removeItem(testKey);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    })();
     var defaultRateLabels = {
         '0': '0%',
         '6': '6%',
@@ -659,10 +675,20 @@ window.addEventListener('load', function() {
         var originalEntry = originalRateValues[rate];
         var restoreBtn = info.restoreBaseBtn || null;
 
-        if (!originalEntry) {
-            info.row.classList.remove('table-warning');
+        if (info.custom) {
+            info.row.classList.add('table-warning');
             if (restoreBtn) {
-                restoreBtn.classList.add('d-none');
+                restoreBtn.classList.remove('d-none');
+                restoreBtn.disabled = false;
+            }
+            return;
+        }
+
+        if (!originalEntry) {
+            info.row.classList.add('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.remove('d-none');
+                restoreBtn.disabled = false;
             }
             return;
         }
@@ -692,22 +718,115 @@ window.addEventListener('load', function() {
         }
     }
 
-    function captureOriginalRateValues() {
-        originalRateValues = {};
+    function encodeOriginalRatesKeyPart(value) {
+        return encodeURIComponent(String(value === undefined || value === null ? '' : value));
+    }
+
+    function buildOriginalRatesStorageKey(btn) {
+        if (!btn) {
+            return null;
+        }
+        var parts = [
+            importType,
+            btn.getAttribute('data-id') || '',
+            btn.getAttribute('data-emitter') || '',
+            btn.getAttribute('data-acquirer') || '',
+            btn.getAttribute('data-doctype') || ''
+        ];
+        return originalRatesStoragePrefix + parts.map(encodeOriginalRatesKeyPart).join('|');
+    }
+
+    function loadStoredOriginalRates(key) {
+        if (!canUseOriginalRatesStorage || !key) {
+            return null;
+        }
+        try {
+            var raw = window.localStorage.getItem(key);
+            if (!raw) {
+                return null;
+            }
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                return parsed;
+            }
+        } catch (err) {
+            return null;
+        }
+        return null;
+    }
+
+    function persistOriginalRates(key, values) {
+        if (!canUseOriginalRatesStorage || !key) {
+            return;
+        }
+        try {
+            window.localStorage.setItem(key, JSON.stringify(values || {}));
+        } catch (err) {
+            // Ignore persistence errors to avoid disrupting the workflow
+        }
+    }
+
+    function buildOriginalRatesFromInputs() {
+        var result = {};
         getRateKeys().forEach(function(rate) {
             var info = rateInputs[rate];
-            if (!info || !info.row) {
+            if (!info) {
                 return;
             }
-            originalRateValues[rate] = {
-                base: info.base ? info.base.value : '',
-                iva: info.iva ? info.iva.value : ''
-            };
-            info.row.classList.remove('table-warning');
-            if (info.restoreBaseBtn) {
-                info.restoreBaseBtn.classList.add('d-none');
+            if (info.custom) {
+                return;
             }
+            result[rate] = {
+                base: info.base ? String(info.base.value || '') : '',
+                iva: info.iva ? String(info.iva.value || '') : ''
+            };
         });
+        return result;
+    }
+
+    function refreshAllDirtyStates() {
+        getRateKeys().forEach(function(rate) {
+            updateRowDirtyState(rate);
+        });
+    }
+
+    function captureOriginalRateValues(options) {
+        var opts = options || {};
+        if (opts.initialize === true) {
+            var stored = loadStoredOriginalRates(currentOriginalRatesKey);
+            if (stored) {
+                originalRateValues = stored;
+            } else if (opts.allowCreate !== false) {
+                originalRateValues = buildOriginalRatesFromInputs();
+                persistOriginalRates(currentOriginalRatesKey, originalRateValues);
+            } else {
+                originalRateValues = originalRateValues || {};
+            }
+            if (opts.refresh !== false) {
+                refreshAllDirtyStates();
+            }
+            return;
+        }
+
+        originalRateValues = buildOriginalRatesFromInputs();
+        if (opts.persist !== false) {
+            persistOriginalRates(currentOriginalRatesKey, originalRateValues);
+        }
+
+        if (opts.resetHighlights === true) {
+            getRateKeys().forEach(function(rate) {
+                var info = rateInputs[rate];
+                if (!info || !info.row) {
+                    return;
+                }
+                info.row.classList.remove('table-warning');
+                if (info.restoreBaseBtn) {
+                    info.restoreBaseBtn.classList.add('d-none');
+                }
+            });
+        } else if (opts.refresh !== false) {
+            refreshAllDirtyStates();
+        }
     }
 
     function updateDynamicCounter(rate) {
@@ -836,6 +955,11 @@ window.addEventListener('load', function() {
                 var original = originalRateValues[rate] || {};
                 var originalBase = original.base !== undefined ? String(original.base) : '';
                 var originalIva = original.iva !== undefined ? String(original.iva) : '';
+                if (!Object.prototype.hasOwnProperty.call(originalRateValues, rate) && info.custom) {
+                    removeRateRow(rate);
+                    refreshAllDirtyStates();
+                    return;
+                }
                 if (info.base && info.base.value !== originalBase) {
                     info.base.value = originalBase;
                 }
@@ -854,6 +978,7 @@ window.addEventListener('load', function() {
                 }
             });
         }
+        updateRowDirtyState(rate);
         return info;
     }
 
@@ -1397,6 +1522,8 @@ window.addEventListener('load', function() {
         });
         classifyModalEl.addEventListener('hidden.bs.modal', function() {
             table.ajax.reload(null, false);
+            currentBtn = null;
+            currentOriginalRatesKey = null;
         });
     }
 
@@ -1416,6 +1543,7 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
         currentBtn = btn;
+        currentOriginalRatesKey = buildOriginalRatesStorageKey(btn);
         var emitter = btn.getAttribute('data-emitter') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
@@ -1461,7 +1589,7 @@ window.addEventListener('load', function() {
         getRateKeys().forEach(function(rate) {
             populateRateRow(rate);
         });
-        captureOriginalRateValues();
+        captureOriginalRateValues({ initialize: true, refresh: false, allowCreate: false });
 
         var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
@@ -1553,7 +1681,7 @@ window.addEventListener('load', function() {
                 getRateKeys().forEach(function(rate) {
                     populateRateRow(rate);
                 });
-                captureOriginalRateValues();
+                captureOriginalRateValues({ initialize: true });
                 currentCostCenters = getCostCenterValues();
 
                 if (restored.length > 0) {
@@ -1677,7 +1805,7 @@ window.addEventListener('load', function() {
                     });
                 }
 
-                captureOriginalRateValues();
+                refreshAllDirtyStates();
 
                 removedPayload.forEach(function(rate) {
                     delete currentRateData[rate];
