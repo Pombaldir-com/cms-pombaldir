@@ -343,7 +343,7 @@ function prepareImportRow(array $row): array {
 if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
-    $_POST['act'] = 'import-ctb';
+    $_POST['act'] = 'importMovim';
 
     $rawBody = file_get_contents('php://input');
     $payload = json_decode($rawBody ?? '', true);
@@ -414,16 +414,39 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $responsePayload['service_response'] = $serviceResult['response'];
     }
 
+    $servicePayload = null;
     if (array_key_exists('decoded', $serviceResult)) {
-        $responsePayload['service_payload'] = $serviceResult['decoded'];
+        $servicePayload = $serviceResult['decoded'];
+        $responsePayload['service_payload'] = $servicePayload;
     }
 
     if (array_key_exists('log', $serviceResult)) {
         $responsePayload['log'] = $serviceResult['log'];
     }
 
+    $successMessage = '';
+    if (is_array($servicePayload)) {
+        $messageKeys = ['mensagem', 'message', 'msg', 'mensagem_erro'];
+        foreach ($messageKeys as $messageKey) {
+            if (isset($servicePayload[$messageKey])) {
+                $candidate = trim((string) $servicePayload[$messageKey]);
+                if ($candidate !== '') {
+                    $successMessage = $candidate;
+                    break;
+                }
+            }
+        }
+    } elseif (is_string($servicePayload)) {
+        $trimmed = trim($servicePayload);
+        if ($trimmed !== '') {
+            $successMessage = $trimmed;
+        }
+    }
+
     if (!empty($serviceResult['success'])) {
-        $responsePayload['message'] = 'OK';
+        $responsePayload['message'] = $successMessage !== '' ? $successMessage : 'OK';
+    } elseif ($successMessage !== '') {
+        $responsePayload['message'] = $successMessage;
     }
 
     echo json_encode($responsePayload);

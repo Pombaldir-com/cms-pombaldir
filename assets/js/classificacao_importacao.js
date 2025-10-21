@@ -69,17 +69,13 @@ window.addEventListener('load', function() {
     }
 
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
+    var remoteImportPath = '/contabilidade/movimentos';
 
     function buildImportCtbUrl() {
         if (typeof erpWebserviceUrl === 'string' && erpWebserviceUrl.trim() !== '') {
             try {
                 var parsedUrl = new URL(erpWebserviceUrl, window.location.href);
-                if (parsedUrl.origin === window.location.origin) {
-                    return parsedUrl.href.replace(/\/+$/, '') + '/ctb/import-ctb';
-                }
-                if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
-                    window.console.warn('[Classificação] ERP webservice URL com origem diferente detectada. A usar endpoint local para evitar problemas de CORS.');
-                }
+                return parsedUrl.href.replace(/\/+$/, '') + remoteImportPath;
             } catch (urlError) {
                 if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
                     window.console.warn('[Classificação] ERP webservice URL inválida. A usar endpoint local.', urlError);
@@ -207,7 +203,7 @@ window.addEventListener('load', function() {
             ids: ids,
             import_type: importType,
             csrf_token: csrfInput ? csrfInput.value : '',
-            act: 'import-ctb'
+            act: 'importMovim'
         };
         debugJson('Import CTB request payload', payload);
         var importUrl = buildImportCtbUrl();
@@ -220,25 +216,100 @@ window.addEventListener('load', function() {
             updateImportButtonState();
             return;
         }
-        fetchJson(importUrl, {
+        var isRemoteImport = /^https?:/i.test(importUrl);
+        var requestOptions = {
+            method: 'POST'
+        };
+        if (isRemoteImport) {
+            var params = new URLSearchParams();
+            Object.keys(payload).forEach(function(key) {
+                var value = payload[key];
+                if (Array.isArray(value)) {
+                    value.forEach(function(item) {
+                        params.append(key + '[]', item);
+                    });
+                } else if (typeof value !== 'undefined' && value !== null) {
+                    params.append(key, value);
+                }
+            });
+            requestOptions.headers = {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            };
+            requestOptions.body = params.toString();
+        } else {
+            requestOptions.headers = {
+                'Content-Type': 'application/json'
+            };
+            requestOptions.body = JSON.stringify(payload);
+        }
 
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
+        fetchJson(importUrl, requestOptions)
             .then(function(res) {
                 debugJson('Import CTB response payload', res);
                 if (res && res.csrf_token && csrfInput) {
                     csrfInput.value = res.csrf_token;
                 }
                 if (!res || !res.success) {
-                    var error = (res && res.error) ? res.error : 'Erro ao importar';
+                    var error = 'Erro ao importar';
+                    if (res) {
+                        var errorFields = ['error', 'mensagem', 'message', 'msg'];
+                        for (var eIndex = 0; eIndex < errorFields.length; eIndex += 1) {
+                            var errorField = errorFields[eIndex];
+                            if (Object.prototype.hasOwnProperty.call(res, errorField)) {
+                                var errorCandidate = res[errorField];
+                                if (typeof errorCandidate === 'string' && errorCandidate.trim() !== '') {
+                                    error = errorCandidate.trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     throw new Error(error);
                 }
                 if (res && res.service_response) {
                     debugJson('Import CTB service response', res.service_response);
                 }
-                var message = (res && res.message) ? res.message : 'OK';
+                var message = 'OK';
+                if (res) {
+                    if (res.service_payload) {
+                        var payloadMessage = '';
+                        if (typeof res.service_payload === 'string') {
+                            payloadMessage = res.service_payload;
+                        } else if (typeof res.service_payload === 'object') {
+                            var messageFields = ['mensagem', 'message', 'msg', 'mensagem_erro'];
+                            for (var i = 0; i < messageFields.length; i += 1) {
+                                var field = messageFields[i];
+                                if (Object.prototype.hasOwnProperty.call(res.service_payload, field)) {
+                                    var candidate = res.service_payload[field];
+                                    if (typeof candidate === 'string' && candidate.trim() !== '') {
+                                        payloadMessage = candidate.trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (payloadMessage) {
+                            message = payloadMessage;
+                        }
+                    }
+                    if (message === 'OK') {
+                        if (typeof res.message === 'string' && res.message.trim() !== '') {
+                            message = res.message.trim();
+                        } else {
+                            var topLevelFields = ['mensagem', 'msg'];
+                            for (var j = 0; j < topLevelFields.length; j += 1) {
+                                var topField = topLevelFields[j];
+                                if (Object.prototype.hasOwnProperty.call(res, topField)) {
+                                    var topCandidate = res[topField];
+                                    if (typeof topCandidate === 'string' && topCandidate.trim() !== '') {
+                                        message = topCandidate.trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 showSuccess(message);
                 if (typeof window.console !== 'undefined') {
                     console.log('[Classificação] Import CTB concluído. HTTP:', res.http_status, 'IDs:', ids);
