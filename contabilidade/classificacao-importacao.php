@@ -462,6 +462,8 @@ if ($action === 'data') {
                 . 'data-requirements="' . $requirementsAttr . '" '
                 . 'data-cost-centers="' . $costCentersAttr . '" '
                 . 'data-emitter="' . htmlspecialchars($row['field_A'] ?? '') . '" '
+                . 'data-emitter-nif="' . htmlspecialchars($row['field_C'] ?? '') . '" '
+                . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                 . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                 . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
         }
@@ -600,6 +602,8 @@ require_once __DIR__ . '/../header.php';
 
 
                             data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
+                            data-emitter-nif="<?= htmlspecialchars($row['field_C'] ?? ''); ?>"
+                            data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                             data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                             data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
                         <?php endif; ?>
