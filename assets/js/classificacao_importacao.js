@@ -444,6 +444,10 @@ window.addEventListener('load', function() {
     var classifyModalEl = document.getElementById('classifyModal');
     var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
     var modalTitleEl = document.getElementById('classifyModalLabel');
+    var defaultModalTitle = '';
+    if (modalTitleEl) {
+        defaultModalTitle = (modalTitleEl.textContent || '').trim();
+    }
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
@@ -1396,6 +1400,9 @@ window.addEventListener('load', function() {
             }
         });
         classifyModalEl.addEventListener('hidden.bs.modal', function() {
+            if (modalTitleEl) {
+                modalTitleEl.textContent = defaultModalTitle || 'Classificar';
+            }
             table.ajax.reload(null, false);
         });
     }
@@ -1417,8 +1424,28 @@ window.addEventListener('load', function() {
         var btn = this;
         currentBtn = btn;
         var emitter = btn.getAttribute('data-emitter') || '';
+        var emitterNif = btn.getAttribute('data-emitter-nif') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
+        var docNumber = btn.getAttribute('data-doc-number') || '';
+
+        if (modalTitleEl) {
+            var baseTitle = defaultModalTitle || 'Classificar';
+            var docPart = docNumber.trim();
+            var emitterPart = emitter.trim();
+            var emitterNifPart = emitterNif.trim();
+            if (!emitterPart && emitterNifPart) {
+                emitterPart = emitterNifPart;
+            }
+            var titleParts = [baseTitle];
+            if (docPart) {
+                titleParts.push('Doc. ' + docPart);
+            }
+            if (emitterPart) {
+                titleParts.push(emitterPart);
+            }
+            modalTitleEl.textContent = titleParts.join(' - ');
+        }
 
         resetRateRows();
         storedRowRates = {};
