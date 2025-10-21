@@ -454,6 +454,7 @@ window.addEventListener('load', function() {
     var storedRowRates = {};
     var storedDefaultRates = {};
     var originalRateValues = {};
+    var serverOriginalRates = {};
     var removedRates = {};
     var dynamicRateCounter = 0;
     var defaultRateLabels = {
@@ -650,6 +651,62 @@ window.addEventListener('load', function() {
         return formatDecimalValue(parsed);
     }
 
+    function normalizeServerOriginalRates(source) {
+        var result = {};
+        if (!source || typeof source !== 'object') {
+            return result;
+        }
+        Object.keys(source).forEach(function(rate) {
+            var entry = source[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var base = '';
+            if (entry.base !== undefined && entry.base !== null) {
+                base = String(entry.base);
+            } else if (entry.base_value !== undefined && entry.base_value !== null) {
+                base = String(entry.base_value);
+            }
+            var iva = '';
+            if (entry.iva !== undefined && entry.iva !== null) {
+                iva = String(entry.iva);
+            } else if (entry.iva_value !== undefined && entry.iva_value !== null) {
+                iva = String(entry.iva_value);
+            }
+            result[String(rate)] = {
+                base: base,
+                iva: iva
+            };
+        });
+        return result;
+    }
+
+    function cloneOriginalRates(source) {
+        var clone = {};
+        if (!source || typeof source !== 'object') {
+            return clone;
+        }
+        Object.keys(source).forEach(function(rate) {
+            var entry = source[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var base = '';
+            if (entry.base !== undefined && entry.base !== null) {
+                base = String(entry.base);
+            }
+            var iva = '';
+            if (entry.iva !== undefined && entry.iva !== null) {
+                iva = String(entry.iva);
+            }
+            clone[String(rate)] = {
+                base: base,
+                iva: iva
+            };
+        });
+        return clone;
+    }
+
     function updateRowDirtyState(rate) {
         var info = rateInputs[rate];
         if (!info || !info.row || !info.base) {
@@ -659,10 +716,20 @@ window.addEventListener('load', function() {
         var originalEntry = originalRateValues[rate];
         var restoreBtn = info.restoreBaseBtn || null;
 
-        if (!originalEntry) {
-            info.row.classList.remove('table-warning');
+        if (info.custom) {
+            info.row.classList.add('table-warning');
             if (restoreBtn) {
-                restoreBtn.classList.add('d-none');
+                restoreBtn.classList.remove('d-none');
+                restoreBtn.disabled = false;
+            }
+            return;
+        }
+
+        if (!originalEntry) {
+            info.row.classList.add('table-warning');
+            if (restoreBtn) {
+                restoreBtn.classList.remove('d-none');
+                restoreBtn.disabled = false;
             }
             return;
         }
@@ -692,22 +759,64 @@ window.addEventListener('load', function() {
         }
     }
 
-    function captureOriginalRateValues() {
-        originalRateValues = {};
+    function buildOriginalRatesFromInputs() {
+        var result = {};
         getRateKeys().forEach(function(rate) {
             var info = rateInputs[rate];
-            if (!info || !info.row) {
+            if (!info) {
                 return;
             }
-            originalRateValues[rate] = {
-                base: info.base ? info.base.value : '',
-                iva: info.iva ? info.iva.value : ''
-            };
-            info.row.classList.remove('table-warning');
-            if (info.restoreBaseBtn) {
-                info.restoreBaseBtn.classList.add('d-none');
+            if (info.custom) {
+                return;
             }
+            result[rate] = {
+                base: info.base ? String(info.base.value || '') : '',
+                iva: info.iva ? String(info.iva.value || '') : ''
+            };
         });
+        return result;
+    }
+
+    function refreshAllDirtyStates() {
+        getRateKeys().forEach(function(rate) {
+            updateRowDirtyState(rate);
+        });
+    }
+
+    function captureOriginalRateValues(options) {
+        var opts = options || {};
+        if (opts.initialize === true) {
+            if (serverOriginalRates && typeof serverOriginalRates === 'object' && Object.keys(serverOriginalRates).length > 0) {
+                originalRateValues = cloneOriginalRates(serverOriginalRates);
+            } else if (opts.allowCreate !== false) {
+                originalRateValues = buildOriginalRatesFromInputs();
+                serverOriginalRates = cloneOriginalRates(originalRateValues);
+            } else if (!originalRateValues || typeof originalRateValues !== 'object') {
+                originalRateValues = {};
+            }
+            if (opts.refresh !== false) {
+                refreshAllDirtyStates();
+            }
+            return;
+        }
+
+        originalRateValues = buildOriginalRatesFromInputs();
+        serverOriginalRates = cloneOriginalRates(originalRateValues);
+
+        if (opts.resetHighlights === true) {
+            getRateKeys().forEach(function(rate) {
+                var info = rateInputs[rate];
+                if (!info || !info.row) {
+                    return;
+                }
+                info.row.classList.remove('table-warning');
+                if (info.restoreBaseBtn) {
+                    info.restoreBaseBtn.classList.add('d-none');
+                }
+            });
+        } else if (opts.refresh !== false) {
+            refreshAllDirtyStates();
+        }
     }
 
     function updateDynamicCounter(rate) {
@@ -836,6 +945,11 @@ window.addEventListener('load', function() {
                 var original = originalRateValues[rate] || {};
                 var originalBase = original.base !== undefined ? String(original.base) : '';
                 var originalIva = original.iva !== undefined ? String(original.iva) : '';
+                if (!Object.prototype.hasOwnProperty.call(originalRateValues, rate) && info.custom) {
+                    removeRateRow(rate);
+                    refreshAllDirtyStates();
+                    return;
+                }
                 if (info.base && info.base.value !== originalBase) {
                     info.base.value = originalBase;
                 }
@@ -854,6 +968,7 @@ window.addEventListener('load', function() {
                 }
             });
         }
+        updateRowDirtyState(rate);
         return info;
     }
 
@@ -869,6 +984,9 @@ window.addEventListener('load', function() {
         delete currentCostCenters[rate];
         if (Object.prototype.hasOwnProperty.call(originalRateValues, rate)) {
             delete originalRateValues[rate];
+        }
+        if (Object.prototype.hasOwnProperty.call(serverOriginalRates, rate)) {
+            delete serverOriginalRates[rate];
         }
         if (defaultRates.indexOf(rate) === -1 || !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
             delete currentRateData[rate];
@@ -1343,6 +1461,7 @@ window.addEventListener('load', function() {
         dynamicRateCounter = 0;
         removedRates = {};
         originalRateValues = {};
+        serverOriginalRates = {};
     }
 
     function restoreSavedRates() {
@@ -1397,6 +1516,9 @@ window.addEventListener('load', function() {
         });
         classifyModalEl.addEventListener('hidden.bs.modal', function() {
             table.ajax.reload(null, false);
+            currentBtn = null;
+            serverOriginalRates = {};
+            originalRateValues = {};
         });
     }
 
@@ -1461,7 +1583,7 @@ window.addEventListener('load', function() {
         getRateKeys().forEach(function(rate) {
             populateRateRow(rate);
         });
-        captureOriginalRateValues();
+        captureOriginalRateValues({ initialize: true, refresh: false, allowCreate: false });
 
         var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
@@ -1488,6 +1610,7 @@ window.addEventListener('load', function() {
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
                 removedRates = {};
+                serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
 
                 Object.keys(storedRowRates).forEach(function(rate) {
                     if (!currentRateData[rate]) {
@@ -1553,7 +1676,7 @@ window.addEventListener('load', function() {
                 getRateKeys().forEach(function(rate) {
                     populateRateRow(rate);
                 });
-                captureOriginalRateValues();
+                captureOriginalRateValues({ initialize: true });
                 currentCostCenters = getCostCenterValues();
 
                 if (restored.length > 0) {
@@ -1608,6 +1731,7 @@ window.addEventListener('load', function() {
                 D: currentBtn.getAttribute('data-doctype') || '',
                 rates: JSON.stringify(ratesPayload),
                 removed_rates: JSON.stringify(removedPayload),
+                original_rates: JSON.stringify(originalRateValues),
                 cost_centers: JSON.stringify(costCentersPayload),
                 csrf_token: csrfInput.value
             });
@@ -1677,7 +1801,13 @@ window.addEventListener('load', function() {
                     });
                 }
 
-                captureOriginalRateValues();
+                if (res.original_rates && typeof res.original_rates === 'object') {
+                    serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
+                } else {
+                    serverOriginalRates = cloneOriginalRates(originalRateValues);
+                }
+
+                captureOriginalRateValues({ initialize: true });
 
                 removedPayload.forEach(function(rate) {
                     delete currentRateData[rate];
