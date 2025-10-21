@@ -526,7 +526,9 @@ require_once __DIR__ . '/../header.php';
 
 
         <div id="importCtbButtonWrapper" class="d-none">
-            <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>Importar Ctb</button>
+            <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>
+                <i class="fa fa-cloud-upload"></i> Importar Ctb
+            </button>
         </div>
         <?php endif; ?>
         <table id="classify-table" class="table table-striped">
