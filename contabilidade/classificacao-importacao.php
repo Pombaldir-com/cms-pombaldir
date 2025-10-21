@@ -455,133 +455,157 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'data') {
-    $columns = [
-        'id',
-        'account',
-        'cost_center',
-        'field_A',
-        'field_B',
-        'field_C',
-        'field_D',
-        'field_E',
-        'field_F',
-        'field_G',
-        'field_H',
-        'field_I1',
-        'field_I3',
-        'field_I4',
-        'field_I5',
-        'field_I6',
-        'field_I7',
-        'field_I8',
-        'field_N',
-        'field_O',
-        'field_Q',
-        'field_R',
-        'filename',
-        'line_items'
-    ];
-
     $draw = (int)($_GET['draw'] ?? 0);
-    $start = (int)($_GET['start'] ?? 0);
-    $length = (int)($_GET['length'] ?? 10);
-    if ($length <= 0) {
-        $length = 10;
-    }
-
-    $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType';
-    $countStmt = $pdo->prepare($countSql);
-    $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
-    $countStmt->execute();
-    $totalCount = (int)$countStmt->fetchColumn();
-    $filteredCount = $totalCount;
-
-    $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-    $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
-    $stmt = $pdo->prepare($sql);
-    $stmt->bindValue(':start', $start, PDO::PARAM_INT);
-    $stmt->bindValue(':length', $length, PDO::PARAM_INT);
-    $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rows as &$row) {
-        $row = prepareImportRow($row);
-    }
-    unset($row);
-
-    $data = [];
-    foreach ($rows as $row) {
-        $emitterDisplay = (string)($row['emitter_display_name'] ?? '');
-        $emitterRawValue = (string)($row['emitter_raw_value'] ?? '');
-        if ($emitterDisplay === '') {
-            $emitterDisplay = (string)($row['field_A'] ?? '');
-        }
-        if ($emitterRawValue === '') {
-            $emitterRawValue = (string)($row['field_A'] ?? '');
-        }
-        $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
-        $emitterDisplayEscaped = htmlspecialchars($emitterDisplay, ENT_QUOTES, 'UTF-8');
-        $emitterRawEscaped = htmlspecialchars($emitterRawValue, ENT_QUOTES, 'UTF-8');
-        $actionsParts = [];
-        $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-        $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-        $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
-
-        if ($importType === 1) {
-            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
-                . 'data-id="' . (int)$row['id'] . '" '
-                . 'data-rates="' . $ratesAttr . '" '
-                . 'data-requirements="' . $requirementsAttr . '" '
-                . 'data-cost-centers="' . $costCentersAttr . '" '
-                . 'data-emitter="' . $emitterRawEscaped . '" '
-                . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
-                . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
-                . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
-                . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
-                . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
-        }
-        if ($importType === 2) {
-            $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="' . (int)$row['id'] . '">Analisar</button>';
-        }
-        $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
-        $actions = implode(' ', $actionsParts);
-        $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
-        $data[] = [
-            $emitterDisplayEscaped,
-            htmlspecialchars($row['field_B'] ?? ''),
-            htmlspecialchars($row['field_C'] ?? ''),
-            htmlspecialchars($row['field_D'] ?? ''),
-            htmlspecialchars($row['field_E'] ?? ''),
-            htmlspecialchars($row['field_F'] ?? ''),
-            htmlspecialchars($row['field_G'] ?? ''),
-            htmlspecialchars($row['field_H'] ?? ''),
-            htmlspecialchars($row['field_I1'] ?? ''),
-            htmlspecialchars($row['field_I3'] ?? ''),
-            htmlspecialchars($row['field_I4'] ?? ''),
-            htmlspecialchars($row['field_I5'] ?? ''),
-            htmlspecialchars($row['field_I6'] ?? ''),
-            htmlspecialchars($row['field_I7'] ?? ''),
-            htmlspecialchars($row['field_I8'] ?? ''),
-            htmlspecialchars($row['field_N'] ?? ''),
-            htmlspecialchars($row['field_O'] ?? ''),
-            htmlspecialchars($row['field_Q'] ?? ''),
-            htmlspecialchars($row['field_R'] ?? ''),
-            $pdfLink,
-            $actions
-        ];
-    }
-
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode([
-        'draw' => $draw,
-        'recordsTotal' => $totalCount,
-        'recordsFiltered' => $filteredCount,
-        'data' => $data,
-    ], JSON_UNESCAPED_UNICODE);
+
+    try {
+        $columns = [
+            'id',
+            'account',
+            'cost_center',
+            'field_A',
+            'field_B',
+            'field_C',
+            'field_D',
+            'field_E',
+            'field_F',
+            'field_G',
+            'field_H',
+            'field_I1',
+            'field_I3',
+            'field_I4',
+            'field_I5',
+            'field_I6',
+            'field_I7',
+            'field_I8',
+            'field_N',
+            'field_O',
+            'field_Q',
+            'field_R',
+            'filename',
+            'line_items'
+        ];
+
+        $start = (int)($_GET['start'] ?? 0);
+        $length = (int)($_GET['length'] ?? 10);
+        if ($length <= 0) {
+            $length = 10;
+        }
+
+        $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType';
+        $countStmt = $pdo->prepare($countSql);
+        $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+        $countStmt->execute();
+        $totalCount = (int)$countStmt->fetchColumn();
+        $filteredCount = $totalCount;
+
+        $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
+        $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':start', $start, PDO::PARAM_INT);
+        $stmt->bindValue(':length', $length, PDO::PARAM_INT);
+        $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($rows as &$row) {
+            $row = prepareImportRow($row);
+        }
+        unset($row);
+
+        $data = [];
+        foreach ($rows as $row) {
+            $emitterDisplay = (string)($row['emitter_display_name'] ?? '');
+            $emitterRawValue = (string)($row['emitter_raw_value'] ?? '');
+            if ($emitterDisplay === '') {
+                $emitterDisplay = (string)($row['field_A'] ?? '');
+            }
+            if ($emitterRawValue === '') {
+                $emitterRawValue = (string)($row['field_A'] ?? '');
+            }
+            $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
+            $emitterDisplayEscaped = htmlspecialchars($emitterDisplay, ENT_QUOTES, 'UTF-8');
+            $emitterRawEscaped = htmlspecialchars($emitterRawValue, ENT_QUOTES, 'UTF-8');
+            $actionsParts = [];
+            $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+            $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+            $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+
+            if ($importType === 1) {
+                $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
+                    . 'data-id="' . (int)$row['id'] . '" '
+                    . 'data-rates="' . $ratesAttr . '" '
+                    . 'data-requirements="' . $requirementsAttr . '" '
+                    . 'data-cost-centers="' . $costCentersAttr . '" '
+                    . 'data-emitter="' . $emitterRawEscaped . '" '
+                    . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
+                    . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
+                    . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
+                    . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
+                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
+            }
+            if ($importType === 2) {
+                $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="'
+                    . (int)$row['id'] . '">Analisar</button>';
+            }
+            $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
+            $actions = implode(' ', $actionsParts);
+            $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
+            $data[] = [
+                $emitterDisplayEscaped,
+                htmlspecialchars($row['field_B'] ?? ''),
+                htmlspecialchars($row['field_C'] ?? ''),
+                htmlspecialchars($row['field_D'] ?? ''),
+                htmlspecialchars($row['field_E'] ?? ''),
+                htmlspecialchars($row['field_F'] ?? ''),
+                htmlspecialchars($row['field_G'] ?? ''),
+                htmlspecialchars($row['field_H'] ?? ''),
+                htmlspecialchars($row['field_I1'] ?? ''),
+                htmlspecialchars($row['field_I3'] ?? ''),
+                htmlspecialchars($row['field_I4'] ?? ''),
+                htmlspecialchars($row['field_I5'] ?? ''),
+                htmlspecialchars($row['field_I6'] ?? ''),
+                htmlspecialchars($row['field_I7'] ?? ''),
+                htmlspecialchars($row['field_I8'] ?? ''),
+                htmlspecialchars($row['field_N'] ?? ''),
+                htmlspecialchars($row['field_O'] ?? ''),
+                htmlspecialchars($row['field_Q'] ?? ''),
+                htmlspecialchars($row['field_R'] ?? ''),
+                $pdfLink,
+                $actions
+            ];
+        }
+
+        echo json_encode([
+            'draw' => $draw,
+            'recordsTotal' => $totalCount,
+            'recordsFiltered' => $filteredCount,
+            'data' => $data,
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $throwable) {
+        http_response_code(500);
+        $errorMessage = 'Não foi possível carregar os dados de classificação.';
+        if (function_exists('logErpMessage')) {
+            logErpMessage('Erro ao obter dados de classificação: ' . $throwable->getMessage());
+        }
+
+        $response = [
+            'draw' => $draw,
+            'recordsTotal' => 0,
+            'recordsFiltered' => 0,
+            'data' => [],
+            'error' => $errorMessage,
+        ];
+
+        $detail = trim($throwable->getMessage());
+        if ($detail !== '') {
+            $response['error_detail'] = $detail;
+        }
+
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    }
     exit;
 }
-
 $stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type');
 $stmt->execute([':type' => $importType]);
 

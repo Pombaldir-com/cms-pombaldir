@@ -112,9 +112,54 @@ window.addEventListener('load', function() {
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
-        ajax: {
-            url: 'contabilidade/classificacao-importacao/data',
-            data: function(d) { d.import_type = importType; }
+        ajax: function(requestData, callback) {
+            var draw = requestData && typeof requestData.draw !== 'undefined' ? requestData.draw : 0;
+            var payload = $.extend(true, {}, requestData || {});
+            payload.import_type = importType;
+            var queryString = $.param(payload);
+
+            fetchJson('contabilidade/classificacao-importacao/data?' + queryString)
+                .then(function(json) {
+                    if (!json || typeof json !== 'object') {
+                        throw new Error('Resposta inválida do servidor');
+                    }
+
+                    if (!Array.isArray(json.data)) {
+                        json.data = [];
+                    }
+                    if (typeof json.recordsTotal !== 'number') {
+                        json.recordsTotal = json.data.length;
+                    }
+                    if (typeof json.recordsFiltered !== 'number') {
+                        json.recordsFiltered = json.recordsTotal;
+                    }
+                    if (typeof json.draw === 'undefined') {
+                        json.draw = draw;
+                    }
+
+                    if (json.error) {
+                        var errorMessage = typeof json.error === 'string' ? json.error : 'Erro ao carregar dados da tabela.';
+                        showError(errorMessage);
+                        if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
+                            window.console.warn('[Classificação] Resposta de listagem com erro', json);
+                        }
+                    }
+
+                    callback(json);
+                })
+                .catch(function(err) {
+                    var message = err && err.message ? err.message : 'Erro ao carregar dados da tabela.';
+                    showError(message);
+                    if (typeof window.console !== 'undefined' && typeof window.console.error === 'function') {
+                        window.console.error('[Classificação] Falha ao carregar dados da listagem', err);
+                    }
+                    callback({
+                        draw: draw,
+                        recordsTotal: 0,
+                        recordsFiltered: 0,
+                        data: []
+                    });
+                });
         },
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
