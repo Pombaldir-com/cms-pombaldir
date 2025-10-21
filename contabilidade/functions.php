@@ -1211,6 +1211,122 @@ function sanitizeAccountInput(array $input): array {
 }
 
 /**
+ * Merge a stored original-rate snapshot with computed document summaries.
+ *
+ * Ensures that every detected VAT rate contains a normalized base/IVA value so
+ * the client can compare against a stable baseline even when the snapshot has
+ * not been persisted yet.
+ *
+ * @param array<string,mixed> $original
+ * @param array<string,array<string,mixed>> $summaries
+ * @return array<string,array<string,string>>
+ */
+function mergeOriginalRateSnapshot(array $original, array $summaries = []): array {
+    $sanitized = sanitizeAccountInput($original);
+
+    foreach ($summaries as $rate => $summary) {
+        $rateKey = (string) $rate;
+        if (!array_key_exists($rateKey, $sanitized)) {
+            $sanitized[$rateKey] = [
+                'iva_account' => '',
+                'general_account' => '',
+                'base' => '',
+                'iva' => '',
+            ];
+        }
+
+        $baseCandidate = null;
+        if (array_key_exists('base', $sanitized[$rateKey]) && $sanitized[$rateKey]['base'] !== '') {
+            $baseCandidate = $sanitized[$rateKey]['base'];
+        }
+        if ($baseCandidate === null || $baseCandidate === '') {
+            if (array_key_exists('base_display', $summary)) {
+                $baseCandidate = extractDecimalAmount($summary['base_display']);
+            }
+            if (($baseCandidate === null || $baseCandidate === '') && array_key_exists('base_value', $summary)) {
+                $baseCandidate = extractDecimalAmount($summary['base_value']);
+            }
+            if ($baseCandidate !== null && $baseCandidate !== '') {
+                $sanitized[$rateKey]['base'] = $baseCandidate;
+            }
+        }
+
+        $ivaCandidate = null;
+        if (array_key_exists('iva', $sanitized[$rateKey]) && $sanitized[$rateKey]['iva'] !== '') {
+            $ivaCandidate = $sanitized[$rateKey]['iva'];
+        }
+        if ($ivaCandidate === null || $ivaCandidate === '') {
+            if (array_key_exists('iva_display', $summary)) {
+                $ivaCandidate = extractDecimalAmount($summary['iva_display']);
+            }
+            if (($ivaCandidate === null || $ivaCandidate === '') && array_key_exists('iva_value', $summary)) {
+                $ivaCandidate = extractDecimalAmount($summary['iva_value']);
+            }
+            if ($ivaCandidate !== null && $ivaCandidate !== '') {
+                $sanitized[$rateKey]['iva'] = $ivaCandidate;
+            }
+        }
+    }
+
+    return $sanitized;
+}
+
+/**
+ * Normalize the original-rate payload submitted by the client.
+ *
+ * @param mixed $payload
+ * @return array<string,array<string,string>>
+ */
+function normalizeOriginalRatesPayload($payload): array {
+    if (!is_array($payload)) {
+        return [];
+    }
+
+    $result = [];
+    foreach ($payload as $rate => $entry) {
+        $rateKey = (string) $rate;
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $base = '';
+        if (array_key_exists('base', $entry)) {
+            $candidate = extractDecimalAmount($entry['base']);
+            if ($candidate !== null) {
+                $base = $candidate;
+            }
+        }
+        if ($base === '' && array_key_exists('base_value', $entry)) {
+            $candidate = extractDecimalAmount($entry['base_value']);
+            if ($candidate !== null) {
+                $base = $candidate;
+            }
+        }
+
+        $iva = '';
+        if (array_key_exists('iva', $entry)) {
+            $candidate = extractDecimalAmount($entry['iva']);
+            if ($candidate !== null) {
+                $iva = $candidate;
+            }
+        }
+        if ($iva === '' && array_key_exists('iva_value', $entry)) {
+            $candidate = extractDecimalAmount($entry['iva_value']);
+            if ($candidate !== null) {
+                $iva = $candidate;
+            }
+        }
+
+        $result[$rateKey] = [
+            'base' => $base,
+            'iva' => $iva,
+        ];
+    }
+
+    return $result;
+}
+
+/**
  * Merge two account configurations, giving precedence to override values.
  *
  * @param array<string,mixed> $base

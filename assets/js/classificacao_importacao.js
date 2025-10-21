@@ -458,6 +458,7 @@ window.addEventListener('load', function() {
     var storedRowRates = {};
     var storedDefaultRates = {};
     var originalRateValues = {};
+    var serverOriginalRates = {};
     var removedRates = {};
     var dynamicRateCounter = 0;
     var originalRatesStoragePrefix = 'classificationOriginalRates:v1:';
@@ -670,6 +671,62 @@ window.addEventListener('load', function() {
         return formatDecimalValue(parsed);
     }
 
+    function normalizeServerOriginalRates(source) {
+        var result = {};
+        if (!source || typeof source !== 'object') {
+            return result;
+        }
+        Object.keys(source).forEach(function(rate) {
+            var entry = source[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var base = '';
+            if (entry.base !== undefined && entry.base !== null) {
+                base = String(entry.base);
+            } else if (entry.base_value !== undefined && entry.base_value !== null) {
+                base = String(entry.base_value);
+            }
+            var iva = '';
+            if (entry.iva !== undefined && entry.iva !== null) {
+                iva = String(entry.iva);
+            } else if (entry.iva_value !== undefined && entry.iva_value !== null) {
+                iva = String(entry.iva_value);
+            }
+            result[String(rate)] = {
+                base: base,
+                iva: iva
+            };
+        });
+        return result;
+    }
+
+    function cloneOriginalRates(source) {
+        var clone = {};
+        if (!source || typeof source !== 'object') {
+            return clone;
+        }
+        Object.keys(source).forEach(function(rate) {
+            var entry = source[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var base = '';
+            if (entry.base !== undefined && entry.base !== null) {
+                base = String(entry.base);
+            }
+            var iva = '';
+            if (entry.iva !== undefined && entry.iva !== null) {
+                iva = String(entry.iva);
+            }
+            clone[String(rate)] = {
+                base: base,
+                iva: iva
+            };
+        });
+        return clone;
+    }
+
     function updateRowDirtyState(rate) {
         var info = rateInputs[rate];
         if (!info || !info.row || !info.base) {
@@ -816,6 +873,42 @@ window.addEventListener('load', function() {
         if (opts.persist !== false) {
             persistOriginalRates(currentOriginalRatesKey, originalRateValues);
         }
+
+        if (opts.resetHighlights === true) {
+            getRateKeys().forEach(function(rate) {
+                var info = rateInputs[rate];
+                if (!info || !info.row) {
+                    return;
+                }
+                info.row.classList.remove('table-warning');
+                if (info.restoreBaseBtn) {
+                    info.restoreBaseBtn.classList.add('d-none');
+                }
+            });
+        } else if (opts.refresh !== false) {
+            refreshAllDirtyStates();
+        }
+    }
+
+    function captureOriginalRateValues(options) {
+        var opts = options || {};
+        if (opts.initialize === true) {
+            if (serverOriginalRates && typeof serverOriginalRates === 'object' && Object.keys(serverOriginalRates).length > 0) {
+                originalRateValues = cloneOriginalRates(serverOriginalRates);
+            } else if (opts.allowCreate !== false) {
+                originalRateValues = buildOriginalRatesFromInputs();
+                serverOriginalRates = cloneOriginalRates(originalRateValues);
+            } else if (!originalRateValues || typeof originalRateValues !== 'object') {
+                originalRateValues = {};
+            }
+            if (opts.refresh !== false) {
+                refreshAllDirtyStates();
+            }
+            return;
+        }
+
+        originalRateValues = buildOriginalRatesFromInputs();
+        serverOriginalRates = cloneOriginalRates(originalRateValues);
 
         if (opts.resetHighlights === true) {
             getRateKeys().forEach(function(rate) {
@@ -998,6 +1091,9 @@ window.addEventListener('load', function() {
         delete currentCostCenters[rate];
         if (Object.prototype.hasOwnProperty.call(originalRateValues, rate)) {
             delete originalRateValues[rate];
+        }
+        if (Object.prototype.hasOwnProperty.call(serverOriginalRates, rate)) {
+            delete serverOriginalRates[rate];
         }
         if (defaultRates.indexOf(rate) === -1 || !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
             delete currentRateData[rate];
@@ -1472,6 +1568,7 @@ window.addEventListener('load', function() {
         dynamicRateCounter = 0;
         removedRates = {};
         originalRateValues = {};
+        serverOriginalRates = {};
     }
 
     function restoreSavedRates() {
@@ -1643,6 +1740,7 @@ window.addEventListener('load', function() {
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
                 removedRates = {};
+                serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
 
                 Object.keys(storedRowRates).forEach(function(rate) {
                     if (!currentRateData[rate]) {
@@ -1763,6 +1861,7 @@ window.addEventListener('load', function() {
                 D: currentBtn.getAttribute('data-doctype') || '',
                 rates: JSON.stringify(ratesPayload),
                 removed_rates: JSON.stringify(removedPayload),
+                original_rates: JSON.stringify(originalRateValues),
                 cost_centers: JSON.stringify(costCentersPayload),
                 csrf_token: csrfInput.value
             });

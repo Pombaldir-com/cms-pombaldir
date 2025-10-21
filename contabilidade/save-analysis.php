@@ -291,12 +291,28 @@ if ($action === 'get') {
 
     $rowAccounts = normalizeAccountingAccounts(null);
     $rowCostCenters = buildEmptyCostCenterMap();
+    $originalSnapshot = [];
+    $summaries = [];
     if ($id !== '') {
-        $stmtRow = $pdo->prepare('SELECT account, cost_center FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
+        $summaries = computeImportRateSummaries($importRow);
+
+        $decodedOriginal = [];
+        if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
+            $candidate = json_decode((string) $importRow['account_original'], true);
+            if (is_array($candidate)) {
+                $decodedOriginal = $candidate;
+            }
+        }
+        $originalSnapshot = mergeOriginalRateSnapshot($decodedOriginal, $summaries);
+    }
+
+    if (empty($originalSnapshot) && !empty($summaries)) {
+        $originalSnapshot = mergeOriginalRateSnapshot([], $summaries);
     }
 
     echo json_encode([
@@ -304,6 +320,7 @@ if ($action === 'get') {
         'row_rates' => $rowAccounts,
         'cost_center' => serializeCostCenters($rowCostCenters),
         'cost_centers' => $rowCostCenters,
+        'original_rates' => $originalSnapshot,
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -335,6 +352,13 @@ if ($action === 'get') {
             $ratesData = [];
         }
         $submittedRates = sanitizeAccountInput($ratesData);
+
+        $originalJson = $_POST['original_rates'] ?? '[]';
+        $originalData = json_decode($originalJson, true);
+        if (!is_array($originalData)) {
+            $originalData = [];
+        }
+        $submittedOriginal = normalizeOriginalRatesPayload($originalData);
 
         $removedJson = $_POST['removed_rates'] ?? '[]';
         $removedRates = json_decode($removedJson, true);
@@ -377,23 +401,56 @@ if ($action === 'get') {
         $stmtExisting->execute([$a, $b, $d]);
         $existingClass = normalizeAccountingAccounts($stmtExisting->fetchColumn() ?: '');
 
-        $stmtRow = $pdo->prepare('SELECT account FROM accounting_imports WHERE id = ?');
+        $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
-        $existingRow = normalizeAccountingAccounts($stmtRow->fetchColumn() ?: '');
+        $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC);
+        if (!$importRow) {
+            throw new RuntimeException('Importação inexistente');
+        }
+        $existingRow = normalizeAccountingAccounts($importRow['account'] ?? '');
+
+        $existingOriginalRaw = [];
+        if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
+            $candidate = json_decode((string) $importRow['account_original'], true);
+            if (is_array($candidate)) {
+                $existingOriginalRaw = $candidate;
+            }
+        }
+        $summaries = computeImportRateSummaries($importRow);
+        $existingOriginal = mergeOriginalRateSnapshot($existingOriginalRaw, $summaries);
 
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
         $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
 
         foreach ($removedRates as $rate) {
             unset($rowAccounts[$rate], $classAccounts[$rate], $costCentersData[$rate]);
+            unset($existingOriginal[$rate]);
+        }
+
+        foreach ($submittedOriginal as $rate => $values) {
+            if (!array_key_exists($rate, $existingOriginal)) {
+                $existingOriginal[$rate] = [
+                    'iva_account' => '',
+                    'general_account' => '',
+                    'base' => '',
+                    'iva' => '',
+                ];
+            }
+            if (array_key_exists('base', $values)) {
+                $existingOriginal[$rate]['base'] = $values['base'];
+            }
+            if (array_key_exists('iva', $values)) {
+                $existingOriginal[$rate]['iva'] = $values['iva'];
+            }
         }
 
         $serializedRow = serializeAccountingAccounts($rowAccounts);
         $serializedClass = serializeAccountingAccounts($classAccounts);
         $serializedCostCenters = serializeCostCenters($costCentersData);
+        $serializedOriginal = serializeAccountingAccounts($existingOriginal);
 
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ? WHERE id = ?');
-        $stmt->execute([$serializedRow, $serializedCostCenters, $id]);
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ?, account_original = ? WHERE id = ?');
+        $stmt->execute([$serializedRow, $serializedCostCenters, $serializedOriginal, $id]);
 
         $stmt2 = $pdo->prepare(
             'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
@@ -407,7 +464,8 @@ if ($action === 'get') {
             'csrf_token' => generateCsrfToken(),
             'row_rates' => $rowAccounts,
             'cost_center' => $serializedCostCenters,
-            'cost_centers' => $costCentersData
+            'cost_centers' => $costCentersData,
+            'original_rates' => $existingOriginal
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {
