@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS accounting_imports (
     field_Q VARCHAR(255) DEFAULT '',
     field_R VARCHAR(255) DEFAULT '',
     account VARCHAR(255) DEFAULT '',
+    account_original LONGTEXT DEFAULT NULL,
     cost_center VARCHAR(255) DEFAULT '',
     line_items LONGTEXT DEFAULT NULL,
     filename VARCHAR(255) DEFAULT '',
