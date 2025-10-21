@@ -1817,7 +1817,7 @@ window.addEventListener('load', function() {
         var params = new URLSearchParams({
             action: 'get',
             id: btn.getAttribute('data-id') || '',
-            A: emitter,
+            A: emitterRaw,
             B: acquirer,
             D: docType,
             csrf_token: csrfInput.value
