@@ -27,9 +27,6 @@ switch (true) {
     case $path === 'definicoes':
         require __DIR__ . '/definicoes.php';
         break;
-    case $path === 'radio-queue':
-        require __DIR__ . '/radio-queue.php';
-        break;
     case preg_match('#^api/([A-Za-z0-9_-]+)$#', $path, $m):
         $_GET['taxonomy_slug'] = $m[1];
         require __DIR__ . '/api.php';
