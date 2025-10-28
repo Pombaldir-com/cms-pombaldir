@@ -60,11 +60,9 @@ $useDropzone   = $useDropzone ?? false;
                 <div class="clearfix"></div>
 
                 <!-- Profile info -->
-                <div class="profile clearfix artist-profile">
-                    <div class="profile_info">
-                        <span>Bem-vindo,</span>
-                        <h2><?php echo htmlspecialchars($user['username']); ?></h2>
-                    </div>
+                <div class="profile_info">
+                    <span>Bem-vindo,</span>
+                    <h2><?php echo htmlspecialchars($user['username']); ?></h2>
                 </div>
                 <br />
 
