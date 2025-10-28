@@ -48,6 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        $radioApiBaseUrl = trim($_POST['radio_api_base_url'] ?? '');
+        $radioNowPlayingUrl = trim($_POST['radio_nowplaying_url'] ?? '');
+        $radioApiKey = trim($_POST['radio_api_key'] ?? '');
+
+        setSetting('radio_api_base_url', $radioApiBaseUrl);
+        setSetting('radio_nowplaying_url', $radioNowPlayingUrl);
+        setSetting('radio_api_key', $radioApiKey);
+
         $generalSaved = true;
     }
     if (isset($_POST['smtp_host'])) {
@@ -133,6 +141,9 @@ $currentModules = getActiveModules();
 $currentComprasSection = getSetting('compras_section', '');
 $currentComprasWarehouse = getSetting('compras_warehouse', '');
 $currentComprasDocumentType = getSetting('compras_document_type', '');
+$currentRadioApiBaseUrl = getSetting('radio_api_base_url', '');
+$currentRadioNowPlayingUrl = getSetting('radio_nowplaying_url', '');
+$currentRadioApiKey = getSetting('radio_api_key', '');
 
 require_once __DIR__ . '/header.php';
 ?>
@@ -200,7 +211,28 @@ require_once __DIR__ . '/header.php';
                         </div>
                     </div>
                 </div>
- 
+
+                <h4 class="mt-4">Integração Rádio</h4>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="radio_api_base_url" class="form-label">Endpoint base da API</label>
+                        <input type="text" class="form-control" id="radio_api_base_url" name="radio_api_base_url" value="<?= htmlspecialchars($currentRadioApiBaseUrl); ?>" placeholder="https://radio.exemplo.com/api">
+                        <small class="text-muted">URL base da API administrativa do servidor de rádio.</small>
+                    </div>
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="radio_nowplaying_url" class="form-label">URL personalizada de Now Playing</label>
+                        <input type="text" class="form-control" id="radio_nowplaying_url" name="radio_nowplaying_url" value="<?= htmlspecialchars($currentRadioNowPlayingUrl); ?>" placeholder="https://radio.exemplo.com/api/nowplaying/1">
+                        <small class="text-muted">Deixe em branco para usar o valor padrão.</small>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="mb-3 col-md-6 col-sm-12">
+                        <label for="radio_api_key" class="form-label">Chave da API</label>
+                        <input type="text" class="form-control" id="radio_api_key" name="radio_api_key" value="<?= htmlspecialchars($currentRadioApiKey); ?>">
+                        <small class="text-muted">Chave usada para autenticar pedidos administrativos (promoção/remoção de faixas).</small>
+                    </div>
+                </div>
+
                 <div class="row">
                     <div class="mb-3 col-md-6 col-sm-12">
                         <button type="submit" class="btn btn-md btn-primary"><i class="fa fa-save"></i> Guardar</button>
