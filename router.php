@@ -173,6 +173,12 @@ switch (true) {
         require __DIR__ . '/contabilidade/save-analysis.php';
         break;
     case in_array($path, [
+        'contabilidade/listDBemp',
+        'contabilidade/listDBemp.php'
+    ], true):
+        require __DIR__ . '/contabilidade/listDBemp.php';
+        break;
+    case in_array($path, [
         'contabilidade/classificacao-importacao/data',
         'contabilidade/classificacao-importacao-data',
         'contabilidade/classificacao-importacao-data.php'

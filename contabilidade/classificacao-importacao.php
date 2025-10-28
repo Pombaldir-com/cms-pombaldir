@@ -390,6 +390,262 @@ function prepareImportRow(array $row): array {
     return $row;
 }
 
+/**
+ * Retrieve unique acquirer entities for the provided import rows.
+ *
+ * @param PDO  $pdo        Active database connection.
+ * @param array $ids       Selected import identifiers.
+ * @param int   $importType Current import type.
+ * @return array<int, array<string, mixed>>
+ */
+function collectAcquirerEntities(PDO $pdo, array $ids, int $importType): array {
+    if (empty($ids)) {
+        return [];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $sql = 'SELECT field_B, field_C FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ')';
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(1, $importType, PDO::PARAM_INT);
+
+    foreach ($ids as $index => $id) {
+        $stmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        return [];
+    }
+
+    $entities = [];
+
+    foreach ($rows as $row) {
+        $fieldB = trim((string)($row['field_B'] ?? ''));
+        $fieldC = trim((string)($row['field_C'] ?? ''));
+
+        $candidateValues = [];
+        if ($fieldC !== '') {
+            $candidateValues[] = $fieldC;
+        }
+        if ($fieldB !== '') {
+            $candidateValues[] = $fieldB;
+        }
+
+        $acquirerNif = '';
+        foreach ($candidateValues as $candidateValue) {
+            $candidateNif = extractVatNumber($candidateValue);
+            if ($candidateNif !== '') {
+                $acquirerNif = $candidateNif;
+                break;
+            }
+        }
+
+        if ($acquirerNif === '') {
+            continue;
+        }
+
+        if (array_key_exists($acquirerNif, $entities)) {
+            continue;
+        }
+
+        $preferredValue = $fieldB !== '' ? $fieldB : ($fieldC !== '' ? $fieldC : $acquirerNif);
+        $displayName = trim($preferredValue);
+        if ($displayName === '') {
+            $displayName = $acquirerNif;
+        }
+
+        $entity = null;
+        try {
+            $entity = ensureAccountingEntity($pdo, $preferredValue);
+        } catch (Throwable $throwable) {
+            logErpMessage('Erro ao garantir adquirente ' . $acquirerNif . ': ' . $throwable->getMessage());
+        }
+
+        if ($entity === null) {
+            try {
+                $entity = findAccountingEntity($pdo, $acquirerNif);
+            } catch (Throwable $throwable) {
+                logErpMessage('Erro ao pesquisar adquirente ' . $acquirerNif . ': ' . $throwable->getMessage());
+            }
+        }
+
+        if ($entity === null) {
+            $entity = [
+                'id' => null,
+                'nif' => $acquirerNif,
+                'name' => $displayName !== '' ? $displayName : 'Cliente ' . $acquirerNif,
+                'erp_database' => '',
+                'entity_type' => 'acquirer',
+                'erp_client_code' => '',
+            ];
+        }
+
+        $entityType = trim((string)($entity['entity_type'] ?? ''));
+        if ($entityType === '') {
+            $entityType = 'acquirer';
+        }
+
+        $entityInfo = [
+            'id' => $entity['id'] ?? null,
+            'nif' => $acquirerNif,
+            'name' => trim((string)($entity['name'] ?? $displayName)) ?: ($displayName !== '' ? $displayName : 'Cliente ' . $acquirerNif),
+            'erp_database' => trim((string)($entity['erp_database'] ?? '')),
+            'entity_type' => $entityType,
+            'erp_client_code' => trim((string)($entity['erp_client_code'] ?? '')),
+            'display_name' => $displayName,
+            'source_value' => $preferredValue,
+        ];
+
+        $entities[$acquirerNif] = $entityInfo;
+    }
+
+    return array_values($entities);
+}
+
+if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $rawBody = file_get_contents('php://input');
+    $payload = json_decode($rawBody ?? '', true);
+
+    $response = [
+        'success' => false,
+        'requires_selection' => false,
+        'entity' => null,
+        'csrf_token' => generateCsrfToken(true),
+    ];
+
+    if (!is_array($payload)) {
+        $response['error'] = 'Pedido inválido';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $csrfToken = (string)($payload['csrf_token'] ?? '');
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        $response['error'] = 'Token CSRF inválido';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $ids = [];
+    foreach ($payload['ids'] ?? [] as $value) {
+        if (is_numeric($value)) {
+            $id = (int)$value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+    }
+    $ids = array_values($ids);
+
+    if (empty($ids)) {
+        $response['error'] = 'Nenhuma linha seleccionada.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $requestedImportType = (int)($payload['import_type'] ?? $importType);
+    if ($requestedImportType <= 0) {
+        $requestedImportType = 1;
+    }
+
+    $mode = strtolower((string)($payload['mode'] ?? 'check'));
+    if ($mode !== 'update') {
+        $mode = 'check';
+    }
+
+    try {
+        $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao obter adquirente para importação CTB: ' . $throwable->getMessage());
+        $response['error'] = 'Não foi possível determinar o adquirente.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (empty($entities)) {
+        $response['success'] = true;
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (count($entities) > 1) {
+        $response['error'] = 'Existe mais do que um adquirente associado às linhas seleccionadas.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $entity = $entities[0];
+    $entityResponse = [
+        'nif' => $entity['nif'],
+        'name' => $entity['name'],
+        'display_name' => $entity['display_name'],
+        'erp_database' => $entity['erp_database'],
+    ];
+
+    if ($mode === 'check') {
+        $response['success'] = true;
+        $response['entity'] = $entityResponse;
+        $response['requires_selection'] = trim((string)$entity['erp_database']) === '';
+        if ($response['requires_selection']) {
+            $response['message'] = 'Selecione a base de dados do adquirente antes de importar.';
+        }
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $selectedDatabase = trim((string)($payload['selected_database'] ?? ''));
+    if ($selectedDatabase === '') {
+        $response['error'] = 'Selecione uma base de dados válida.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $entityType = trim((string)($entity['entity_type'] ?? ''));
+    if ($entityType === '') {
+        $entityType = 'acquirer';
+    }
+
+    $entityName = trim((string)($entity['name'] ?? ''));
+    if ($entityName === '' && ($entity['source_value'] ?? '') !== '') {
+        $entityName = deriveEntityNameFromField((string)$entity['source_value'], $entity['nif']);
+    }
+    if ($entityName === '') {
+        $entityName = 'Cliente ' . $entity['nif'];
+    }
+
+    $saveData = [
+        'nif' => $entity['nif'],
+        'name' => $entityName,
+        'erp_database' => $selectedDatabase,
+        'entity_type' => $entityType,
+        'erp_client_code' => trim((string)($entity['erp_client_code'] ?? '')),
+    ];
+
+    try {
+        saveAccountingEntity($pdo, $saveData);
+        $stored = findAccountingEntity($pdo, $entity['nif']);
+        if (is_array($stored)) {
+            $entityResponse['name'] = trim((string)($stored['name'] ?? $entityName)) ?: $entityName;
+            $entityResponse['erp_database'] = trim((string)($stored['erp_database'] ?? $selectedDatabase)) ?: $selectedDatabase;
+        } else {
+            $entityResponse['name'] = $entityName;
+            $entityResponse['erp_database'] = $selectedDatabase;
+        }
+        $response['success'] = true;
+        $response['requires_selection'] = false;
+        $response['entity'] = $entityResponse;
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao atualizar base de dados do adquirente ' . $entity['nif'] . ': ' . $throwable->getMessage());
+        $response['error'] = 'Não foi possível guardar a base de dados do adquirente.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
 if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -894,6 +1150,36 @@ require_once __DIR__ . '/../header.php';
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary" id="confirmLinesBtn">Confirmar</button>
             </div>
+</div>
+</div>
+</div>
+<div class="modal fade" id="acquirerDatabaseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="acquirerDatabaseForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">Selecionar base de dados</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="acquirerDatabaseMessage" class="mb-3">Selecione a base de dados do adquirente.</p>
+                    <div id="acquirerDatabaseLoading" class="d-none text-muted mb-3">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        A carregar bases de dados...
+                    </div>
+                    <div class="mb-3">
+                        <label for="acquirerDatabaseSelect" class="form-label">Base de dados</label>
+                        <select class="form-select" id="acquirerDatabaseSelect" required>
+                            <option value="" disabled selected>Selecione uma base de dados</option>
+                        </select>
+                    </div>
+                    <div id="acquirerDatabaseError" class="alert alert-danger d-none" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="confirmAcquirerDatabaseBtn">Confirmar</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
