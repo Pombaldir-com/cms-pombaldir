@@ -55,7 +55,14 @@ window.addEventListener('load', function() {
     }
 
     function fetchJson(url, options) {
-        return fetch(url, options).then(function(res) {
+        var fetchOptions = options ? Object.assign({}, options) : {};
+        if (!fetchOptions.credentials) {
+            fetchOptions.credentials = 'same-origin';
+        }
+        if (fetchOptions.headers) {
+            fetchOptions.headers = Object.assign({}, fetchOptions.headers);
+        }
+        return fetch(url, fetchOptions).then(function(res) {
             return res.text().then(function(text) {
                 try {
                     return JSON.parse(text);
