@@ -130,7 +130,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         return $result;
     }
 
-    $endpoint = rtrim($baseUrl, '/') . '/contabilidade/movimentos';
+    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/movimentos');
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
     $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
 

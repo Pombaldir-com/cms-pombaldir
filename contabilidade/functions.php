@@ -211,6 +211,58 @@ function sanitizeUrlForLog(string $url): string {
 }
 
 /**
+ * Combine a base ERP webservice URL with an additional path segment.
+ *
+ * This helper preserves any query string or fragment configured in the base URL
+ * while ensuring the path is appended in the correct position.  It avoids
+ * malformed URLs such as `...?tenant=foo/contabilidade/listDBemp` that occur
+ * when simply concatenating strings containing query parameters.
+ *
+ * @param string $baseUrl Base URL stored in the application settings.
+ * @param string $path    Path that should be appended to the base URL.
+ * @return string Fully qualified URL.
+ */
+function buildErpEndpointFromBase(string $baseUrl, string $path): string {
+    $normalizedPath = '/' . ltrim($path, '/');
+
+    $parsed = @parse_url($baseUrl);
+    if (is_array($parsed) && isset($parsed['scheme'], $parsed['host'])) {
+        $scheme = $parsed['scheme'];
+        $host = $parsed['host'];
+
+        $userInfo = '';
+        if (isset($parsed['user'])) {
+            $userInfo = $parsed['user'];
+            if (isset($parsed['pass'])) {
+                $userInfo .= ':' . $parsed['pass'];
+            }
+            $userInfo .= '@';
+        }
+
+        $port = isset($parsed['port']) ? ':' . $parsed['port'] : '';
+
+        $basePath = $parsed['path'] ?? '';
+        $basePath = rtrim($basePath, '/');
+        $combinedPath = $basePath === '' ? $normalizedPath : $basePath . $normalizedPath;
+        if ($combinedPath === '' || $combinedPath[0] !== '/') {
+            $combinedPath = '/' . ltrim($combinedPath, '/');
+        }
+
+        $query = isset($parsed['query']) ? '?' . $parsed['query'] : '';
+        $fragment = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
+
+        return $scheme . '://' . $userInfo . $host . $port . $combinedPath . $query . $fragment;
+    }
+
+    $trimmedBase = rtrim($baseUrl, '/');
+    if ($trimmedBase === '') {
+        return $normalizedPath;
+    }
+
+    return $trimmedBase . $normalizedPath;
+}
+
+/**
  * Normalise the ERP response structure and extract relevant entity data.
  *
  * @param array  $payload Raw payload returned by the ERP webservice.

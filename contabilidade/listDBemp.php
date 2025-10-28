@@ -24,7 +24,7 @@ if ($baseUrl === '') {
     exit;
 }
 
-$endpoint = rtrim($baseUrl, '/') . '/contabilidade/listDBemp';
+$endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/listDBemp');
 $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
 
 $handle = curl_init($endpoint);
