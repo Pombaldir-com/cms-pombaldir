@@ -513,11 +513,11 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'success' => false,
         'requires_selection' => false,
         'entity' => null,
-        'csrf_token' => generateCsrfToken(true),
     ];
 
     if (!is_array($payload)) {
         $response['error'] = 'Pedido inválido';
+        $response['csrf_token'] = generateCsrfToken(true);
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -525,9 +525,12 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $csrfToken = (string)($payload['csrf_token'] ?? '');
     if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
         $response['error'] = 'Token CSRF inválido';
+        $response['csrf_token'] = generateCsrfToken(true);
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
+
+    $response['csrf_token'] = generateCsrfToken();
 
     $ids = [];
     foreach ($payload['ids'] ?? [] as $value) {
