@@ -43,7 +43,7 @@ $payload = json_encode([
 
 $headers = [
     'Accept: application/json',
-    'Content-Type: application/json',
+    'Content-Type: application/json'
 ];
 
 $token = trim((string) getSetting('erp_token', ''));
@@ -53,14 +53,18 @@ if ($token !== '') {
 
 curl_setopt_array($handle, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 20,
-    CURLOPT_CONNECTTIMEOUT => 10,
+    CURLOPT_TIMEOUT => 60,
+    CURLOPT_CONNECTTIMEOUT => 30,
     CURLOPT_HTTPHEADER => $headers,
     CURLOPT_POST => true,
+    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_SSL_VERIFYHOST => false,
     CURLOPT_POSTFIELDS => $payload,
 ]);
 
 $response = curl_exec($handle);
+
+
 if ($response === false) {
     $error = curl_error($handle);
     curl_close($handle);
