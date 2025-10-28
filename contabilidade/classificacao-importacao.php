@@ -457,7 +457,7 @@ function collectAcquirerEntities(PDO $pdo, array $ids, int $importType): array {
 
         $entity = null;
         try {
-            $entity = ensureAccountingEntity($pdo, $preferredValue);
+            $entity = ensureAccountingEntity($pdo, $preferredValue, ['entity_type' => 'acquirer']);
         } catch (Throwable $throwable) {
             logErpMessage('Erro ao garantir adquirente ' . $acquirerNif . ': ' . $throwable->getMessage());
         }

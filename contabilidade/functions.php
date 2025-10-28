@@ -592,9 +592,10 @@ function isPlaceholderAccountingEntityName(?string $name, string $nif): bool {
  *
  * @param PDO    $pdo              Active database connection.
  * @param string $entityFieldValue Raw entity value from the import (e.g., field_A).
+ * @param array|null $defaults     Optional default values (e.g., entity_type, erp_database).
  * @return array|null Entity information if available.
  */
-function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
+function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defaults = null): ?array {
     static $cache = [];
 
     $nif = extractVatNumber($entityFieldValue);
@@ -604,6 +605,16 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
 
     if (array_key_exists($nif, $cache)) {
         return $cache[$nif] ?: null;
+    }
+
+    $defaults = is_array($defaults) ? $defaults : [];
+    $defaultEntityType = trim((string) ($defaults['entity_type'] ?? ''));
+    if ($defaultEntityType === '') {
+        $defaultEntityType = 'emitter';
+    }
+    $defaultErpDatabase = null;
+    if (array_key_exists('erp_database', $defaults)) {
+        $defaultErpDatabase = trim((string) $defaults['erp_database']);
     }
 
     $existing = null;
@@ -637,13 +648,18 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue): ?array {
 
     $entityType = trim((string) ($remote['entity_type'] ?? ''));
     if ($entityType === '') {
-        $entityType = 'emitter';
+        $entityType = $defaultEntityType;
+    }
+
+    $erpDatabase = trim((string) ($remote['erp_database'] ?? ''));
+    if ($erpDatabase === '' && $defaultErpDatabase !== null) {
+        $erpDatabase = $defaultErpDatabase;
     }
 
     $data = [
         'nif' => $nif,
         'name' => $name,
-        'erp_database' => '',
+        'erp_database' => $erpDatabase,
         'erp_client_code' => trim((string) ($remote['erp_client_code'] ?? '')),
         'entity_type' => $entityType,
     ];
