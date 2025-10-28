@@ -66,6 +66,49 @@ function buildDocumentFileAttachment(string $relativePath): ?array {
     ];
 }
 
+/**
+ * Remove payload fields that may contain large base64 blobs before returning a
+ * response to the browser. The ERP service often echoes back the attachment
+ * contents which greatly increases the payload and can freeze the UI when it
+ * is logged in the console. We strip those fields and also normalise any JSON
+ * strings we find so that nested structures are sanitised as well.
+ */
+function sanitizeServiceDebugPayload(mixed $value, int $depth = 0): mixed {
+    if ($depth > 8) {
+        return $value;
+    }
+
+    if (is_array($value)) {
+        $clean = [];
+        foreach ($value as $key => $item) {
+            if (is_string($key) && stripos($key, 'content_base64') !== false) {
+                $clean[$key] = '[omitted: base64 content]';
+                continue;
+            }
+
+            $clean[$key] = sanitizeServiceDebugPayload($item, $depth + 1);
+        }
+
+        return $clean;
+    }
+
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        if ($trimmed !== '' && ($trimmed[0] === '{' || $trimmed[0] === '[')) {
+            $decoded = json_decode($value, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $sanitized = sanitizeServiceDebugPayload($decoded, $depth + 1);
+                $reEncoded = json_encode($sanitized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                if (is_string($reEncoded)) {
+                    return $reEncoded;
+                }
+            }
+        }
+    }
+
+    return $value;
+}
+
 function import_CTB(PDO $pdo, array $ids, int $importType): array {
     $result = [
         'success' => false,
@@ -418,12 +461,12 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (array_key_exists('response', $serviceResult)) {
-        $responsePayload['service_response'] = $serviceResult['response'];
+        $responsePayload['service_response'] = sanitizeServiceDebugPayload($serviceResult['response']);
     }
 
     $servicePayload = null;
     if (array_key_exists('decoded', $serviceResult)) {
-        $servicePayload = $serviceResult['decoded'];
+        $servicePayload = sanitizeServiceDebugPayload($serviceResult['decoded']);
         $responsePayload['service_payload'] = $servicePayload;
     }
 
