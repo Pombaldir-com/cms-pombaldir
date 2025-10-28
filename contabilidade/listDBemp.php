@@ -88,7 +88,17 @@ if ($status >= 400) {
     exit;
 }
 
-$decoded = json_decode((string) $response, true);
+$trimmedResponse = trim((string) $response);
+if ($trimmedResponse === '') {
+    logErpMessage('Endpoint listDBemp devolveu uma resposta vazia.' . ($sanitizedEndpoint ? ' URL: ' . $sanitizedEndpoint : ''));
+    echo json_encode([
+        'success' => false,
+        'error' => 'Resposta vazia do serviço de contabilidade.',
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$decoded = json_decode($trimmedResponse, true);
 if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
     logErpMessage('Resposta inválida do endpoint listDBemp: ' . substr((string) $response, 0, 300) . ($sanitizedEndpoint ? ' URL: ' . $sanitizedEndpoint : ''));
     echo json_encode([
