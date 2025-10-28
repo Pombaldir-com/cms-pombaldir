@@ -24,7 +24,7 @@ if ($baseUrl === '') {
     exit;
 }
 
-$endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/listDBemp');
+$endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade');
 $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
 
 $handle = curl_init($endpoint);
@@ -37,13 +37,15 @@ if ($handle === false) {
     exit;
 }
 
-$payload = json_encode([
+$payloadArray = [
     'act' => 'listDBemp',
-], JSON_UNESCAPED_UNICODE);
+];
+
+$payload = http_build_query($payloadArray);
 
 $headers = [
     'Accept: application/json',
-    'Content-Type: application/json'
+    'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
 ];
 
 $token = trim((string) getSetting('erp_token', ''));
