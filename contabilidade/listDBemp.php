@@ -37,8 +37,13 @@ if ($handle === false) {
     exit;
 }
 
+$payload = json_encode([
+    'act' => 'listDBemp',
+], JSON_UNESCAPED_UNICODE);
+
 $headers = [
     'Accept: application/json',
+    'Content-Type: application/json',
 ];
 
 $token = trim((string) getSetting('erp_token', ''));
@@ -51,6 +56,8 @@ curl_setopt_array($handle, [
     CURLOPT_TIMEOUT => 20,
     CURLOPT_CONNECTTIMEOUT => 10,
     CURLOPT_HTTPHEADER => $headers,
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => $payload,
 ]);
 
 $response = curl_exec($handle);
