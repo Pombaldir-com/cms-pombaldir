@@ -73,7 +73,6 @@ $useDropzone   = $useDropzone ?? false;
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
-                            <li><a href="<?= BASE_URL ?>radio-queue"><i class="fa fa-music"></i> Rádio</a></li>
 <?php
 // Dynamically list each content type with shortcuts to common actions.
 $sidebarTypes = getContentTypes();
