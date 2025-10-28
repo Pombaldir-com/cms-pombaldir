@@ -100,6 +100,19 @@ window.addEventListener('load', function() {
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
     var importCtbWrapper = $('#importCtbButtonWrapper');
+    var acquirerDatabaseModalEl = document.getElementById('acquirerDatabaseModal');
+    var acquirerDatabaseModal = acquirerDatabaseModalEl ? new bootstrap.Modal(acquirerDatabaseModalEl) : null;
+    var acquirerDatabaseForm = document.getElementById('acquirerDatabaseForm');
+    var acquirerDatabaseSelect = document.getElementById('acquirerDatabaseSelect');
+    var acquirerDatabaseMessage = document.getElementById('acquirerDatabaseMessage');
+    var acquirerDatabaseError = document.getElementById('acquirerDatabaseError');
+    var acquirerDatabaseLoadingIndicator = document.getElementById('acquirerDatabaseLoading');
+    var confirmAcquirerDatabaseBtn = document.getElementById('confirmAcquirerDatabaseBtn');
+    var acquirerDatabaseOptionsCache = null;
+    var pendingImportIds = null;
+    var pendingAcquirerEntity = null;
+    var acquirerDatabasePending = false;
+    var acquirerDatabaseSelectionResolved = false;
 
     var table = $('#classify-table').DataTable({
         serverSide: true,
@@ -175,6 +188,303 @@ window.addEventListener('load', function() {
         }
     }
 
+    function normalizeDatabaseOptions(payload) {
+        var result = [];
+        var seenValues = {};
+        if (!payload) {
+            return result;
+        }
+
+        var candidates = [];
+        if (Array.isArray(payload)) {
+            candidates = payload;
+        } else if (typeof payload === 'object') {
+            if (Array.isArray(payload.options)) {
+                candidates = payload.options;
+            } else if (Array.isArray(payload.data)) {
+                candidates = payload.data;
+            } else if (Array.isArray(payload.result)) {
+                candidates = payload.result;
+            } else if (Array.isArray(payload.list)) {
+                candidates = payload.list;
+            } else {
+                Object.keys(payload).forEach(function(key) {
+                    if (/^\d+$/.test(key) && payload[key] && typeof payload[key] === 'object') {
+                        candidates.push(payload[key]);
+                    }
+                });
+                if (!candidates.length) {
+                    candidates = Object.keys(payload).map(function(key) {
+                        return payload[key];
+                    }).filter(function(item) {
+                        return item && typeof item === 'object';
+                    });
+                }
+            }
+        }
+
+        candidates.forEach(function(candidate) {
+            if (!candidate || typeof candidate !== 'object') {
+                return;
+            }
+
+            var normalized = {};
+            Object.keys(candidate).forEach(function(key) {
+                if (typeof key === 'string') {
+                    normalized[key.toLowerCase()] = candidate[key];
+                }
+            });
+
+            var optionValue = '';
+            if (Object.prototype.hasOwnProperty.call(candidate, 'value') && String(candidate.value).trim() !== '') {
+                optionValue = String(candidate.value).trim();
+            } else if (Object.prototype.hasOwnProperty.call(normalized, 'value') && String(normalized.value).trim() !== '') {
+                optionValue = String(normalized.value).trim();
+            }
+
+            if (optionValue === '' || Object.prototype.hasOwnProperty.call(seenValues, optionValue)) {
+                return;
+            }
+
+            var optionLabel = '';
+            var labelKeys = ['db', 'label', 'descricao', 'description', 'nome', 'name'];
+            for (var i = 0; i < labelKeys.length; i += 1) {
+                var labelKey = labelKeys[i];
+                if (Object.prototype.hasOwnProperty.call(candidate, labelKey) && String(candidate[labelKey]).trim() !== '') {
+                    optionLabel = String(candidate[labelKey]).trim();
+                    break;
+                }
+                if (Object.prototype.hasOwnProperty.call(normalized, labelKey) && String(normalized[labelKey]).trim() !== '') {
+                    optionLabel = String(normalized[labelKey]).trim();
+                    break;
+                }
+            }
+
+            if (optionLabel === '') {
+                optionLabel = optionValue;
+            }
+
+            seenValues[optionValue] = true;
+            result.push({
+                value: optionValue,
+                label: optionLabel
+            });
+        });
+
+        return result;
+    }
+
+    function fetchAcquirerDatabaseOptions() {
+        if (Array.isArray(acquirerDatabaseOptionsCache) && acquirerDatabaseOptionsCache.length > 0) {
+            return Promise.resolve(acquirerDatabaseOptionsCache.slice());
+        }
+
+        return fetchJson('contabilidade/listDBemp')
+            .then(function(res) {
+                if (!res || typeof res !== 'object') {
+                    throw new Error('Resposta inválida do serviço de contabilidade.');
+                }
+                if (res.success === false) {
+                    throw new Error(res.error || 'Não foi possível obter a lista de bases de dados.');
+                }
+
+                var payload = res;
+                if (Array.isArray(res.options)) {
+                    payload = res.options;
+                } else if (Array.isArray(res.data)) {
+                    payload = res.data;
+                }
+
+                var options = normalizeDatabaseOptions(payload);
+                if (!options.length) {
+                    throw new Error('Nenhuma base de dados disponível.');
+                }
+
+                acquirerDatabaseOptionsCache = options;
+                debugJson('Opções de base de dados do adquirente', options);
+                return options.slice();
+            });
+    }
+
+    function populateAcquirerDatabaseOptions(options) {
+        if (!acquirerDatabaseSelect) {
+            return;
+        }
+
+        acquirerDatabaseSelect.innerHTML = '';
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Selecione uma base de dados';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        acquirerDatabaseSelect.appendChild(placeholder);
+
+        options.forEach(function(option) {
+            if (!option || typeof option.value === 'undefined') {
+                return;
+            }
+            var opt = document.createElement('option');
+            opt.value = String(option.value);
+            var label = option.label || option.value;
+            var text = String(label);
+            if (option.label && option.label !== option.value) {
+                text = String(option.label) + ' (' + option.value + ')';
+            }
+            opt.textContent = text;
+            acquirerDatabaseSelect.appendChild(opt);
+        });
+    }
+
+    function resetAcquirerDatabaseModal() {
+        if (acquirerDatabaseError) {
+            acquirerDatabaseError.classList.add('d-none');
+            acquirerDatabaseError.textContent = '';
+        }
+        if (acquirerDatabaseSelect) {
+            acquirerDatabaseSelect.value = '';
+            acquirerDatabaseSelect.classList.remove('is-invalid');
+            acquirerDatabaseSelect.disabled = false;
+        }
+        if (acquirerDatabaseLoadingIndicator) {
+            acquirerDatabaseLoadingIndicator.classList.add('d-none');
+        }
+        if (confirmAcquirerDatabaseBtn) {
+            confirmAcquirerDatabaseBtn.disabled = false;
+        }
+    }
+
+    function showAcquirerDatabaseModal(entity) {
+        if (!acquirerDatabaseModal) {
+            acquirerDatabasePending = false;
+            updateImportButtonState();
+            showError('Não foi possível apresentar a seleção de base de dados.');
+            return;
+        }
+
+        resetAcquirerDatabaseModal();
+        acquirerDatabaseSelectionResolved = false;
+
+        if (acquirerDatabaseSelect) {
+            acquirerDatabaseSelect.disabled = true;
+        }
+        if (confirmAcquirerDatabaseBtn) {
+            confirmAcquirerDatabaseBtn.disabled = true;
+        }
+        if (acquirerDatabaseLoadingIndicator) {
+            acquirerDatabaseLoadingIndicator.classList.remove('d-none');
+        }
+
+        if (acquirerDatabaseMessage) {
+            var messageParts = [];
+            if (entity && typeof entity.display_name === 'string' && entity.display_name.trim() !== '') {
+                messageParts.push(entity.display_name.trim());
+            } else if (entity && typeof entity.name === 'string' && entity.name.trim() !== '') {
+                messageParts.push(entity.name.trim());
+            }
+            if (entity && typeof entity.nif === 'string' && entity.nif.trim() !== '') {
+                messageParts.push('NIF ' + entity.nif.trim());
+            }
+            var message = 'Selecione a base de dados do adquirente.';
+            if (messageParts.length) {
+                message = 'Selecione a base de dados do adquirente: ' + messageParts.join(' - ');
+            }
+            acquirerDatabaseMessage.textContent = message;
+        }
+
+        acquirerDatabaseModal.show();
+
+        fetchAcquirerDatabaseOptions()
+            .then(function(options) {
+                populateAcquirerDatabaseOptions(options);
+                if (acquirerDatabaseSelect) {
+                    acquirerDatabaseSelect.disabled = false;
+                }
+                if (confirmAcquirerDatabaseBtn) {
+                    confirmAcquirerDatabaseBtn.disabled = false;
+                }
+            })
+            .catch(function(err) {
+                if (acquirerDatabaseError) {
+                    acquirerDatabaseError.textContent = err && err.message ? err.message : 'Falha ao carregar bases de dados.';
+                    acquirerDatabaseError.classList.remove('d-none');
+                } else {
+                    showError(err.message || 'Falha ao carregar bases de dados.');
+                }
+            })
+            .finally(function() {
+                if (acquirerDatabaseLoadingIndicator) {
+                    acquirerDatabaseLoadingIndicator.classList.add('d-none');
+                }
+            });
+    }
+
+    function ensureAcquirerDatabase(ids) {
+        var payload = {
+            ids: ids,
+            import_type: importType,
+            csrf_token: csrfInput ? csrfInput.value : '',
+            mode: 'check'
+        };
+        debugJson('Pedido de validação da base de dados do adquirente', payload);
+        return fetchJson('contabilidade/classificacao-importacao/acquirer-database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        }).then(function(res) {
+            debugJson('Resposta de validação da base de dados do adquirente', res);
+            if (!res || typeof res !== 'object') {
+                throw new Error('Resposta inválida ao validar a base de dados do adquirente.');
+            }
+            if (res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success === false) {
+                throw new Error(res.error || 'Não foi possível validar o adquirente.');
+            }
+            return {
+                requiresSelection: !!res.requires_selection,
+                entity: res.entity || null
+            };
+        });
+    }
+
+    function updateAcquirerDatabase(selectedDatabase) {
+        if (!Array.isArray(pendingImportIds) || !pendingImportIds.length) {
+            return Promise.reject(new Error('Nenhuma linha seleccionada.'));
+        }
+
+        var payload = {
+            ids: pendingImportIds,
+            import_type: importType,
+            selected_database: selectedDatabase,
+            csrf_token: csrfInput ? csrfInput.value : '',
+            mode: 'update'
+        };
+        debugJson('Pedido de atualização da base de dados do adquirente', payload);
+
+        return fetchJson('contabilidade/classificacao-importacao/acquirer-database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        }).then(function(res) {
+            debugJson('Resposta de atualização da base de dados do adquirente', res);
+            if (!res || typeof res !== 'object') {
+                throw new Error('Resposta inválida ao guardar a base de dados do adquirente.');
+            }
+            if (res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success === false) {
+                throw new Error(res.error || 'Não foi possível guardar a base de dados do adquirente.');
+            }
+            return res;
+        });
+    }
+
     function moveImportButtonToFilter() {
         if (!importCtbButton.length || importType !== 1) {
             showImportButtonWrapper();
@@ -236,27 +546,22 @@ window.addEventListener('load', function() {
             importCtbButton.prop('disabled', true);
             return;
         }
+        if (acquirerDatabasePending) {
+            importCtbButton.prop('disabled', true);
+            return;
+        }
         var readyCount = $('#classify-table').find('.classify-row.btn-success').length;
         importCtbButton.prop('disabled', readyCount === 0);
     }
 
-    function handleImportCtbClick() {
-        if (!importCtbButton.length || importCtbButton.data('loading')) {
-            return;
-        }
-        var ids = [];
-        $('#classify-table').find('.classify-row.btn-success').each(function() {
-            var id = this.getAttribute('data-id');
-            if (id) {
-                ids.push(id);
-            }
-        });
-        if (ids.length === 0) {
-            showError('Não existem linhas prontas para importar.');
-            return;
+    function performImport(ids) {
+        if (!importCtbButton.length) {
+            return Promise.resolve();
         }
         importCtbButton.data('loading', true);
         importCtbButton.prop('disabled', true);
+        acquirerDatabasePending = false;
+
         var payload = {
             ids: ids,
             import_type: importType,
@@ -273,7 +578,7 @@ window.addEventListener('load', function() {
             body: JSON.stringify(payload)
         };
 
-        fetchJson(importUrl, requestOptions)
+        return fetchJson(importUrl, requestOptions)
             .then(function(res) {
                 debugJson('Import CTB response payload', res);
                 if (res && res.csrf_token && csrfInput) {
@@ -350,9 +655,62 @@ window.addEventListener('load', function() {
                 if (typeof window.console !== 'undefined') {
                     console.error('[Classificação] Erro na importação CTB:', err);
                 }
-                showError(err.message || 'Erro ao importar');
+                showError(err && err.message ? err.message : 'Erro ao importar');
             })
             .finally(function() {
+                if (importCtbButton.length) {
+                    importCtbButton.data('loading', false);
+                }
+                pendingImportIds = null;
+                pendingAcquirerEntity = null;
+                acquirerDatabasePending = false;
+                updateImportButtonState();
+            });
+    }
+
+    function handleImportCtbClick() {
+        if (!importCtbButton.length || importCtbButton.data('loading')) {
+            return;
+        }
+        var ids = [];
+        $('#classify-table').find('.classify-row.btn-success').each(function() {
+            var id = this.getAttribute('data-id');
+            if (id) {
+                ids.push(id);
+            }
+        });
+        if (ids.length === 0) {
+            showError('Não existem linhas prontas para importar.');
+            return;
+        }
+
+        pendingImportIds = ids.slice();
+        pendingAcquirerEntity = null;
+        acquirerDatabasePending = false;
+
+        importCtbButton.data('loading', true);
+        importCtbButton.prop('disabled', true);
+
+        ensureAcquirerDatabase(ids)
+            .then(function(result) {
+                if (result && result.requiresSelection) {
+                    pendingAcquirerEntity = result.entity || null;
+                    acquirerDatabasePending = true;
+                    importCtbButton.data('loading', false);
+                    updateImportButtonState();
+                    showAcquirerDatabaseModal(pendingAcquirerEntity);
+                    return null;
+                }
+                return performImport(ids);
+            })
+            .catch(function(err) {
+                if (typeof window.console !== 'undefined') {
+                    console.error('[Classificação] Erro ao validar base de dados do adquirente:', err);
+                }
+                showError(err && err.message ? err.message : 'Erro ao validar o adquirente.');
+                pendingImportIds = null;
+                pendingAcquirerEntity = null;
+                acquirerDatabasePending = false;
                 if (importCtbButton.length) {
                     importCtbButton.data('loading', false);
                 }
@@ -362,6 +720,76 @@ window.addEventListener('load', function() {
 
     if (importCtbButton.length) {
         importCtbButton.on('click', handleImportCtbClick);
+    }
+
+    if (acquirerDatabaseModalEl) {
+        acquirerDatabaseModalEl.addEventListener('hidden.bs.modal', function() {
+            resetAcquirerDatabaseModal();
+            if (!acquirerDatabaseSelectionResolved) {
+                pendingImportIds = null;
+                pendingAcquirerEntity = null;
+                acquirerDatabasePending = false;
+                if (importCtbButton.length) {
+                    importCtbButton.data('loading', false);
+                }
+                updateImportButtonState();
+            }
+            acquirerDatabaseSelectionResolved = false;
+        });
+    }
+
+    if (acquirerDatabaseForm) {
+        acquirerDatabaseForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (!acquirerDatabaseSelect) {
+                return;
+            }
+            var selectedValue = acquirerDatabaseSelect.value;
+            if (!selectedValue) {
+                acquirerDatabaseSelect.classList.add('is-invalid');
+                return;
+            }
+            acquirerDatabaseSelect.classList.remove('is-invalid');
+            if (acquirerDatabaseError) {
+                acquirerDatabaseError.classList.add('d-none');
+                acquirerDatabaseError.textContent = '';
+            }
+            if (confirmAcquirerDatabaseBtn) {
+                confirmAcquirerDatabaseBtn.disabled = true;
+            }
+
+            updateAcquirerDatabase(selectedValue)
+                .then(function(res) {
+                    acquirerDatabaseSelectionResolved = true;
+                    acquirerDatabasePending = false;
+                    if (res && res.entity) {
+                        pendingAcquirerEntity = res.entity;
+                    }
+                    if (acquirerDatabaseModal) {
+                        acquirerDatabaseModal.hide();
+                    }
+                    if (Array.isArray(pendingImportIds) && pendingImportIds.length) {
+                        performImport(pendingImportIds.slice());
+                    } else {
+                        pendingImportIds = null;
+                        if (importCtbButton.length) {
+                            importCtbButton.data('loading', false);
+                        }
+                        updateImportButtonState();
+                    }
+                })
+                .catch(function(err) {
+                    if (confirmAcquirerDatabaseBtn) {
+                        confirmAcquirerDatabaseBtn.disabled = false;
+                    }
+                    if (acquirerDatabaseError) {
+                        acquirerDatabaseError.textContent = err && err.message ? err.message : 'Não foi possível guardar a base de dados.';
+                        acquirerDatabaseError.classList.remove('d-none');
+                    } else {
+                        showError(err && err.message ? err.message : 'Não foi possível guardar a base de dados.');
+                    }
+                });
+        });
     }
 
     table.on('draw', function() {
