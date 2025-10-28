@@ -92,30 +92,9 @@ window.addEventListener('load', function() {
     if (isNaN(importType)) {
         importType = 1;
     }
-    var erpWebserviceUrl = '';
-    if (typeof window.erpWebserviceUrl === 'string') {
-        erpWebserviceUrl = window.erpWebserviceUrl;
-    }
-
-    var erpWebserviceToken = '';
-    if (typeof window.erpWebserviceToken === 'string') {
-        erpWebserviceToken = window.erpWebserviceToken.trim();
-    }
-
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
-    var remoteImportPath = '/contabilidade/movimentos';
 
     function buildImportCtbUrl() {
-        if (typeof erpWebserviceUrl === 'string' && erpWebserviceUrl.trim() !== '') {
-            try {
-                var parsedUrl = new URL(erpWebserviceUrl, window.location.href);
-                return parsedUrl.href.replace(/\/+$/, '') + remoteImportPath;
-            } catch (urlError) {
-                if (typeof window.console !== 'undefined' && typeof window.console.warn === 'function') {
-                    window.console.warn('[Classificação] ERP webservice URL inválida. A usar endpoint local.', urlError);
-                }
-            }
-        }
         return importCtbRelativeUrl;
     }
     var showLineCostCenter = importType === 1;
@@ -286,45 +265,13 @@ window.addEventListener('load', function() {
         };
         debugJson('Import CTB request payload', payload);
         var importUrl = buildImportCtbUrl();
-        if (!importUrl) {
-            if (typeof window.console !== 'undefined') {
-                console.error('[Classificação] URL do webservice ERP não configurada.');
-            }
-            showError('URL do webservice ERP não está configurada.');
-            importCtbButton.data('loading', false);
-            updateImportButtonState();
-            return;
-        }
-        var isRemoteImport = /^https?:/i.test(importUrl);
         var requestOptions = {
-            method: 'POST'
-        };
-        if (isRemoteImport) {
-            var params = new URLSearchParams();
-            Object.keys(payload).forEach(function(key) {
-                var value = payload[key];
-                if (Array.isArray(value)) {
-                    value.forEach(function(item) {
-                        params.append(key + '[]', item);
-                    });
-                } else if (typeof value !== 'undefined' && value !== null) {
-                    params.append(key, value);
-                }
-            });
-            requestOptions.headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-            };
-            if (erpWebserviceToken !== '') {
-                requestOptions.headers['X-API-KEY'] = erpWebserviceToken;
-            }
-            requestOptions.body = params.toString();
-        } else {
-            requestOptions.headers = {
+            method: 'POST',
+            headers: {
                 'Content-Type': 'application/json'
-            };
-            requestOptions.body = JSON.stringify(payload);
-        }
+            },
+            body: JSON.stringify(payload)
+        };
 
         fetchJson(importUrl, requestOptions)
             .then(function(res) {
