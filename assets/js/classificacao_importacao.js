@@ -575,6 +575,12 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : '',
             act: 'importMovim'
         };
+        if (pendingAcquirerEntity && typeof pendingAcquirerEntity.erp_database === 'string') {
+            var databaseValue = pendingAcquirerEntity.erp_database.trim();
+            if (databaseValue !== '') {
+                payload.database = databaseValue;
+            }
+        }
         debugJson('Import CTB request payload', payload);
         var importUrl = buildImportCtbUrl();
         var requestOptions = {
@@ -700,8 +706,10 @@ window.addEventListener('load', function() {
 
         ensureAcquirerDatabase(ids)
             .then(function(result) {
+                if (result && result.entity) {
+                    pendingAcquirerEntity = result.entity;
+                }
                 if (result && result.requiresSelection) {
-                    pendingAcquirerEntity = result.entity || null;
                     acquirerDatabasePending = true;
                     importCtbButton.data('loading', false);
                     updateImportButtonState();

@@ -109,13 +109,15 @@ function sanitizeServiceDebugPayload(mixed $value, int $depth = 0): mixed {
     return $value;
 }
 
-function import_CTB(PDO $pdo, array $ids, int $importType): array {
+function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''): array {
     $result = [
         'success' => false,
         'error' => '',
         'status' => 0,
         'response' => null,
     ];
+
+    $database = trim($database);
 
     if (!function_exists('curl_init')) {
         $result['error'] = 'Extensão cURL não disponível no servidor.';
@@ -201,6 +203,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType): array {
         'import_type' => $importType,
         'document_ids' => $ids,
         'documents' => $documentsJson,
+        'database' => $database,
     ];
 
     $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
@@ -676,6 +679,8 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    $requestedDatabase = trim((string)($payload['database'] ?? ''));
+
     $ids = [];
     foreach ($payload['ids'] ?? [] as $value) {
         if (is_numeric($value)) {
@@ -701,7 +706,25 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $requestedImportType = 1;
     }
 
-    $serviceResult = import_CTB($pdo, $ids, $requestedImportType);
+    $targetDatabase = $requestedDatabase;
+    if ($targetDatabase === '') {
+        try {
+            $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
+            if (!empty($entities)) {
+                foreach ($entities as $entity) {
+                    $candidateDatabase = trim((string)($entity['erp_database'] ?? ''));
+                    if ($candidateDatabase !== '') {
+                        $targetDatabase = $candidateDatabase;
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable $throwable) {
+            logErpMessage('Erro ao determinar a base de dados do adquirente para importação CTB: ' . $throwable->getMessage());
+        }
+    }
+
+    $serviceResult = import_CTB($pdo, $ids, $requestedImportType, $targetDatabase);
 
     $responsePayload = [
         'success' => (bool)($serviceResult['success'] ?? false),
