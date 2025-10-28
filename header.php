@@ -60,9 +60,18 @@ $useDropzone   = $useDropzone ?? false;
                 <div class="clearfix"></div>
 
                 <!-- Profile info -->
-                <div class="profile_info">
-                    <span>Bem-vindo,</span>
-                    <h2><?php echo htmlspecialchars($user['username']); ?></h2>
+                <div class="profile artist-profile">
+                    <div class="profile_pic">
+                        <img
+                            src="<?= !empty($user['photo']) ? htmlspecialchars($user['photo']) : 'assets/images/img.jpg'; ?>"
+                            alt="<?= htmlspecialchars($user['username']); ?>"
+                            class="img-circle profile_img"
+                        >
+                    </div>
+                    <div class="profile_info">
+                        <span>Bem-vindo,</span>
+                        <h2><?= htmlspecialchars($user['username']); ?></h2>
+                    </div>
                 </div>
                 <br />
 
