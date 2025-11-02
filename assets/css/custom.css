@@ -6493,22 +6493,16 @@ ul.notifications {
     border-radius: .2rem;
 }
 
-.modal .modal-dialog.songinfo-dialog {
-    display: flex;
-    align-items: center;
-}
-
-.modal .modal-dialog.songinfo-dialog .modal-content {
-    width: 100%;
-}
-
 @media (max-width: 576px) {
+    .songinfo-modal {
+        padding: 1rem;
+    }
+
     .modal .modal-dialog.songinfo-dialog {
-        --bs-modal-margin: 1rem;
-        margin: 0 auto;
-        max-width: calc(100% - 2rem);
+        --bs-modal-margin: 0;
+        margin: auto;
+        max-width: min(420px, calc(100% - 2rem));
         width: 100%;
-        min-height: calc(100vh - 2rem);
     }
 
     .modal .modal-dialog.songinfo-dialog .modal-content {

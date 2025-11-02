@@ -180,6 +180,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         modalEl.addEventListener('show.bs.modal', function() {
             applyCentered(modalEl);
+            modalEl.scrollTop = 0;
+        });
+
+        modalEl.addEventListener('shown.bs.modal', function() {
+            modalEl.scrollTop = 0;
         });
     });
 });
