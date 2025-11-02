@@ -132,6 +132,57 @@ $(document).ready(function() {
         });
     }
 });
+
+document.addEventListener('DOMContentLoaded', function() {
+    var selectors = ['#songInfoModal', '#songinfoModal', '.songinfo-modal'];
+    var modalElements = [];
+
+    selectors.forEach(function(selector) {
+        var matches = document.querySelectorAll(selector);
+        if (!matches || !matches.length) {
+            return;
+        }
+        matches.forEach(function(match) {
+            if (modalElements.indexOf(match) === -1) {
+                modalElements.push(match);
+            }
+        });
+    });
+
+    if (!modalElements.length) {
+        return;
+    }
+
+    function applyCentered(modalEl) {
+        if (!modalEl) {
+            return;
+        }
+
+        if (!modalEl.classList.contains('songinfo-modal')) {
+            modalEl.classList.add('songinfo-modal');
+        }
+
+        var dialog = modalEl.querySelector('.modal-dialog');
+        if (!dialog) {
+            return;
+        }
+
+        if (!dialog.classList.contains('modal-dialog-centered')) {
+            dialog.classList.add('modal-dialog-centered');
+        }
+        if (!dialog.classList.contains('songinfo-dialog')) {
+            dialog.classList.add('songinfo-dialog');
+        }
+    }
+
+    modalElements.forEach(function(modalEl) {
+        applyCentered(modalEl);
+
+        modalEl.addEventListener('show.bs.modal', function() {
+            applyCentered(modalEl);
+        });
+    });
+});
 // /Sidebar
 
 // Panel toolbox
