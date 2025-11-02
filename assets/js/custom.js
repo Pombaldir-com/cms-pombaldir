@@ -172,6 +172,36 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function moveModalToBody(modalEl) {
+        if (!modalEl || modalEl.parentElement === document.body) {
+            return;
+        }
+
+        modalEl.__songinfoOriginalParent = modalEl.parentElement;
+        modalEl.__songinfoOriginalNextSibling = modalEl.nextSibling;
+        document.body.appendChild(modalEl);
+    }
+
+    function restoreModalParent(modalEl) {
+        if (!modalEl || !modalEl.__songinfoOriginalParent) {
+            return;
+        }
+
+        var parent = modalEl.__songinfoOriginalParent;
+        var sibling = modalEl.__songinfoOriginalNextSibling;
+
+        if (!parent.isConnected) {
+            document.body.appendChild(modalEl);
+        } else if (sibling && parent.contains(sibling)) {
+            parent.insertBefore(modalEl, sibling);
+        } else {
+            parent.appendChild(modalEl);
+        }
+
+        modalEl.__songinfoOriginalParent = null;
+        modalEl.__songinfoOriginalNextSibling = null;
+    }
+
     function getViewportHeight() {
         if (window.visualViewport && typeof window.visualViewport.height === 'number') {
             return window.visualViewport.height;
@@ -237,6 +267,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     modalElements.forEach(function(modalEl) {
         modalEl.addEventListener('show.bs.modal', function() {
+            moveModalToBody(modalEl);
             applyCentered(modalEl);
             updateViewportHeight(modalEl);
             registerViewportUpdates(modalEl);
@@ -251,6 +282,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modalEl.addEventListener('hidden.bs.modal', function() {
             unregisterViewportUpdates(modalEl);
             modalEl.style.removeProperty('--songinfo-viewport-height');
+            restoreModalParent(modalEl);
         });
 
         applyCentered(modalEl);
