@@ -186,23 +186,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         var height = getViewportHeight();
-        var offsetTop = 0;
-        var offsetBottom = 0;
-
-        if (window.visualViewport && typeof window.visualViewport.height === 'number') {
-            offsetTop = Math.max(0, window.visualViewport.offsetTop || 0);
-            var layoutHeight = window.innerHeight || document.documentElement.clientHeight || height;
-            var visualBottom = offsetTop + window.visualViewport.height;
-            if (layoutHeight > visualBottom) {
-                offsetBottom = Math.max(0, layoutHeight - visualBottom);
-            }
-        }
 
         if (height && height > 0) {
             modalEl.style.setProperty('--songinfo-viewport-height', height + 'px');
+        } else {
+            modalEl.style.removeProperty('--songinfo-viewport-height');
         }
-        modalEl.style.setProperty('--songinfo-viewport-top', offsetTop + 'px');
-        modalEl.style.setProperty('--songinfo-viewport-bottom', offsetBottom + 'px');
     }
 
     function registerViewportUpdates(modalEl) {
@@ -262,8 +251,6 @@ document.addEventListener('DOMContentLoaded', function() {
         modalEl.addEventListener('hidden.bs.modal', function() {
             unregisterViewportUpdates(modalEl);
             modalEl.style.removeProperty('--songinfo-viewport-height');
-            modalEl.style.removeProperty('--songinfo-viewport-top');
-            modalEl.style.removeProperty('--songinfo-viewport-bottom');
         });
 
         applyCentered(modalEl);

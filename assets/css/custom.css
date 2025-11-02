@@ -6499,7 +6499,7 @@ ul.notifications {
         display: flex;
         justify-content: center;
         min-height: var(--songinfo-viewport-height, 100vh);
-        padding: calc(1rem + var(--songinfo-viewport-top, 0px)) 1rem calc(1rem + var(--songinfo-viewport-bottom, 0px));
+        padding: 1rem;
     }
 
     .songinfo-modal.show {
