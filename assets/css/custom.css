@@ -6493,3 +6493,27 @@ ul.notifications {
     border-radius: .2rem;
 }
 
+.modal .modal-dialog.songinfo-dialog {
+    display: flex;
+    align-items: center;
+}
+
+.modal .modal-dialog.songinfo-dialog .modal-content {
+    width: 100%;
+}
+
+@media (max-width: 576px) {
+    .modal .modal-dialog.songinfo-dialog {
+        --bs-modal-margin: 1rem;
+        margin: 0 auto;
+        max-width: calc(100% - 2rem);
+        width: 100%;
+        min-height: calc(100vh - 2rem);
+    }
+
+    .modal .modal-dialog.songinfo-dialog .modal-content {
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
+    }
+}
+
