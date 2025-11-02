@@ -135,24 +135,38 @@ $(document).ready(function() {
 
 document.addEventListener('DOMContentLoaded', function() {
     var selectors = ['#songInfoModal', '#songinfoModal', '.songinfo-modal'];
-    var modalEl = null;
+    var modalElements = [];
 
-    for (var i = 0; i < selectors.length; i++) {
-        var candidate = document.querySelector(selectors[i]);
-        if (candidate) {
-            modalEl = candidate;
-            break;
+    selectors.forEach(function(selector) {
+        var matches = document.querySelectorAll(selector);
+        if (!matches || !matches.length) {
+            return;
         }
-    }
+        matches.forEach(function(match) {
+            if (modalElements.indexOf(match) === -1) {
+                modalElements.push(match);
+            }
+        });
+    });
 
-    if (!modalEl) {
+    if (!modalElements.length) {
         return;
     }
 
-    function applyCentered(dialog) {
+    function applyCentered(modalEl) {
+        if (!modalEl) {
+            return;
+        }
+
+        if (!modalEl.classList.contains('songinfo-modal')) {
+            modalEl.classList.add('songinfo-modal');
+        }
+
+        var dialog = modalEl.querySelector('.modal-dialog');
         if (!dialog) {
             return;
         }
+
         if (!dialog.classList.contains('modal-dialog-centered')) {
             dialog.classList.add('modal-dialog-centered');
         }
@@ -161,10 +175,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    applyCentered(modalEl.querySelector('.modal-dialog'));
+    modalElements.forEach(function(modalEl) {
+        applyCentered(modalEl);
 
-    modalEl.addEventListener('show.bs.modal', function() {
-        applyCentered(modalEl.querySelector('.modal-dialog'));
+        modalEl.addEventListener('show.bs.modal', function() {
+            applyCentered(modalEl);
+        });
     });
 });
 // /Sidebar
