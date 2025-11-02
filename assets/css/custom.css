@@ -6493,26 +6493,28 @@ ul.notifications {
     border-radius: .2rem;
 }
 
-.modal .modal-dialog.songinfo-dialog {
-    display: flex;
-    align-items: center;
-}
-
-.modal .modal-dialog.songinfo-dialog .modal-content {
-    width: 100%;
-}
-
 @media (max-width: 576px) {
-    .modal .modal-dialog.songinfo-dialog {
-        --bs-modal-margin: 1rem;
-        margin: 0 auto;
-        max-width: calc(100% - 2rem);
-        width: 100%;
-        min-height: calc(100vh - 2rem);
+    .songinfo-modal {
+        align-items: center;
+        display: flex;
+        justify-content: center;
+        min-height: var(--songinfo-viewport-height, 100vh);
+        padding: 1rem;
     }
 
-    .modal .modal-dialog.songinfo-dialog .modal-content {
-        max-height: calc(100vh - 2rem);
+    .songinfo-modal.show {
+        display: flex !important;
+    }
+
+    .songinfo-modal .modal-dialog.songinfo-dialog {
+        --bs-modal-margin: 0;
+        margin: auto;
+        max-width: min(420px, calc(100% - 2rem));
+        width: 100%;
+    }
+
+    .songinfo-modal .modal-dialog.songinfo-dialog .modal-content {
+        max-height: calc(var(--songinfo-viewport-height, 100vh) - 2rem);
         overflow-y: auto;
     }
 }
