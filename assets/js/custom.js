@@ -235,13 +235,10 @@ document.addEventListener('DOMContentLoaded', function() {
     modalElements.forEach(function(modalEl) {
         modalEl.addEventListener('show.bs.modal', function() {
             applyCentered(modalEl);
-            updateViewportHeight(modalEl);
-            registerViewportUpdates(modalEl);
             modalEl.scrollTop = 0;
         });
 
         modalEl.addEventListener('shown.bs.modal', function() {
-            updateViewportHeight(modalEl);
             modalEl.scrollTop = 0;
         });
 
