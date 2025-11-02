@@ -132,6 +132,41 @@ $(document).ready(function() {
         });
     }
 });
+
+document.addEventListener('DOMContentLoaded', function() {
+    var selectors = ['#songInfoModal', '#songinfoModal', '.songinfo-modal'];
+    var modalEl = null;
+
+    for (var i = 0; i < selectors.length; i++) {
+        var candidate = document.querySelector(selectors[i]);
+        if (candidate) {
+            modalEl = candidate;
+            break;
+        }
+    }
+
+    if (!modalEl) {
+        return;
+    }
+
+    function applyCentered(dialog) {
+        if (!dialog) {
+            return;
+        }
+        if (!dialog.classList.contains('modal-dialog-centered')) {
+            dialog.classList.add('modal-dialog-centered');
+        }
+        if (!dialog.classList.contains('songinfo-dialog')) {
+            dialog.classList.add('songinfo-dialog');
+        }
+    }
+
+    applyCentered(modalEl.querySelector('.modal-dialog'));
+
+    modalEl.addEventListener('show.bs.modal', function() {
+        applyCentered(modalEl.querySelector('.modal-dialog'));
+    });
+});
 // /Sidebar
 
 // Panel toolbox
