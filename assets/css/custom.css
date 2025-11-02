@@ -6506,6 +6506,7 @@ ul.notifications {
     }
 
     .modal .modal-dialog.songinfo-dialog .modal-content {
+        width: 100%;
         max-height: calc(100vh - 2rem);
         overflow-y: auto;
     }
