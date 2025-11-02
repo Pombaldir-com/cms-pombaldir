@@ -167,20 +167,106 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (!dialog.classList.contains('modal-dialog-centered')) {
-            dialog.classList.add('modal-dialog-centered');
-        }
         if (!dialog.classList.contains('songinfo-dialog')) {
             dialog.classList.add('songinfo-dialog');
         }
     }
 
-    modalElements.forEach(function(modalEl) {
-        applyCentered(modalEl);
+    function getViewportHeight() {
+        if (window.visualViewport && typeof window.visualViewport.height === 'number') {
+            return window.visualViewport.height;
+        }
 
+        return window.innerHeight;
+    }
+
+    function updateViewportHeight(modalEl) {
+        if (!modalEl) {
+            return;
+        }
+
+        var height = getViewportHeight();
+        var offsetTop = 0;
+        var offsetBottom = 0;
+
+        if (window.visualViewport && typeof window.visualViewport.height === 'number') {
+            offsetTop = Math.max(0, window.visualViewport.offsetTop || 0);
+            var layoutHeight = window.innerHeight || document.documentElement.clientHeight || height;
+            var visualBottom = offsetTop + window.visualViewport.height;
+            if (layoutHeight > visualBottom) {
+                offsetBottom = Math.max(0, layoutHeight - visualBottom);
+            }
+        }
+
+        if (height && height > 0) {
+            modalEl.style.setProperty('--songinfo-viewport-height', height + 'px');
+        }
+        modalEl.style.setProperty('--songinfo-viewport-top', offsetTop + 'px');
+        modalEl.style.setProperty('--songinfo-viewport-bottom', offsetBottom + 'px');
+    }
+
+    function registerViewportUpdates(modalEl) {
+        if (!modalEl || modalEl.__songinfoViewportHandler) {
+            return;
+        }
+
+        var handler = function() {
+            updateViewportHeight(modalEl);
+        };
+
+        if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+            window.visualViewport.addEventListener('resize', handler);
+            window.visualViewport.addEventListener('scroll', handler);
+            modalEl.__songinfoViewportHandlerTarget = 'visualViewport';
+        } else {
+            window.addEventListener('resize', handler);
+            window.addEventListener('orientationchange', handler);
+            modalEl.__songinfoViewportHandlerTarget = 'window';
+        }
+
+        modalEl.__songinfoViewportHandler = handler;
+    }
+
+    function unregisterViewportUpdates(modalEl) {
+        if (!modalEl || !modalEl.__songinfoViewportHandler) {
+            return;
+        }
+
+        var handler = modalEl.__songinfoViewportHandler;
+
+        if (modalEl.__songinfoViewportHandlerTarget === 'visualViewport' && window.visualViewport && typeof window.visualViewport.removeEventListener === 'function') {
+            window.visualViewport.removeEventListener('resize', handler);
+            window.visualViewport.removeEventListener('scroll', handler);
+        } else {
+            window.removeEventListener('resize', handler);
+            window.removeEventListener('orientationchange', handler);
+        }
+
+        modalEl.__songinfoViewportHandler = null;
+        modalEl.__songinfoViewportHandlerTarget = null;
+    }
+
+    modalElements.forEach(function(modalEl) {
         modalEl.addEventListener('show.bs.modal', function() {
             applyCentered(modalEl);
+            updateViewportHeight(modalEl);
+            registerViewportUpdates(modalEl);
+            modalEl.scrollTop = 0;
         });
+
+        modalEl.addEventListener('shown.bs.modal', function() {
+            updateViewportHeight(modalEl);
+            modalEl.scrollTop = 0;
+        });
+
+        modalEl.addEventListener('hidden.bs.modal', function() {
+            unregisterViewportUpdates(modalEl);
+            modalEl.style.removeProperty('--songinfo-viewport-height');
+            modalEl.style.removeProperty('--songinfo-viewport-top');
+            modalEl.style.removeProperty('--songinfo-viewport-bottom');
+        });
+
+        applyCentered(modalEl);
     });
 });
 // /Sidebar
