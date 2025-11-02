@@ -186,8 +186,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         var height = getViewportHeight();
+
         if (height && height > 0) {
             modalEl.style.setProperty('--songinfo-viewport-height', height + 'px');
+        } else {
+            modalEl.style.removeProperty('--songinfo-viewport-height');
         }
     }
 
@@ -235,10 +238,13 @@ document.addEventListener('DOMContentLoaded', function() {
     modalElements.forEach(function(modalEl) {
         modalEl.addEventListener('show.bs.modal', function() {
             applyCentered(modalEl);
+            updateViewportHeight(modalEl);
+            registerViewportUpdates(modalEl);
             modalEl.scrollTop = 0;
         });
 
         modalEl.addEventListener('shown.bs.modal', function() {
+            updateViewportHeight(modalEl);
             modalEl.scrollTop = 0;
         });
 
