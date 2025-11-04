@@ -60,6 +60,35 @@ O endpoint responde com informação da taxonomia e a lista de termos associados
 ## Integração ERP
 O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar dados de clientes. Certifique-se de que a URL e o token do serviço estão configurados em **Definições > ERP**. O sincronismo passa a depender exclusivamente do ERP-SINC, não recorrendo a dados alternativos do [NIF.pt](https://www.nif.pt/).
 
+### Diagnóstico de erros de importação CTB
+Se a importação CTB falhar com a mensagem `Erro: O webservice de contabilidade devolveu uma resposta vazia`, confirme primeiro a conectividade com o serviço externo. Pode utilizar `curl` para validar o endpoint e inspecionar a resposta. Exemplos úteis:
+
+- Ignorar certificados TLS autoassinados durante os testes (utilize a forma longa `--insecure` para enfatizar que a validação SSL é ignorada):
+
+  ```bash
+  curl --insecure "https://erp.exemplo.tld/endpoint"
+  ```
+
+- Enviar uma requisição `POST` com dados JSON e cabeçalhos explícitos:
+
+  ```bash
+  curl --insecure -X POST "https://erp.exemplo.tld/endpoint" \
+       -H "Content-Type: application/json" \
+       -H "Authorization: Bearer SEU_TOKEN" \
+       -d '{"operacao":"importacao","referencia":"123"}'
+  ```
+
+- Registar o pedido e a resposta num ficheiro para análise posterior:
+
+  ```bash
+  curl --insecure -X POST "https://erp.exemplo.tld/endpoint" \
+       -d '{"operacao":"importacao"}' \
+       -H "Content-Type: application/json" \
+       -o resposta.json -D cabecalhos.txt -v
+  ```
+
+Com estes comandos é possível verificar rapidamente se o webservice está acessível, se devolve conteúdo e se existem cabeçalhos ou códigos de estado HTTP inesperados. Guarde os ficheiros de saída (`resposta.json`, `cabecalhos.txt`) para partilhar com a equipa de suporte ou com o fornecedor do ERP.
+
 ## Textract OCR
 O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com/textract/) para extrair dados de faturas. A integração é feita através do script Python `contabilidade/textract.py`, que requer a biblioteca `boto3`.
 
