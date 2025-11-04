@@ -233,6 +233,14 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         curl_close($handle);
         $result['status'] = $status;
         $result['response'] = $response;
+
+        if ($status >= 200 && $status < 300) {
+            $result['success'] = true;
+            $result['message'] = 'O webservice de contabilidade devolveu uma resposta vazia, assumindo sucesso.';
+            logErpMessage('Webservice CTB devolveu resposta vazia com HTTP ' . $status . ' ao importar movimentos. A assumir sucesso.' . $endpointInfo);
+            return $result;
+        }
+
         $result['error'] = 'O webservice de contabilidade devolveu uma resposta vazia.';
         logErpMessage('Webservice CTB devolveu resposta vazia ao importar movimentos. HTTP ' . $status . $endpointInfo);
         return $result;
