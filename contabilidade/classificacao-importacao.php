@@ -132,12 +132,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade.php');
-    if (strpos($endpoint, '?') !== false) {
-        $endpoint .= '&act=importMovim';
-    } else {
-        $endpoint .= '?act=importMovim';
-    }
+    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/movimentos');
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
     $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
 
@@ -316,6 +311,17 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 
         if ($webserviceSuccess === true) {
             $result['success'] = true;
+        }
+
+        $messageFields = ['mensagem', 'message', 'msg'];
+        foreach ($messageFields as $messageField) {
+            if (isset($decodedResponse[$messageField])) {
+                $candidateMessage = trim((string) $decodedResponse[$messageField]);
+                if ($candidateMessage !== '') {
+                    $result['message'] = $candidateMessage;
+                    break;
+                }
+            }
         }
 
         foreach (['logmsg', 'log'] as $logField) {
@@ -759,6 +765,10 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (array_key_exists('decoded', $serviceResult)) {
         $servicePayload = sanitizeServiceDebugPayload($serviceResult['decoded']);
         $responsePayload['service_payload'] = $servicePayload;
+    }
+
+    if (!empty($serviceResult['message'])) {
+        $responsePayload['message'] = $serviceResult['message'];
     }
 
     if (array_key_exists('log', $serviceResult)) {
