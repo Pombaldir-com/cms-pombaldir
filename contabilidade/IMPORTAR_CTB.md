@@ -1,6 +1,6 @@
 # Webservice "Importar CTB"
 
-Este projeto comunica com o ERP através da função [`import_CTB`](classificacao-importacao.php). A chamada ao botão "Importar CTB" dispara um pedido HTTP `POST` para o endpoint configurado em `erp_webservice_url` e envia, no mesmo payload, os dados completos de cada documento seleccionado.
+Este projeto comunica com o ERP através da função [`import_CTB`](classificacao-importacao.php). A chamada ao botão "Importar CTB" dispara um pedido HTTP `POST` para o endpoint configurado em `erp_webservice_url` (terminando em `contabilidade.php`) e envia, no mesmo payload, os dados completos de cada documento seleccionado.
 
 O payload enviado para o ERP é construído em [`contabilidade/classificacao-importacao.php`](classificacao-importacao.php) e inclui os seguintes campos de formulário:
 
