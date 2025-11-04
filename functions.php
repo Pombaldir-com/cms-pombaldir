@@ -110,11 +110,20 @@ function startSession() {
     if (session_status() === PHP_SESSION_NONE) {
         $params = session_get_cookie_params();
 
+        $isHttps = false;
+        if (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') {
+            $isHttps = true;
+        } elseif (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+            $isHttps = strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https';
+        } elseif (!empty($_SERVER['SERVER_PORT'])) {
+            $isHttps = (int)$_SERVER['SERVER_PORT'] === 443;
+        }
+
         $cookieParams = [
             'lifetime' => $params['lifetime'],
             'path'     => $params['path'],
             'domain'   => $params['domain'],
-            'secure'   => isset($_SERVER['HTTPS']),
+            'secure'   => $isHttps,
             'httponly' => true,
         ];
 
