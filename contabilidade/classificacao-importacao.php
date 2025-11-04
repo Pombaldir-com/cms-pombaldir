@@ -132,7 +132,12 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/movimentos');
+    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade.php');
+    if (strpos($endpoint, '?') !== false) {
+        $endpoint .= '&act=importMovim';
+    } else {
+        $endpoint .= '?act=importMovim';
+    }
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
     $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
 
@@ -192,7 +197,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     $postPayload = [
         'tp' => 'importMovim',
         'act' => 'importMovim',
-        'accao' => 'importMovim',
+        'accao' => 'movimentos',
         'import_type' => $importType,
         'document_ids' => array_values($ids),
         'documents' => $documentsPayload,
