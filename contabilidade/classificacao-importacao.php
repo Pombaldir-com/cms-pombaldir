@@ -216,6 +216,8 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     ]);
 
     $response = curl_exec($handle);
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+
     if ($response === false) {
         $errorMessage = curl_error($handle);
         curl_close($handle);
@@ -224,7 +226,16 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    $trimmedResponse = is_string($response) ? trim($response) : '';
+    if ($trimmedResponse === '') {
+        curl_close($handle);
+        $result['status'] = $status;
+        $result['response'] = $response;
+        $result['error'] = 'O webservice de contabilidade devolveu uma resposta vazia.';
+        logErpMessage('Webservice CTB devolveu resposta vazia ao importar movimentos. HTTP ' . $status . $endpointInfo);
+        return $result;
+    }
+
     curl_close($handle);
 
     $result['status'] = $status;
