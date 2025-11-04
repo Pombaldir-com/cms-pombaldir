@@ -822,7 +822,36 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $responsePayload['message'] = $successMessage;
     }
 
-    echo json_encode($responsePayload);
+    $jsonResponse = json_encode($responsePayload, JSON_UNESCAPED_UNICODE);
+
+    if ($jsonResponse === false) {
+        $fallbackPayload = [
+            'success' => false,
+            'error' => 'Não foi possível preparar a resposta da importação.',
+            'csrf_token' => generateCsrfToken(),
+        ];
+
+        if (function_exists('json_last_error')) {
+            $lastError = json_last_error();
+            if ($lastError !== JSON_ERROR_NONE && function_exists('json_last_error_msg')) {
+                $errorDetail = trim((string) json_last_error_msg());
+                if ($errorDetail !== '') {
+                    $fallbackPayload['error_detail'] = $errorDetail;
+                }
+            }
+        }
+
+        logErpMessage('Falha ao codificar resposta da importação CTB para JSON: ' . ($fallbackPayload['error_detail'] ?? 'erro desconhecido'));
+
+        $jsonResponse = json_encode($fallbackPayload, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        if ($jsonResponse === false) {
+            // Em último recurso devolvemos uma resposta mínima válida.
+            $jsonResponse = '{"success":false,"error":"Não foi possível preparar a resposta da importação."}';
+        }
+    }
+
+    echo $jsonResponse;
     exit;
 }
 
