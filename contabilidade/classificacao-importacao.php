@@ -145,7 +145,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 
     $headers = [
         'Accept: application/json',
-        'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
+        'Content-Type: application/json; charset=UTF-8',
     ];
 
     $token = trim((string) getSetting('erp_token', ''));
@@ -189,24 +189,22 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $document;
     }, $documents);
 
-    $documentsJson = json_encode($documentsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($documentsJson === false) {
-        $result['error'] = 'Falha ao preparar os documentos para envio.';
-        logErpMessage('Erro ao codificar JSON dos documentos CTB: ' . json_last_error_msg());
-        return $result;
-    }
-
     $postPayload = [
         'tp' => 'importMovim',
         'act' => 'importMovim',
         'accao' => 'movimentos',
         'import_type' => $importType,
-        'document_ids' => $ids,
-        'documents' => $documentsJson,
+        'document_ids' => array_values($ids),
+        'documents' => $documentsPayload,
         'database' => $database,
     ];
 
-    $postFields = http_build_query($postPayload, '', '&', PHP_QUERY_RFC3986);
+    $postFields = json_encode($postPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($postFields === false) {
+        $result['error'] = 'Falha ao preparar os documentos para envio.';
+        logErpMessage('Erro ao codificar JSON dos documentos CTB: ' . json_last_error_msg());
+        return $result;
+    }
 
     curl_setopt_array($handle, [
         CURLOPT_POST => true,
