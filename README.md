@@ -63,16 +63,16 @@ O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar d
 ### Diagnóstico de erros de importação CTB
 Se a importação CTB falhar com a mensagem `Erro: O webservice de contabilidade devolveu uma resposta vazia`, confirme primeiro a conectividade com o serviço externo. Pode utilizar `curl` para validar o endpoint e inspecionar a resposta. Exemplos úteis:
 
-- Ignorar certificados TLS autoassinados durante os testes:
+- Ignorar certificados TLS autoassinados durante os testes (utilize a forma longa `--insecure` para enfatizar que a validação SSL é ignorada):
 
   ```bash
-  curl -k "https://erp.exemplo.tld/endpoint"
+  curl --insecure "https://erp.exemplo.tld/endpoint"
   ```
 
 - Enviar uma requisição `POST` com dados JSON e cabeçalhos explícitos:
 
   ```bash
-  curl -k -X POST "https://erp.exemplo.tld/endpoint" \
+  curl --insecure -X POST "https://erp.exemplo.tld/endpoint" \
        -H "Content-Type: application/json" \
        -H "Authorization: Bearer SEU_TOKEN" \
        -d '{"operacao":"importacao","referencia":"123"}'
@@ -81,7 +81,7 @@ Se a importação CTB falhar com a mensagem `Erro: O webservice de contabilidade
 - Registar o pedido e a resposta num ficheiro para análise posterior:
 
   ```bash
-  curl -k -X POST "https://erp.exemplo.tld/endpoint" \
+  curl --insecure -X POST "https://erp.exemplo.tld/endpoint" \
        -d '{"operacao":"importacao"}' \
        -H "Content-Type: application/json" \
        -o resposta.json -D cabecalhos.txt -v
