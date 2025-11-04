@@ -234,14 +234,15 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         $result['status'] = $status;
         $result['response'] = $response;
 
-        if ($status >= 200 && $status < 300) {
+        if ($status === 204) {
             $result['success'] = true;
-            $result['message'] = 'O webservice de contabilidade devolveu uma resposta vazia, assumindo sucesso.';
-            logErpMessage('Webservice CTB devolveu resposta vazia com HTTP ' . $status . ' ao importar movimentos. A assumir sucesso.' . $endpointInfo);
+            $result['message'] = 'O webservice de contabilidade devolveu HTTP 204 sem conteúdo.';
+            logErpMessage('Webservice CTB devolveu HTTP 204 sem conteúdo ao importar movimentos. A assumir sucesso.' . $endpointInfo);
             return $result;
         }
 
-        $result['error'] = 'O webservice de contabilidade devolveu uma resposta vazia.';
+        $result['success'] = false;
+        $result['error'] = 'O webservice de contabilidade devolveu uma resposta vazia (HTTP ' . $status . ').';
         logErpMessage('Webservice CTB devolveu resposta vazia ao importar movimentos. HTTP ' . $status . $endpointInfo);
         return $result;
     }
