@@ -78,19 +78,12 @@ window.addEventListener('load', function() {
             return;
         }
         var prefix = '[Classificação] ' + label;
+        var logFn = typeof console.log === 'function' ? console.log : console.debug;
         try {
             var safe = JSON.parse(JSON.stringify(value));
-            if (typeof console.debug === 'function') {
-                console.debug(prefix, safe);
-            } else {
-                console.log(prefix, safe);
-            }
+            logFn.call(console, prefix, safe);
         } catch (err) {
-            if (typeof console.debug === 'function') {
-                console.debug(prefix, value);
-            } else {
-                console.log(prefix, value);
-            }
+            logFn.call(console, prefix, value);
         }
     }
     var csrfInput = document.getElementById('csrf_token');
