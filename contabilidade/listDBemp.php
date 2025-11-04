@@ -41,11 +41,19 @@ $payloadArray = [
     'act' => 'listDBemp',
 ];
 
-$payload = http_build_query($payloadArray);
+$payload = json_encode($payloadArray, JSON_UNESCAPED_UNICODE);
+if (!is_string($payload)) {
+    logErpMessage('Falha ao codificar pedido JSON para listDBemp.');
+    echo json_encode([
+        'success' => false,
+        'error' => 'Não foi possível preparar o pedido para o serviço de contabilidade.',
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $headers = [
     'Accept: application/json',
-    'Content-Type: application/x-www-form-urlencoded; charset=utf-8'
+    'Content-Type: application/json; charset=utf-8'
 ];
 
 $token = trim((string) getSetting('erp_token', ''));
