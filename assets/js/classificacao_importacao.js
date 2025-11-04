@@ -63,11 +63,24 @@ window.addEventListener('load', function() {
             fetchOptions.headers = Object.assign({}, fetchOptions.headers);
         }
         return fetch(url, fetchOptions).then(function(res) {
+            var status = typeof res.status === 'number' ? res.status : null;
+            var statusText = typeof res.statusText === 'string' ? res.statusText.trim() : '';
             return res.text().then(function(text) {
+                var trimmed = typeof text === 'string' ? text.trim() : '';
+                if (!trimmed) {
+                    var httpInfo = '';
+                    if (status !== null) {
+                        httpInfo = ' (HTTP ' + status + (statusText ? ' ' + statusText : '') + ')';
+                    }
+                    throw new Error('O webservice de contabilidade devolveu uma resposta vazia' + httpInfo + '.');
+                }
                 try {
-                    return JSON.parse(text);
+                    return JSON.parse(trimmed);
                 } catch (e) {
-                    throw new Error(text || 'Resposta inválida do servidor');
+                    if (trimmed) {
+                        throw new Error(trimmed);
+                    }
+                    throw new Error('Resposta inválida do servidor' + (status !== null ? ' (HTTP ' + status + ')' : ''));
                 }
             });
         });
