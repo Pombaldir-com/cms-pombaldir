@@ -192,7 +192,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     $postPayload = [
         'tp' => 'importMovim',
         'act' => 'importMovim',
-        'accao' => 'movimentos',
+        'accao' => 'importMovim',
         'import_type' => $importType,
         'document_ids' => array_values($ids),
         'documents' => $documentsPayload,
@@ -295,8 +295,11 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
                 $result['error'] = 'O webservice de contabilidade devolveu um erro ao importar os movimentos.';
             }
 
-            if (isset($decodedResponse['logmsg'])) {
-                $result['log'] = $decodedResponse['logmsg'];
+            foreach (['logmsg', 'log'] as $logField) {
+                if (isset($decodedResponse[$logField])) {
+                    $result['log'] = $decodedResponse[$logField];
+                    break;
+                }
             }
 
             $logDetail = $errorDetail !== '' ? (' Detalhe: ' . $errorDetail) : '';
@@ -310,8 +313,11 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
             $result['success'] = true;
         }
 
-        if (isset($decodedResponse['logmsg'])) {
-            $result['log'] = $decodedResponse['logmsg'];
+        foreach (['logmsg', 'log'] as $logField) {
+            if (isset($decodedResponse[$logField])) {
+                $result['log'] = $decodedResponse[$logField];
+                break;
+            }
         }
     }
 
