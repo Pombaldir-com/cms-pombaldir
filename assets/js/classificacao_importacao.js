@@ -607,6 +607,7 @@ window.addEventListener('load', function() {
                     }
                     throw new Error(error);
                 }
+                //console.log(res);
                 if (res && res.service_response) {
                     debugJson('Import CTB service response', res.service_response);
                 }
