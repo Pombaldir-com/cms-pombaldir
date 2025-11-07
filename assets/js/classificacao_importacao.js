@@ -99,12 +99,83 @@ window.addEventListener('load', function() {
             logFn.call(console, prefix, value);
         }
     }
+
+    function collectErrorMessages(candidate, target, visited) {
+        if (candidate === null || candidate === undefined) {
+            return;
+        }
+        if (!Array.isArray(target)) {
+            return;
+        }
+        if (!Array.isArray(visited)) {
+            visited = [];
+        }
+        if (typeof candidate === 'string') {
+            var trimmedMessage = candidate.trim();
+            if (trimmedMessage && target.indexOf(trimmedMessage) === -1) {
+                target.push(trimmedMessage);
+            }
+            return;
+        }
+        if (Array.isArray(candidate)) {
+            for (var i = 0; i < candidate.length; i += 1) {
+                collectErrorMessages(candidate[i], target, visited);
+            }
+            return;
+        }
+        if (typeof candidate === 'object') {
+            if (visited.indexOf(candidate) !== -1) {
+                return;
+            }
+            visited.push(candidate);
+            var prioritizedKeys = ['error', 'errors', 'mensagem', 'message', 'msg', 'mensagem_erro', 'descricao', 'descricao_erro', 'detalhes'];
+            for (var j = 0; j < prioritizedKeys.length; j += 1) {
+                var key = prioritizedKeys[j];
+                if (Object.prototype.hasOwnProperty.call(candidate, key)) {
+                    collectErrorMessages(candidate[key], target, visited);
+                }
+            }
+            var keys = Object.keys(candidate);
+            for (var k = 0; k < keys.length; k += 1) {
+                var objectKey = keys[k];
+                if (prioritizedKeys.indexOf(objectKey) !== -1) {
+                    continue;
+                }
+                collectErrorMessages(candidate[objectKey], target, visited);
+            }
+        }
+    }
+
+    function extractErrorMessages(responsePayload) {
+        var messages = [];
+        var visited = [];
+        if (!responsePayload || typeof responsePayload !== 'object') {
+            collectErrorMessages(responsePayload, messages, visited);
+            return messages;
+        }
+        var directFields = ['error', 'errors', 'mensagem', 'message', 'msg', 'mensagem_erro', 'descricao', 'descricao_erro', 'detalhes'];
+        for (var i = 0; i < directFields.length; i += 1) {
+            var field = directFields[i];
+            if (Object.prototype.hasOwnProperty.call(responsePayload, field)) {
+                collectErrorMessages(responsePayload[field], messages, visited);
+            }
+        }
+        var nestedContainers = ['resultado', 'service_payload', 'service_response'];
+        for (var j = 0; j < nestedContainers.length; j += 1) {
+            var container = nestedContainers[j];
+            if (Object.prototype.hasOwnProperty.call(responsePayload, container)) {
+                collectErrorMessages(responsePayload[container], messages, visited);
+            }
+        }
+        return messages;
+    }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
     var importType = importTypeInput ? parseInt(importTypeInput.value, 10) : 1;
     if (isNaN(importType)) {
         importType = 1;
     }
+    var importTypeAllowsImport = importType === 1 || importType === 2;
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
 
     function buildImportCtbUrl() {
@@ -499,7 +570,7 @@ window.addEventListener('load', function() {
     }
 
     function moveImportButtonToFilter() {
-        if (!importCtbButton.length || importType !== 1) {
+        if (!importCtbButton.length || !importTypeAllowsImport) {
             showImportButtonWrapper();
             return;
         }
@@ -551,8 +622,15 @@ window.addEventListener('load', function() {
         hideImportButtonWrapper();
     }
 
+    function getImportReadySelector() {
+        if (importType === 2) {
+            return '.analyze-lines.btn-success';
+        }
+        return '.classify-row.btn-success';
+    }
+
     function updateImportButtonState() {
-        if (!importCtbButton.length || importType !== 1) {
+        if (!importCtbButton.length || !importTypeAllowsImport) {
             return;
         }
         if (importCtbButton.data('loading')) {
@@ -563,7 +641,7 @@ window.addEventListener('load', function() {
             importCtbButton.prop('disabled', true);
             return;
         }
-        var readyCount = $('#classify-table').find('.classify-row.btn-success').length;
+        var readyCount = $('#classify-table').find(getImportReadySelector()).length;
         importCtbButton.prop('disabled', readyCount === 0);
     }
 
@@ -604,19 +682,32 @@ window.addEventListener('load', function() {
                     csrfInput.value = res.csrf_token;
                 }
                 if (!res || !res.success) {
+                    var errorMessages = res ? extractErrorMessages(res) : [];
                     var error = 'Erro ao importar';
                     if (res) {
-                        var errorFields = ['error', 'mensagem', 'message', 'msg'];
-                        for (var eIndex = 0; eIndex < errorFields.length; eIndex += 1) {
-                            var errorField = errorFields[eIndex];
-                            if (Object.prototype.hasOwnProperty.call(res, errorField)) {
-                                var errorCandidate = res[errorField];
-                                if (typeof errorCandidate === 'string' && errorCandidate.trim() !== '') {
-                                    error = errorCandidate.trim();
-                                    break;
+                        var resultadoMessages = [];
+                        if (res.resultado && typeof res.resultado === 'object') {
+                            resultadoMessages = extractErrorMessages(res.resultado);
+                        }
+                        if (resultadoMessages.length) {
+                            error = resultadoMessages.join('\n');
+                        } else if (errorMessages.length) {
+                            error = errorMessages.join('\n');
+                        } else {
+                            var errorFields = ['error', 'mensagem', 'message', 'msg'];
+                            for (var eIndex = 0; eIndex < errorFields.length; eIndex += 1) {
+                                var errorField = errorFields[eIndex];
+                                if (Object.prototype.hasOwnProperty.call(res, errorField)) {
+                                    var errorCandidate = res[errorField];
+                                    if (typeof errorCandidate === 'string' && errorCandidate.trim() !== '') {
+                                        error = errorCandidate.trim();
+                                        break;
+                                    }
                                 }
                             }
                         }
+                    } else if (errorMessages.length) {
+                        error = errorMessages.join('\n');
                     }
                     throw new Error(error);
                 }
@@ -693,7 +784,8 @@ window.addEventListener('load', function() {
             return;
         }
         var ids = [];
-        $('#classify-table').find('.classify-row.btn-success').each(function() {
+        var readySelector = getImportReadySelector();
+        $('#classify-table').find(readySelector).each(function() {
             var id = this.getAttribute('data-id');
             if (id) {
                 ids.push(id);
@@ -2189,6 +2281,7 @@ window.addEventListener('load', function() {
     var linesContainer = document.getElementById('linesContainer');
     var confirmLinesBtn = document.getElementById('confirmLinesBtn');
     var currentLinesId = null;
+    var currentLinesEmitter = null;
 
     if (linesModalEl) {
         linesModalEl.addEventListener('hidden.bs.modal', function() {
@@ -2550,6 +2643,18 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.analyze-lines', function() {
         var btn = this;
         var id = btn.getAttribute('data-id');
+        var emitterRaw = btn.getAttribute('data-emitter') || '';
+        var emitterDisplay = btn.getAttribute('data-emitter-display') || emitterRaw || '';
+        var emitterNif = btn.getAttribute('data-emitter-nif') || '';
+        var acquirerValue = btn.getAttribute('data-acquirer') || '';
+        var docTypeValue = btn.getAttribute('data-doctype') || '';
+        currentLinesEmitter = {
+            raw: emitterRaw,
+            display: emitterDisplay,
+            identifier: emitterNif || emitterRaw,
+            acquirer: acquirerValue,
+            docType: docTypeValue
+        };
         currentLinesId = id;
         linesContainer.innerHTML = '<div class="d-flex justify-content-center my-3"><div class="spinner-border" role="status"><span class="visually-hidden">A carregar...</span></div></div>';
         linesModal.show();
@@ -2559,18 +2664,163 @@ window.addEventListener('load', function() {
         });
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
+                if (!res) {
+                    throw new Error('Resposta inválida');
+                }
+                if (res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
                 if (res.error) {
                     linesModal.hide();
                     showError(res.error);
                     return;
                 }
-                renderLines(res);
+                var responseLines = Array.isArray(res.lines) ? res.lines.slice() : Array.isArray(res) ? res.slice() : [];
+                handleEmptyLineScenario(responseLines, {
+                    raw: res.emitter || (currentLinesEmitter ? currentLinesEmitter.raw : ''),
+                    display: res.emitter_display || (currentLinesEmitter ? currentLinesEmitter.display : ''),
+                    acquirer: res.acquirer || (currentLinesEmitter ? currentLinesEmitter.acquirer : ''),
+                    docType: res.doc_type || (currentLinesEmitter ? currentLinesEmitter.docType : '')
+                }, !!res.skip_ocr).then(function(result) {
+                    if (result.skipConfirmed) {
+                        markAnalyzeLinesValidated();
+                    }
+                    renderLines(result.lines);
+                }).catch(function(err) {
+                    renderLines([]);
+                    if (err && err.message) {
+                        showError(err.message);
+                    }
+                });
             })
             .catch(function(err) {
                 linesModal.hide();
                 showError(err.message || 'Erro na análise');
             });
     });
+
+    function lineHasContent(line) {
+        if (!line || typeof line !== 'object') {
+            return false;
+        }
+        var keys = ['ERP', 'IVA_TAXA', 'PRODUCT_CODE', 'ITEM', 'QUANTITY', 'UNIT_PRICE', 'PRICE', 'PRICE_VAT', 'COST_CENTER'];
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (Object.prototype.hasOwnProperty.call(line, key)) {
+                var value = line[key];
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    function areLinesCompletelyEmpty(lines) {
+        if (!Array.isArray(lines) || lines.length === 0) {
+            return true;
+        }
+        for (var i = 0; i < lines.length; i += 1) {
+            if (lineHasContent(lines[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function markAnalyzeLinesValidated() {
+        if (!currentLinesId) {
+            return;
+        }
+        var analyzeBtn = document.querySelector('.analyze-lines[data-id="' + currentLinesId + '"]');
+        if (analyzeBtn) {
+            analyzeBtn.classList.remove('btn-info', 'btn-warning');
+            analyzeBtn.classList.add('btn-success');
+        }
+        updateImportButtonState();
+    }
+
+    function confirmDisableOcr(emitterInfo) {
+        var emitterLabel = emitterInfo && emitterInfo.display ? emitterInfo.display : 'este emitente';
+        var message = 'Não foi possível ler as linhas desta fatura automaticamente. Deseja desativar a leitura automática (OCR) para ' + emitterLabel + ' no futuro?';
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            return window.Swal.fire({
+                icon: 'warning',
+                title: 'Desativar leitura automática?',
+                text: message,
+                showCancelButton: true,
+                confirmButtonText: 'Sim',
+                cancelButtonText: 'Não'
+            }).then(function(result) {
+                return !!result.isConfirmed;
+            });
+        }
+        return Promise.resolve(window.confirm(message));
+    }
+
+    function persistSkipOcrPreference(emitterRaw, acquirerRaw, docTypeRaw) {
+        if (!emitterRaw || !acquirerRaw || !docTypeRaw) {
+            return Promise.resolve(false);
+        }
+        var body = new URLSearchParams({
+            action: 'toggle_skip_ocr',
+            emitter: emitterRaw,
+            acquirer: acquirerRaw,
+            doc_type: docTypeRaw,
+            skip: '1',
+            csrf_token: csrfInput ? csrfInput.value : ''
+        });
+        return fetchJson('contabilidade/save-analysis.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        }).then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (!res || !res.success) {
+                var message = res && res.error ? res.error : 'Falha ao guardar preferência';
+                throw new Error(message);
+            }
+            return true;
+        });
+    }
+
+    function handleEmptyLineScenario(lines, emitterInfo, skipAlreadyDisabled) {
+        if (!areLinesCompletelyEmpty(lines)) {
+            return Promise.resolve({
+                lines: lines,
+                skipConfirmed: false
+            });
+        }
+        return confirmDisableOcr(emitterInfo).then(function(confirmed) {
+            if (!confirmed) {
+                return {
+                    lines: [],
+                    skipConfirmed: !!skipAlreadyDisabled
+                };
+            }
+            var emitterRaw = emitterInfo && emitterInfo.raw ? emitterInfo.raw : '';
+            var acquirerRaw = emitterInfo && emitterInfo.acquirer ? emitterInfo.acquirer : '';
+            var docTypeRaw = emitterInfo && emitterInfo.docType ? emitterInfo.docType : '';
+            return persistSkipOcrPreference(emitterRaw, acquirerRaw, docTypeRaw)
+                .then(function() {
+                    var label = emitterInfo && emitterInfo.display ? emitterInfo.display : emitterRaw || 'o emitente';
+                    showSuccess('Leitura automática desativada para ' + label + '.');
+                    return {
+                        lines: [],
+                        skipConfirmed: true
+                    };
+                })
+                .catch(function(err) {
+                    showError(err && err.message ? err.message : 'Não foi possível atualizar a preferência de OCR.');
+                    return {
+                        lines: [],
+                        skipConfirmed: !!skipAlreadyDisabled
+                    };
+                });
+        });
+    }
 
     function renderLines(lines) {
         if (!Array.isArray(lines) || lines.length === 0) {
@@ -2684,6 +2934,7 @@ window.addEventListener('load', function() {
                     analyzeBtn.classList.remove('btn-info', 'btn-success');
                     analyzeBtn.classList.add(allErpFilled ? 'btn-success' : 'btn-info');
                 }
+                updateImportButtonState();
             } else {
                 showError(res.error || 'Erro ao guardar linhas');
             }
@@ -2693,4 +2944,3 @@ window.addEventListener('load', function() {
         });
     });
 });
-

@@ -17,3 +17,4 @@ contabilidade/magick-*
 .history/*
 contabilidade/debug_qr.txt
 data/*.log
+migrations/*

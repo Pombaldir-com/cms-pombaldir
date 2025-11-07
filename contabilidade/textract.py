@@ -43,6 +43,230 @@ def parse_table_with_headers(rows: dict[int, dict[int, str]]) -> list[dict]:
     return result, header_row
 
 
+LINE_START_RE = re.compile(
+    r"^\s*\(?(?P<iva>[A-Z])\)?\s*[-:]?\s*(?P<desc>[^\d].*?)(?:\s+(?P<price>-?\d+[.,]\d{2}(?:€)?)\s*)?$"
+)
+ITEM_MARKER_SPLIT_RE = re.compile(r"(?=\([A-Z]\))")
+QTY_LINE_RE = re.compile(r"^\s*(?P<qty>[\d.,]+)\s*[xX]\s*(?P<unit>[\d.,]+)")
+PRICE_VALUE_RE = re.compile(r"(-?\d+[.,]\d{2})")
+NON_NUMBER_RE = re.compile(r"[^\d,.-]")
+SECTION_SUFFIX_RE = re.compile(r":\s*$")
+TRAILING_AMOUNT_RE = re.compile(r"[-\s]*(?:-?\d+[.,]\d{2})(?:€)?\s*$")
+ALPHA_ONLY_RE = re.compile(r"[^A-ZÀ-Ü ]+")
+IGNORED_KEYWORDS = {
+    "POUPANCA",
+    "UTILIZOU DO SEU CARTAO",
+    "ACUMULOU NO SEU CARTAO",
+    "SALDO NO SEU CARTAO",
+    "SALDO NO CARTAO",
+    "SOFT DRINKS",
+    "FRUTAS E LEGUMES",
+    "TALHO",
+    "TOTAL",
+    "SUBTOTAL",
+    "VALOR",
+    "IVA DESCRICAO",
+}
+
+
+def clean_numeric_string(value: str) -> str:
+    stripped = value.strip().replace("€", "")
+    stripped = NON_NUMBER_RE.sub("", stripped)
+    if not stripped:
+        return ""
+    # Preserve decimal separator by converting to float then formatting
+    normalized = stripped.replace(".", "").replace(",", ".")
+    try:
+        number = float(normalized)
+    except ValueError:
+        return stripped
+    return f"{number:.2f}".replace(".", ",")
+
+
+def parse_price_from_text(text: str) -> str:
+    matches = PRICE_VALUE_RE.findall(text)
+    if not matches:
+        return ""
+    return clean_numeric_string(matches[-1])
+
+
+def should_ignore_text_line(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    upper = stripped.upper()
+    if SECTION_SUFFIX_RE.search(stripped):
+        return True
+    candidate = TRAILING_AMOUNT_RE.sub("", upper).strip()
+    candidate_alpha = ALPHA_ONLY_RE.sub(" ", candidate).strip()
+    if candidate_alpha in IGNORED_KEYWORDS or candidate in IGNORED_KEYWORDS or upper in IGNORED_KEYWORDS:
+        return True
+    return False
+
+
+def parse_textual_lines(text_lines: list[str]) -> list[dict]:
+    items = []
+    current = None
+
+    def finalize_current():
+        nonlocal current
+        if current and (current.get("ITEM") or current.get("PRICE")):
+            items.append(current)
+        current = None
+
+    for raw in text_lines:
+        segments = ITEM_MARKER_SPLIT_RE.split(raw)
+        for segment in segments:
+            text = segment.strip()
+            if not text:
+                continue
+            if should_ignore_text_line(text):
+                finalize_current()
+                continue
+        start_match = LINE_START_RE.match(text)
+        if start_match:
+            finalize_current()
+            price = start_match.group("price") or ""
+            current = {
+                "IVA_TAXA": start_match.group("iva"),
+                "ITEM": start_match.group("desc").strip(),
+                "QUANTITY": "",
+                "UNIT_PRICE": "",
+                "PRICE": clean_numeric_string(price) if price else "",
+            }
+            continue
+        if current is None:
+            continue
+        qty_match = QTY_LINE_RE.match(text)
+        if qty_match:
+            current["QUANTITY"] = qty_match.group("qty").strip()
+            current["UNIT_PRICE"] = qty_match.group("unit").strip()
+            if not current.get("PRICE"):
+                qty_float = None
+                unit_float = None
+                try:
+                    qty_float = float(qty_match.group("qty").replace(".", "").replace(",", "."))
+                    unit_float = float(qty_match.group("unit").replace(".", "").replace(",", "."))
+                except ValueError:
+                    qty_float = None
+                if qty_float is not None and unit_float is not None:
+                    total = qty_float * unit_float
+                    current["PRICE"] = f"{total:.2f}".replace(".", ",")
+            continue
+        if not current.get("PRICE"):
+            price_candidate = parse_price_from_text(text)
+            if price_candidate:
+                current["PRICE"] = price_candidate
+                continue
+        # Treat as description continuation
+        current["ITEM"] = (current.get("ITEM", "") + " " + text).strip()
+
+    finalize_current()
+    return items
+
+
+def normalize_structured_entry(entry: dict) -> dict:
+    if "Texto" in entry and len(entry) == 1:
+        # handled elsewhere
+        return {}
+    normalized = {
+        "ERP": entry.get("ERP", ""),
+        "IVA_TAXA": entry.get("IVA_TAXA") or entry.get("IVA") or entry.get("TAX", ""),
+        "PRODUCT_CODE": entry.get("PRODUCT_CODE") or entry.get("ITEM_CODE", ""),
+        "ITEM": entry.get("ITEM") or entry.get("ITEMDESCRIPTION") or entry.get("DESCRICAO", ""),
+        "QUANTITY": entry.get("QUANTITY") or entry.get("QTY", ""),
+        "UNIT_PRICE": entry.get("UNIT_PRICE") or entry.get("UNITPRICE") or entry.get("PRICE_UNIT", ""),
+        "PRICE": entry.get("PRICE") or entry.get("AMOUNT", ""),
+    }
+    sanitized_item = sanitize_item_label(normalized.get("ITEM", ""))
+    if sanitized_item in IGNORED_KEYWORDS:
+        return {}
+    if not any(normalized.values()):
+        return {}
+    return normalized
+
+
+def normalize_ticket_lines(raw_lines: list[dict]) -> list[dict]:
+    normalized = []
+    buffer_text = []
+
+    def flush_text_buffer():
+        nonlocal buffer_text
+        if buffer_text:
+            normalized.extend(parse_textual_lines(buffer_text))
+            buffer_text = []
+
+    for entry in raw_lines:
+        if isinstance(entry, dict) and "Texto" in entry and len(entry) == 1:
+            buffer_text.append(entry["Texto"])
+            continue
+        flush_text_buffer()
+        normalized_entry = normalize_structured_entry(entry)
+        if normalized_entry:
+            normalized.append(normalized_entry)
+    flush_text_buffer()
+
+    merged = merge_quantity_only_lines([
+        line for line in normalized
+        if sanitize_item_label(line.get("ITEM", "")) not in IGNORED_KEYWORDS
+    ])
+
+    filtered = []
+    seen = set()
+    for line in merged:
+        key = (
+            sanitize_item_label(line.get("ITEM", "")),
+            line.get("QUANTITY", "") or "",
+            line.get("UNIT_PRICE", "") or "",
+            line.get("PRICE", "") or "",
+        )
+        if key == ("", "", "", ""):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered.append(line)
+
+    for idx, line in enumerate(filtered, 1):
+        if not str(line.get("ERP", "")).strip():
+            line["ERP"] = str(idx)
+    return filtered
+
+
+def sanitize_item_label(label: str) -> str:
+    if not label:
+        return ""
+    cleaned = ALPHA_ONLY_RE.sub(" ", label.upper()).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def merge_quantity_only_lines(lines: list[dict]) -> list[dict]:
+    merged = []
+    for line in lines:
+        has_item = bool(line.get("ITEM"))
+        has_qty = bool(line.get("QUANTITY"))
+        has_unit = bool(line.get("UNIT_PRICE"))
+        if (not has_item) and (has_qty or has_unit) and merged:
+            target = merged[-1]
+            if has_qty:
+                target["QUANTITY"] = line["QUANTITY"]
+            if has_unit:
+                target["UNIT_PRICE"] = line["UNIT_PRICE"]
+            if not target.get("PRICE"):
+                try:
+                    qty_float = float(target.get("QUANTITY", "0").replace(".", "").replace(",", "."))
+                    unit_float = float(target.get("UNIT_PRICE", "0").replace(".", "").replace(",", "."))
+                    total = qty_float * unit_float
+                    if total:
+                        target["PRICE"] = f"{total:.2f}".replace(".", ",")
+                except Exception:
+                    pass
+            continue
+        merged.append(line)
+    return merged
+
+
 # ---------- MAIN ----------
 
 def main() -> int:
@@ -105,7 +329,10 @@ def main() -> int:
                                 lines.append(line)
                                 seen.add(key_line)
                 if lines:
-                    json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
+                    normalized = normalize_ticket_lines(lines)
+                    if not normalized:
+                        normalized = lines
+                    json.dump(normalized, sys.stdout, ensure_ascii=False, indent=2)
                     return 0
         except Exception:
             pass
@@ -173,7 +400,10 @@ def main() -> int:
                             seen.add(key_line)
 
                 if lines:
-                    json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
+                    normalized = normalize_ticket_lines(lines)
+                    if not normalized:
+                        normalized = lines
+                    json.dump(normalized, sys.stdout, ensure_ascii=False, indent=2)
                     return 0
         except Exception:
             pass
@@ -211,7 +441,10 @@ def main() -> int:
                     lines.append(line)
 
         if lines:
-            json.dump(lines, sys.stdout, ensure_ascii=False, indent=2)
+            normalized = normalize_ticket_lines(lines)
+            if not normalized:
+                normalized = lines
+            json.dump(normalized, sys.stdout, ensure_ascii=False, indent=2)
             return 0
 
         return 1

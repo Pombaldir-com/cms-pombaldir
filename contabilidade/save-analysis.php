@@ -27,6 +27,19 @@ function normalizeSupplierPartyValue($value): string {
     return substr($string, 0, 255);
 }
 
+function normalizeDocTypeValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 50, 'UTF-8');
+    }
+
+    return substr($string, 0, 50);
+}
+
 /**
  * Uppercase helper compatible with environments without mbstring.
  */
@@ -183,6 +196,37 @@ function applySupplierDocumentMappings(PDO $pdo, $emitter, $acquirer, array $ite
     return $items;
 }
 
+function normalizeOcrIdentifiers($emitter, $acquirer, $docType): array {
+    $normalizedEmitter = normalizeSupplierPartyValue($emitter);
+    $normalizedAcquirer = normalizeSupplierPartyValue($acquirer);
+    $normalizedDocType = normalizeDocTypeValue($docType);
+    return [$normalizedEmitter, $normalizedAcquirer, $normalizedDocType];
+}
+
+function isOcrLinesDisabled(PDO $pdo, $emitter, $acquirer, $docType): bool {
+    [$normalizedEmitter, $normalizedAcquirer, $normalizedDocType] = normalizeOcrIdentifiers($emitter, $acquirer, $docType);
+    if ($normalizedEmitter === '' || $normalizedAcquirer === '' || $normalizedDocType === '') {
+        return false;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT skip_ocr_lines FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+    );
+    $stmt->execute([$normalizedEmitter, $normalizedAcquirer, $normalizedDocType]);
+    return (bool) $stmt->fetchColumn();
+}
+
+function updateOcrLinesPreference(PDO $pdo, $emitter, $acquirer, $docType, bool $skip): void {
+    [$normalizedEmitter, $normalizedAcquirer, $normalizedDocType] = normalizeOcrIdentifiers($emitter, $acquirer, $docType);
+    if ($normalizedEmitter === '' || $normalizedAcquirer === '' || $normalizedDocType === '') {
+        return;
+    }
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account, skip_ocr_lines) VALUES (?, ?, ?, ?, ?) 
+        ON DUPLICATE KEY UPDATE skip_ocr_lines = VALUES(skip_ocr_lines)'
+    );
+    $stmt->execute([$normalizedEmitter, $normalizedAcquirer, $normalizedDocType, '', $skip ? 1 : 0]);
+}
+
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
@@ -212,6 +256,24 @@ if ($action === 'lines') {
         http_response_code(404);
         exit;
     }
+    $emitterRaw = $row['field_A'] ?? '';
+    $acquirerRaw = $row['field_B'] ?? '';
+    $docTypeRaw = $row['field_D'] ?? '';
+    $skipOcr = isOcrLinesDisabled($pdo, $emitterRaw, $acquirerRaw, $docTypeRaw);
+
+    $respondWithLines = static function(array $items) use ($row, $skipOcr, $emitterRaw, $acquirerRaw, $docTypeRaw) {
+        header('Content-Type: application/json');
+        echo json_encode([
+            'lines' => $items,
+            'skip_ocr' => $skipOcr,
+            'emitter' => $emitterRaw,
+            'emitter_display' => $row['field_A'] ?? '',
+            'acquirer' => $acquirerRaw,
+            'doc_type' => $docTypeRaw,
+            'csrf_token' => generateCsrfToken()
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    };
     // If line items already stored, return them without invoking OCR again.
     if (!empty($row['line_items'])) {
         $items = json_decode($row['line_items'], true);
@@ -219,9 +281,7 @@ if ($action === 'lines') {
             $items = [];
         }
         $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
-        header('Content-Type: application/json');
-        echo json_encode($items, JSON_UNESCAPED_UNICODE);
-        exit;
+        $respondWithLines($items);
     }
 
     $path = dirname(__DIR__) . '/' . $row['filename'];
@@ -234,6 +294,10 @@ if ($action === 'lines') {
         exit;
     }
 
+    if ($skipOcr) {
+        $respondWithLines([]);
+    }
+
     try {
         $items = parseInvoiceLineTextract($path);
         if (!is_array($items)) {
@@ -243,9 +307,7 @@ if ($action === 'lines') {
         // Store OCR result so subsequent requests can reuse it.
         $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
         $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
-        header('Content-Type: application/json');
-        echo json_encode($items, JSON_UNESCAPED_UNICODE);
-        exit;
+        $respondWithLines($items);
     } catch (Throwable $e) {
         logOcrMessage('Textract OCR error: ' . $e->getMessage());
         http_response_code(500);
@@ -558,6 +620,42 @@ if ($action === 'get') {
         error_log('save-analysis save_lines error: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode(['error' => 'Erro ao guardar linhas', 'csrf_token' => generateCsrfToken()]);
+    }
+    exit;
+} elseif ($action === 'toggle_skip_ocr') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $emitter = $_POST['emitter'] ?? '';
+    $acquirer = $_POST['acquirer'] ?? '';
+    $docType = $_POST['doc_type'] ?? '';
+    if ($emitter === '' || $acquirer === '' || $docType === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Dados insuficientes para guardar preferência', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $skip = isset($_POST['skip']) ? (int) $_POST['skip'] : 1;
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
+    try {
+        updateOcrLinesPreference($pdo, $emitter, $acquirer, $docType, $skip === 1);
+        echo json_encode([
+            'success' => true,
+            'skip' => $skip ? 1 : 0,
+            'csrf_token' => generateCsrfToken()
+        ]);
+    } catch (Throwable $e) {
+        logOcrMessage('Erro ao atualizar preferência OCR: ' . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['error' => 'Falha ao atualizar preferência', 'csrf_token' => generateCsrfToken()]);
     }
     exit;
 } elseif ($action === 'remove') {

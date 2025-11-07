@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS accounting_classifications (
     acquirer VARCHAR(255) NOT NULL,
     doc_type VARCHAR(50) NOT NULL,
     account VARCHAR(255) NOT NULL,
+    skip_ocr_lines TINYINT(1) NOT NULL DEFAULT 0,
     UNIQUE KEY unique_classification (emitter, acquirer, doc_type)
 );
 

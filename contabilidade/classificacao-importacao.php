@@ -5,10 +5,41 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 
+if (!function_exists('normalizeSupplierPartyValue')) {
+    function normalizeSupplierPartyValue($value): string {
+        $string = trim((string) ($value ?? ''));
+        if ($string === '') {
+            return '';
+        }
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($string, 0, 255, 'UTF-8');
+        }
+
+        return substr($string, 0, 255);
+    }
+}
+
+if (!function_exists('normalizeDocTypeValue')) {
+    function normalizeDocTypeValue($value): string {
+        $string = trim((string) ($value ?? ''));
+        if ($string === '') {
+            return '';
+        }
+
+        if (function_exists('mb_substr')) {
+            return mb_substr($string, 0, 50, 'UTF-8');
+        }
+
+        return substr($string, 0, 50);
+    }
+}
+
 $useDataTables = true;
 $useDropzone = false;
 
 $pdo = getPDO();
+$ocrSkipMap = fetchOcrSkipMap($pdo);
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
@@ -109,6 +140,31 @@ function sanitizeServiceDebugPayload(mixed $value, int $depth = 0): mixed {
     return $value;
 }
 
+function buildOcrPreferenceKey($emitter, $acquirer, $docType): string {
+    $emitterKey = normalizeSupplierPartyValue($emitter);
+    $acquirerKey = normalizeSupplierPartyValue($acquirer);
+    $docTypeKey = normalizeDocTypeValue($docType);
+    if ($emitterKey === '' || $acquirerKey === '' || $docTypeKey === '') {
+        return '';
+    }
+    return implode('|', [$emitterKey, $acquirerKey, $docTypeKey]);
+}
+
+function fetchOcrSkipMap(PDO $pdo): array {
+    $stmt = $pdo->prepare(
+        'SELECT emitter, acquirer, doc_type FROM accounting_classifications WHERE skip_ocr_lines = 1'
+    );
+    $stmt->execute();
+    $map = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $key = buildOcrPreferenceKey($row['emitter'] ?? '', $row['acquirer'] ?? '', $row['doc_type'] ?? '');
+        if ($key !== '') {
+            $map[$key] = true;
+        }
+    }
+    return $map;
+}
+
 function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''): array {
     $result = [
         'success' => false,
@@ -132,7 +188,14 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $endpoint = buildErpEndpointFromBase($baseUrl, 'contabilidade/movimentos');
+    $endpointPath = 'contabilidade/movimentos';
+    $payloadAction = 'movimentos';
+    if ($importType === 2) {
+        $endpointPath = 'compras';
+        $payloadAction = 'compras';
+    }
+
+    $endpoint = buildErpEndpointFromBase($baseUrl, $endpointPath);
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
     $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
 
@@ -189,15 +252,35 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $document;
     }, $documents);
 
+    $tpValue = 'importMovim';
+    $actValue = 'importMovim';
+    if ($importType === 2) {
+        $tpValue = '';
+        $actValue = '';
+    }
+
     $postPayload = [
-        'tp' => 'importMovim',
-        'act' => 'importMovim',
-        'accao' => 'movimentos',
+        'tp' => $tpValue,
+        'act' => $actValue,
+        'accao' => $payloadAction,
         'import_type' => $importType,
         'document_ids' => array_values($ids),
         'documents' => $documentsPayload,
         'database' => $database,
     ];
+
+    if ($importType === 2) {
+        $sectionCode = trim((string) getSetting('compras_section', ''));
+        $documentType = trim((string) getSetting('compras_document_type', ''));
+
+        if ($sectionCode !== '') {
+            $postPayload['strCodSeccao'] = $sectionCode;
+        }
+
+        if ($documentType !== '') {
+            $postPayload['strAbrevTpDoc'] = $documentType;
+        }
+    }
 
     $postFields = json_encode($postPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($postFields === false) {
@@ -364,7 +447,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 }
 
 function prepareImportRow(array $row): array {
-    global $pdo;
+    global $pdo, $ocrSkipMap;
 
     $rawEmitter = (string)($row['field_A'] ?? '');
     $rawEmitterNif = (string)($row['field_C'] ?? '');
@@ -423,6 +506,12 @@ function prepareImportRow(array $row): array {
             }
         }
         if ($allFilled) {
+            $row['line_btn_class'] = 'btn-success';
+        }
+    }
+    if ($row['line_btn_class'] !== 'btn-success') {
+        $skipKey = buildOcrPreferenceKey($row['field_A'] ?? '', $row['field_B'] ?? '', $row['field_D'] ?? '');
+        if ($skipKey !== '' && isset($ocrSkipMap[$skipKey])) {
             $row['line_btn_class'] = 'btn-success';
         }
     }
@@ -946,8 +1035,14 @@ if ($action === 'data') {
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
             }
             if ($importType === 2) {
-                $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" data-id="'
-                    . (int)$row['id'] . '">Analisar</button>';
+                $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" '
+                    . 'data-id="' . (int)$row['id'] . '" '
+                    . 'data-emitter="' . $emitterRawEscaped . '" '
+                    . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
+                    . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
+                    . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
+                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '" '
+                    . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '">Analisar</button>';
             }
             $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
             $actions = implode(' ', $actionsParts);
@@ -1017,18 +1112,20 @@ foreach ($rows as &$row) {
 unset($row);
 
 $csrfToken = generateCsrfToken();
+$showImportButton = in_array($importType, [1, 2], true);
+$importButtonLabel = $importType === 2 ? 'Importar Compras' : 'Importar Ctb';
 
 require_once __DIR__ . '/../header.php';
 ?>
 <input type="hidden" id="import_type" value="<?= htmlspecialchars($importType); ?>">
 <div class="row mb-3">
     <div class="col-12">
-        <?php if ($importType === 1): ?>
+        <?php if ($showImportButton): ?>
 
 
         <div id="importCtbButtonWrapper" class="d-none">
             <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>
-                <i class="fa fa-cloud-upload"></i> Importar Ctb
+                <i class="fa fa-cloud-upload"></i> <?= htmlspecialchars($importButtonLabel); ?>
             </button>
         </div>
         <?php endif; ?>
@@ -1118,7 +1215,14 @@ require_once __DIR__ . '/../header.php';
                         <?php endif; ?>
 
                         <?php if ($importType === 2): ?>
-                        <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines" data-id="<?= (int)$row['id']; ?>">Analisar</button>
+                        <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines"
+                                data-id="<?= (int)$row['id']; ?>"
+                                data-emitter="<?= htmlspecialchars($row['field_A'] ?? ''); ?>"
+                                data-emitter-display="<?= htmlspecialchars($row['emitter_display_name'] ?? ($row['field_A'] ?? '')); ?>"
+                                data-emitter-nif="<?= htmlspecialchars($row['emitter_nif_normalized'] ?? ''); ?>"
+                                data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
+                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>"
+                                data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
                     </td>
@@ -1292,4 +1396,3 @@ require_once __DIR__ . '/../header.php';
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/classificacao_importacao.js"></script>
 <?php require_once __DIR__ . '/../footer.php'; ?>
-
