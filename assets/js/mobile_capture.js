@@ -83,8 +83,19 @@ document.addEventListener('DOMContentLoaded', function () {
             } 
             if (data.qr_texts && data.qr_texts.length) {
                 var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
+                var added = 0;
                 data.qr_texts.forEach(function(qrText){
-                    var qrData = extractQR(qrText);
+                    var trimmed = (qrText || '').trim();
+                    if (!trimmed) {
+                        return;
+                    }
+                    var qrData = extractQR(trimmed);
+                    var hasContent = keys.some(function(key) {
+                        return (qrData[key] || '').toString().trim() !== '';
+                    });
+                    if (!hasContent) {
+                        return;
+                    }
                     var row = keys.map(function(key){
                         var value = qrData[key] || '';
                         if (key === 'F') {
@@ -97,10 +108,24 @@ document.addEventListener('DOMContentLoaded', function () {
                     row.push(actions);
                     if (table) {
                         table.row.add(row).draw(); 
+                        added++;
                     }
                 });
-                if (table && table.rows().data().length) {
+                if (added && table && table.rows().data().length) {
                     showImportButtons();
+                } else {
+                    alert('QR code não encontrado');
+                    if (data.file) {
+                        fetch('contabilidade/upload.php?action=delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'file=' + encodeURIComponent(data.file) + '&csrf_token=' + encodeURIComponent(csrfInput ? csrfInput.value : '')
+                        }).then(function(res){ return res.json(); }).then(function(res){
+                            if (res.csrf_token && csrfInput) {
+                                csrfInput.value = res.csrf_token;
+                            }
+                        }).catch(function(){});
+                    }
                 }
             } else {
                 alert('QR code não encontrado');
@@ -111,4 +136,3 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 });
-

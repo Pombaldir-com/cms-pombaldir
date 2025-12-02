@@ -173,6 +173,86 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
 }
 
 /**
+ * Build a request URL for the ERP suppliers endpoint (/fornecedores).
+ *
+ * @param string $baseUrl Base URL stored in the settings.
+ * @param string $nif     VAT number to query.
+ * @return string Fully qualified URL.
+ */
+function buildErpSupplierEndpoint(string $baseUrl, string $nif): string {
+    $url = trim($baseUrl);
+    if ($url === '') {
+        return '';
+    }
+
+    $encodedNif = urlencode($nif);
+    $parsedUrl = @parse_url($url);
+
+    $defaultQuery = [
+        'limit' => 1,
+        'offset' => 0,
+        'q' => $nif,
+        'searchField' => 'strNumContribuinte',
+    ];
+
+    if (is_array($parsedUrl)) {
+        $host = strtolower($parsedUrl['host'] ?? '');
+        $path = $parsedUrl['path'] ?? '';
+        $query = $parsedUrl['query'] ?? '';
+
+        $baseWithoutQuery = $url;
+        if ($query !== '') {
+            $questionPos = strpos($url, '?');
+            if ($questionPos !== false) {
+                $baseWithoutQuery = substr($url, 0, $questionPos);
+            }
+        }
+        $baseWithoutQuery = rtrim($baseWithoutQuery, '/');
+
+        $normalizedPath = rtrim($path, '/');
+
+        $isErpSinc = $host !== '' && strpos($host, 'erpsinc') !== false;
+        if ($isErpSinc) {
+            if ($normalizedPath === '' || $normalizedPath === '/' || preg_match('#/v\d+\.\d+\.\d+$#', $normalizedPath)) {
+                return $baseWithoutQuery . '/fornecedores?' . http_build_query($defaultQuery, '', '&', PHP_QUERY_RFC3986);
+            }
+
+            if (substr($normalizedPath, -strlen('/clientes')) === '/clientes' || substr($normalizedPath, -strlen('/fornecedores')) === '/fornecedores') {
+                $queryData = [];
+                if ($query !== '') {
+                    parse_str($query, $queryData);
+                }
+
+                $finalQuery = [];
+                $finalQuery['limit'] = array_key_exists('limit', $queryData) ? $queryData['limit'] : 1;
+                $finalQuery['offset'] = array_key_exists('offset', $queryData) ? $queryData['offset'] : 0;
+                $finalQuery['q'] = $nif;
+                $finalQuery['searchField'] = array_key_exists('searchField', $queryData) ? $queryData['searchField'] : 'strNumContribuinte';
+
+                foreach ($queryData as $key => $value) {
+                    if (!array_key_exists($key, ['limit' => true, 'offset' => true, 'q' => true, 'searchField' => true])) {
+                        $finalQuery[$key] = $value;
+                    }
+                }
+
+                $basePrefix = $baseWithoutQuery;
+                if (substr($basePrefix, -strlen('/clientes')) === '/clientes') {
+                    $basePrefix = substr($basePrefix, 0, -strlen('/clientes')) . '/fornecedores';
+                } elseif (substr($basePrefix, -strlen('/fornecedores')) !== '/fornecedores') {
+                    $basePrefix .= '/fornecedores';
+                }
+
+                return rtrim($basePrefix, '/') . '?' . http_build_query($finalQuery, '', '&', PHP_QUERY_RFC3986);
+            }
+        }
+    }
+
+    $base = rtrim($url, '/');
+    $separator = strpos($base, '?') === false ? '?' : '&';
+    return $base . '/fornecedores' . $separator . http_build_query($defaultQuery, '', '&', PHP_QUERY_RFC3986);
+}
+
+/**
  * Prepare an URL string for logging by masking sensitive query parameters.
  *
  * @param string $url Original URL.
@@ -351,7 +431,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             $total = count($candidates);
         }
 
-        $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib'];
+        $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib', 'strnumcontribuinte'];
 
 
         foreach ($nifKeys as $nifKey) {
@@ -919,6 +999,104 @@ function looksLikeAccountReference($value): bool {
 }
 
 /**
+ * Return the default metadata structure used alongside VAT rate mappings.
+ */
+function defaultAccountingMetadata(): array {
+    return [
+        'total_account' => '',
+    ];
+}
+
+/**
+ * Extract metadata (e.g. total account) from a stored accounting JSON blob.
+ *
+ * @param string|null $json Raw JSON stored in the database.
+ * @return array<string,string>
+ */
+function normalizeAccountingMetadata(?string $json): array {
+    $result = defaultAccountingMetadata();
+    if ($json === null || trim($json) === '') {
+        return $result;
+    }
+
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return $result;
+    }
+
+    $candidates = [$decoded];
+    if (isset($decoded['meta']) && is_array($decoded['meta'])) {
+        $candidates[] = $decoded['meta'];
+    }
+
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate)) {
+            continue;
+        }
+        if (array_key_exists('total_account', $candidate)) {
+            $value = extractStringValue($candidate['total_account'], ['account', 'code', 'value']);
+            if ($value !== null) {
+                $result['total_account'] = $value;
+            }
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Normalise arbitrary metadata input (string or array) into the expected shape.
+ *
+ * @param mixed $input
+ * @return array<string,string>
+ */
+function sanitizeAccountingMetadata($input): array {
+    $result = defaultAccountingMetadata();
+    $source = null;
+
+    if (is_array($input)) {
+        $source = $input;
+        if (isset($input['meta']) && is_array($input['meta'])) {
+            $source = array_merge($input['meta'], $input);
+        }
+    } elseif ($input !== null) {
+        $source = ['total_account' => $input];
+    }
+
+    if (is_array($source) && array_key_exists('total_account', $source)) {
+        $candidate = extractStringValue($source['total_account'], ['account', 'code', 'value']);
+        if ($candidate !== null) {
+            $result['total_account'] = $candidate;
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Merge metadata structures, giving precedence to override values.
+ */
+function mergeAccountingMetadata(array $base, array $override): array {
+    $normalizedBase = sanitizeAccountingMetadata($base);
+    $normalizedOverride = sanitizeAccountingMetadata($override);
+
+    return array_merge($normalizedBase, $normalizedOverride);
+}
+
+/**
+ * Determine whether any metadata field contains a non-empty value.
+ */
+function hasAccountingMetadataValue(array $metadata): bool {
+    foreach ($metadata as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Normalise decimal amounts into strings with two decimal places.
  *
  * @param mixed $value
@@ -1034,7 +1212,7 @@ function normalizeAccountingAccounts(?string $json): array {
     }
     $sources[] = $data;
 
-    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title'];
+    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title', 'meta', 'total_account'];
 
     foreach ($sources as $source) {
         if (!is_array($source)) {
@@ -1162,7 +1340,7 @@ function sanitizeAccountInput(array $input): array {
     }
     $detectedRates = array_values(array_unique(array_map('strval', $detectedRates)));
 
-    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title'];
+    $metadataKeys = ['version', 'rates', 'label', 'labels', 'title', 'meta', 'total_account'];
 
     $result = [];
     foreach ($detectedRates as $rate) {
@@ -1443,14 +1621,26 @@ function mergeAccountingAccounts(array $base, array $override): array {
  * Serialize normalized account information as JSON.
  *
  * @param array<string,mixed> $rates
+ * @param array<string,mixed> $metadata
+ * @param array<string,mixed> $existingMetadata
  * @return string
  */
-function serializeAccountingAccounts(array $rates): string {
+function serializeAccountingAccounts(array $rates, array $metadata = [], array $existingMetadata = []): string {
     $sanitized = sanitizeAccountInput($rates);
-    return json_encode([
-        'version' => 2,
+    $baseMetadata = sanitizeAccountingMetadata($existingMetadata);
+    $incomingMetadata = sanitizeAccountingMetadata($metadata);
+    $finalMetadata = mergeAccountingMetadata($baseMetadata, $incomingMetadata);
+
+    $payload = [
+        'version' => 3,
         'rates' => $sanitized,
-    ], JSON_UNESCAPED_UNICODE);
+    ];
+
+    if (hasAccountingMetadataValue($finalMetadata)) {
+        $payload['meta'] = $finalMetadata;
+    }
+
+    return json_encode($payload, JSON_UNESCAPED_UNICODE);
 }
 
 /**
@@ -1677,6 +1867,38 @@ function computeImportRateSummaries(array $row): array {
 }
 
 /**
+ * Determine the best-effort total amount for an imported document.
+ *
+ * @param array<string,mixed> $document
+ * @return float|null
+ */
+function computeDocumentTotalAmount(array $document): ?float {
+    $directTotal = extractDecimalAmount($document['field_O'] ?? null);
+    if ($directTotal !== null && $directTotal !== '') {
+        $value = (float) $directTotal;
+        if (is_finite($value) && abs($value) >= 0.00001) {
+            return $value;
+        }
+    }
+
+    $summaries = computeImportRateSummaries($document);
+    $baseSum = 0.0;
+    $ivaSum = 0.0;
+
+    foreach ($summaries as $summary) {
+        $baseSum += (float) ($summary['base_value'] ?? 0.0);
+        $ivaSum += (float) ($summary['iva_value'] ?? 0.0);
+    }
+
+    $calculatedTotal = $baseSum + $ivaSum;
+    if (!is_finite($calculatedTotal) || abs($calculatedTotal) < 0.00001) {
+        return null;
+    }
+
+    return $calculatedTotal;
+}
+
+/**
  * Build payload and requirement metadata for modal rendering.
  *
  * @param array<string,array<string,mixed>> $summaries
@@ -1740,7 +1962,7 @@ function buildRatePayload(array $summaries, array $accounts): array {
  * @param array<string,array<string,string>> $payload
  * @return string
  */
-function determineClassificationButtonClass(array $requirements, array $payload): string {
+function determineClassificationButtonClass(array $requirements, array $payload, array $metadata = []): string {
     $requires = false;
     $allFilled = true;
     $hasAny = false;
@@ -1768,6 +1990,18 @@ function determineClassificationButtonClass(array $requirements, array $payload)
         }
     }
 
+    $totalAccount = '';
+    if (isset($metadata['total_account'])) {
+        $totalAccount = trim((string) $metadata['total_account']);
+    }
+
+    if ($totalAccount === '') {
+        $requires = true;
+        $allFilled = false;
+    } else {
+        $hasAny = true;
+    }
+
     if (!$requires || $allFilled) {
         return 'btn-success';
     }
@@ -1777,6 +2011,196 @@ function determineClassificationButtonClass(array $requirements, array $payload)
     }
 
     return 'btn-secondary';
+}
+
+/**
+ * Build a human-readable description for an ERP accounting line.
+ */
+function buildAccountingLineDescription(array $document, string $rate, string $componentLabel, ?string $customLabel = null): string {
+    $docNumber = trim((string) ($document['field_G'] ?? ''));
+    $baseLabel = $customLabel !== null && $customLabel !== '' ? $customLabel : buildVatRateLabel($rate);
+    if ($baseLabel === '') {
+        $baseLabel = strtoupper($componentLabel);
+    } else {
+        $baseLabel = strtoupper($componentLabel) . ' ' . $baseLabel;
+    }
+
+    if ($docNumber !== '') {
+        return 'Doc ' . $docNumber . ' - ' . $baseLabel;
+    }
+
+    $emitter = trim((string) ($document['field_A'] ?? ''));
+    if ($emitter !== '') {
+        return $emitter . ' - ' . $baseLabel;
+    }
+
+    return $baseLabel;
+}
+
+/**
+ * Build a description for the total accounting line appended to ERP payloads.
+ */
+function buildTotalAccountingLineDescription(array $document, string $nif): string {
+    $parts = [];
+
+    $docNumber = trim((string) ($document['field_G'] ?? ''));
+    if ($docNumber !== '') {
+        $parts[] = 'Doc ' . $docNumber;
+    }
+
+    if ($nif !== '') {
+        $parts[] = 'NIF ' . $nif;
+    }
+
+    $emitter = trim((string) ($document['field_A'] ?? ''));
+    if ($docNumber === '' && $emitter !== '') {
+        $parts[] = $emitter;
+    }
+
+    if (empty($parts)) {
+        return 'Total';
+    }
+
+    return 'Total - ' . implode(' - ', $parts);
+}
+
+/**
+ * Normalise an amount stored in the document/classification to a float value.
+ *
+ * @param mixed $primaryValue  User-provided value stored in the classification.
+ * @param mixed $fallbackValue Value inferred from the document totals.
+ */
+function resolveAccountingLineAmount($primaryValue, $fallbackValue = null): ?float {
+    $amountString = extractDecimalAmount($primaryValue);
+    if (($amountString === null || $amountString === '') && $fallbackValue !== null) {
+        if (is_string($fallbackValue) || is_numeric($fallbackValue)) {
+            $amountString = extractDecimalAmount($fallbackValue);
+        }
+    }
+
+    if ($amountString === null || $amountString === '') {
+        return null;
+    }
+
+    $amount = (float) $amountString;
+    if (!is_finite($amount) || abs($amount) < 0.00001) {
+        return null;
+    }
+
+    return $amount;
+}
+
+/**
+ * Assemble a single ERP accounting line entry.
+ *
+ * @param string      $account
+ * @param float       $amount
+ * @param string      $description
+ * @param string|null $costCenter
+ * @param string|null $rate
+ * @param string      $component Either 'base' or 'iva'.
+ */
+function buildAccountingLineEntry(string $account, float $amount, string $description, ?string $costCenter, ?string $rate, string $component): array {
+    $entry = [
+        'strConta' => $account,
+        'fltValor' => round(abs($amount), 2),
+        'strDeb_Cre' => $component === 'total' ? 'C' : ($amount >= 0 ? 'D' : 'C'),
+        'strDescricao' => $description,
+        'line_component' => $component,
+    ];
+
+    if ($costCenter !== null && $costCenter !== '') {
+        $entry['strCentroCusto'] = $costCenter;
+    }
+
+    if ($rate !== null && $rate !== '') {
+        $entry['tax_rate'] = $rate;
+    }
+
+    return $entry;
+}
+
+/**
+ * Convert stored classification data into ERP accounting lines.
+ *
+ * @param array<string,mixed> $document
+ * @return array<int,array<string,mixed>>
+ */
+function buildDocumentAccountingLines(array $document): array {
+    $accounts = normalizeAccountingAccounts($document['account'] ?? '');
+    $metadata = normalizeAccountingMetadata($document['account'] ?? '');
+    $costCenters = normalizeCostCenters($document['cost_center'] ?? '');
+    $summaries = computeImportRateSummaries($document);
+    $lines = [];
+
+    foreach ($accounts as $rate => $config) {
+        $rateKey = (string) $rate;
+        $label = '';
+        if (isset($config['label']) && is_string($config['label'])) {
+            $label = trim($config['label']);
+        }
+        $summary = $summaries[$rateKey] ?? null;
+
+        $generalAccount = trim((string) ($config['general_account'] ?? ''));
+        $baseAmount = resolveAccountingLineAmount($config['base'] ?? '', $summary['base_value'] ?? null);
+        if ($generalAccount !== '' && $baseAmount !== null) {
+            $description = buildAccountingLineDescription($document, $rateKey, 'Base', $label);
+            $lines[] = buildAccountingLineEntry(
+                $generalAccount,
+                $baseAmount,
+                $description,
+                $costCenters[$rateKey] ?? '',
+                $rateKey,
+                'base'
+            );
+        }
+
+        $ivaAccount = trim((string) ($config['iva_account'] ?? ''));
+        $ivaAmount = resolveAccountingLineAmount($config['iva'] ?? '', $summary['iva_value'] ?? null);
+        if ($ivaAccount !== '' && $ivaAmount !== null) {
+            $description = buildAccountingLineDescription($document, $rateKey, 'IVA', $label);
+            $lines[] = buildAccountingLineEntry(
+                $ivaAccount,
+                $ivaAmount,
+                $description,
+                $costCenters[$rateKey] ?? '',
+                $rateKey,
+                'iva'
+            );
+        }
+    }
+
+    $totalAccount = trim((string) ($metadata['total_account'] ?? ''));
+    if ($totalAccount !== '') {
+        $totalAmount = computeDocumentTotalAmount($document);
+        if ($totalAmount !== null) {
+            $nif = '';
+            foreach (['emitter_nif_normalized', 'field_A', 'field_C'] as $nifKey) {
+                if (!array_key_exists($nifKey, $document)) {
+                    continue;
+                }
+                $candidate = extractVatNumber((string) $document[$nifKey]);
+                if ($candidate !== '') {
+                    $nif = $candidate;
+                    break;
+                }
+            }
+            $description = buildTotalAccountingLineDescription($document, $nif);
+            $totalLine = buildAccountingLineEntry(
+                $totalAccount,
+                $totalAmount,
+                $description,
+                null,
+                null,
+                'total'
+            );
+            $totalLine['strNumContrib'] = $nif;
+            $totalLine['intGrp_Terc'] = 1;
+            $lines[] = $totalLine;
+        }
+    }
+
+    return $lines;
 }
 
 ?>

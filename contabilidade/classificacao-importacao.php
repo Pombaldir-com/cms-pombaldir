@@ -140,6 +140,129 @@ function sanitizeServiceDebugPayload(mixed $value, int $depth = 0): mixed {
     return $value;
 }
 
+function normalizeCabIdValue(mixed $value): ?string {
+    if (is_array($value) && array_key_exists('id', $value)) {
+        $value = $value['id'];
+    } elseif (is_object($value) && property_exists($value, 'id')) {
+        $value = $value->id;
+    }
+
+    if (!is_string($value) && !is_numeric($value)) {
+        return null;
+    }
+
+    $string = trim((string) $value);
+    if ($string === '') {
+        return null;
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 100, 'UTF-8');
+    }
+
+    return substr($string, 0, 100);
+}
+
+function buildCabIdAssignments(mixed $cabIdsPayload, array $documentIds): array {
+    $docIds = array_values(array_unique(array_map('intval', $documentIds)));
+    $docIds = array_values(array_filter($docIds, static fn(int $id): bool => $id > 0));
+    if (empty($docIds)) {
+        return [];
+    }
+
+    if (is_string($cabIdsPayload)) {
+        $decoded = json_decode($cabIdsPayload, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $cabIdsPayload = $decoded;
+        }
+    }
+
+    if (!is_array($cabIdsPayload)) {
+        $single = normalizeCabIdValue($cabIdsPayload);
+        if ($single === null) {
+            return [];
+        }
+        return [$docIds[0] => $single];
+    }
+
+    $assignments = [];
+    $unmappedCabIds = [];
+    $docIdHints = ['document_id', 'doc_id', 'documentId', 'docId', 'document', 'documento', 'doc'];
+
+    foreach ($cabIdsPayload as $key => $value) {
+        $cabIdValue = normalizeCabIdValue($value);
+        if ($cabIdValue === null) {
+            continue;
+        }
+
+        $docIdFromValue = null;
+        if (is_array($value)) {
+            foreach ($docIdHints as $hintKey) {
+                if (isset($value[$hintKey]) && $value[$hintKey] !== '') {
+                    $docIdFromValue = (int) $value[$hintKey];
+                    break;
+                }
+            }
+        }
+
+        $docIdFromKey = null;
+        if (is_numeric($key)) {
+            $docIdFromKey = (int) $key;
+        } elseif (is_string($key) && ctype_digit($key)) {
+            $docIdFromKey = (int) $key;
+        }
+
+        $targetDocId = null;
+        if ($docIdFromValue !== null && in_array($docIdFromValue, $docIds, true)) {
+            $targetDocId = $docIdFromValue;
+        } elseif ($docIdFromKey !== null && in_array($docIdFromKey, $docIds, true)) {
+            $targetDocId = $docIdFromKey;
+        }
+
+        if ($targetDocId !== null) {
+            $assignments[$targetDocId] = $cabIdValue;
+            $docIds = array_values(array_filter($docIds, static fn(int $id): bool => $id !== $targetDocId));
+            continue;
+        }
+
+        $unmappedCabIds[] = $cabIdValue;
+    }
+
+    $remainingDocIds = $docIds;
+    foreach ($unmappedCabIds as $index => $cabIdValue) {
+        if (!isset($remainingDocIds[$index])) {
+            break;
+        }
+        $assignments[$remainingDocIds[$index]] = $cabIdValue;
+    }
+
+    return $assignments;
+}
+
+function persistCabIds(PDO $pdo, array $documentIds, mixed $cabIdsPayload): array {
+    $assignments = buildCabIdAssignments($cabIdsPayload, $documentIds);
+    if (empty($assignments)) {
+        return [];
+    }
+
+    $stmt = $pdo->prepare('UPDATE accounting_imports SET cab_id = :cab_id WHERE id = :id');
+    $saved = [];
+
+    foreach ($assignments as $docId => $cabId) {
+        try {
+            $stmt->execute([
+                ':cab_id' => $cabId,
+                ':id' => $docId,
+            ]);
+            $saved[$docId] = $cabId;
+        } catch (Throwable $throwable) {
+            logErpMessage('Falha ao guardar cab_id para o documento ' . $docId . ': ' . $throwable->getMessage());
+        }
+    }
+
+    return $saved;
+}
+
 function buildOcrPreferenceKey($emitter, $acquirer, $docType): string {
     $emitterKey = normalizeSupplierPartyValue($emitter);
     $acquirerKey = normalizeSupplierPartyValue($acquirer);
@@ -249,8 +372,34 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         }
 
 
+
         return $document;
     }, $documents);
+
+    $documentsWithoutLines = [];
+    foreach ($documentsPayload as &$documentPayload) {
+        $originalAccountConfig = $documentPayload['account'] ?? '';
+        $documentPayload['account_configuration'] = $originalAccountConfig;
+        $documentPayload['cost_center_configuration'] = $documentPayload['cost_center'] ?? '';
+        $accountLines = buildDocumentAccountingLines($documentPayload);
+        $documentPayload['account_lines'] = $accountLines;
+        $documentPayload['account'] = $accountLines;
+
+        if (empty($accountLines)) {
+            $docLabel = trim((string) ($documentPayload['field_G'] ?? ''));
+            if ($docLabel === '') {
+                $docLabel = 'ID ' . ($documentPayload['id'] ?? '?');
+            }
+            $documentsWithoutLines[] = $docLabel;
+        }
+    }
+    unset($documentPayload);
+
+    if (!empty($documentsWithoutLines)) {
+        $result['error'] = 'Existem documentos sem linhas contabilísticas configuradas: ' . implode(', ', $documentsWithoutLines);
+        $result['error_detail'] = $result['error'];
+        return $result;
+    }
 
     $tpValue = 'importMovim';
     $actValue = 'importMovim';
@@ -418,6 +567,18 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
             $result['success'] = true;
         }
 
+        if (array_key_exists('cab_ids', $decodedResponse)) {
+            $savedCabIds = persistCabIds($pdo, $ids, $decodedResponse['cab_ids']);
+            if (!empty($savedCabIds)) {
+                $result['cab_id_map'] = $savedCabIds;
+                $logPayload = json_encode($savedCabIds, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $logMessage = is_string($logPayload) ? $logPayload : '';
+                if ($logMessage !== '') {
+                    logErpMessage('IDs de cabeçalho associados aos documentos: ' . $logMessage);
+                }
+            }
+        }
+
         $messageFields = ['mensagem', 'message', 'msg'];
         foreach ($messageFields as $messageField) {
             if (isset($decodedResponse[$messageField])) {
@@ -488,12 +649,14 @@ function prepareImportRow(array $row): array {
     }
 
     $accounts = normalizeAccountingAccounts($row['account'] ?? '');
+    $accountMetadata = normalizeAccountingMetadata($row['account'] ?? '');
     $summaries = computeImportRateSummaries($row);
     [$payload, $requirements] = buildRatePayload($summaries, $accounts);
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
-    $row['btn_class'] = determineClassificationButtonClass($requirements, $payload);
+    $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata);
+    $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
     $lines = json_decode($row['line_items'] ?? '', true);
     if (is_array($lines) && count($lines) > 0) {
@@ -868,14 +1031,21 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $responsePayload['error_detail'] = $serviceResult['error_detail'];
     }
 
-    if (array_key_exists('response', $serviceResult)) {
-        $responsePayload['service_response'] = sanitizeServiceDebugPayload($serviceResult['response']);
-    }
-
     $servicePayload = null;
     if (array_key_exists('decoded', $serviceResult)) {
         $servicePayload = sanitizeServiceDebugPayload($serviceResult['decoded']);
         $responsePayload['service_payload'] = $servicePayload;
+
+        if (is_array($servicePayload) && array_key_exists('response', $servicePayload)) {
+            $serviceResponse = sanitizeServiceDebugPayload($servicePayload['response']);
+            if ($serviceResponse !== null && $serviceResponse !== '') {
+                $responsePayload['service_response'] = $serviceResponse;
+            }
+        }
+    }
+
+    if (!array_key_exists('service_response', $responsePayload) && array_key_exists('response', $serviceResult)) {
+        $responsePayload['service_response'] = sanitizeServiceDebugPayload($serviceResult['response']);
     }
 
     if (!empty($serviceResult['message'])) {
@@ -884,6 +1054,10 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (array_key_exists('log', $serviceResult)) {
         $responsePayload['log'] = $serviceResult['log'];
+    }
+
+    if (!empty($serviceResult['cab_id_map'])) {
+        $responsePayload['cab_id_map'] = $serviceResult['cab_id_map'];
     }
 
     $successMessage = '';
@@ -973,7 +1147,8 @@ if ($action === 'data') {
             'field_Q',
             'field_R',
             'filename',
-            'line_items'
+            'line_items',
+            'cab_id'
         ];
 
         $start = (int)($_GET['start'] ?? 0);
@@ -1027,6 +1202,7 @@ if ($action === 'data') {
                     . 'data-rates="' . $ratesAttr . '" '
                     . 'data-requirements="' . $requirementsAttr . '" '
                     . 'data-cost-centers="' . $costCentersAttr . '" '
+                    . 'data-total-account="' . htmlspecialchars($row['total_account'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-emitter="' . $emitterRawEscaped . '" '
                     . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
@@ -1261,6 +1437,21 @@ require_once __DIR__ . '/../header.php';
                             <tbody></tbody>
                         </table>
                     </div>
+                    <?php if ($importType === 1): ?>
+                    <div class="mt-3">
+                        <label for="totalAccountInput" class="form-label mb-1">Valor Total</label>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <input
+                                type="text"
+                                class="form-control form-control-sm w-auto"
+                                id="totalAccountInput"
+                                placeholder="Conta para o valor total"
+                                style="min-width: 160px; max-width: 220px;"
+                            >
+                            <small class="text-muted">Será enviada como última linha, com o total do documento e NIF.</small>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-sm btn-outline-primary me-auto" id="addVatLineBtn">

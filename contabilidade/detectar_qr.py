@@ -163,10 +163,10 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
     min_side = min(h, w)
     scale_boost = 1.0
     if min_side < 900:
-        scale_boost = 900 / max(1, min_side)
+        scale_boost = 1200 / max(1, min_side)
     escala_inicial = max(1.0, scale_boost)
     scales = []
-    for m in (1.0, 1.5):
+    for m in (1.0, 1.5, 2.0):
         val = min(3.5, escala_inicial * m)
         scales.append(round(val, 2))
     seen = set()
@@ -180,7 +180,7 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
             if attempts >= max_attempts:
                 return results
             proc = fn(resized.copy())
-            for ang in ANGLES:
+            for ang in (-10, -5, 0, 5, 10):
                 if attempts >= max_attempts:
                     return results
                 if ang != 0:
@@ -196,6 +196,30 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                     if t not in results:
                         results.append(t)
     return results
+
+
+def _decode_tiles(image: np.ndarray) -> List[str]:
+    """Decode QR codes by scanning the whole image and its quadrants."""
+    texts: List[str] = []
+    full = _decode_with_strategies(image, max_attempts=14)
+    texts.extend(full)
+
+    h, w = image.shape[:2]
+    half_h, half_w = h // 2, w // 2
+    tiles = [
+        image[0:half_h, 0:half_w],
+        image[0:half_h, half_w:w],
+        image[half_h:h, 0:half_w],
+        image[half_h:h, half_w:w],
+    ]
+    seen = set(texts)
+    for tile in tiles:
+        for t in _decode_with_strategies(tile, max_attempts=10):
+            if t not in seen:
+                texts.append(t)
+                seen.add(t)
+
+    return texts
 
 
 def decode_file(path: str, dpi: int = 300) -> List[str]:

@@ -53,6 +53,7 @@
 <?php endif; ?>
 <?php endif; ?>
 
+<script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/custom.js"></script>
 
 </body>

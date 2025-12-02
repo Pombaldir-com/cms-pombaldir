@@ -15,6 +15,27 @@ window.addEventListener('load', function() {
         }
     }
 
+    function notifySuccess(message) {
+        var text = message || 'Operação concluída';
+        if (window.PNotify && typeof window.PNotify.alert === 'function') {
+            window.PNotify.alert({
+                text: text,
+                type: 'success',
+                styling: 'bootstrap3'
+            });
+            return;
+        }
+        if (window.PNotify && typeof window.PNotify === 'function') {
+            window.PNotify({
+                text: text,
+                type: 'success',
+                styling: 'bootstrap3'
+            });
+            return;
+        }
+        console.info(text);
+    }
+
     var table;
     if ($.fn.dataTable.isDataTable('#qr-table')) {
         table = $('#qr-table').DataTable();
@@ -59,8 +80,19 @@ window.addEventListener('load', function() {
         }
         if (data.qr_texts && data.qr_texts.length) {
             var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
+            var added = 0;
             data.qr_texts.forEach(function(qrText) {
-                var qrData = extractQR(qrText);
+                var trimmed = (qrText || '').trim();
+                if (!trimmed) {
+                    return;
+                }
+                var qrData = extractQR(trimmed);
+                var hasContent = keys.some(function(key) {
+                    return (qrData[key] || '').toString().trim() !== '';
+                });
+                if (!hasContent) {
+                    return;
+                }
                 var row = keys.map(function(key) {
                     var value = qrData[key] || '';
                     if (key === 'F') {
@@ -72,9 +104,26 @@ window.addEventListener('load', function() {
                     '<a href="' + data.file + '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
                 row.push(actions);
                 table.row.add(row).draw(false);
+                added++;
             });
-            if (table.rows().data().length) {
+            if (added && table.rows().data().length) {
                 showImportButtons();
+            } else {
+                alert('QR code não encontrado');
+                if (data.file) {
+                    $.ajax({
+                        type: 'POST',
+                        url: 'contabilidade/upload.php?action=delete',
+                        data: { file: data.file, csrf_token: csrfInput.value },
+                        dataType: 'json',
+                        success: function(res) {
+                            if (res.csrf_token) {
+                                csrfInput.value = res.csrf_token;
+                            }
+                        }
+                    });
+                }
+                dz.removeFile(file);
             }
         } else {
             alert('QR code não encontrado');
@@ -208,7 +257,7 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
-                alert('Importação concluída');
+                notifySuccess('Importação concluída');
                 if (importBtn) {
                     importBtn.style.display = 'none';
                 }

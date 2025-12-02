@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS accounting_imports (
     account_original LONGTEXT DEFAULT NULL,
     cost_center VARCHAR(255) DEFAULT '',
     line_items LONGTEXT DEFAULT NULL,
+    cab_id VARCHAR(100) DEFAULT '',
     filename VARCHAR(255) DEFAULT '',
     import_type TINYINT DEFAULT 1,
     dte_add TIMESTAMP DEFAULT CURRENT_TIMESTAMP

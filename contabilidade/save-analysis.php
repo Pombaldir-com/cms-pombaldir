@@ -350,8 +350,10 @@ if ($action === 'get') {
     $stmt->execute([$a, $b, $d]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $classificationAccounts = normalizeAccountingAccounts($row['account'] ?? '');
+    $classificationMetadata = normalizeAccountingMetadata($row['account'] ?? '');
 
     $rowAccounts = normalizeAccountingAccounts(null);
+    $rowMetadata = normalizeAccountingMetadata(null);
     $rowCostCenters = buildEmptyCostCenterMap();
     $originalSnapshot = [];
     $summaries = [];
@@ -360,6 +362,7 @@ if ($action === 'get') {
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
+        $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
 
@@ -382,6 +385,8 @@ if ($action === 'get') {
         'row_rates' => $rowAccounts,
         'cost_center' => serializeCostCenters($rowCostCenters),
         'cost_centers' => $rowCostCenters,
+        'total_account' => $classificationMetadata['total_account'] ?? '',
+        'row_total_account' => $rowMetadata['total_account'] ?? '',
         'original_rates' => $originalSnapshot,
         'csrf_token' => generateCsrfToken()
     ]);
@@ -457,11 +462,17 @@ if ($action === 'get') {
             }
         }
 
+        $submittedMetadata = sanitizeAccountingMetadata([
+            'total_account' => $_POST['total_account'] ?? ''
+        ]);
+
         $stmtExisting = $pdo->prepare(
             'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
         );
         $stmtExisting->execute([$a, $b, $d]);
-        $existingClass = normalizeAccountingAccounts($stmtExisting->fetchColumn() ?: '');
+        $existingClassRaw = $stmtExisting->fetchColumn() ?: '';
+        $existingClass = normalizeAccountingAccounts($existingClassRaw);
+        $existingClassMetadata = normalizeAccountingMetadata($existingClassRaw);
 
         $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
@@ -470,6 +481,7 @@ if ($action === 'get') {
             throw new RuntimeException('Importação inexistente');
         }
         $existingRow = normalizeAccountingAccounts($importRow['account'] ?? '');
+        $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
 
         $existingOriginalRaw = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -506,8 +518,8 @@ if ($action === 'get') {
             }
         }
 
-        $serializedRow = serializeAccountingAccounts($rowAccounts);
-        $serializedClass = serializeAccountingAccounts($classAccounts);
+        $serializedRow = serializeAccountingAccounts($rowAccounts, $submittedMetadata, $existingRowMetadata);
+        $serializedClass = serializeAccountingAccounts($classAccounts, $submittedMetadata, $existingClassMetadata);
         $serializedCostCenters = serializeCostCenters($costCentersData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
 
@@ -527,7 +539,9 @@ if ($action === 'get') {
             'row_rates' => $rowAccounts,
             'cost_center' => $serializedCostCenters,
             'cost_centers' => $costCentersData,
-            'original_rates' => $existingOriginal
+            'original_rates' => $existingOriginal,
+            'total_account' => $submittedMetadata['total_account'] ?? '',
+            'row_total_account' => $submittedMetadata['total_account'] ?? ''
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {

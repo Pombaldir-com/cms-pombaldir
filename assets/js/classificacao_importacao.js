@@ -1,5 +1,41 @@
 window.addEventListener('load', function() {
-    function triggerPNotify(options) {
+    function normalizeNoticeType(type) {
+        var normalized = typeof type === 'string' ? type.trim().toLowerCase() : '';
+        switch (normalized) {
+            case 'success':
+                return 'success';
+            case 'warning':
+            case 'warn':
+                return 'warning';
+            case 'danger':
+            case 'error':
+                return 'danger';
+            case 'info':
+            case 'notice':
+                return 'info';
+            default:
+                return 'info';
+        }
+    }
+
+    function triggerPNotify(typeOrOptions, maybeOptions) {
+        var options = {};
+        if (typeof typeOrOptions === 'string') {
+            options = typeof maybeOptions === 'object' && maybeOptions !== null ? Object.assign({}, maybeOptions) : {};
+            options.type = normalizeNoticeType(typeOrOptions);
+        } else if (typeOrOptions && typeof typeOrOptions === 'object') {
+            options = Object.assign({}, typeOrOptions);
+            if (options.type) {
+                options.type = normalizeNoticeType(options.type);
+            }
+        } else {
+            return false;
+        }
+
+        if (!options.type) {
+            options.type = 'info';
+        }
+
         if (!window.PNotify) {
             return false;
         }
@@ -14,44 +50,69 @@ window.addEventListener('load', function() {
         return false;
     }
 
-    function showError(message) {
+    function showNotice(type, message) {
+        var normalizedType = normalizeNoticeType(type);
+        var text = typeof message === 'string' && message.trim() !== '' ? message.trim() : '';
+        if (text === '') {
+            text = normalizedType === 'danger' ? 'Ocorreu um erro' : 'Operação concluída';
+        }
+        var title = 'Informação';
+        var icon = 'info';
+        if (normalizedType === 'success') {
+            title = 'Sucesso';
+            icon = 'success';
+        } else if (normalizedType === 'danger') {
+            title = 'Erro';
+            icon = 'error';
+        } else if (normalizedType === 'warning') {
+            title = 'Aviso';
+            icon = 'warning';
+        }
         if (window.Swal && typeof window.Swal.fire === 'function') {
             window.Swal.fire({
-                icon: 'error',
-                title: 'Erro',
-                text: message
+                icon: icon,
+                title: title,
+                text: text
             });
             return;
         }
         if (triggerPNotify({
-            title: 'Erro',
-            text: message,
-            type: 'error',
+            title: title,
+            text: text,
+            type: normalizedType,
             styling: 'bootstrap3'
         })) {
             return;
         }
-        alert(message);
+        alert(text);
+    }
+
+    function showError(message) {
+        showNotice('danger', message);
     }
 
     function showSuccess(message) {
-        if (window.Swal && typeof window.Swal.fire === 'function') {
-            window.Swal.fire({
-                icon: 'success',
-                title: 'Sucesso',
-                text: message
-            });
-            return;
+        showNotice('success', message);
+    }
+
+    function resolveNoticeTypeFromResponse(res) {
+        var sources = [res];
+        if (res && res.service_payload) {
+            sources.push(res.service_payload);
         }
-        if (triggerPNotify({
-            title: 'Sucesso',
-            text: message,
-            type: 'success',
-            styling: 'bootstrap3'
-        })) {
-            return;
+        if (res && res.service_response) {
+            sources.push(res.service_response);
         }
-        alert(message);
+        for (var i = 0; i < sources.length; i += 1) {
+            var source = sources[i];
+            if (source && typeof source === 'object' && source.type) {
+                return normalizeNoticeType(source.type);
+            }
+        }
+        if (res && typeof res.success !== 'undefined') {
+            return res.success ? 'success' : 'danger';
+        }
+        return 'success';
     }
 
     function fetchJson(url, options) {
@@ -715,6 +776,11 @@ window.addEventListener('load', function() {
                 if (res && res.service_response) {
                     debugJson('Import CTB service response', res.service_response);
                 }
+
+                var recDetails = extractRecDetails(res.service_payload) || extractRecDetails(res.service_response);
+                if (recDetails && recDetails.errors && recDetails.errors.length) {
+                    throw new Error(recDetails.errors.join('\n'));
+                }
                 var message = 'OK';
                 if (res) {
                     if (res.service_payload) {
@@ -756,9 +822,10 @@ window.addEventListener('load', function() {
                         }
                     }
                 }
-                showSuccess(message);
+                var noticeType = resolveNoticeTypeFromResponse(res);
+                showNotice(noticeType, message);
                 if (typeof window.console !== 'undefined') {
-                    console.log('[Classificação] Import CTB concluído. HTTP:', res.http_status, 'IDs:', ids);
+                    console.log('[Classificação] Import CTB concluído. HTTP:', res.http_status, 'Tipo:', noticeType, 'IDs:', ids);
                 }
                 table.ajax.reload(null, false);
             })
@@ -941,6 +1008,64 @@ window.addEventListener('load', function() {
         }
     }
 
+    function normalizeServiceObject(value) {
+        if (!value) {
+            return null;
+        }
+        if (typeof value === 'object') {
+            return value;
+        }
+        if (typeof value === 'string') {
+            var parsed = tryParseJson(value);
+            if (parsed && typeof parsed === 'object') {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    function extractRecDetails(value) {
+        var data = normalizeServiceObject(value);
+        if (!data || typeof data !== 'object') {
+            return null;
+        }
+        var recs = data.recs || data.recList || null;
+        if (!recs || typeof recs !== 'object') {
+            return null;
+        }
+
+        var collectList = function(container, keys) {
+            var list = [];
+            keys.forEach(function(key) {
+                var entry = container[key];
+                if (Array.isArray(entry)) {
+                    entry.forEach(function(item) {
+                        if (typeof item === 'string' && item.trim() !== '') {
+                            list.push(item.trim());
+                        }
+                    });
+                } else if (typeof entry === 'string' && entry.trim() !== '') {
+                    list.push(entry.trim());
+                }
+            });
+            return list;
+        };
+
+        var errors = collectList(recs, ['error', 'errors', 'erros']);
+        var existing = collectList(recs, ['exist', 'existing', 'duplicated']);
+        var created = collectList(recs, ['novo', 'novos', 'created', 'success']);
+
+        if (!errors.length && !existing.length && !created.length) {
+            return null;
+        }
+
+        return {
+            errors: errors,
+            existing: existing,
+            created: created
+        };
+    }
+
     function parseJsonAttribute(el, attr) {
         var rawValue = el.getAttribute(attr);
         if (!rawValue) {
@@ -1038,6 +1163,7 @@ window.addEventListener('load', function() {
         var requires = false;
         var allFilled = true;
         var hasAny = false;
+        var totalAccount = '';
 
         Object.keys(requirements).forEach(function(rate) {
             var req = requirements[rate] || {};
@@ -1061,6 +1187,16 @@ window.addEventListener('load', function() {
                 }
             }
         });
+
+        if (importType === 1) {
+            totalAccount = (btn.getAttribute('data-total-account') || '').trim();
+            if (totalAccount === '') {
+                requires = true;
+                allFilled = false;
+            } else {
+                hasAny = true;
+            }
+        }
 
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
         if (!requires || allFilled) {
@@ -1098,6 +1234,8 @@ window.addEventListener('load', function() {
     var rateInputs = {};
     var currentRateData = {};
     var currentCostCenters = {};
+    var currentTotalAccount = '';
+    var totalAccountInput = document.getElementById('totalAccountInput');
     var storedRowRates = {};
     var storedDefaultRates = {};
     var originalRateValues = {};
@@ -2240,6 +2378,7 @@ window.addEventListener('load', function() {
 
     if (form) {
         currentCostCenters = {};
+        currentTotalAccount = '';
     }
 
     if (addVatLineBtn) {
@@ -2272,6 +2411,10 @@ window.addEventListener('load', function() {
             table.ajax.reload(null, false);
             currentBtn = null;
             currentOriginalRatesKey = null;
+            currentTotalAccount = '';
+            if (totalAccountInput) {
+                totalAccountInput.value = '';
+            }
         });
     }
 
@@ -2327,6 +2470,10 @@ window.addEventListener('load', function() {
         storedDefaultRates = {};
         currentCostCenters = {};
         removedRates = {};
+        currentTotalAccount = (btn.getAttribute('data-total-account') || '').trim();
+        if (totalAccountInput) {
+            totalAccountInput.value = currentTotalAccount;
+        }
 
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
         if (!currentRateData || typeof currentRateData !== 'object') {
@@ -2391,6 +2538,14 @@ window.addEventListener('load', function() {
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
                 removedRates = {};
                 serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
+                var rowTotalAccount = typeof res.row_total_account === 'string' ? res.row_total_account : '';
+                var classificationTotalAccount = typeof res.total_account === 'string' ? res.total_account : '';
+                var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
+                var effectiveTotalAccount = (rowTotalAccount || classificationTotalAccount || buttonTotalAccount || '').trim();
+                currentTotalAccount = effectiveTotalAccount || '';
+                if (totalAccountInput) {
+                    totalAccountInput.value = currentTotalAccount;
+                }
 
                 Object.keys(storedRowRates).forEach(function(rate) {
                     if (!currentRateData[rate]) {
@@ -2483,6 +2638,7 @@ window.addEventListener('load', function() {
                 updateRowDirtyState(rate);
             });
 
+            var totalAccountValue = totalAccountInput ? totalAccountInput.value.trim() : '';
             var ratesPayload = {};
             getRateKeys().forEach(function(rate) {
                 var info = rateInputs[rate];
@@ -2513,6 +2669,7 @@ window.addEventListener('load', function() {
                 removed_rates: JSON.stringify(removedPayload),
                 original_rates: JSON.stringify(originalRateValues),
                 cost_centers: JSON.stringify(costCentersPayload),
+                total_account: totalAccountValue,
                 csrf_token: csrfInput.value
             });
             fetchJson('contabilidade/save-analysis.php?action=save', {
@@ -2535,6 +2692,17 @@ window.addEventListener('load', function() {
                 }
                 applyCostCenterValues(responseCostCenters, { skipEnsure: true });
                 currentCostCenters = getCostCenterValues();
+                var responseTotalAccount = '';
+                if (typeof res.row_total_account === 'string') {
+                    responseTotalAccount = res.row_total_account;
+                } else if (typeof res.total_account === 'string') {
+                    responseTotalAccount = res.total_account;
+                }
+                responseTotalAccount = (responseTotalAccount || totalAccountValue || '').trim();
+                currentTotalAccount = responseTotalAccount;
+                if (totalAccountInput) {
+                    totalAccountInput.value = currentTotalAccount;
+                }
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
                     storedRowRates = res.row_rates;
@@ -2595,6 +2763,7 @@ window.addEventListener('load', function() {
 
                 currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
                 currentBtn.setAttribute('data-cost-centers', JSON.stringify(currentCostCenters));
+                currentBtn.setAttribute('data-total-account', currentTotalAccount);
                 updateButtonClass(currentBtn);
                 removedRates = {};
                 if (classifyModal) {
