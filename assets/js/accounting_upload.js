@@ -36,6 +36,41 @@ window.addEventListener('load', function() {
         console.info(text);
     }
 
+    function syncEntity(value, type, acquirerValue) {
+        var entityValue = (value || '').trim();
+        if (!entityValue || !csrfInput) {
+            return;
+        }
+        console.log('[sync-entity] pedido', entityValue, type || 'emitter');
+        var body = new URLSearchParams();
+        body.append('csrf_token', csrfInput.value);
+        body.append('value', entityValue);
+        body.append('entity_type', type || 'emitter');
+        if (typeof window.erpDatabase === 'string' && window.erpDatabase.trim() !== '') {
+            body.append('database', window.erpDatabase.trim());
+        }
+        if (acquirerValue) {
+            body.append('acquirer_value', acquirerValue);
+        }
+        body.append('action', 'sync-entity');
+
+        fetch('contabilidade/upload.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body: body.toString()
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            console.log('[sync-entity] resposta', res);
+        })
+        .catch(function() {});
+    }
+
     var table;
     if ($.fn.dataTable.isDataTable('#qr-table')) {
         table = $('#qr-table').DataTable();
@@ -105,6 +140,7 @@ window.addEventListener('load', function() {
                 row.push(actions);
                 table.row.add(row).draw(false);
                 added++;
+                syncEntity(qrData['A'] || '', 'emitter', qrData['B'] || '');
             });
             if (added && table.rows().data().length) {
                 showImportButtons();

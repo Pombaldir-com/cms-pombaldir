@@ -18,7 +18,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_GET['action'] ?? $_POST['action'] ?? '';
     $newToken = generateCsrfToken();
 
-    if ($action === 'import') {
+    if ($action === 'sync-entity') {
+        $value = $_POST['value'] ?? '';
+        $entityType = $_POST['entity_type'] ?? 'emitter';
+        $database = isset($_POST['database']) ? trim((string) $_POST['database']) : trim((string) getSetting('erp_database', ''));
+        $acquirerValue = $_POST['acquirer_value'] ?? '';
+        if (trim($value) === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Entidade inválida', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $pdo = getPDO();
+        $nif = extractVatNumber((string) $value);
+        $acquirerDatabase = '';
+        $acquirerNif = extractVatNumber((string) $acquirerValue);
+        if ($database === '' && $acquirerNif !== '') {
+            $acquirerEntity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+            if ($acquirerEntity && !empty($acquirerEntity['erp_database'])) {
+                $acquirerDatabase = trim((string) $acquirerEntity['erp_database']);
+                $database = $acquirerDatabase;
+            }
+        }
+        $debugRemote = null;
+        if ($nif !== '') {
+            $debugRemote = fetchAccountingEntityFromErp($nif, 'emitter', true, $database);
+        }
+        $entity = ensureAccountingEntity($pdo, (string) $value, ['entity_type' => $entityType, 'erp_database' => $database]);
+
+        echo json_encode([
+            'success' => $entity !== null,
+            'entity' => $entity,
+            'remote' => $debugRemote,
+            'csrf_token' => $newToken,
+        ]);
+        exit;
+    } elseif ($action === 'import') {
         $raw = file_get_contents('php://input');
         $data = json_decode($raw, true);
 
@@ -143,6 +178,7 @@ $useDropzone = true;
 $useDataTables = true;
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
+$erpDatabase = trim((string) getSetting('erp_database', ''));
 ?>
 <div class="row mb-3">
     <div class="col-12">
@@ -208,3 +244,6 @@ $csrfToken = generateCsrfToken();
 
 
 <?php require_once __DIR__ . '/../footer.php'; ?>
+<script>
+window.erpDatabase = <?= json_encode($erpDatabase, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+</script>

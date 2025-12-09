@@ -84,6 +84,37 @@ document.addEventListener('DOMContentLoaded', function () {
             if (data.qr_texts && data.qr_texts.length) {
                 var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
                 var added = 0;
+                var syncEntity = function(value, type, acquirerValue) {
+                    var entityValue = (value || '').trim();
+                    if (!entityValue || !csrfInput) {
+                        return;
+                    }
+                    console.log('[sync-entity] pedido', entityValue, type || 'emitter');
+                    var body = new URLSearchParams();
+                    body.append('csrf_token', csrfInput.value);
+                    body.append('value', entityValue);
+                    body.append('entity_type', type || 'emitter');
+                    if (typeof window.erpDatabase === 'string' && window.erpDatabase.trim() !== '') {
+                        body.append('database', window.erpDatabase.trim());
+                    }
+                    if (acquirerValue) {
+                        body.append('acquirer_value', acquirerValue);
+                    }
+                    body.append('action', 'sync-entity');
+                    fetch('contabilidade/upload.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                        body: body.toString()
+                    })
+                    .then(function(res){ return res.json(); })
+                    .then(function(res){
+                        if (res && res.csrf_token && csrfInput) {
+                            csrfInput.value = res.csrf_token;
+                        }
+                        console.log('[sync-entity] resposta', res);
+                    })
+                    .catch(function(){});
+                };
                 data.qr_texts.forEach(function(qrText){
                     var trimmed = (qrText || '').trim();
                     if (!trimmed) {
@@ -109,6 +140,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (table) {
                         table.row.add(row).draw(); 
                         added++;
+                        syncEntity(qrData['A'] || '', 'emitter', qrData['B'] || '');
                     }
                 });
                 if (added && table && table.rows().data().length) {

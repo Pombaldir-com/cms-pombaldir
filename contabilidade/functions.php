@@ -179,7 +179,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
  * @param string $nif     VAT number to query.
  * @return string Fully qualified URL.
  */
-function buildErpSupplierEndpoint(string $baseUrl, string $nif): string {
+function buildErpSupplierEndpoint(string $baseUrl, string $nif, string $database = ''): string {
     $url = trim($baseUrl);
     if ($url === '') {
         return '';
@@ -192,8 +192,11 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif): string {
         'limit' => 1,
         'offset' => 0,
         'q' => $nif,
-        'searchField' => 'strNumContribuinte',
+        'searchField' => 'strNumContrib',
     ];
+    if ($database !== '') {
+        $defaultQuery['db'] = $database;
+    }
 
     if (is_array($parsedUrl)) {
         $host = strtolower($parsedUrl['host'] ?? '');
@@ -227,7 +230,10 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif): string {
                 $finalQuery['limit'] = array_key_exists('limit', $queryData) ? $queryData['limit'] : 1;
                 $finalQuery['offset'] = array_key_exists('offset', $queryData) ? $queryData['offset'] : 0;
                 $finalQuery['q'] = $nif;
-                $finalQuery['searchField'] = array_key_exists('searchField', $queryData) ? $queryData['searchField'] : 'strNumContribuinte';
+                $finalQuery['searchField'] = array_key_exists('searchField', $queryData) ? $queryData['searchField'] : 'strNumContrib';
+                if ($database !== '') {
+                    $finalQuery['db'] = $database;
+                }
 
                 foreach ($queryData as $key => $value) {
                     if (!array_key_exists($key, ['limit' => true, 'offset' => true, 'q' => true, 'searchField' => true])) {
@@ -505,22 +511,30 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
  * @param string $nif VAT number to request.
  * @return array|null Entity data or null when the request fails.
  */
-function fetchAccountingEntityFromErp(string $nif): ?array {
+function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool $returnDebug = false, string $database = ''): ?array {
     if (!function_exists('curl_init')) {
-        logErpMessage('Extensão cURL não disponível para sincronizar entidade ' . $nif . ' via ERP-SINC.');
-        return null;
+        $message = 'Extensão cURL não disponível para sincronizar entidade ' . $nif . ' via ERP-SINC.';
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message] : null;
     }
 
     $baseUrl = getSetting('erp_webservice_url', '');
     if ($baseUrl === null || trim($baseUrl) === '') {
-        logErpMessage('URL do ERP-SINC não configurada para sincronizar o NIF ' . $nif . '.');
-        return null;
+        $message = 'URL do ERP-SINC não configurada para sincronizar o NIF ' . $nif . '.';
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message] : null;
     }
 
-    $endpoint = buildErpClientEndpoint($baseUrl, $nif);
+    $normalizedType = strtolower(trim($entityType));
+    if ($normalizedType === 'emitter') {
+        $endpoint = buildErpSupplierEndpoint($baseUrl, $nif, $database);
+    } else {
+        $endpoint = buildErpClientEndpoint($baseUrl, $nif);
+    }
     if ($endpoint === '') {
-        logErpMessage('URL do ERP-SINC inválida para o NIF ' . $nif . '.');
-        return null;
+        $message = 'URL do ERP-SINC inválida para o NIF ' . $nif . '.';
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message] : null;
     }
 
     $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
@@ -549,34 +563,50 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 
     $response = curl_exec($handle);
     if ($response === false) {
-        logErpMessage('Erro cURL ao obter entidade ' . $nif . ' do ERP-SINC: ' . curl_error($handle) . $endpointInfo);
+        $message = 'Erro cURL ao obter entidade ' . $nif . ' do ERP-SINC: ' . curl_error($handle) . $endpointInfo;
+        logErpMessage($message);
         curl_close($handle);
-        return null;
+        return $returnDebug ? ['entity' => null, 'error' => $message, 'endpoint' => $sanitizedEndpoint] : null;
     }
 
     $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
     curl_close($handle);
 
     if ($status >= 400) {
-        logErpMessage('Webservice ERP-SINC devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.' . $endpointInfo);
-        return null;
+        $message = 'Webservice ERP-SINC devolveu HTTP ' . $status . ' para o NIF ' . $nif . '.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response] : null;
     }
 
     if ($status === 204 || trim((string) $response) === '') {
-        logErpMessage('Webservice ERP-SINC devolveu resposta vazia para o NIF ' . $nif . '.' . $endpointInfo);
-        return null;
+        $message = 'Webservice ERP-SINC devolveu resposta vazia para o NIF ' . $nif . '.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response] : null;
     }
 
     $data = json_decode($response, true);
     if (!is_array($data)) {
-        logErpMessage('Resposta ERP-SINC inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200) . $endpointInfo);
-        return null;
+        $message = 'Resposta ERP-SINC inválida para o NIF ' . $nif . ': ' . substr($response, 0, 200) . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response] : null;
     }
 
     $entity = parseErpEntityPayload($data, $nif);
     if ($entity === null) {
-        logErpMessage('Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.' . $endpointInfo);
-        return null;
+        $message = 'Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['entity' => null, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response, 'payload' => $data] : null;
+    }
+
+    if ($returnDebug) {
+        return [
+            'entity' => $entity,
+            'endpoint' => $sanitizedEndpoint,
+            'status' => $status,
+            'response' => $response,
+            'payload' => $data,
+            'error' => null,
+        ];
     }
 
     return $entity;
@@ -592,6 +622,25 @@ function fetchAccountingEntityFromErp(string $nif): ?array {
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
     $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row !== false ? $row : null;
+}
+
+/**
+ * Fetch an accounting entity by VAT and type.
+ *
+ * @param PDO    $pdo        Active database connection.
+ * @param string $nif        VAT number.
+ * @param string $entityType Entity type to match.
+ * @return array|null Matching entity or null when absent.
+ */
+function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): ?array {
+    $normalizedType = trim($entityType);
+    if ($normalizedType === '') {
+        return findAccountingEntity($pdo, $nif);
+    }
+    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, created_at FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
+    $stmt->execute([$nif, $normalizedType]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
 }
@@ -712,7 +761,7 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
         return null;
     }
 
-    $remote = fetchAccountingEntityFromErp($nif);
+    $remote = fetchAccountingEntityFromErp($nif, $defaultEntityType, false, $defaultErpDatabase ?? '');
     if ($remote === null) {
         if ($existing !== null) {
             $cache[$nif] = $existing;
