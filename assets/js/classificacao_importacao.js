@@ -1727,6 +1727,79 @@ window.addEventListener('load', function() {
         return Object.keys(rateInputs);
     }
 
+    function percentagesEqual(a, b) {
+        if (a === null || b === null) {
+            return false;
+        }
+        return Math.abs(a - b) < 0.0001;
+    }
+
+    function getOrderedRateKeys() {
+        var tbody = form ? form.querySelector('tbody') : null;
+        if (!tbody) {
+            return getRateKeys();
+        }
+        var ordered = [];
+        tbody.querySelectorAll('tr').forEach(function(row) {
+            var rate = row.getAttribute('data-rate');
+            if (rate && rateInputs[rate]) {
+                ordered.push(rate);
+            }
+        });
+        return ordered.length > 0 ? ordered : getRateKeys();
+    }
+
+    function findPrimaryRateForPercentage(targetPercentage, options) {
+        if (targetPercentage === null) {
+            return null;
+        }
+        var opts = options || {};
+        var ordered = getOrderedRateKeys();
+        for (var i = 0; i < ordered.length; i += 1) {
+            var rate = ordered[i];
+            if (opts.excludeRate && rate === opts.excludeRate) {
+                continue;
+            }
+            var ratePercentage = getRatePercentage(rate);
+            if (percentagesEqual(ratePercentage, targetPercentage)) {
+                return rateInputs[rate] || null;
+            }
+        }
+        return null;
+    }
+
+    function adjustPrimaryBaseForRateChange(changedRate, previousBaseNumber, newBaseNumber) {
+        var ratePercentage = getRatePercentage(changedRate);
+        if (ratePercentage === null) {
+            return;
+        }
+        var primaryInfo = findPrimaryRateForPercentage(ratePercentage, { excludeRate: changedRate });
+        if (!primaryInfo || !primaryInfo.base) {
+            return;
+        }
+        var previousValue = previousBaseNumber === null || previousBaseNumber === undefined ? 0 : previousBaseNumber;
+        var newValue = newBaseNumber === null || newBaseNumber === undefined ? 0 : newBaseNumber;
+        var delta = newValue - previousValue;
+        if (delta === 0) {
+            return;
+        }
+        var primaryRate = primaryInfo.rate;
+        var primaryData = ensureRateData(primaryRate);
+        var currentPrimaryValue = parseDecimalValue(primaryInfo.base.value);
+        if (currentPrimaryValue === null || currentPrimaryValue === undefined) {
+            currentPrimaryValue = 0;
+        }
+        var adjustedValue = currentPrimaryValue - delta;
+        var formattedValue = formatDecimalValue(adjustedValue);
+        if (primaryInfo.base.value !== formattedValue) {
+            primaryInfo.base.value = formattedValue;
+        }
+        primaryData.base = primaryInfo.base.value;
+        primaryData.base_value = primaryInfo.base.value;
+        recalculateVatForRate(primaryRate, { formatBase: true });
+        updateRowDirtyState(primaryRate);
+    }
+
     function getRateLabel(rate) {
         var info = rateInputs[rate];
         if (!info) {
@@ -1801,10 +1874,12 @@ window.addEventListener('load', function() {
             info.base.readOnly = false;
             info.base.addEventListener('input', function() {
                 var rateData = ensureRateData(rate);
+                var previousBaseNumber = parseDecimalValue(rateData.base);
                 rateData.base = info.base.value;
                 rateData.base_value = info.base.value;
                 recalculateVatForRate(rate);
                 updateRowDirtyState(rate);
+                adjustPrimaryBaseForRateChange(rate, previousBaseNumber, parseDecimalValue(info.base.value));
             });
             info.base.addEventListener('blur', function() {
                 recalculateVatForRate(rate, { formatBase: true });
