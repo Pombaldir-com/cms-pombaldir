@@ -43,7 +43,7 @@ if ($profileMode) {
 if ($action === 'list') {
     $user = currentUser();
     $users = getUsers();
-    if (($user['id'] ?? 0) !== 1) {
+    if (($user['role'] ?? 3) > 2) {
         $users = array_filter($users, fn($u) => $u['id'] !== 1);
     }
     $useSelect2 = false;
@@ -63,6 +63,9 @@ if ($action === 'list') {
     <div class="x_panel">
         <div class="x_title">
             <h2><i class="fa fa-users"></i> Lista de utilizadores</h2>
+            <div class="pull-right">
+                <a href="<?= BASE_URL ?>users/add" class="btn btn-sm btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+            </div>
             <div class="clearfix"></div>
         </div>
         <div class="x_content">
@@ -250,6 +253,12 @@ require_once __DIR__ . '/header.php';
             <h2 class="mb-1"><?= $editing ? 'Editar utilizador' : 'Adicionar utilizador'; ?></h2>
             <p class="mb-0 text-muted"><?= $profileMode ? 'Atualize os seus dados e foto.' : 'Gerir dados e permissoes do utilizador.'; ?></p>
         </div>
+        <?php if ($profileMode && ($user['role'] ?? 3) <= 2): ?>
+        <div class="d-flex flex-column flex-sm-row gap-2">
+            <a href="<?= BASE_URL ?>users" class="btn btn-outline-secondary"><i class="fa fa-users"></i> Utilizadores</a>
+            <a href="<?= BASE_URL ?>users/add" class="btn btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+        </div>
+        <?php endif; ?>
         <?php if (!$profileMode): ?>
         <a href="<?= BASE_URL ?>users" class="btn btn-outline-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
         <?php endif; ?>

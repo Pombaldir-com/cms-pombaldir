@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $erpSaved = true;
     }
-    if (isset($_POST['modules_save']) && ($user['role'] ?? 3) == 1) {
+    if (isset($_POST['modules_save']) && ($user['role'] ?? 3) <= 2) {
         $selectedModules = array_keys($_POST['modules'] ?? []);
         setSetting('active_modules', json_encode($selectedModules));
 
@@ -227,7 +227,7 @@ require_once __DIR__ . '/header.php';
         </div>
         <div>
             <span class="badge bg-light text-dark">Perfil: <?= htmlspecialchars($user['role'] ?? 3); ?></span>
-            <?php if (($user['role'] ?? 3) == 1): ?>
+            <?php if (($user['role'] ?? 3) <= 2): ?>
             <span class="badge bg-warning text-dark">Superadmin</span>
             <?php endif; ?>
         </div>
@@ -243,7 +243,7 @@ require_once __DIR__ . '/header.php';
         <li class="nav-item">
             <a class="nav-link" id="erp-tab" data-bs-toggle="tab" href="#erp" role="tab" aria-controls="erp" aria-selected="false"><i class="fa fa-exchange"></i> ERP</a>
         </li>
-        <?php if (($user['role'] ?? 3) == 1): ?>
+        <?php if (($user['role'] ?? 3) <= 2): ?>
         <li class="nav-item">
             <a class="nav-link" id="modules-tab" data-bs-toggle="tab" href="#modules" role="tab" aria-controls="modules" aria-selected="false"><i class="fa fa-cubes"></i> Módulos</a>
         </li>
@@ -454,7 +454,7 @@ require_once __DIR__ . '/header.php';
                 </div>
             </form>
         </div>
-        <?php if (($user['role'] ?? 3) == 1): ?>
+        <?php if (($user['role'] ?? 3) <= 2): ?>
         <div class="tab-pane fade" id="modules" role="tabpanel" aria-labelledby="modules-tab">
             <?php if ($modulesSaved): ?>
                 <div class="alert alert-success mt-3">Módulos guardados.</div>
