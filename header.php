@@ -17,10 +17,15 @@ requireLogin();
 // Get current user info
 $user = currentUser();
 $appName = getSetting('app_name', 'CMS');
+$appLogo = getSetting('app_logo', '');
+if ($appLogo && !file_exists(__DIR__ . '/' . $appLogo)) {
+    $appLogo = '';
+}
 
 // Flags to control optional assets
 $useDataTables = $useDataTables ?? false;
 $useDropzone   = $useDropzone ?? false;
+$useSelect2    = $useSelect2 ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -38,6 +43,10 @@ $useDropzone   = $useDropzone ?? false;
 
 <?php if ($useDropzone): ?>
 <link rel="stylesheet" href="vendors/dropzone/dist/dropzone.css">
+<?php endif; ?>
+
+<?php if ($useSelect2): ?>
+<link rel="stylesheet" href="vendors/select2/dist/css/select2.min.css">
 <?php endif; ?>
 
 <link rel="stylesheet" href="assets/css/custom.css">
@@ -143,7 +152,7 @@ foreach ($sidebarTypes as $sidebarType):
         <li class="nav-item dropdown ms-3">
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-            <img src="<?= !empty($user['photo']) ? htmlspecialchars($user['photo']) : 'assets/images/img.jpg'; ?>" alt="">
+            <img src="<?= !empty($user['photo']) ? htmlspecialchars($user['photo']) : (!empty($appLogo) ? htmlspecialchars($appLogo) : 'assets/images/img.jpg'); ?>" alt="">
             <span class="user-name"><?= htmlspecialchars($user['username']); ?></span>
           </a>
           <div class="dropdown-menu dropdown-menu-end dropdown-usermenu"

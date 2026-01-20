@@ -53,6 +53,10 @@
 <?php endif; ?>
 <?php endif; ?>
 
+<?php if ($useSelect2): ?>
+<script src="vendors/select2/dist/js/select2.full.min.js"></script>
+<?php endif; ?>
+
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/custom.js"></script>
 

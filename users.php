@@ -46,6 +46,7 @@ if ($action === 'list') {
     if (($user['id'] ?? 0) !== 1) {
         $users = array_filter($users, fn($u) => $u['id'] !== 1);
     }
+    $useSelect2 = false;
     require_once __DIR__ . '/header.php';
     ?>
 <div class="container-fluid users-page">
@@ -240,6 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$useSelect2 = true;
 require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid users-page">
@@ -290,22 +292,18 @@ require_once __DIR__ . '/header.php';
                             </div>
                             <?php if (!$selfEdit): ?>
                             <div class="col-md-4 mb-3">
-                                <label class="form-label">Departamentos</label>
-                                <div class="department-pills">
-                                    <?php if (!$departments): ?>
-                                        <div class="text-muted small">Sem departamentos definidos.</div>
-                                    <?php endif; ?>
+                                <label for="department_term_ids" class="form-label">Departamentos</label>
+                                <select class="form-control js-departments" id="department_term_ids" name="department_term_ids[]" multiple>
                                     <?php foreach ($departments as $department): ?>
                                         <?php
                                             $termId = (int) $department['id'];
-                                            $isChecked = in_array($termId, $userData['department_term_ids'] ?? [], true);
+                                            $isSelected = in_array($termId, $userData['department_term_ids'] ?? [], true);
                                         ?>
-                                        <label class="badge badge-pill bg-light text-dark department-pill">
-                                            <input type="checkbox" name="department_term_ids[]" value="<?= $termId; ?>" <?= $isChecked ? 'checked' : ''; ?>>
+                                        <option value="<?= $termId; ?>" <?= $isSelected ? 'selected' : ''; ?>>
                                             <?= htmlspecialchars($department['name']); ?>
-                                        </label>
+                                        </option>
                                     <?php endforeach; ?>
-                                </div>
+                                </select>
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label for="role" class="form-label">Nível</label>
@@ -352,6 +350,12 @@ require_once __DIR__ . '/header.php';
                         <div class="clearfix"></div>
                     </div>
                     <div class="x_content">
+                        <?php
+                            $appLogo = getSetting('app_logo', '');
+                            if ($appLogo && !file_exists(__DIR__ . '/' . $appLogo)) {
+                                $appLogo = '';
+                            }
+                        ?>
                         <?php if (!empty($userData['photo'])):
                             $photo = $userData['photo'];
                             if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
@@ -359,6 +363,8 @@ require_once __DIR__ . '/header.php';
                             }
                         ?>
                             <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-thumbnail mb-2 avatar-preview">
+                        <?php elseif (!empty($appLogo)): ?>
+                            <img src="<?= htmlspecialchars($appLogo); ?>" alt="" class="img-thumbnail mb-2 avatar-preview">
                         <?php else: ?>
                             <div class="avatar-placeholder mb-2">
                                 <i class="fa fa-user"></i>
@@ -394,20 +400,21 @@ require_once __DIR__ . '/header.php';
     color: #96a3b0;
     font-size: 2.5rem;
 }
-.users-page .department-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-}
-.users-page .department-pill {
-    padding: 0.35rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid rgba(120, 140, 160, 0.3);
-    cursor: pointer;
-    user-select: none;
-}
-.users-page .department-pill input {
-    margin-right: 0.35rem;
+.users-page .select2-container {
+    width: 100% !important;
 }
 </style>
+<?php if ($useSelect2): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.jQuery && jQuery.fn.select2) {
+        jQuery('.js-departments').select2({
+            placeholder: 'Selecione departamentos',
+            allowClear: true,
+            width: '100%'
+        });
+    }
+});
+</script>
+<?php endif; ?>
 <?php require_once __DIR__ . '/footer.php'; ?>

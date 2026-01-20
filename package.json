@@ -1,0 +1,8 @@
+{
+  "name": "aicrm-teknisoft",
+  "private": true,
+  "scripts": {
+    "migrate": "php scripts/migrate.php",
+    "start": "php -S localhost:8000 router.php"
+  }
+}

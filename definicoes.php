@@ -16,6 +16,7 @@ $availableModules = [
 ];
 
 $generalSaved = false;
+$generalErrors = [];
 $emailSaved = false;
 $erpSaved = false;
 $modulesSaved = false;
@@ -57,7 +58,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $generalSaved = true;
+        if (!empty($_FILES['app_logo']['tmp_name'])) {
+            $fileTmp  = $_FILES['app_logo']['tmp_name'];
+            $fileSize = $_FILES['app_logo']['size'] ?? 0;
+            $extension = strtolower(pathinfo($_FILES['app_logo']['name'], PATHINFO_EXTENSION));
+            $allowedExt = ['png', 'jpg', 'jpeg'];
+
+            if ($fileSize > 2 * 1024 * 1024) {
+                $generalErrors[] = 'O logotipo excede 2 MB.';
+            } else {
+                $finfo = new finfo(FILEINFO_MIME_TYPE);
+                $mimeType = $finfo->file($fileTmp);
+                $allowedMime = ['image/png' => 'png', 'image/jpeg' => 'jpg'];
+
+                if (!in_array($extension, $allowedExt, true) || !array_key_exists($mimeType, $allowedMime)) {
+                    $generalErrors[] = 'Formato de logotipo invalido.';
+                } else {
+                    $slug = getCompanySlug() ?: 'default';
+                    $year = date('Y');
+                    $month = date('m');
+                    $uploadDir = __DIR__ . '/uploads/' . $slug . '/branding/' . $year . '/' . $month . '/';
+                    if (!is_dir($uploadDir)) {
+                        mkdir($uploadDir, 0755, true);
+                    }
+                    $filename = 'logo_' . bin2hex(random_bytes(12)) . '.' . $allowedMime[$mimeType];
+                    $targetPath = $uploadDir . $filename;
+
+                    $image = ($mimeType === 'image/png') ? imagecreatefrompng($fileTmp) : imagecreatefromjpeg($fileTmp);
+                    if ($image !== false) {
+                        $maxDim = 800;
+                        $width = imagesx($image);
+                        $height = imagesy($image);
+                        if ($width > $maxDim || $height > $maxDim) {
+                            $ratio = min($maxDim / $width, $maxDim / $height);
+                            $newWidth = (int) ($width * $ratio);
+                            $newHeight = (int) ($height * $ratio);
+                            $newImage = imagecreatetruecolor($newWidth, $newHeight);
+                            if ($mimeType === 'image/png') {
+                                imagealphablending($newImage, false);
+                                imagesavealpha($newImage, true);
+                            }
+                            imagecopyresampled($newImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+                            imagedestroy($image);
+                            $image = $newImage;
+                        }
+                        $saved = ($mimeType === 'image/png') ? imagepng($image, $targetPath) : imagejpeg($image, $targetPath, 90);
+                        imagedestroy($image);
+                    } else {
+                        $saved = false;
+                    }
+
+                    if ($saved) {
+                        $logoPath = 'uploads/' . $slug . '/branding/' . $year . '/' . $month . '/' . $filename;
+                        setSetting('app_logo', $logoPath);
+                    } else {
+                        $generalErrors[] = 'Erro ao guardar o logotipo.';
+                    }
+                }
+            }
+        }
+
+        $generalSaved = empty($generalErrors);
     }
     if (isset($_POST['smtp_host'])) {
         $smtpHost = trim($_POST['smtp_host'] ?? '');
@@ -122,6 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 $currentAppName = getSetting('app_name', '');
+$currentAppLogo = getSetting('app_logo', '');
 $currentDebugMode = (int)getSetting('debug_mode', '0');
 $currentQrDpi = (int)getSetting('qr_dpi', '150');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
@@ -186,7 +248,10 @@ require_once __DIR__ . '/header.php';
             <?php if ($generalSaved): ?>
                 <div class="alert alert-success mt-3">Definições guardadas.</div>
             <?php endif; ?>
-            <form method="post" class="mt-3">
+            <?php foreach ($generalErrors as $err): ?>
+                <div class="alert alert-danger mt-3"><?= htmlspecialchars($err); ?></div>
+            <?php endforeach; ?>
+            <form method="post" class="mt-3" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row g-4 settings-panels">
                     <div class="col-12 col-lg-6">
@@ -200,6 +265,16 @@ require_once __DIR__ . '/header.php';
                                     <label for="app_name" class="form-label">Nome da app</label>
                                     <input type="text" class="form-control" id="app_name" name="app_name" value="<?= htmlspecialchars($currentAppName); ?>">
                                     <small class="text-muted">Aparece no cabeçalho e no título do browser.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="app_logo" class="form-label">Logotipo</label>
+                                    <?php if (!empty($currentAppLogo)): ?>
+                                        <div class="mb-2">
+                                            <img src="<?= htmlspecialchars($currentAppLogo); ?>" alt="" class="img-thumbnail" style="max-width: 160px;">
+                                        </div>
+                                    <?php endif; ?>
+                                    <input type="file" class="form-control" id="app_logo" name="app_logo" accept="image/png,image/jpeg">
+                                    <small class="text-muted">Usado como imagem predefinida para utilizadores sem foto.</small>
                                 </div>
                                 <div class="mb-3">
                                     <label for="qr_dpi" class="form-label">QR DPI</label>

@@ -99,6 +99,9 @@ if ($action === 'list'):
             <div class="clearfix"></div>
         </div>
         <div class="x_content">
+            <div class="text-end mb-3">
+                <a href="<?= BASE_URL ?>tabelas/departamentos/add" class="btn btn-sm btn-primary"><i class="fa fa-plus"></i> Novo</a>
+            </div>
             <table class="table table-striped jambo_table">
                 <thead>
                     <tr>
@@ -109,6 +112,13 @@ if ($action === 'list'):
                     </tr>
                 </thead>
                 <tbody>
+                <?php if (!$departments): ?>
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">
+                            Sem departamentos. <a href="<?= BASE_URL ?>tabelas/departamentos/add">Criar o primeiro</a>.
+                        </td>
+                    </tr>
+                <?php endif; ?>
                 <?php foreach ($departments as $department): ?>
                     <tr>
                         <td><?= (int) $department['id']; ?></td>
