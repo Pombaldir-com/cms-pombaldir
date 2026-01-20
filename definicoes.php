@@ -161,12 +161,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $accountingBaseCompany = trim($_POST['accounting_base_company'] ?? '');
         $accountingDiary = trim($_POST['accounting_diary'] ?? '');
+        $accountingPostingDateMode = trim((string) ($_POST['accounting_posting_date_mode'] ?? 'document'));
+        if (!in_array($accountingPostingDateMode, ['document', 'month_end'], true)) {
+            $accountingPostingDateMode = 'document';
+        }
         if ($accountingEnabled) {
             setSetting('accounting_base_company', $accountingBaseCompany);
             setSetting('accounting_diary', $accountingDiary);
+            setSetting('accounting_posting_date_mode', $accountingPostingDateMode);
         } else {
             setSetting('accounting_base_company', '');
             setSetting('accounting_diary', '');
+            setSetting('accounting_posting_date_mode', 'document');
         }
 
         if (in_array('compras', $selectedModules, true)) {
@@ -190,6 +196,7 @@ $currentApiEnabled = (int)getSetting('api_enabled', '0');
 $currentApiToken = getSetting('api_token', '');
 $currentAccountingBaseCompany = getSetting('accounting_base_company', '');
 $currentAccountingDiary = getSetting('accounting_diary', '');
+$currentAccountingPostingDateMode = getSetting('accounting_posting_date_mode', 'document');
 $contentTypes = getContentTypes();
 $contentTypeApi = [];
 foreach ($contentTypes as $type) {
@@ -482,6 +489,13 @@ require_once __DIR__ . '/header.php';
                                         <div class="col-12 col-sm-6">
                                             <label for="accounting_diary" class="form-label">Diário</label>
                                             <input type="text" class="form-control input-compact" id="accounting_diary" name="accounting_diary" maxlength="10" value="<?= htmlspecialchars($currentAccountingDiary); ?>" <?= $accountingActive ? '' : 'disabled'; ?>>
+                                        </div>
+                                        <div class="col-12 col-sm-6">
+                                            <label for="accounting_posting_date_mode" class="form-label">Data de lançamento</label>
+                                            <select class="form-select" id="accounting_posting_date_mode" name="accounting_posting_date_mode" <?= $accountingActive ? '' : 'disabled'; ?>>
+                                                <option value="document" <?= $currentAccountingPostingDateMode === 'document' ? 'selected' : ''; ?>>Data do documento</option>
+                                                <option value="month_end" <?= $currentAccountingPostingDateMode === 'month_end' ? 'selected' : ''; ?>>Ultimo dia do mes</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>

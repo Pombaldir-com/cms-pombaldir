@@ -288,6 +288,52 @@ function fetchOcrSkipMap(PDO $pdo): array {
     return $map;
 }
 
+function resolveMonthEndDate(string $value): ?string {
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    $patterns = [
+        '/^\\d{4}-\\d{2}-\\d{2}$/' => ['format' => 'Y-m-d', 'output' => 'Y-m-t'],
+        '/^\\d{2}\\/\\d{2}\\/\\d{4}$/' => ['format' => 'd/m/Y', 'output' => 'd/m/Y'],
+        '/^\\d{2}-\\d{2}-\\d{4}$/' => ['format' => 'd-m-Y', 'output' => 'd-m-Y'],
+        '/^\\d{4}\\/\\d{2}\\/\\d{2}$/' => ['format' => 'Y/m/d', 'output' => 'Y/m/t'],
+    ];
+
+    foreach ($patterns as $pattern => $config) {
+        if (!preg_match($pattern, $value)) {
+            continue;
+        }
+
+        $date = DateTime::createFromFormat($config['format'], $value);
+        if ($date instanceof DateTime) {
+            $date->modify('last day of this month');
+            return $date->format($config['output']);
+        }
+    }
+
+    return null;
+}
+
+function applyPostingDateMode(array $document, string $mode): array {
+    if ($mode !== 'month_end') {
+        return $document;
+    }
+
+    $docDate = trim((string) ($document['field_F'] ?? ''));
+    if ($docDate === '') {
+        return $document;
+    }
+
+    $monthEnd = resolveMonthEndDate($docDate);
+    if ($monthEnd !== null) {
+        $document['field_F'] = $monthEnd;
+    }
+
+    return $document;
+}
+
 function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''): array {
     $result = [
         'success' => false,
@@ -356,7 +402,14 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $documentsPayload = array_map(static function (array $document): array {
+    $postingDateMode = trim((string) getSetting('accounting_posting_date_mode', 'document'));
+    $useMonthEnd = $importType === 1 && $postingDateMode === 'month_end';
+
+    $documentsPayload = array_map(static function (array $document) use ($useMonthEnd, $postingDateMode): array {
+        if ($useMonthEnd) {
+            $document = applyPostingDateMode($document, $postingDateMode);
+        }
+
         if (array_key_exists('line_items', $document)) {
             $decodedLineItems = json_decode((string) $document['line_items'], true);
             if (json_last_error() === JSON_ERROR_NONE) {
