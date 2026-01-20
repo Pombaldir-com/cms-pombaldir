@@ -1,7 +1,12 @@
 RewriteEngine On
 
+# Preserve Authorization header for PHP-FPM/CGI setups.
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Serve existing files/directories directly.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
-RewriteRule ^$ index.php [L]
-RewriteRule ^(.*)$ router.php [QSA,L]
+
+# Route all other requests through the PHP router.
+RewriteRule ^ router.php [L]

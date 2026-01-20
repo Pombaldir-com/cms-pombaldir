@@ -15,11 +15,11 @@ return [
         'slug'    => 'menudigital',
     ],
     '500735794' => [
-        'db_host' => 'localhost',
+        'db_host' => '127.0.0.1',
+        'db_port' => '8889',
         'db_name' => 'cms_zcontas',
         'db_user' => 'root',
         'db_pass' => 'root',
         'slug'    => 'zcontas',
     ],
 ];
-

@@ -15,6 +15,7 @@ command‑line option (default: 300).
 import sys
 import os
 import argparse
+import shutil
 from typing import Callable, Dict, List, Optional
 
 try:
@@ -36,6 +37,19 @@ except Exception:
     pyzbar_decode = None
 
 DETECTOR = cv2.QRCodeDetector()
+
+
+def _find_poppler_path() -> Optional[str]:
+    env_path = os.getenv("POPPLER_PATH")
+    if env_path:
+        return env_path
+    for candidate in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"):
+        if os.path.exists(os.path.join(candidate, "pdfinfo")):
+            return candidate
+    pdfinfo_path = shutil.which("pdfinfo")
+    if pdfinfo_path:
+        return os.path.dirname(pdfinfo_path)
+    return None
 
 
 def _prepare_base(image: np.ndarray) -> np.ndarray:
@@ -228,14 +242,18 @@ def decode_file(path: str, dpi: int = 300) -> List[str]:
         if convert_from_path is None:
             raise RuntimeError("pdf2image not available")
 
-        # Caminho fixo para o Poppler
-        poppler_dir = "/usr/local/bin"
-        kwargs = {"dpi": dpi, "poppler_path": poppler_dir}
+        poppler_dir = _find_poppler_path()
+        kwargs = {"dpi": dpi}
+        if poppler_dir:
+            kwargs["poppler_path"] = poppler_dir
 
         info: Dict[str, int] = {"Pages": 1}
         if pdfinfo_from_path is not None:
             try:
-                info = pdfinfo_from_path(path, poppler_path=poppler_dir)
+                if poppler_dir:
+                    info = pdfinfo_from_path(path, poppler_path=poppler_dir)
+                else:
+                    info = pdfinfo_from_path(path)
             except TypeError:
                 info = pdfinfo_from_path(path)  # type: ignore[arg-type]
         total_pages = int(info.get("Pages", 1))

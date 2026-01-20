@@ -4,7 +4,20 @@
 // request path and include the appropriate script.
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-$base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/'); // → "/cms"
+$fullPath = __DIR__ . $path;
+if ($path !== '/' && is_file($fullPath)) {
+    return false;
+}
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$base = '';
+if ($scriptName !== '' && str_ends_with($scriptName, '/router.php')) {
+    $base = rtrim(dirname($scriptName), '/'); // → "/cms"
+} else {
+    $docRoot = rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/');
+    if ($docRoot !== '' && strpos(__DIR__, $docRoot) === 0) {
+        $base = rtrim(substr(__DIR__, strlen($docRoot)), '/');
+    }
+}
 
 if ($base && strpos($path, $base) === 0) {
     $path = substr($path, strlen($base)); // remove "/cms" do início
@@ -110,6 +123,18 @@ switch (true) {
     case $path === 'taxonomies':
         // List all taxonomies
         require __DIR__ . '/taxonomies.php';
+        break;
+    case $path === 'tabelas/departamentos':
+        require __DIR__ . '/departments.php';
+        break;
+    case $path === 'tabelas/departamentos/add':
+        $_GET['action'] = 'add';
+        require __DIR__ . '/departments.php';
+        break;
+    case preg_match('#^tabelas/departamentos/edit/([0-9]+)$#', $path, $m):
+        $_GET['action'] = 'edit';
+        $_GET['id'] = $m[1];
+        require __DIR__ . '/departments.php';
         break;
     case preg_match('#^fields/([0-9]+)/ad$#', $path, $m):
         // Add a custom field to a content type, e.g. "/cms/fields/3/ad"

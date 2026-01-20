@@ -11,10 +11,32 @@ require_once __DIR__ . '/data/db.php';
 
 // Determine the base URL for the application (e.g., "/cms/") so links
 // can be generated correctly regardless of the installation directory.
-// This assumes the code is executing within the public document root.
-$baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$baseDir = '';
+if ($scriptName !== '' && str_ends_with($scriptName, '.php')) {
+    $baseDir = rtrim(dirname($scriptName), '/');
+} else {
+    $docRoot = rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/');
+    if ($docRoot !== '' && strpos(__DIR__, $docRoot) === 0) {
+        $baseDir = rtrim(substr(__DIR__, strlen($docRoot)), '/');
+    }
+}
 if (!defined('BASE_URL')) {
     define('BASE_URL', ($baseDir === '' ? '/' : $baseDir . '/'));
+}
+
+function hasTable(string $table): bool {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SHOW TABLES LIKE ?');
+    $stmt->execute([$table]);
+    return (bool) $stmt->fetchColumn();
+}
+
+function hasColumn(string $table, string $column): bool {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+    $stmt->execute([$column]);
+    return (bool) $stmt->fetch();
 }
 
 /**
@@ -449,7 +471,12 @@ function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phon
  */
 function getUsers(): array {
     $pdo = getPDO();
-    $stmt = $pdo->query('SELECT id, username, name, email, phone, role FROM users ORDER BY id ASC');
+    $hasDept = hasTable('user_taxonomy_terms') && hasTable('taxonomy_terms') && hasTable('taxonomies');
+    if ($hasDept) {
+        $stmt = $pdo->query("SELECT u.id, u.username, u.name, u.email, u.phone, u.role, GROUP_CONCAT(DISTINCT CASE WHEN tx.id IS NULL THEN NULL ELSE tt.name END ORDER BY tt.name SEPARATOR ', ') AS department_names FROM users u LEFT JOIN user_taxonomy_terms utt ON utt.user_id = u.id LEFT JOIN taxonomy_terms tt ON tt.id = utt.term_id LEFT JOIN taxonomies tx ON tx.id = tt.taxonomy_id AND LOWER(tx.name) = 'departamentos' GROUP BY u.id ORDER BY u.id ASC");
+    } else {
+        $stmt = $pdo->query('SELECT id, username, name, email, phone, role, NULL AS department_names FROM users ORDER BY id ASC');
+    }
     return $stmt->fetchAll();
 }
 
@@ -461,9 +488,18 @@ function getUsers(): array {
  */
 function getUserById(int $id): ?array {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
+    $hasDept = hasTable('user_taxonomy_terms') && hasTable('taxonomy_terms') && hasTable('taxonomies');
+    if ($hasDept) {
+        $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role FROM users u WHERE u.id = ?");
+    } else {
+        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
+    }
     $stmt->execute([$id]);
-    return $stmt->fetch() ?: null;
+    $user = $stmt->fetch() ?: null;
+    if ($user && $hasDept) {
+        $user['department_term_ids'] = getUserDepartmentTermIds($id);
+    }
+    return $user;
 }
 
 /**
@@ -471,11 +507,15 @@ function getUserById(int $id): ?array {
  *
  * @return int
  */
-function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): int {
+function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null): int {
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo) VALUES (?, ?, ?, ?, ?, ?, ?)');
     $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath]);
-    return (int)$pdo->lastInsertId();
+    $userId = (int) $pdo->lastInsertId();
+    if ($departmentTermIds !== null) {
+        setUserDepartmentTerms($userId, $departmentTermIds);
+    }
+    return $userId;
 }
 
 /**
@@ -484,7 +524,7 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
  * The username cannot be modified once a user is created, so this function
  * only updates the remaining profile fields.
  */
-function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null): void {
+function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null): void {
     $pdo = getPDO();
     $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
     $params = [$name, $email, $phone];
@@ -504,6 +544,109 @@ function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $emai
     $params[] = $id;
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
+    if ($departmentTermIds !== null) {
+        setUserDepartmentTerms($id, $departmentTermIds);
+    }
+}
+
+function getDepartmentTaxonomyId(bool $createIfMissing = true): ?int {
+    if (!hasTable('taxonomies')) {
+        return null;
+    }
+    $taxonomy = getTaxonomyBySlug('departamentos');
+    if (!$taxonomy && $createIfMissing) {
+        $taxonomyId = createTaxonomy('departamentos', 'Departamentos');
+        return $taxonomyId;
+    }
+    return $taxonomy ? (int) $taxonomy['id'] : null;
+}
+
+function getDepartmentTerms(): array {
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return [];
+    }
+    return getTerms($taxonomyId);
+}
+
+function getDepartmentTermIds(): array {
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return [];
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id FROM taxonomy_terms WHERE taxonomy_id = ? ORDER BY name ASC');
+    $stmt->execute([$taxonomyId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+function getDepartmentTermsWithCounts(): array {
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return [];
+    }
+    $pdo = getPDO();
+    if (hasTable('user_taxonomy_terms')) {
+        $stmt = $pdo->prepare('SELECT tt.id, tt.name, COUNT(utt.user_id) AS user_count FROM taxonomy_terms tt LEFT JOIN user_taxonomy_terms utt ON utt.term_id = tt.id WHERE tt.taxonomy_id = ? GROUP BY tt.id ORDER BY tt.name ASC');
+        $stmt->execute([$taxonomyId]);
+        return $stmt->fetchAll();
+    }
+    $stmt = $pdo->prepare('SELECT id, name, 0 AS user_count FROM taxonomy_terms WHERE taxonomy_id = ? ORDER BY name ASC');
+    $stmt->execute([$taxonomyId]);
+    return $stmt->fetchAll();
+}
+
+function isDepartmentTermInUse(int $termId): bool {
+    if (!hasTable('user_taxonomy_terms')) {
+        return false;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT 1 FROM user_taxonomy_terms WHERE term_id = ? LIMIT 1');
+    $stmt->execute([$termId]);
+    return (bool) $stmt->fetch();
+}
+
+function getUserDepartmentTermIds(int $userId): array {
+    if (!hasTable('user_taxonomy_terms')) {
+        return [];
+    }
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return [];
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT utt.term_id FROM user_taxonomy_terms utt JOIN taxonomy_terms tt ON tt.id = utt.term_id WHERE utt.user_id = ? AND tt.taxonomy_id = ? ORDER BY tt.name ASC');
+    $stmt->execute([$userId, $taxonomyId]);
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+function setUserDepartmentTerms(int $userId, array $termIds): void {
+    if (!hasTable('user_taxonomy_terms')) {
+        return;
+    }
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return;
+    }
+    $allowedIds = array_flip(getDepartmentTermIds());
+    $cleanIds = [];
+    foreach ($termIds as $termId) {
+        $termId = (int) $termId;
+        if ($termId && isset($allowedIds[$termId])) {
+            $cleanIds[] = $termId;
+        }
+    }
+    $pdo = getPDO();
+    $pdo->beginTransaction();
+    $delete = $pdo->prepare('DELETE utt FROM user_taxonomy_terms utt JOIN taxonomy_terms tt ON tt.id = utt.term_id WHERE utt.user_id = ? AND tt.taxonomy_id = ?');
+    $delete->execute([$userId, $taxonomyId]);
+    if ($cleanIds) {
+        $insert = $pdo->prepare('INSERT INTO user_taxonomy_terms (user_id, term_id) VALUES (?, ?)');
+        foreach (array_unique($cleanIds) as $termId) {
+            $insert->execute([$userId, $termId]);
+        }
+    }
+    $pdo->commit();
 }
 
 /**

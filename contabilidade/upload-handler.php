@@ -19,6 +19,11 @@ if (!isLoggedIn()) {
 }
 
 $newToken = generateCsrfToken();
+$debugEnabled = (int) getSetting('debug_mode', '0') === 1 || !empty($_GET['debug']);
+$qrDpi = (int) getSetting('qr_dpi', '150');
+if ($qrDpi <= 0) {
+    $qrDpi = 150;
+}
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['file']['tmp_name'])) {
     $errorMessage = 'Ficheiro não enviado';
@@ -102,13 +107,15 @@ if ($mime === 'application/pdf') {
 $qrTexts = [];
 
 $script = __DIR__ . '/detectar_qr.py';
-$cmd = escapeshellcmd("python3 $script") . ' ' . escapeshellarg($targetPath) . ' --dpi 150 2>&1';
+$popplerPath = getenv('POPPLER_PATH');
+$envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
+$cmd = $envPrefix . escapeshellcmd("python3 $script") . ' ' . escapeshellarg($targetPath) . ' --dpi ' . escapeshellarg((string) $qrDpi) . ' 2>&1';
 $output = [];
 $ret = 0;
 exec($cmd, $output, $ret);
 
 // Log de debug (opcional)
-if (!empty($_GET['debug'])) {
+if ($debugEnabled) {
     file_put_contents(__DIR__ . '/debug_qr.txt', "CMD: $cmd\nRET: $ret\n" . implode(PHP_EOL, $output));
 }
 

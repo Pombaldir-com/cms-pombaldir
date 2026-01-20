@@ -17,7 +17,8 @@ function getPDO() {
             throw new RuntimeException('Empresa não selecionada.');
         }
         $cfg = $_SESSION['company'];
-        $dsn = 'mysql:host=' . $cfg['db_host'] . ';dbname=' . $cfg['db_name'] . ';charset=utf8mb4';
+        $port = isset($cfg['db_port']) && $cfg['db_port'] !== '' ? ';port=' . $cfg['db_port'] : '';
+        $dsn = 'mysql:host=' . $cfg['db_host'] . $port . ';dbname=' . $cfg['db_name'] . ';charset=utf8mb4';
         try {
             $pdo = new PDO($dsn, $cfg['db_user'], $cfg['db_pass'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

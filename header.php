@@ -114,6 +114,14 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
+<?php if (($user['role'] ?? 3) <= 2): ?>
+                            <li>
+                                <a><i class="fa fa-table"></i> Tabelas <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>tabelas/departamentos">Departamentos</a></li>
+                                </ul>
+                            </li>
+<?php endif; ?>
                         </ul>
                     </div>
                 </div>

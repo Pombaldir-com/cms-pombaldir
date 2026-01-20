@@ -48,49 +48,73 @@ if ($action === 'list') {
     }
     require_once __DIR__ . '/header.php';
     ?>
-<div class="container-fluid">
-    <h2>Utilizadores</h2>
+<div class="container-fluid users-page">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+        <div>
+            <h2 class="mb-1">Utilizadores</h2>
+            <p class="mb-0 text-muted">Gestão de acessos e perfis do CMS.</p>
+        </div>
+        <a href="<?= BASE_URL ?>users/add" class="btn btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+    </div>
     <?php foreach ($listErrors as $err): ?>
         <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
     <?php endforeach; ?>
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Utilizador</th>
-                <th>Nome</th>
-                <th>Nível</th>
-                <th>Ações</th>
-            </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($users as $u): ?>
-            <tr>
-                <td><?= $u['id']; ?></td>
-                <td><?= htmlspecialchars($u['username']); ?></td>
-                <td><?= htmlspecialchars($u['name'] ?? ''); ?></td>
-                <td><?php
-                    switch ($u['role']) {
-                        case 1: echo 'Superadmin'; break;
-                        case 2: echo 'Administrador'; break;
-                        default: echo 'Utilizador';
-                    }
-                ?></td>
-                <td>
-                    <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-sm btn-secondary">Editar</a>
-                    <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
-                    <form method="post" action="<?= BASE_URL ?>users" class="d-inline">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                        <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar utilizador?');">Eliminar</button>
-                    </form>
-                    <?php endif; ?>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-    <a href="<?= BASE_URL ?>users/add" class="btn btn-primary mt-3"><i class="fa fa-plus"></i> Adicionar Utilizador</a>
+    <div class="x_panel">
+        <div class="x_title">
+            <h2><i class="fa fa-users"></i> Lista de utilizadores</h2>
+            <div class="clearfix"></div>
+        </div>
+        <div class="x_content">
+            <table class="table table-striped jambo_table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Utilizador</th>
+                        <th>Nome</th>
+                        <th>Departamentos</th>
+                        <th>Nível</th>
+                        <th class="text-end">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($users as $u): ?>
+                    <?php
+                        switch ($u['role']) {
+                            case 1:
+                                $roleLabel = 'Superadmin';
+                                $roleBadge = 'bg-danger';
+                                break;
+                            case 2:
+                                $roleLabel = 'Administrador';
+                                $roleBadge = 'bg-warning text-dark';
+                                break;
+                            default:
+                                $roleLabel = 'Utilizador';
+                                $roleBadge = 'bg-secondary';
+                        }
+                    ?>
+                    <tr>
+                        <td><?= $u['id']; ?></td>
+                        <td><?= htmlspecialchars($u['username']); ?></td>
+                        <td><?= htmlspecialchars($u['name'] ?? ''); ?></td>
+                        <td><?= htmlspecialchars($u['department_names'] ?? '-'); ?></td>
+                        <td><span class="badge <?= $roleBadge; ?>"><?= $roleLabel; ?></span></td>
+                        <td class="text-end">
+                            <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
+                            <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
+                            <form method="post" action="<?= BASE_URL ?>users" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar utilizador?');"><i class="fa fa-trash"></i> Eliminar</button>
+                            </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 <?php
     require_once __DIR__ . '/footer.php';
@@ -98,7 +122,8 @@ if ($action === 'list') {
 }
 
 $editing = $id !== null;
-$userData = $editing ? getUserById($id) : ['username' => '', 'name' => '', 'email' => '', 'phone' => '', 'role' => 3, 'photo' => ''];
+$userData = $editing ? getUserById($id) : ['username' => '', 'name' => '', 'email' => '', 'phone' => '', 'role' => 3, 'photo' => '', 'department_term_ids' => []];
+$departments = getDepartmentTerms();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -111,6 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $role = $selfEdit ? $userData['role'] : (int)($_POST['role'] ?? 3);
+    $departmentTermIds = $selfEdit ? ($userData['department_term_ids'] ?? []) : ($_POST['department_term_ids'] ?? []);
+    if (!is_array($departmentTermIds)) {
+        $departmentTermIds = [];
+    }
+    $departmentTermIds = array_values(array_filter(array_map('intval', $departmentTermIds), static fn($value) => $value > 0));
     $password = trim($_POST['password'] ?? '');
     $confirmPassword = trim($_POST['password_confirm'] ?? '');
     $photoPath = $userData['photo'] ?? null;
@@ -122,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'phone' => $phone,
         'role' => $role,
         'photo' => $photoPath,
+        'department_term_ids' => $departmentTermIds,
     ];
 
     if (!$editing && $password === '') {
@@ -198,10 +229,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$errors) {
         if ($editing) {
             $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
-            updateUser($id, $hash, $name, $email, $phone, $role, $photoPath);
+            updateUser($id, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds);
         } else {
             $hash = password_hash($password, PASSWORD_DEFAULT);
-            createUser($username, $hash, $name, $email, $phone, $role, $photoPath);
+            createUser($username, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds);
         }
         $redirect = $profileMode ? 'users/profile' : 'users';
         header('Location: ' . BASE_URL . $redirect);
@@ -211,72 +242,172 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 require_once __DIR__ . '/header.php';
 ?>
-<div class="container-fluid">
-    <h2><?= $editing ? 'Editar Utilizador' : 'Adicionar Utilizador'; ?></h2>
+<div class="container-fluid users-page">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
+        <div>
+            <h2 class="mb-1"><?= $editing ? 'Editar utilizador' : 'Adicionar utilizador'; ?></h2>
+            <p class="mb-0 text-muted"><?= $profileMode ? 'Atualize os seus dados e foto.' : 'Gerir dados e permissoes do utilizador.'; ?></p>
+        </div>
+        <?php if (!$profileMode): ?>
+        <a href="<?= BASE_URL ?>users" class="btn btn-outline-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+        <?php endif; ?>
+    </div>
     <?php foreach ($errors as $err): ?>
         <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
     <?php endforeach; ?>
-    <form method="post" enctype="multipart/form-data" class="w-50">
+    <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-        <div class="mb-3">
-            <label for="username" class="form-label">Utilizador</label>
-            <?php if ($editing): ?>
-                <input type="text" class="form-control" id="username" value="<?= htmlspecialchars($userData['username']); ?>" disabled>
-            <?php else: ?>
-                <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required>
-            <?php endif; ?>
-        </div>
-        <div class="mb-3">
-            <label for="photo" class="form-label">Foto</label><br>
-            <?php if (!empty($userData['photo'])):
-                $photo = $userData['photo'];
-                if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
-                    $photo = 'uploads/' . $slug . '/' . ltrim($photo, '/');
-                }
-            ?>
-                <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-thumbnail mb-2" style="max-width: 150px;">
-            <?php endif; ?>
-            <input type="file" class="form-control" id="photo" name="photo">
-        </div>
-        <div class="row">
-            <div class="col-md-6 mb-3">
-                <label for="name" class="form-label">Nome</label>
-                <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
+        <div class="row g-4">
+            <div class="col-12 col-lg-8">
+                <div class="x_panel">
+                    <div class="x_title">
+                        <h2><i class="fa fa-id-card"></i> Dados principais</h2>
+                        <div class="clearfix"></div>
+                    </div>
+                    <div class="x_content">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Utilizador</label>
+                            <?php if ($editing): ?>
+                                <input type="text" class="form-control" id="username" value="<?= htmlspecialchars($userData['username']); ?>" disabled>
+                            <?php else: ?>
+                                <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required>
+                            <?php endif; ?>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="name" class="form-label">Nome</label>
+                                <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="email" class="form-label">E-mail</label>
+                                <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="phone" class="form-label">Telefone</label>
+                                <input type="text" class="form-control" id="phone" name="phone" value="<?= htmlspecialchars($userData['phone']); ?>">
+                            </div>
+                            <?php if (!$selfEdit): ?>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Departamentos</label>
+                                <div class="department-pills">
+                                    <?php if (!$departments): ?>
+                                        <div class="text-muted small">Sem departamentos definidos.</div>
+                                    <?php endif; ?>
+                                    <?php foreach ($departments as $department): ?>
+                                        <?php
+                                            $termId = (int) $department['id'];
+                                            $isChecked = in_array($termId, $userData['department_term_ids'] ?? [], true);
+                                        ?>
+                                        <label class="badge badge-pill bg-light text-dark department-pill">
+                                            <input type="checkbox" name="department_term_ids[]" value="<?= $termId; ?>" <?= $isChecked ? 'checked' : ''; ?>>
+                                            <?= htmlspecialchars($department['name']); ?>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="role" class="form-label">Nível</label>
+                                <?php if ($editing && $id == 1): ?>
+                                    <input type="text" class="form-control" value="Superadmin" disabled>
+                                    <input type="hidden" name="role" value="1">
+                                <?php else: ?>
+                                    <select class="form-control" id="role" name="role">
+                                        <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
+                                        <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
+                                        <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
+                                    </select>
+                                <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="x_panel">
+                    <div class="x_title">
+                        <h2><i class="fa fa-lock"></i> Seguranca</h2>
+                        <div class="clearfix"></div>
+                    </div>
+                    <div class="x_content">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="password" class="form-label">Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
+                                <input type="password" class="form-control" id="password" name="password" <?= $editing ? '' : 'required'; ?>>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="password_confirm" class="form-label">Confirmar Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
+                                <input type="password" class="form-control" id="password_confirm" name="password_confirm" <?= $editing ? '' : 'required'; ?>>
+                            </div>
+                        </div>
+                        <div class="text-muted small">Use pelo menos 8 caracteres com maiusculas, minusculas e numeros.</div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar</button>
             </div>
-            <div class="col-md-6 mb-3">
-                <label for="email" class="form-label">E-mail</label>
-                <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
+            <div class="col-12 col-lg-4">
+                <div class="x_panel">
+                    <div class="x_title">
+                        <h2><i class="fa fa-camera"></i> Foto</h2>
+                        <div class="clearfix"></div>
+                    </div>
+                    <div class="x_content">
+                        <?php if (!empty($userData['photo'])):
+                            $photo = $userData['photo'];
+                            if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
+                                $photo = 'uploads/' . $slug . '/' . ltrim($photo, '/');
+                            }
+                        ?>
+                            <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-thumbnail mb-2 avatar-preview">
+                        <?php else: ?>
+                            <div class="avatar-placeholder mb-2">
+                                <i class="fa fa-user"></i>
+                            </div>
+                        <?php endif; ?>
+                        <label for="photo" class="form-label">Carregar foto</label>
+                        <input type="file" class="form-control" id="photo" name="photo">
+                        <div class="text-muted small mt-2">Formatos aceites: JPG ou PNG ate 2 MB.</div>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="mb-3">
-            <label for="phone" class="form-label">Telefone</label>
-            <input type="text" class="form-control" id="phone" name="phone" value="<?= htmlspecialchars($userData['phone']); ?>">
-        </div>
-        <?php if (!$selfEdit): ?>
-        <div class="mb-3">
-            <label for="role" class="form-label">Nível</label>
-            <?php if ($editing && $id == 1): ?>
-                <input type="text" class="form-control" value="Superadmin" disabled>
-                <input type="hidden" name="role" value="1">
-            <?php else: ?>
-                <select class="form-control" id="role" name="role">
-                    <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
-                    <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
-                    <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
-                </select>
-            <?php endif; ?>
-        </div>
-        <?php endif; ?>
-        <div class="mb-3">
-            <label for="password" class="form-label">Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
-            <input type="password" class="form-control" id="password" name="password" <?= $editing ? '' : 'required'; ?>>
-        </div>
-        <div class="mb-3">
-            <label for="password_confirm" class="form-label">Confirmar Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
-            <input type="password" class="form-control" id="password_confirm" name="password_confirm" <?= $editing ? '' : 'required'; ?>>
-        </div>
-        <button type="submit" class="btn btn-primary">Guardar</button>
     </form>
 </div>
+<style>
+.users-page .x_panel {
+    border-radius: 16px;
+    box-shadow: 0 12px 24px rgba(30, 60, 80, 0.1);
+    border: 1px solid rgba(25, 60, 80, 0.12);
+}
+.users-page .avatar-preview {
+    max-width: 180px;
+    border-radius: 16px;
+}
+.users-page .avatar-placeholder {
+    width: 180px;
+    height: 180px;
+    border-radius: 16px;
+    background: #f2f5f8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #96a3b0;
+    font-size: 2.5rem;
+}
+.users-page .department-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.users-page .department-pill {
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(120, 140, 160, 0.3);
+    cursor: pointer;
+    user-select: none;
+}
+.users-page .department-pill input {
+    margin-right: 0.35rem;
+}
+</style>
 <?php require_once __DIR__ . '/footer.php'; ?>
-

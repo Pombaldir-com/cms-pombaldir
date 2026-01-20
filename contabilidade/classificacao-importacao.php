@@ -418,6 +418,11 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         'database' => $database,
     ];
 
+    $accountingDiaryCode = trim((string) getSetting('accounting_diary', ''));
+    if ($importType === 1 && $accountingDiaryCode !== '') {
+        $postPayload['codDiario'] = $accountingDiaryCode;
+    }
+
     if ($importType === 2) {
         $sectionCode = trim((string) getSetting('compras_section', ''));
         $documentType = trim((string) getSetting('compras_document_type', ''));
