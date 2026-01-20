@@ -39,6 +39,27 @@ function hasColumn(string $table, string $column): bool {
     return (bool) $stmt->fetch();
 }
 
+function logAuditAction(string $action, string $entity, ?int $entityId = null, array $meta = []): void {
+    if (!hasTable('audit_logs')) {
+        return;
+    }
+    $pdo = getPDO();
+    $userId = $_SESSION['user_id'] ?? null;
+    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    $companySlug = getCompanySlug();
+    if ($companySlug !== null) {
+        $meta['company_slug'] = $companySlug;
+    }
+    $payload = $meta ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null;
+    try {
+        $stmt = $pdo->prepare('INSERT INTO audit_logs (user_id, action, entity, entity_id, meta, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$userId, $action, $entity, $entityId, $payload, $ip, $userAgent]);
+    } catch (Throwable $e) {
+        // Avoid blocking primary flows if logging fails.
+    }
+}
+
 /**
  * Retrieve a named setting from the database.
  *
@@ -361,6 +382,7 @@ function loginUser(string $username, string $password): bool {
         session_regenerate_id(true);
         $_SESSION['user_id'] = (int)$user['id'];
         $_SESSION['user_role'] = (int)$user['role'];
+        logAuditAction('login', 'user', (int) $user['id'], ['username' => $username]);
         return true;
     }
     return false;
@@ -462,6 +484,7 @@ function updateUserProfile(int $id, ?string $name, ?string $email, ?string $phon
     $params[] = $id;
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
+    logAuditAction('update', 'user_profile', $id);
 }
 
 /**
@@ -515,6 +538,7 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
     if ($departmentTermIds !== null) {
         setUserDepartmentTerms($userId, $departmentTermIds);
     }
+    logAuditAction('create', 'user', $userId, ['username' => $username]);
     return $userId;
 }
 
@@ -547,6 +571,7 @@ function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $emai
     if ($departmentTermIds !== null) {
         setUserDepartmentTerms($id, $departmentTermIds);
     }
+    logAuditAction('update', 'user', $id);
 }
 
 function getDepartmentTaxonomyId(bool $createIfMissing = true): ?int {
@@ -815,7 +840,9 @@ function createContentType(string $name, string $label, string $icon, bool $show
     $sql = 'INSERT INTO content_types (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($values);
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    logAuditAction('create', 'content_type', $id, ['name' => $name]);
+    return $id;
 }
 
 /**
@@ -848,6 +875,7 @@ function updateContentType(int $id, string $name, string $label, ?string $icon =
     $values[] = $id;
     $stmt = $pdo->prepare($sql);
     $stmt->execute($values);
+    logAuditAction('update', 'content_type', $id, ['name' => $name]);
 }
 
 /**
@@ -1097,7 +1125,9 @@ function createCustomField(int $content_type_id, string $name, string $label, st
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    logAuditAction('create', 'custom_field', $id, ['content_type_id' => $content_type_id, 'name' => $name]);
+    return $id;
 }
 
 /**
@@ -1188,6 +1218,7 @@ function updateCustomField(int $id, string $name, string $label, string $type, s
     $sql = 'UPDATE custom_fields SET ' . implode(', ', $sets) . ' WHERE id = ?';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
+    logAuditAction('update', 'custom_field', $id, ['name' => $name]);
 }
 
 /**
@@ -1284,7 +1315,9 @@ function createTaxonomy(string $name, string $label): int {
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO taxonomies (name, label) VALUES (?, ?)');
     $stmt->execute([$name, $label]);
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    logAuditAction('create', 'taxonomy', $id, ['name' => $name]);
+    return $id;
 }
 
 /**
@@ -1299,6 +1332,7 @@ function updateTaxonomy(int $id, string $name, string $label): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('UPDATE taxonomies SET name = ?, label = ? WHERE id = ?');
     $stmt->execute([$name, $label, $id]);
+    logAuditAction('update', 'taxonomy', $id, ['name' => $name]);
 }
 
 /**
@@ -1363,7 +1397,9 @@ function createTerm(int $taxonomy_id, string $term): int {
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO taxonomy_terms (taxonomy_id, name) VALUES (?, ?)');
     $stmt->execute([$taxonomy_id, $term]);
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    logAuditAction('create', 'taxonomy_term', $id, ['taxonomy_id' => $taxonomy_id, 'name' => $term]);
+    return $id;
 }
 
 /**
@@ -1377,6 +1413,7 @@ function updateTerm(int $term_id, string $term): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('UPDATE taxonomy_terms SET name = ? WHERE id = ?');
     $stmt->execute([$term, $term_id]);
+    logAuditAction('update', 'taxonomy_term', $term_id, ['name' => $term]);
 }
 
 /**
@@ -1444,7 +1481,9 @@ function createContent(int $content_type_id, int $user_id, string $title, ?strin
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO content (content_type_id, user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())');
     $stmt->execute([$content_type_id, $user_id, $title, $body]);
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    logAuditAction('create', 'content', $id, ['content_type_id' => $content_type_id, 'title' => $title]);
+    return $id;
 }
 
 /**
@@ -1532,6 +1571,7 @@ function updateContent(int $id, string $title, ?string $body = null): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('UPDATE content SET title = ?, body = ?, updated_at = NOW() WHERE id = ?');
     $stmt->execute([$title, $body, $id]);
+    logAuditAction('update', 'content', $id, ['title' => $title]);
 }
 
 /**
