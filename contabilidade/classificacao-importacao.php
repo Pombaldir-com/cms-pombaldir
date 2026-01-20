@@ -44,6 +44,8 @@ $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 $currentErpToken = trim((string) getSetting('erp_token', ''));
+$canClassifyCtb = $importType !== 1 || userHasDepartmentPermission('ctb_classificar_docs');
+$canImportCtb = $importType !== 1 || userHasDepartmentPermission('ctb_importar_docs');
 
 function buildDocumentFileAttachment(string $relativePath): ?array {
     $trimmedPath = trim($relativePath);
@@ -903,6 +905,15 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($requestedImportType <= 0) {
         $requestedImportType = 1;
     }
+    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs')) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Sem permissao para importar documentos.',
+            'csrf_token' => generateCsrfToken(true)
+        ]);
+        exit;
+    }
 
     $mode = strtolower((string)($payload['mode'] ?? 'check'));
     if ($mode !== 'update') {
@@ -1255,6 +1266,7 @@ if ($action === 'data') {
             $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
             if ($importType === 1) {
+                $disabledAttr = $canClassifyCtb ? '' : ' disabled title="Sem permissao"';
                 $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                     . 'data-id="' . (int)$row['id'] . '" '
                     . 'data-rates="' . $ratesAttr . '" '
@@ -1266,7 +1278,7 @@ if ($action === 'data') {
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
-                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '">Classificar</button>';
+                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>Classificar</button>';
             }
             if ($importType === 2) {
                 $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" '
@@ -1346,7 +1358,7 @@ foreach ($rows as &$row) {
 unset($row);
 
 $csrfToken = generateCsrfToken();
-$showImportButton = in_array($importType, [1, 2], true);
+$showImportButton = in_array($importType, [1, 2], true) && ($importType !== 1 || $canImportCtb);
 $importButtonLabel = $importType === 2 ? 'Importar Compras' : 'Importar Ctb';
 
 require_once __DIR__ . '/../header.php';
@@ -1432,7 +1444,7 @@ require_once __DIR__ . '/../header.php';
                     ?>
                     <td class="text-center">
 
-                        <?php if ($importType === 1): ?>
+                    <?php if ($importType === 1): ?>
                             <button
                                 type="button"
                                 class="btn btn-xs <?= $btnClass; ?> classify-row"
@@ -1445,8 +1457,8 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
-                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>">Classificar</button>
-                        <?php endif; ?>
+                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>>Classificar</button>
+                    <?php endif; ?>
 
                         <?php if ($importType === 2): ?>
                         <button type="button" class="btn btn-xs <?= htmlspecialchars($row['line_btn_class'] ?? 'btn-info'); ?> analyze-lines"

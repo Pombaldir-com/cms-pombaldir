@@ -20,6 +20,7 @@ $generalErrors = [];
 $emailSaved = false;
 $erpSaved = false;
 $modulesSaved = false;
+$permissionsSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
         http_response_code(400);
@@ -187,6 +188,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $modulesSaved = true;
     }
+    if (isset($_POST['permissions_save']) && ($user['role'] ?? 3) <= 2) {
+        $departmentPermissions = $_POST['department_permissions'] ?? [];
+        if (!is_array($departmentPermissions)) {
+            $departmentPermissions = [];
+        }
+        $allowedDepartments = array_flip(getDepartmentTermIds());
+        $allowedPermissions = array_keys(getDepartmentPermissionOptions());
+        $cleanPermissions = [];
+
+        foreach ($departmentPermissions as $deptId => $permissions) {
+            $deptId = (int) $deptId;
+            if ($deptId <= 0 || !isset($allowedDepartments[$deptId])) {
+                continue;
+            }
+            if (!is_array($permissions)) {
+                $permissions = [];
+            }
+            $filtered = [];
+            foreach ($permissions as $permission) {
+                if (is_string($permission) && in_array($permission, $allowedPermissions, true)) {
+                    $filtered[] = $permission;
+                }
+            }
+            $cleanPermissions[$deptId] = array_values(array_unique($filtered));
+        }
+
+        setSetting('department_permissions', json_encode($cleanPermissions, JSON_UNESCAPED_UNICODE));
+        $permissionsSaved = true;
+    }
 }
 $currentAppName = getSetting('app_name', '');
 $currentAppLogo = getSetting('app_logo', '');
@@ -217,6 +247,10 @@ $currentModules = getActiveModules();
 $currentComprasSection = getSetting('compras_section', '');
 $currentComprasWarehouse = getSetting('compras_warehouse', '');
 $currentComprasDocumentType = getSetting('compras_document_type', '');
+$currentDepartmentPermissions = getDepartmentPermissions();
+$permissionOptions = getDepartmentPermissionOptions();
+$departmentsList = getDepartmentTerms();
+$useSelect2 = true;
 require_once __DIR__ . '/header.php';
 ?>
 <div class="container-fluid settings-page">
@@ -246,6 +280,9 @@ require_once __DIR__ . '/header.php';
         <?php if (($user['role'] ?? 3) <= 2): ?>
         <li class="nav-item">
             <a class="nav-link" id="modules-tab" data-bs-toggle="tab" href="#modules" role="tab" aria-controls="modules" aria-selected="false"><i class="fa fa-cubes"></i> Módulos</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" id="permissions-tab" data-bs-toggle="tab" href="#permissions" role="tab" aria-controls="permissions" aria-selected="false"><i class="fa fa-lock"></i> Permissoes</a>
         </li>
         <?php endif; ?>
     </ul>
@@ -597,9 +634,78 @@ require_once __DIR__ . '/header.php';
             });
             </script>
         </div>
+        <div class="tab-pane fade" id="permissions" role="tabpanel" aria-labelledby="permissions-tab">
+            <?php if ($permissionsSaved): ?>
+                <div class="alert alert-success mt-3">Permissoes guardadas.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                <input type="hidden" name="permissions_save" value="1">
+                <div class="row g-4 settings-panels">
+                    <div class="col-12">
+                        <div class="x_panel">
+                            <div class="x_title">
+                                <h2><i class="fa fa-lock"></i> Permissoes por departamento</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <?php if (!$departmentsList): ?>
+                                    <p class="text-muted mb-0">Sem departamentos configurados.</p>
+                                <?php else: ?>
+                                    <table class="table table-striped permissions-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Departamento</th>
+                                                <th>Permissoes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                        <?php foreach ($departmentsList as $department): ?>
+                                            <?php
+                                                $deptId = (int) ($department['id'] ?? 0);
+                                                $selectedPermissions = $currentDepartmentPermissions[$deptId] ?? [];
+                                            ?>
+                                            <tr>
+                                                <td><?= htmlspecialchars($department['name'] ?? ''); ?></td>
+                                                <td>
+                                                    <select class="form-control js-permissions" name="department_permissions[<?= $deptId; ?>][]" multiple>
+                                                        <?php foreach ($permissionOptions as $permissionKey => $permissionLabel): ?>
+                                                            <option value="<?= htmlspecialchars($permissionKey); ?>" <?= in_array($permissionKey, $selectedPermissions, true) ? 'selected' : ''; ?>>
+                                                                <?= htmlspecialchars($permissionLabel); ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar permissoes</button>
+                    </div>
+                </div>
+            </form>
+        </div>
         <?php endif; ?>
     </div>
 </div>
+<?php if ($useSelect2): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (window.jQuery && jQuery.fn.select2) {
+        jQuery('.js-permissions').select2({
+            placeholder: 'Selecione permissoes',
+            allowClear: true,
+            width: '100%'
+        });
+    }
+});
+</script>
+<?php endif; ?>
 <style>
 .settings-page {
     padding-bottom: 2.5rem;
@@ -649,6 +755,30 @@ require_once __DIR__ . '/header.php';
 }
 .module-settings-row .input-compact {
     max-width: 12ch;
+}
+.permissions-table .select2-container {
+    width: 100% !important;
+    display: block;
+}
+
+.permissions-table .select2-container--default .select2-selection--multiple .select2-selection__choice {
+    position: relative;
+    padding-left: 1.4rem;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.permissions-table {
+    table-layout: fixed;
+    width: 100%;
+}
+.permissions-table th:first-child,
+.permissions-table td:first-child {
+    width: 35%;
+}
+.permissions-table th:last-child,
+.permissions-table td:last-child {
+    width: 65%;
 }
 @media (max-width: 575.98px) {
     .module-settings-row .input-compact {

@@ -17,6 +17,11 @@ if (!isLoggedIn()) {
     echo json_encode(['error' => 'Sessão inválida']);
     exit;
 }
+if (!userHasDepartmentPermission('compras_upload')) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Sem permissao para upload de compras.']);
+    exit;
+}
 
 $newToken = generateCsrfToken();
 $debugEnabled = (int) getSetting('debug_mode', '0') === 1 || !empty($_GET['debug']);

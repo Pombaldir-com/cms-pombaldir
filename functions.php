@@ -674,6 +674,74 @@ function setUserDepartmentTerms(int $userId, array $termIds): void {
     $pdo->commit();
 }
 
+function getDepartmentPermissionOptions(): array {
+    return [
+        'compras_upload' => 'Compras -> Upload',
+        'ctb_classificar_docs' => 'CTB Classificacao Docs',
+        'ctb_importar_docs' => 'CTB Importar Docs',
+    ];
+}
+
+function getDepartmentPermissions(): array {
+    $raw = getSetting('department_permissions', '');
+    if ($raw === null || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $allowed = array_keys(getDepartmentPermissionOptions());
+    $result = [];
+
+    foreach ($decoded as $deptId => $permissions) {
+        $deptId = (int) $deptId;
+        if ($deptId <= 0 || !is_array($permissions)) {
+            continue;
+        }
+        $clean = [];
+        foreach ($permissions as $permission) {
+            if (is_string($permission) && in_array($permission, $allowed, true)) {
+                $clean[] = $permission;
+            }
+        }
+        $result[$deptId] = array_values(array_unique($clean));
+    }
+
+    return $result;
+}
+
+function userHasDepartmentPermission(string $permission): bool {
+    $user = currentUser();
+    if (!$user) {
+        return false;
+    }
+    if (($user['role'] ?? 3) <= 2) {
+        return true;
+    }
+
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0) {
+        return false;
+    }
+
+    $departments = getUserDepartmentTermIds($userId);
+    if (!$departments) {
+        return false;
+    }
+
+    $permissionsMap = getDepartmentPermissions();
+    foreach ($departments as $departmentId) {
+        if (!empty($permissionsMap[$departmentId]) && in_array($permission, $permissionsMap[$departmentId], true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /**
  * Delete a user by id.
  */

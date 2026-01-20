@@ -101,7 +101,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endforeach; ?>
-<?php if (isModuleActive('contabilidade')): ?>
+<?php if (isModuleActive('contabilidade') && userHasDepartmentPermission('compras_upload')): ?>
                             <li>
                                 <a><i class="fa fa-upload"></i> Multi Upload <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">

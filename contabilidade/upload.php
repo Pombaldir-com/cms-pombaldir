@@ -3,6 +3,18 @@ require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/functions.php';
 
 startSession();
+requireLogin();
+$hasComprasUploadPermission = userHasDepartmentPermission('compras_upload');
+if (!$hasComprasUploadPermission) {
+    http_response_code(403);
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Sem permissao para upload de compras.']);
+    } else {
+        echo 'Acesso negado.';
+    }
+    exit;
+}
 
 $comprasActive = isModuleActive('compras');
 

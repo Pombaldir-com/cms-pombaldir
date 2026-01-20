@@ -85,6 +85,25 @@ function normalizeErpCodeValue($value): string {
     return substr($string, 0, 255);
 }
 
+function requireCtbClassificationPermission(PDO $pdo, ?int $importId = null): void {
+    if (userHasDepartmentPermission('ctb_classificar_docs')) {
+        return;
+    }
+
+    if ($importId !== null && $importId > 0) {
+        $stmt = $pdo->prepare('SELECT import_type FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmt->execute([$importId]);
+        $importType = (int) $stmt->fetchColumn();
+        if ($importType !== 1) {
+            return;
+        }
+    }
+
+    http_response_code(403);
+    echo json_encode(['error' => 'Sem permissao para classificar documentos.', 'csrf_token' => generateCsrfToken(true)]);
+    exit;
+}
+
 /**
  * Attempt to obtain the document/article code from a parsed invoice line.
  *
@@ -249,6 +268,8 @@ if ($action === 'lines') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
+    $idValue = is_numeric($id) ? (int) $id : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     $stmt = $pdo->prepare('SELECT id, filename, line_items, field_A, field_B FROM accounting_imports WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -343,6 +364,8 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
+    $idValue = is_numeric($id) ? (int) $id : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     ensureAccountingEntity($pdo, (string) $a);
     $stmt = $pdo->prepare(
         'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
@@ -409,6 +432,8 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
+    $idValue = is_numeric($id) ? (int) $id : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     ensureAccountingEntity($pdo, (string) $a);
     try {
         $pdo->beginTransaction();
@@ -577,6 +602,8 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
+    $idValue = is_numeric($id) ? (int) $id : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     $stmtImport = $pdo->prepare('SELECT field_A, field_B FROM accounting_imports WHERE id = ? LIMIT 1');
     $stmtImport->execute([$id]);
     $importRow = $stmtImport->fetch(PDO::FETCH_ASSOC);
@@ -687,6 +714,8 @@ if ($action === 'get') {
         echo json_encode(['error' => 'Empresa não selecionada']);
         exit;
     }
+    $idValue = is_numeric($id) ? (int) $id : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     try {
         $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE id = ?');
         $stmt->execute([$id]);
