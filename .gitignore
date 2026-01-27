@@ -19,3 +19,4 @@ contabilidade/debug_qr.txt
 data/*.log
 migrations/*
 data/companies.php
+AGENTS.md

@@ -10,6 +10,7 @@
     </div> <!-- /main_container -->
 </div> <!-- /container body -->
 
+<?php if (!($hideOcrModal ?? false)): ?>
 <!-- OCR Review Modal -->
 <div class="modal fade" id="ocrModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -32,6 +33,7 @@
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <script src="vendors/jquery/dist/jquery.min.js"></script>
 <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
@@ -56,9 +58,22 @@
 <?php if ($useSelect2): ?>
 <script src="vendors/select2/dist/js/select2.full.min.js"></script>
 <?php endif; ?>
+<?php if ($useSwitchery): ?>
+<script src="vendors/switchery/standalone/switchery.js"></script>
+<script>
+    if (typeof window.Switchery === 'undefined' && typeof window.require === 'function') {
+        window.Switchery = window.require('switchery');
+    }
+</script>
+<?php endif; ?>
 
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/custom.js"></script>
+<?php if (!empty($pageScripts)): ?>
+<script>
+<?= $pageScripts ?>
+</script>
+<?php endif; ?>
 
 </body>
 </html>

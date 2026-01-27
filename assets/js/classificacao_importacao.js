@@ -1142,13 +1142,23 @@ window.addEventListener('load', function() {
         if (!entry || typeof entry !== 'object') {
             return false;
         }
-        var fields = ['iva_account', 'general_account', 'label', 'base', 'iva', 'base_value', 'iva_value', 'cost_center', 'value'];
+        var fields = ['iva_account', 'general_account', 'base', 'iva', 'base_value', 'iva_value', 'cost_center', 'value'];
         for (var i = 0; i < fields.length; i += 1) {
             var field = fields[i];
             if (!Object.prototype.hasOwnProperty.call(entry, field)) {
                 continue;
             }
-            if (extractScalarFromMixed(entry[field]) !== '') {
+            var scalar = extractScalarFromMixed(entry[field]);
+            if (scalar === '') {
+                continue;
+            }
+            if (field === 'base' || field === 'iva' || field === 'base_value' || field === 'iva_value' || field === 'value') {
+                var numeric = parseDecimalValue(scalar);
+                if (numeric !== null && Math.abs(numeric) < 0.00001) {
+                    continue;
+                }
+            }
+            if (scalar !== '') {
                 return true;
             }
         }
@@ -2241,9 +2251,19 @@ window.addEventListener('load', function() {
         }
         var baseAmount = getEntryAmount(currentRateData[rate], 'base');
         var ivaAmount = getEntryAmount(currentRateData[rate], 'iva');
-        var baseString = baseAmount !== null && baseAmount !== undefined ? String(baseAmount).trim() : '';
-        var ivaString = ivaAmount !== null && ivaAmount !== undefined ? String(ivaAmount).trim() : '';
-        return baseString !== '' || ivaString !== '';
+        if (baseAmount !== null && baseAmount !== undefined) {
+            var baseNumeric = parseDecimalValue(baseAmount);
+            if (baseNumeric !== null && Math.abs(baseNumeric) > 0.00001) {
+                return true;
+            }
+        }
+        if (ivaAmount !== null && ivaAmount !== undefined) {
+            var ivaNumeric = parseDecimalValue(ivaAmount);
+            if (ivaNumeric !== null && Math.abs(ivaNumeric) > 0.00001) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function normalizeAmountValue(value) {
@@ -2577,7 +2597,7 @@ window.addEventListener('load', function() {
         });
 
         defaultRates.forEach(function(rate) {
-            if (!rateInputs[rate]) {
+            if (!rateInputs[rate] && (rateHasBaseValues(rate) || rateHasStoredAccounts(rate))) {
                 addVatRowForRate(rate);
             }
         });

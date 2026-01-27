@@ -26,6 +26,7 @@ if ($appLogo && !file_exists(__DIR__ . '/' . $appLogo)) {
 $useDataTables = $useDataTables ?? false;
 $useDropzone   = $useDropzone ?? false;
 $useSelect2    = $useSelect2 ?? false;
+$useSwitchery  = $useSwitchery ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -47,6 +48,9 @@ $useSelect2    = $useSelect2 ?? false;
 
 <?php if ($useSelect2): ?>
 <link rel="stylesheet" href="vendors/select2/dist/css/select2.min.css">
+<?php endif; ?>
+<?php if ($useSwitchery): ?>
+<link rel="stylesheet" href="vendors/switchery/standalone/switchery.css">
 <?php endif; ?>
 
 <link rel="stylesheet" href="assets/css/custom.css">
@@ -120,6 +124,20 @@ foreach ($sidebarTypes as $sidebarType):
 <?php if (isModuleActive('compras')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=2">Importação de Compras</a></li>
 <?php endif; ?>
+                                </ul>
+                            </li>
+<?php endif; ?>
+<?php if (isModuleActive('contabilidade') && ($user['role'] ?? 3) <= 2): ?>
+                            <li>
+                                <a><i class="fa fa-building"></i> Entidades <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/entidades/empresas">Empresas</a></li>
+                                </ul>
+                            </li>
+                            <li>
+                                <a><i class="fa fa-book"></i> Contabilidade <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/lancamentos">Lançamentos</a></li>
                                 </ul>
                             </li>
 <?php endif; ?>

@@ -247,6 +247,23 @@ function persistCabIds(PDO $pdo, array $documentIds, mixed $cabIdsPayload): arra
         return [];
     }
 
+    $docInfoMap = [];
+    try {
+        $docIds = array_keys($assignments);
+        $placeholders = implode(',', array_fill(0, count($docIds), '?'));
+        $infoStmt = $pdo->prepare(
+            'SELECT id, field_A, field_B, field_D, field_H FROM accounting_imports WHERE id IN (' . $placeholders . ')'
+        );
+        $infoStmt->execute($docIds);
+        foreach ($infoStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($row['id'])) {
+                $docInfoMap[(int) $row['id']] = $row;
+            }
+        }
+    } catch (Throwable $throwable) {
+        logErpMessage('Falha ao obter dados dos documentos importados: ' . $throwable->getMessage());
+    }
+
     $stmt = $pdo->prepare('UPDATE accounting_imports SET cab_id = :cab_id WHERE id = :id');
     $saved = [];
 
@@ -257,6 +274,33 @@ function persistCabIds(PDO $pdo, array $documentIds, mixed $cabIdsPayload): arra
                 ':id' => $docId,
             ]);
             $saved[$docId] = $cabId;
+            $info = $docInfoMap[(int) $docId] ?? [];
+            $docRef = trim((string) ($info['field_H'] ?? ''));
+            $emitter = trim((string) ($info['field_A'] ?? ''));
+            $acquirer = trim((string) ($info['field_B'] ?? ''));
+            $docType = trim((string) ($info['field_D'] ?? ''));
+            $details = [];
+            if ($docRef !== '') {
+                $details[] = 'doc=' . $docRef;
+            }
+            if ($docType !== '') {
+                $details[] = 'tipo=' . $docType;
+            }
+            if ($emitter !== '') {
+                $details[] = 'emitente=' . $emitter;
+            }
+            if ($acquirer !== '') {
+                $details[] = 'adquirente=' . $acquirer;
+            }
+            $detailText = $details ? ' (' . implode(', ', $details) . ')' : '';
+            logErpMessage('Importação CTB concluída. Documento ' . $docId . $detailText . ' -> cab_id ' . $cabId . '.');
+            logAuditAction('import_ctb', 'accounting_imports', (int) $docId, [
+                'cab_id' => $cabId,
+                'doc_ref' => $docRef,
+                'doc_type' => $docType,
+                'emitter' => $emitter,
+                'acquirer' => $acquirer,
+            ]);
         } catch (Throwable $throwable) {
             logErpMessage('Falha ao guardar cab_id para o documento ' . $docId . ': ' . $throwable->getMessage());
         }
@@ -1226,7 +1270,7 @@ if ($action === 'data') {
             $length = 10;
         }
 
-        $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType';
+        $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')';
         $countStmt = $pdo->prepare($countSql);
         $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
         $countStmt->execute();
@@ -1234,7 +1278,7 @@ if ($action === 'data') {
         $filteredCount = $totalCount;
 
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-        $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType ORDER BY id LIMIT :start, :length";
+        $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '') ORDER BY id LIMIT :start, :length";
         $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':start', $start, PDO::PARAM_INT);
         $stmt->bindValue(':length', $length, PDO::PARAM_INT);
@@ -1348,7 +1392,7 @@ if ($action === 'data') {
     }
     exit;
 }
-$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type');
+$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')');
 $stmt->execute([':type' => $importType]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

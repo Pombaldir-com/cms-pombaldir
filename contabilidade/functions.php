@@ -373,7 +373,7 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
     $candidates[] = $payload;
 
 
-    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results', 'record', 'records'], true);
+    $candidateKeyMap = array_fill_keys(['data', 'cliente', 'clientes', 'result', 'results', 'record', 'records', 'aadata'], true);
 
 
     foreach ($payload as $payloadKey => $value) {
@@ -610,6 +610,124 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
     }
 
     return $entity;
+}
+
+/**
+ * Fetch a table list from the ERP-SINC API (e.g., zonas/subzonas).
+ *
+ * @param string $path Path appended to the ERP base URL.
+ * @param bool   $returnDebug Return debug information alongside data.
+ * @return array Associative array with data/error info.
+ */
+function fetchErpTableData(string $path, bool $returnDebug = false): array {
+    if (!function_exists('curl_init')) {
+        $message = 'Extensão cURL não disponível para obter tabelas ERP-SINC.';
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message] : ['data' => []];
+    }
+
+    $baseUrl = getSetting('erp_webservice_url', '');
+    $baseUrl = trim((string) $baseUrl);
+    if ($baseUrl === '') {
+        $baseUrl = 'https://api.erpsinc.pt/v1.0.0';
+    }
+
+    $endpoint = buildErpEndpointFromBase($baseUrl, $path);
+    if ($endpoint === '') {
+        $message = 'URL do ERP-SINC inválida para obter tabelas.';
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message] : ['data' => []];
+    }
+
+    $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
+    $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
+
+    $token = getSetting('erp_token', '');
+    $headers = ['Accept: application/json'];
+    if ($token !== null && $token !== '') {
+        $headers[] = 'X-API-KEY: ' . $token;
+    }
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        $message = 'Falha ao inicializar pedido ao ERP-SINC.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message] : ['data' => []];
+    }
+
+    curl_setopt_array($handle, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+
+    $response = curl_exec($handle);
+    if ($response === false) {
+        $message = 'Erro cURL ao obter tabelas ERP-SINC: ' . curl_error($handle) . $endpointInfo;
+        logErpMessage($message);
+        curl_close($handle);
+        return $returnDebug ? ['data' => [], 'error' => $message, 'endpoint' => $sanitizedEndpoint] : ['data' => []];
+    }
+
+    $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    if ($status >= 400) {
+        $message = 'Webservice ERP-SINC devolveu HTTP ' . $status . ' ao obter tabelas.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint] : ['data' => []];
+    }
+
+    $trimmedResponse = trim((string) $response);
+    if ($trimmedResponse === '') {
+        $message = 'Webservice ERP-SINC devolveu resposta vazia ao obter tabelas.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint] : ['data' => []];
+    }
+
+    $decoded = json_decode($trimmedResponse, true);
+    if (!is_array($decoded)) {
+        $message = 'Resposta ERP-SINC inválida ao obter tabelas.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['data' => [], 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response] : ['data' => []];
+    }
+
+    $payload = $decoded;
+    $payloadKeyMap = [];
+    foreach ($decoded as $payloadKey => $payloadValue) {
+        if (is_string($payloadKey)) {
+            $payloadKeyMap[strtolower($payloadKey)] = $payloadKey;
+        }
+    }
+
+    foreach (['aadata', 'data', 'results', 'result', 'records'] as $key) {
+        $originalKey = $payloadKeyMap[$key] ?? null;
+        if ($originalKey !== null && is_array($decoded[$originalKey])) {
+            $payload = $decoded[$originalKey];
+            break;
+        }
+    }
+
+    if (!is_array($payload)) {
+        $payload = [];
+    }
+
+    $data = array_values(array_filter($payload, 'is_array'));
+    if ($returnDebug) {
+        return [
+            'data' => $data,
+            'endpoint' => $sanitizedEndpoint,
+            'status' => $status,
+            'response' => $response,
+            'payload' => $decoded,
+            'error' => null,
+        ];
+    }
+
+    return ['data' => $data];
 }
 
 /**

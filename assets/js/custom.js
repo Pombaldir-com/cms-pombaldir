@@ -51,6 +51,14 @@ var CURRENT_URL = window.location.href.split('#')[0].split('?')[0],
     $NAV_MENU = $('.nav_menu'),
     $FOOTER = $('footer');
 
+function normalizeMenuUrl(url) {
+    var cleanUrl = (url || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
+    if (cleanUrl !== '' && cleanUrl.indexOf('/contabilidade/entidades/') !== -1) {
+        return cleanUrl.replace(/\/contabilidade\/entidades\/[^\/]+\/\d+$/i, '/contabilidade/entidades/empresas');
+    }
+    return cleanUrl;
+}
+
 // Sidebar
 $(document).ready(function() {
     // TODO: This is some kind of easy fix, maybe we can improve this
@@ -104,14 +112,35 @@ $(document).ready(function() {
 
         $BODY.toggleClass('nav-md nav-sm');
 
+        if (window.localStorage) {
+            localStorage.setItem('sidebar_state', $BODY.hasClass('nav-sm') ? 'collapsed' : 'expanded');
+        }
+
         setContentHeight();
     });
 
+    // restore sidebar state
+    if (window.localStorage) {
+        var sidebarState = localStorage.getItem('sidebar_state');
+        if (sidebarState === 'collapsed' && $BODY.hasClass('nav-md')) {
+            $SIDEBAR_MENU.find('li.active ul').hide();
+            $SIDEBAR_MENU.find('li.active').addClass('active-sm').removeClass('active');
+            $BODY.removeClass('nav-md').addClass('nav-sm');
+        } else if (sidebarState === 'expanded' && $BODY.hasClass('nav-sm')) {
+            $BODY.removeClass('nav-sm').addClass('nav-md');
+        }
+    }
+
     // check active menu
-    $SIDEBAR_MENU.find('a[href="' + CURRENT_URL + '"]').parent('li').addClass('current-page');
+    var normalizedCurrentUrl = normalizeMenuUrl(CURRENT_URL);
+    $SIDEBAR_MENU.find('a').filter(function() {
+        var href = normalizeMenuUrl(this.href);
+        return href !== '' && href === normalizedCurrentUrl;
+    }).parent('li').addClass('current-page');
 
     $SIDEBAR_MENU.find('a').filter(function() {
-        return this.href == CURRENT_URL;
+        var href = normalizeMenuUrl(this.href);
+        return href !== '' && href === normalizedCurrentUrl;
     }).parent('li').addClass('current-page').parents('ul').slideDown(function() {
         setContentHeight();
     }).parent().addClass('active');
@@ -524,6 +553,14 @@ $(document).ready(function() {
             if ($table.data('no-sort-last')) {
                 options.columnDefs = options.columnDefs || [];
                 options.columnDefs.push({ targets: -1, orderable: false });
+            }
+            var orderColumn = $table.data('order-column');
+            if (typeof orderColumn !== 'undefined' && orderColumn !== '') {
+                var orderDir = $table.data('order-dir') || 'asc';
+                var orderIndex = parseInt(orderColumn, 10);
+                if (!isNaN(orderIndex)) {
+                    options.order = [[orderIndex, orderDir]];
+                }
             }
             if (source) {
                 var typeId = $table.data('type-id');

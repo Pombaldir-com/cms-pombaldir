@@ -188,8 +188,24 @@ switch (true) {
     case $path === 'contabilidade/saft':
         require __DIR__ . '/contabilidade/saft.php';
         break;
+    case $path === 'contabilidade/entidades':
+        $_GET['tipo'] = 'empresas';
+        require __DIR__ . '/contabilidade/entidades.php';
+        break;
+    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)$#', $path, $m):
+        $_GET['tipo'] = $m[1];
+        require __DIR__ . '/contabilidade/entidades.php';
+        break;
+    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)/([0-9]+)$#', $path, $m):
+        $_GET['tipo'] = $m[1];
+        $_GET['consulta'] = $m[2];
+        require __DIR__ . '/contabilidade/entidades.php';
+        break;
     case $path === 'contabilidade/saft-handler.php':
         require __DIR__ . '/contabilidade/saft-handler.php';
+        break;
+    case $path === 'contabilidade/lancamentos':
+        require __DIR__ . '/contabilidade/lancamentos.php';
         break;
     case $path === 'contabilidade/save-analysis.php':
         require __DIR__ . '/contabilidade/save-analysis.php';
