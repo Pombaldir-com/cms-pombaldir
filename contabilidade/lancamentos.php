@@ -324,7 +324,7 @@ $pageScripts = <<<'JS'
         columnDefs: [
             { targets: [0, 1, 2], className: 'text-center' }
         ],
-        dom: '<"row mb-2"<"col-md-6 d-flex align-items-center"l<' + "'lancamentos-top-filters-container'" + '>> <"col-md-6"f>>rt<"row mt-2"<"col-md-5"i><"col-md-7"p>>',
+        dom: '<"row mb-2"<"col-md-6 d-flex align-items-center"l<' + "'lancamentos-top-filters-container'" + '>> <"col-md-6"f>>rt<"row mt-2"<"col-md-5"i><"col-md-7 d-flex justify-content-end"p>>',
         ajax: function(data, callback) {
             if (!erpBaseUrl) {
                 callback({ data: [], recordsTotal: 0, recordsFiltered: 0, draw: data.draw });
@@ -395,7 +395,16 @@ $pageScripts = <<<'JS'
         language: {
             emptyTable: 'Sem registos.',
             lengthMenu: '_MENU_',
-            search: 'Pesquisa:'
+            search: 'Pesquisa:',
+            info: 'A mostrar _START_ a _END_ de _TOTAL_ registos',
+            infoEmpty: 'A mostrar 0 registos',
+            infoFiltered: '(filtrado de _MAX_ registos)',
+            paginate: {
+                first: 'Primeiro',
+                last: 'Último',
+                next: 'Seguinte',
+                previous: 'Anterior'
+            }
         }
     });
 
