@@ -78,6 +78,9 @@ if (($_GET['action'] ?? '') === 'data') {
         'limit' => $length,
         'offset' => $start,
     ];
+    if ($docTypeFilter !== '') {
+        $query['strAbrevTpDoc'] = $docTypeFilter;
+    }
 
     $endpoint .= (strpos($endpoint, '?') === false ? '?' : '&') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
 
@@ -152,20 +155,8 @@ if (($_GET['action'] ?? '') === 'data') {
         $rows = $decoded['aaData'];
     }
 
-    if ($rows) {
-        usort($rows, static function ($a, $b) {
-            $left = (int) ($a['intNum_Diario'] ?? 0);
-            $right = (int) ($b['intNum_Diario'] ?? 0);
-            return $right <=> $left;
-        });
-    }
-
-    if ($docTypeFilter !== '' && $rows) {
-        $rows = array_values(array_filter($rows, static function ($row) use ($docTypeFilter) {
-            $value = strtoupper(trim((string) ($row['strAbrevTpDoc'] ?? '')));
-            return $value !== '' && strpos($value, $docTypeFilter) !== false;
-        }));
-    }
+    $allRows = $rows;
+    $rows = $allRows;
 
     $data = [];
     foreach ($rows as $row) {
@@ -202,8 +193,11 @@ if (($_GET['action'] ?? '') === 'data') {
         ];
     }
 
-    $total = (int) ($decoded['iTotalRecords'] ?? count($data));
-    $filteredTotal = $docTypeFilter !== '' ? count($data) : $total;
+    $reportedTotal = (int) ($decoded['iTotalRecords'] ?? 0);
+    $reportedFiltered = (int) ($decoded['iTotalDisplayRecords'] ?? 0);
+    $inferredTotal = $start + count($allRows);
+    $total = max($reportedTotal, $reportedFiltered, $inferredTotal);
+    $filteredTotal = max($reportedFiltered, $reportedTotal, $inferredTotal);
 
     echo json_encode([
         'draw' => $draw,
@@ -318,6 +312,9 @@ $pageScripts = <<<'JS'
         }
     });
 
+    var erpBaseUrl = (window.erpLancamentosBaseUrl || '').replace(/\/+$/, '');
+    var erpToken = window.erpLancamentosToken || '';
+
     var table = jQuery(tableEl).DataTable({
         serverSide: true,
         processing: true,
@@ -328,18 +325,73 @@ $pageScripts = <<<'JS'
             { targets: [0, 1, 2], className: 'text-center' }
         ],
         dom: '<"row mb-2"<"col-md-6 d-flex align-items-center"l<' + "'lancamentos-top-filters-container'" + '>> <"col-md-6"f>>rt<"row mt-2"<"col-md-5"i><"col-md-7"p>>',
-        ajax: {
-            url: 'contabilidade/lancamentos',
-            data: function(d) {
-                    $filters.each(function() {
-                        var field = this.getAttribute('data-field');
-                        if (field) {
-                            d[field] = this.value;
-                        }
-                    });
-                    d.action = 'data';
+        ajax: function(data, callback) {
+            if (!erpBaseUrl) {
+                callback({ data: [], recordsTotal: 0, recordsFiltered: 0, draw: data.draw });
+                return;
+            }
+            var params = {
+                db: '',
+                strCodExercicio: '',
+                intCodDiario: '',
+                intMes: '',
+                strAbrevTpDoc: '',
+                limit: parseInt(data.length, 10) || 20,
+                offset: Math.floor((parseInt(data.start, 10) || 0) / (parseInt(data.length, 10) || 20))
+            };
+            $filters.each(function() {
+                var field = this.getAttribute('data-field');
+                if (field) {
+                    params[field] = this.value;
                 }
-            },
+            });
+            var url = erpBaseUrl + '/contabilidade/movimentos';
+            jQuery.ajax({
+                url: url,
+                data: params,
+                headers: erpToken ? { 'X-API-KEY': erpToken, 'Accept': 'application/json' } : { 'Accept': 'application/json' },
+                dataType: 'json'
+            }).done(function(resp) {
+                var rows = Array.isArray(resp && resp.aaData) ? resp.aaData : [];
+                var formatted = rows.map(function(row) {
+                    var dateValue = row && row.strData ? row.strData : '';
+                    var formattedDate = dateValue;
+                    if (dateValue) {
+                        try {
+                            var parts = dateValue.split('-');
+                            if (parts.length === 3) {
+                                formattedDate = parts[2] + '-' + parts[1];
+                            }
+                        } catch (e) {
+                            formattedDate = dateValue;
+                        }
+                    }
+                    var total = row && row.fltFArchTotal ? row.fltFArchTotal : '';
+                    if (total !== '' && !isNaN(total)) {
+                        total = parseFloat(total).toFixed(2);
+                    }
+                    return [
+                        row && row.intCodDiario ? row.intCodDiario : '',
+                        formattedDate,
+                        row && row.intNum_Diario ? row.intNum_Diario : '',
+                        row && row.strAbrevTpDoc ? row.strAbrevTpDoc : '',
+                        row && row.strNum_Doc ? row.strNum_Doc : '',
+                        row && row.strFArchTaxPayer ? row.strFArchTaxPayer : '',
+                        total
+                    ];
+                });
+                var total = resp && typeof resp.iTotalRecords !== 'undefined' ? parseInt(resp.iTotalRecords, 10) : formatted.length;
+                var filtered = resp && typeof resp.iTotalDisplayRecords !== 'undefined' ? parseInt(resp.iTotalDisplayRecords, 10) : total;
+                callback({
+                    draw: data.draw,
+                    recordsTotal: isNaN(total) ? 0 : total,
+                    recordsFiltered: isNaN(filtered) ? 0 : filtered,
+                    data: formatted
+                });
+            }).fail(function() {
+                callback({ data: [], recordsTotal: 0, recordsFiltered: 0, draw: data.draw });
+            });
+        },
         language: {
             emptyTable: 'Sem registos.',
             lengthMenu: '_MENU_',
@@ -400,4 +452,7 @@ $pageScripts = <<<'JS'
         });
 })();
 JS;
+$pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.erpLancamentosToken = " . json_encode((string) getSetting('erp_token', ''), JSON_UNESCAPED_UNICODE) . ";\n"
+    . $pageScripts;
 require_once __DIR__ . '/../footer.php';

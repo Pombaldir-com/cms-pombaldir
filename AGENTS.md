@@ -26,9 +26,11 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 
 ## Assets
 - Carregar apenas os scripts/estilos necessários por rota (ex.: DataTables/Dropzone/Select2/Modal OCR).
+- DataTables devem estar em Português (PT).
 
 ## ERP
 - Não usar baseUrl hardcoded; o endpoint do ERP deve vir sempre das Definições (`erp_webservice_url`).
+- Em páginas com DataTables, chamar o webservice diretamente no browser (sem proxy interno).
 
 ## ERP API knowledge
 - This system uses the ERPSINC API; consult the documentation and the local repo at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt` when working on integrations. online Docs: https://app.swaggerhub.com/apis-docs/Pombaldir.com/ERPSinc/1.0.0
