@@ -27,6 +27,8 @@ $useDataTables = $useDataTables ?? false;
 $useDropzone   = $useDropzone ?? false;
 $useSelect2    = $useSelect2 ?? false;
 $useSwitchery  = $useSwitchery ?? false;
+$aiEnabled = getSetting('ai_enabled', '0') === '1';
+$aiChatFloating = !empty($user['ai_chat_floating'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -86,6 +88,9 @@ $useSwitchery  = $useSwitchery ?? false;
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
+<?php if ($aiEnabled && userHasDepartmentPermission('ai_assistant')): ?>
+                            <li><a href="<?= BASE_URL ?>assistant"><i class="fa fa-comments"></i> Assistente AI</a></li>
+<?php endif; ?>
 <?php
 // Dynamically list each content type with shortcuts to common actions.
 $sidebarTypes = getContentTypes();

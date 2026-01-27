@@ -35,6 +35,25 @@
 </div>
 <?php endif; ?>
 
+<?php if (($aiEnabled ?? false) && ($aiChatFloating ?? false) && function_exists('userHasDepartmentPermission') && userHasDepartmentPermission('ai_assistant')): ?>
+<button type="button" class="btn btn-primary" id="ai-float-btn" data-bs-toggle="modal" data-bs-target="#aiAssistModal" style="position: fixed; right: 24px; bottom: 24px; z-index: 1050; border-radius: 999px; padding: 10px 14px;">
+    <i class="fa fa-comments"></i>
+</button>
+<div class="modal fade" id="aiAssistModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assistente AI</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-0" style="height: 70vh;">
+                <iframe src="<?= BASE_URL ?>assistant?embed=1" style="width: 100%; height: 100%; border: 0;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <script src="vendors/jquery/dist/jquery.min.js"></script>
 <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
 <?php if ($useDataTables): ?>

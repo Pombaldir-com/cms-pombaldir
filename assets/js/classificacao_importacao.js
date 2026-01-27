@@ -1239,6 +1239,7 @@ window.addEventListener('load', function() {
     }
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
+    var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
     var customRateRowTemplate = document.getElementById('customRateRowTemplate');
     var rateInputs = {};
@@ -1832,6 +1833,215 @@ window.addEventListener('load', function() {
             return defaultRateLabels[rate];
         }
         return '';
+    }
+
+    function buildRateLines() {
+        if (!currentBtn) {
+            return [];
+        }
+        var ordered = getOrderedRateKeys();
+        return ordered.map(function(rateKey) {
+            var label = getRateLabel(rateKey) || getDefaultRateLabel(rateKey);
+            var data = currentRateData[rateKey] || {};
+            var baseValue = getEntryAmount(data, 'base');
+            var ivaValue = getEntryAmount(data, 'iva');
+            return {
+                key: rateKey,
+                label: label,
+                base: baseValue !== null ? String(baseValue) : '',
+                iva: ivaValue !== null ? String(ivaValue) : ''
+            };
+        });
+    }
+
+    function buildAiSuggestionPrompt() {
+        if (!currentBtn) {
+            return '';
+        }
+        var docId = currentBtn.getAttribute('data-id') || '';
+        var emitter = currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '';
+        var emitterNif = currentBtn.getAttribute('data-emitter-nif') || '';
+        var acquirerNif = currentBtn.getAttribute('data-acquirer') || '';
+        var docType = currentBtn.getAttribute('data-doctype') || '';
+        var docNumber = currentBtn.getAttribute('data-doc-number') || '';
+        var rateLines = buildRateLines();
+
+        return [
+            'Sugere contas IVA e contas gerais para as taxas abaixo.',
+            'Usa a ferramenta suggest_accounts com NIF do adquirente, tipo de documento e taxas.',
+            'Responde APENAS em JSON com o formato:',
+                '{"rates":{"<rate_key>":{"iva_account":"", "general_account":""}}}',
+                'Usa exatamente as chaves de taxa indicadas.',
+                'Nao deixes campos vazios.',
+                '',
+                'Documento:',
+                '- id: ' + docId,
+                '- emitente: ' + emitter,
+                '- NIF emitente: ' + emitterNif,
+                '- NIF adquirente: ' + acquirerNif,
+                '- tipo: ' + docType,
+                '- numero: ' + docNumber,
+                '',
+            'Taxas:',
+            JSON.stringify(rateLines)
+        ].join('\n');
+    }
+
+    function extractJsonFromText(text) {
+        if (!text) {
+            return null;
+        }
+        var trimmed = text.trim();
+        if (trimmed[0] === '{' || trimmed[0] === '[') {
+            try {
+                return JSON.parse(trimmed);
+            } catch (e) {
+                return null;
+            }
+        }
+        var start = trimmed.indexOf('{');
+        var end = trimmed.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            var slice = trimmed.slice(start, end + 1);
+            try {
+                return JSON.parse(slice);
+            } catch (err) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    function normalizeAiRatesPayload(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return null;
+        }
+        if (payload.rates && typeof payload.rates === 'object') {
+            return payload.rates;
+        }
+        if (Array.isArray(payload.suggestions)) {
+            var map = {};
+            payload.suggestions.forEach(function(item) {
+                if (!item || typeof item !== 'object') {
+                    return;
+                }
+                var key = item.rate_key || item.key || item.rate;
+                if (key) {
+                    map[String(key)] = item;
+                }
+            });
+            return map;
+        }
+        return null;
+    }
+
+    function resolveSuggestionValue(suggestion, keys) {
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (suggestion && typeof suggestion === 'object' && suggestion[key]) {
+                return String(suggestion[key]).trim();
+            }
+        }
+        return '';
+    }
+
+    function normalizeRateToken(value) {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        var text = String(value).trim().toLowerCase();
+        if (!text) {
+            return null;
+        }
+        text = text.replace(',', '.');
+        var numMatch = text.match(/([0-9]+(\.[0-9]+)?)/);
+        if (!numMatch) {
+            return null;
+        }
+        var num = parseFloat(numMatch[1]);
+        if (isNaN(num)) {
+            return null;
+        }
+        if (num > 0 && num <= 1) {
+            num = num * 100;
+        }
+        return Math.round(num * 100) / 100;
+    }
+
+    function findRateKeyByToken(token) {
+        if (token === null || token === undefined) {
+            return null;
+        }
+        var normalized = normalizeRateToken(token);
+        if (normalized === null) {
+            return null;
+        }
+        var keys = Object.keys(rateInputs);
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            var label = getRateLabel(key) || getDefaultRateLabel(key);
+            var labelToken = normalizeRateToken(label);
+            var keyToken = normalizeRateToken(key);
+            if (labelToken !== null && Math.abs(labelToken - normalized) < 0.001) {
+                return key;
+            }
+            if (keyToken !== null && Math.abs(keyToken - normalized) < 0.001) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    function applyAiSuggestions(payload) {
+        var ratesPayload = normalizeAiRatesPayload(payload);
+        if (!ratesPayload) {
+            return false;
+        }
+        var applied = false;
+        Object.keys(ratesPayload).forEach(function(rateKey) {
+            var resolvedKey = rateKey;
+            var info = rateInputs[resolvedKey];
+            if (!info) {
+                var suggestionMeta = ratesPayload[rateKey] || {};
+                resolvedKey = findRateKeyByToken(rateKey)
+                    || findRateKeyByToken(suggestionMeta.label)
+                    || findRateKeyByToken(suggestionMeta.taxa)
+                    || findRateKeyByToken(suggestionMeta.rate);
+                if (resolvedKey) {
+                    info = rateInputs[resolvedKey];
+                }
+            }
+            if (!info) {
+                return;
+            }
+            var suggestion = ratesPayload[rateKey] || {};
+            var ivaAccount = resolveSuggestionValue(suggestion, ['iva_account', 'ivaAccount', 'conta_iva', 'contaIVA']);
+            var generalAccount = resolveSuggestionValue(suggestion, ['general_account', 'generalAccount', 'conta_geral', 'contaGeral', 'account']);
+            var updated = false;
+            if (ivaAccount) {
+                if (info.ivaAccount) {
+                    info.ivaAccount.value = ivaAccount;
+                }
+                ensureRateData(resolvedKey).iva_account = ivaAccount;
+                updated = true;
+                applied = true;
+            }
+            if (generalAccount) {
+                if (info.generalAccount) {
+                    info.generalAccount.value = generalAccount;
+                }
+                ensureRateData(resolvedKey).general_account = generalAccount;
+                updated = true;
+                applied = true;
+            }
+            if (updated) {
+                populateRateRow(resolvedKey);
+            }
+            if (applied) {
+                updateRowDirtyState(resolvedKey);
+            }
+        });
+        return applied;
     }
 
     function registerRateRow(row, explicitRate) {
@@ -2489,6 +2699,75 @@ window.addEventListener('load', function() {
                 populateRateRow(customInfo.key);
                 focusRateInput(customInfo);
             }
+        });
+    }
+
+    if (aiSuggestBtn) {
+        aiSuggestBtn.addEventListener('click', function() {
+            if (!currentBtn) {
+                showNotice('warning', 'Selecione um documento antes de pedir sugestoes.');
+                return;
+            }
+            var prompt = buildAiSuggestionPrompt();
+            var rateLines = buildRateLines();
+            if (!prompt) {
+                showNotice('warning', 'Nao foi possivel preparar o pedido.');
+                return;
+            }
+            aiSuggestBtn.disabled = true;
+            aiSuggestBtn.classList.add('disabled');
+            fetchJson('assistant-handler.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    csrf_token: csrfInput ? csrfInput.value : '',
+                    action: 'suggest_accounts',
+                    payload: {
+                        acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                        doc_type: currentBtn.getAttribute('data-doctype') || '',
+                        rates: rateLines
+                    },
+                    message: prompt,
+                    session_id: 'ai_suggest_accounts'
+                })
+            }).then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                var message = '';
+                if (res) {
+                    message = res.message || res.error || res.details || '';
+                }
+                debugJson('IA resposta', res);
+                var parsed = extractJsonFromText(message);
+                if (parsed && applyAiSuggestions(parsed)) {
+                    var sourceLabel = 'IA';
+                    if (res && Array.isArray(res.actions)) {
+                        res.actions.forEach(function(action) {
+                            if (!action || action.type !== 'suggest_accounts') {
+                                return;
+                            }
+                            var historyCount = parseInt(action.history, 10);
+                            if (!isNaN(historyCount) && historyCount > 0) {
+                                sourceLabel = 'Historico';
+                            }
+                            if (action.plan_db) {
+                                sourceLabel = sourceLabel === 'Historico' ? 'Historico + ERP' : 'ERP';
+                            }
+                        });
+                    }
+                    showSuccess('Sugestoes aplicadas (' + sourceLabel + ').');
+                } else if (message) {
+                    showNotice('warning', 'Nao foi possivel aplicar as sugestoes.');
+                } else {
+                    showNotice('warning', 'Nao foi possivel obter sugestoes.');
+                }
+            }).catch(function() {
+                showError('Erro ao contactar o assistente.');
+            }).finally(function() {
+                aiSuggestBtn.disabled = false;
+                aiSuggestBtn.classList.remove('disabled');
+            });
         });
     }
 

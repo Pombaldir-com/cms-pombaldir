@@ -126,7 +126,17 @@ if ($action === 'list') {
 }
 
 $editing = $id !== null;
-$userData = $editing ? getUserById($id) : ['username' => '', 'name' => '', 'email' => '', 'phone' => '', 'role' => 3, 'photo' => '', 'department_term_ids' => []];
+$userData = $editing ? getUserById($id) : [
+    'username' => '',
+    'name' => '',
+    'email' => '',
+    'phone' => '',
+    'role' => 3,
+    'photo' => '',
+    'department_term_ids' => [],
+    'ai_chat_floating' => 0,
+    'ai_read_only' => 1,
+];
 $departments = getDepartmentTerms();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -231,12 +241,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$errors) {
+        $aiChatFloating = isset($_POST['ai_chat_floating']) ? 1 : 0;
+        $aiReadOnly = isset($_POST['ai_read_only']) ? 1 : 0;
         if ($editing) {
             $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
-            updateUser($id, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds);
+            updateUser($id, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds, $aiChatFloating, $aiReadOnly);
         } else {
             $hash = password_hash($password, PASSWORD_DEFAULT);
-            createUser($username, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds);
+            createUser($username, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds, $aiChatFloating, $aiReadOnly);
         }
         $redirect = $profileMode ? 'users/profile' : 'users';
         header('Location: ' . BASE_URL . $redirect);
@@ -348,6 +360,22 @@ require_once __DIR__ . '/header.php';
                             </div>
                         </div>
                         <div class="text-muted small">Use pelo menos 8 caracteres com maiusculas, minusculas e numeros.</div>
+                    </div>
+                </div>
+                <div class="x_panel">
+                    <div class="x_title">
+                        <h2><i class="fa fa-robot"></i> Assistente AI</h2>
+                        <div class="clearfix"></div>
+                    </div>
+                    <div class="x_content">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="ai_chat_floating" name="ai_chat_floating" value="1" <?= !empty($userData['ai_chat_floating']) ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="ai_chat_floating">Chat flutuante ativo</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="ai_read_only" name="ai_read_only" value="1" <?= !empty($userData['ai_read_only']) ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="ai_read_only">Modo seguro (apenas leitura)</label>
+                        </div>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar</button>

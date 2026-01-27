@@ -67,6 +67,9 @@ switch (true) {
     case $path === 'dashboard':
         require __DIR__ . '/dashboard.php';
         break;
+    case $path === 'assistant':
+        require __DIR__ . '/assistant.php';
+        break;
     case $path === 'content-types':
         $_GET['manage_types'] = 1;
         require __DIR__ . '/content.php';

@@ -1568,6 +1568,11 @@ require_once __DIR__ . '/../header.php';
                     <?php endif; ?>
                 </div>
                 <div class="modal-footer">
+                    <?php if (getSetting('ai_enabled', '0') === '1' && userHasDepartmentPermission('ai_suggest_vat')): ?>
+                    <button type="button" class="btn btn-sm btn-outline-info" id="aiSuggestAccountsBtn">
+                        <i class="fa fa-lightbulb-o"></i> Sugestão de contas IA
+                    </button>
+                    <?php endif; ?>
                     <button type="button" class="btn btn-sm btn-outline-primary me-auto" id="addVatLineBtn">
                         <i class="fa fa-plus"></i> Adicionar linha de IVA
                     </button>

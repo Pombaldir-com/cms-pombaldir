@@ -448,7 +448,7 @@ function currentUser(): ?array {
         return null;
     }
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch() ?: null;
     if ($user) {
@@ -513,9 +513,9 @@ function getUserById(int $id): ?array {
     $pdo = getPDO();
     $hasDept = hasTable('user_taxonomy_terms') && hasTable('taxonomy_terms') && hasTable('taxonomies');
     if ($hasDept) {
-        $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role FROM users u WHERE u.id = ?");
+        $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role, u.ai_chat_floating, u.ai_read_only FROM users u WHERE u.id = ?");
     } else {
-        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role FROM users WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
     }
     $stmt->execute([$id]);
     $user = $stmt->fetch() ?: null;
@@ -530,10 +530,10 @@ function getUserById(int $id): ?array {
  *
  * @return int
  */
-function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null): int {
+function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null, int $aiChatFloating = 0, int $aiReadOnly = 1): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath]);
+    $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo, ai_chat_floating, ai_read_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath, $aiChatFloating, $aiReadOnly]);
     $userId = (int) $pdo->lastInsertId();
     if ($departmentTermIds !== null) {
         setUserDepartmentTerms($userId, $departmentTermIds);
@@ -548,10 +548,10 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
  * The username cannot be modified once a user is created, so this function
  * only updates the remaining profile fields.
  */
-function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null): void {
+function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null, int $aiChatFloating = 0, int $aiReadOnly = 1): void {
     $pdo = getPDO();
-    $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
-    $params = [$name, $email, $phone];
+    $sql = 'UPDATE users SET name = ?, email = ?, phone = ?, ai_chat_floating = ?, ai_read_only = ?';
+    $params = [$name, $email, $phone, $aiChatFloating, $aiReadOnly];
     if ($id !== 1) {
         $sql .= ', role = ?';
         $params[] = $role;
@@ -679,6 +679,11 @@ function getDepartmentPermissionOptions(): array {
         'compras_upload' => 'Compras -> Upload',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
+        'ai_assistant' => 'Assistente AI - Acesso',
+        'ai_create_tasks' => 'Assistente AI - Criar tarefas',
+        'ai_open_lancamentos' => 'Assistente AI - Abrir lancamentos',
+        'ai_suggest_vat' => 'Assistente AI - Sugerir contas IVA',
+        'ai_approve_docs' => 'Assistente AI - Aprovar/Rejeitar docs',
     ];
 }
 

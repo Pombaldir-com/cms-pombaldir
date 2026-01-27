@@ -21,6 +21,7 @@ $emailSaved = false;
 $erpSaved = false;
 $modulesSaved = false;
 $permissionsSaved = false;
+$aiSaved = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
         http_response_code(400);
@@ -153,6 +154,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $erpSaved = true;
     }
+    if (isset($_POST['ai_settings_save']) && ($user['role'] ?? 3) <= 2) {
+        $aiEnabled = isset($_POST['ai_enabled']) ? '1' : '0';
+        $aiReadOnlyDefault = isset($_POST['ai_default_read_only']) ? '1' : '0';
+        $openAiKey = trim($_POST['openai_api_key'] ?? '');
+        $openAiModel = trim($_POST['openai_model'] ?? '');
+        $aiPromptExtra = trim($_POST['ai_prompt_extra'] ?? '');
+
+        setSetting('ai_enabled', $aiEnabled);
+        setSetting('ai_default_read_only', $aiReadOnlyDefault);
+        setSetting('openai_api_key', $openAiKey);
+        setSetting('openai_model', $openAiModel);
+        setSetting('ai_prompt_extra', $aiPromptExtra);
+
+        $aiSaved = true;
+    }
     if (isset($_POST['modules_save']) && ($user['role'] ?? 3) <= 2) {
         $selectedModules = array_keys($_POST['modules'] ?? []);
         setSetting('active_modules', json_encode($selectedModules));
@@ -243,6 +259,11 @@ $currentAwsRegion = getSetting('aws_region', '');
 $currentOcrProvider = getSetting('ocr_provider', 'tesseract');
 $currentErpWebserviceUrl = getSetting('erp_webservice_url', '');
 $currentErpToken = getSetting('erp_token', '');
+$currentAiEnabled = getSetting('ai_enabled', '0');
+$currentAiDefaultReadOnly = getSetting('ai_default_read_only', '1');
+$currentOpenAiKey = getSetting('openai_api_key', '');
+$currentOpenAiModel = getSetting('openai_model', 'gpt-4.1-mini');
+$currentAiPromptExtra = getSetting('ai_prompt_extra', '');
 $currentModules = getActiveModules();
 $currentComprasSection = getSetting('compras_section', '');
 $currentComprasWarehouse = getSetting('compras_warehouse', '');
@@ -278,6 +299,9 @@ require_once __DIR__ . '/header.php';
             <a class="nav-link" id="erp-tab" data-bs-toggle="tab" href="#erp" role="tab" aria-controls="erp" aria-selected="false"><i class="fa fa-exchange"></i> ERP</a>
         </li>
         <?php if (($user['role'] ?? 3) <= 2): ?>
+        <li class="nav-item">
+            <a class="nav-link" id="ai-tab" data-bs-toggle="tab" href="#ai" role="tab" aria-controls="ai" aria-selected="false"><i class="fa fa-robot"></i> AI</a>
+        </li>
         <li class="nav-item">
             <a class="nav-link" id="modules-tab" data-bs-toggle="tab" href="#modules" role="tab" aria-controls="modules" aria-selected="false"><i class="fa fa-cubes"></i> Módulos</a>
         </li>
@@ -491,6 +515,60 @@ require_once __DIR__ . '/header.php';
                 </div>
             </form>
         </div>
+        <?php if (($user['role'] ?? 3) <= 2): ?>
+        <div class="tab-pane fade" id="ai" role="tabpanel" aria-labelledby="ai-tab">
+            <?php if ($aiSaved): ?>
+                <div class="alert alert-success mt-3">Definições de AI guardadas.</div>
+            <?php endif; ?>
+            <form method="post" class="mt-3">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                <input type="hidden" name="ai_settings_save" value="1">
+                <div class="row g-4 settings-panels">
+                    <div class="col-12">
+                        <div class="x_panel">
+                            <div class="x_title">
+                                <h2><i class="fa fa-robot"></i> Assistente AI</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <div class="row g-3">
+                                    <div class="col-12 col-lg-3">
+                                        <div class="form-check form-switch mt-4">
+                                            <input class="form-check-input" type="checkbox" id="ai_enabled" name="ai_enabled" value="1" <?= $currentAiEnabled === '1' ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="ai_enabled">Ativo</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <div class="form-check form-switch mt-4">
+                                            <input class="form-check-input" type="checkbox" id="ai_default_read_only" name="ai_default_read_only" value="1" <?= $currentAiDefaultReadOnly === '1' ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="ai_default_read_only">Modo seguro por defeito</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-lg-6">
+                                        <label for="openai_model" class="form-label">Modelo</label>
+                                        <input type="text" class="form-control" id="openai_model" name="openai_model" value="<?= htmlspecialchars($currentOpenAiModel); ?>">
+                                    </div>
+                                    <div class="col-12">
+                                        <label for="openai_api_key" class="form-label">OpenAI API Key</label>
+                                        <input type="password" class="form-control" id="openai_api_key" name="openai_api_key" value="<?= htmlspecialchars($currentOpenAiKey); ?>">
+                                        <div class="text-muted small mt-2">A chave é guardada nas definições. Apenas administradores podem editar.</div>
+                                    </div>
+                                    <div class="col-12">
+                                        <label for="ai_prompt_extra" class="form-label">Instruções adicionais (PT-PT)</label>
+                                        <textarea class="form-control" id="ai_prompt_extra" name="ai_prompt_extra" rows="6"><?= htmlspecialchars($currentAiPromptExtra); ?></textarea>
+                                        <div class="text-muted small mt-2">Texto adicional para o assistente. Este conteúdo é anexado ao prompt base.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar definições</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <?php endif; ?>
         <?php if (($user['role'] ?? 3) <= 2): ?>
         <div class="tab-pane fade" id="modules" role="tabpanel" aria-labelledby="modules-tab">
             <?php if ($modulesSaved): ?>
