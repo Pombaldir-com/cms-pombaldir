@@ -210,6 +210,9 @@ switch (true) {
     case $path === 'contabilidade/lancamentos':
         require __DIR__ . '/contabilidade/lancamentos.php';
         break;
+    case $path === 'contabilidade/ai-tarefas':
+        require __DIR__ . '/contabilidade/ai-tarefas.php';
+        break;
     case $path === 'contabilidade/save-analysis.php':
         require __DIR__ . '/contabilidade/save-analysis.php';
         break;

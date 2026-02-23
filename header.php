@@ -143,6 +143,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 <a><i class="fa fa-book"></i> Contabilidade <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
                                     <li><a href="<?= BASE_URL ?>contabilidade/lancamentos">Lançamentos</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/ai-tarefas">Tarefas AI</a></li>
                                 </ul>
                             </li>
 <?php endif; ?>

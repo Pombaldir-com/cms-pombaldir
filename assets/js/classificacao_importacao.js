@@ -2741,6 +2741,23 @@ window.addEventListener('load', function() {
                 debugJson('IA resposta', res);
                 var parsed = extractJsonFromText(message);
                 if (parsed && applyAiSuggestions(parsed)) {
+                    if (res) {
+                        window.aiSuggestionLogId = res.log_id || null;
+                        window.aiSuggestedAccounts = parsed.rates || null;
+                        window.aiSuggestionSources = [];
+                        if (Array.isArray(res.actions)) {
+                            res.actions.forEach(function(action) {
+                                if (action && action.type === 'suggest_accounts') {
+                                    if (action.history && parseInt(action.history, 10) > 0) {
+                                        window.aiSuggestionSources.push('mysql_history');
+                                    }
+                                    if (action.plan_db) {
+                                        window.aiSuggestionSources.push('erp_planocontas');
+                                    }
+                                }
+                            });
+                        }
+                    }
                     var sourceLabel = 'IA';
                     if (res && Array.isArray(res.actions)) {
                         res.actions.forEach(function(action) {
@@ -3121,6 +3138,49 @@ window.addEventListener('load', function() {
                         currentRateData[rate].general_account = ratesPayload[rate] ? ratesPayload[rate].general_account : '';
                         currentRateData[rate].label = getRateLabel(rate);
                     });
+                }
+
+                if (window.aiSuggestedAccounts && window.aiSuggestionLogId) {
+                    var corrections = {};
+                    var accepted = true;
+                    Object.keys(window.aiSuggestedAccounts).forEach(function(rateKey) {
+                        var suggested = window.aiSuggestedAccounts[rateKey] || {};
+                        var current = currentRateData[rateKey] || {};
+                        var sugIva = (suggested.iva_account || '').trim();
+                        var sugGen = (suggested.general_account || '').trim();
+                        var curIva = (current.iva_account || '').trim();
+                        var curGen = (current.general_account || '').trim();
+                        if (sugIva && sugIva !== curIva) {
+                            corrections[rateKey] = corrections[rateKey] || {};
+                            corrections[rateKey].iva_account = { suggested: sugIva, final: curIva };
+                            accepted = false;
+                        }
+                        if (sugGen && sugGen !== curGen) {
+                            corrections[rateKey] = corrections[rateKey] || {};
+                            corrections[rateKey].general_account = { suggested: sugGen, final: curGen };
+                            accepted = false;
+                        }
+                    });
+                    fetchJson('assistant-handler.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            csrf_token: csrfInput ? csrfInput.value : '',
+                            action: 'log_feedback',
+                            log_id: window.aiSuggestionLogId,
+                            accepted: accepted ? 1 : 0,
+                            corrected_after: accepted ? 0 : 1,
+                            corrected_accounts: corrections,
+                            suggested_accounts: window.aiSuggestedAccounts,
+                            sources: window.aiSuggestionSources || [],
+                            category: 'suggest_accounts',
+                            session_id: 'ai_suggest_accounts'
+                        })
+                    }).then(function(res) {
+                        if (res && res.csrf_token && csrfInput) {
+                            csrfInput.value = res.csrf_token;
+                        }
+                    }).catch(function() {});
                 }
 
                 refreshAllDirtyStates();

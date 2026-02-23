@@ -336,14 +336,22 @@ function safeToolResponse(array $payload): string {
     return json_encode($payload, JSON_UNESCAPED_UNICODE);
 }
 
-function logAiInteraction(int $userId, string $sessionId, string $summary, array $actions): void {
+function logAiInteraction(int $userId, string $sessionId, string $summary, array $actions, ?string $category = null, array $sources = [], array $suggested = []): int {
     if (!hasTable('ai_assistant_logs')) {
-        return;
+        return 0;
     }
     $pdo = getPDO();
     $stmt = $pdo->prepare('INSERT INTO ai_assistant_logs (user_id, session_id, summary, actions) VALUES (?, ?, ?, ?)');
     $actionsJson = $actions ? json_encode($actions, JSON_UNESCAPED_UNICODE) : null;
     $stmt->execute([$userId, $sessionId, $summary, $actionsJson]);
+    $logId = (int) $pdo->lastInsertId();
+    if ($logId > 0 && ( $category !== null || $sources || $suggested )) {
+        $update = $pdo->prepare('UPDATE ai_assistant_logs SET category = ?, sources = ?, suggested_accounts = ? WHERE id = ?');
+        $sourcesJson = $sources ? json_encode($sources, JSON_UNESCAPED_UNICODE) : null;
+        $suggestedJson = $suggested ? json_encode($suggested, JSON_UNESCAPED_UNICODE) : null;
+        $update->execute([$category, $sourcesJson, $suggestedJson, $logId]);
+    }
+    return $logId;
 }
 
 function extractAccountsFromPayload(string $json): array {
@@ -462,44 +470,98 @@ function getErpDatabaseForNif(string $nif): ?string {
     return null;
 }
 
-function fetchPlanAccounts(string $baseUrl, string $token, string $db, string $year, string $nif): array {
+function fetchPlanAccounts(string $baseUrl, string $token, string $db, string $year, string $nif = ''): array {
     $query = [
         'db' => $db,
         'strCodExercicio' => $year,
-        'strNumContrib' => $nif,
-        'limit' => 50,
+        'limit' => 200,
         'offset' => 0,
     ];
-    $endpoint = rtrim($baseUrl, '/') . '/contabilidade/planocontas?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
-    $response = callErpWebservice($endpoint, $token);
-    if (!$response['ok']) {
-        return [];
-    }
-    $data = $response['data']['aaData'] ?? [];
-    if (!is_array($data)) {
-        return [];
+    if ($nif !== '') {
+        $query['strNumContrib'] = $nif;
     }
     $results = [];
-    foreach ($data as $row) {
-        if (!is_array($row)) {
-            continue;
+    $page = 0;
+    while ($page < 20) {
+        $endpoint = rtrim($baseUrl, '/') . '/contabilidade/planocontas?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $response = callErpWebservice($endpoint, $token);
+        if (!$response['ok']) {
+            break;
         }
-        $account = trim((string) ($row['strConta'] ?? ''));
-        if ($account === '') {
-            continue;
+        $data = $response['data']['aaData'] ?? [];
+        if (!is_array($data) || !$data) {
+            break;
         }
-        $movimenta = trim((string) ($row['bitMovimenta'] ?? ''));
-        if ($movimenta !== '' && $movimenta !== '1' && $movimenta !== 1) {
-            continue;
+        foreach ($data as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $account = trim((string) ($row['strConta'] ?? ''));
+            if ($account === '') {
+                continue;
+            }
+            $movimenta = trim((string) ($row['bitMovimenta'] ?? ''));
+            if ($movimenta !== '' && $movimenta !== '1' && $movimenta !== 1) {
+                continue;
+            }
+            $results[] = [
+                'account' => $account,
+                'description' => (string) ($row['strDescricao'] ?? ''),
+                'iva_account' => (string) ($row['strConta_Iva'] ?? ''),
+                'tax_rate' => (string) ($row['fltVatRate'] ?? ''),
+            ];
         }
-        $results[] = [
-            'account' => $account,
-            'description' => (string) ($row['strDescricao'] ?? ''),
-            'iva_account' => (string) ($row['strConta_Iva'] ?? ''),
-            'tax_rate' => (string) ($row['fltVatRate'] ?? ''),
-        ];
+        if (count($data) < $query['limit']) {
+            break;
+        }
+        $page += 1;
+        $query['offset'] = $page * $query['limit'];
     }
     return $results;
+}
+
+function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, string $mode = 'strict'): array {
+    $pdo = getPDO();
+    $sql = 'SELECT id, field_B, field_D, account FROM accounting_imports WHERE account <> \'\'';
+    $params = [];
+    if ($mode === 'strict') {
+        if ($acquirerNif !== '') {
+            $sql .= ' AND field_B = ?';
+            $params[] = $acquirerNif;
+        }
+        if ($docType !== '') {
+            $sql .= ' AND field_D = ?';
+            $params[] = $docType;
+        }
+    } elseif ($mode === 'acquirer' && $acquirerNif !== '') {
+        $sql .= ' AND field_B = ?';
+        $params[] = $acquirerNif;
+    } elseif ($mode === 'doctype' && $docType !== '') {
+        $sql .= ' AND field_D = ?';
+        $params[] = $docType;
+    }
+    $sql .= ' ORDER BY id DESC LIMIT ' . $limit;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $examples = [];
+    foreach ($rows as $row) {
+        $accountJson = (string) ($row['account'] ?? '');
+        if ($accountJson === '') {
+            continue;
+        }
+        $rates = extractAccountsFromPayload($accountJson);
+        if (!$rates) {
+            continue;
+        }
+        $examples[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'acquirer_nif' => (string) ($row['field_B'] ?? ''),
+            'doc_type' => (string) ($row['field_D'] ?? ''),
+            'rates' => $rates,
+        ];
+    }
+    return $examples;
 }
 
 function findIvaAccountForGeneral(array $planAccounts, string $generalAccount): string {
@@ -582,7 +644,13 @@ function pickGeneralAccountFromPlan(array $planAccounts, array $rateInfo): strin
         return $best;
     }
 
-    // Fallback: prefer expense accounts (62/63/6) over liabilities (21).
+    return pickExpenseAccountFromPlan($planAccounts);
+}
+
+function pickExpenseAccountFromPlan(array $planAccounts): string {
+    if (!$planAccounts) {
+        return '';
+    }
     $preferredPrefixes = ['62', '63', '6'];
     foreach ($preferredPrefixes as $prefix) {
         foreach ($planAccounts as $row) {
@@ -595,15 +663,72 @@ function pickGeneralAccountFromPlan(array $planAccounts, array $rateInfo): strin
             }
         }
     }
+    return '';
+}
 
+function pickGeneralAccountByIvaAccount(array $planAccounts, string $ivaAccount): string {
+    $ivaAccount = trim($ivaAccount);
+    if ($ivaAccount === '' || !$planAccounts) {
+        return '';
+    }
+    $preferredPrefixes = ['62', '63', '6'];
+    foreach ($preferredPrefixes as $prefix) {
+        foreach ($planAccounts as $row) {
+            $account = trim((string) ($row['account'] ?? ''));
+            $iva = trim((string) ($row['iva_account'] ?? ''));
+            if ($account === '' || $iva === '') {
+                continue;
+            }
+            if ($iva === $ivaAccount && strpos($account, $prefix) === 0) {
+                return $account;
+            }
+        }
+    }
     foreach ($planAccounts as $row) {
         $account = trim((string) ($row['account'] ?? ''));
-        if ($account === '') {
+        $iva = trim((string) ($row['iva_account'] ?? ''));
+        if ($account === '' || $iva === '') {
             continue;
         }
-        return $account;
+        if ($iva === $ivaAccount) {
+            return $account;
+        }
     }
     return '';
+}
+
+function pickFallbackGeneralByRateKey(string $rateKey): string {
+    $rateKey = normalizeRateKey($rateKey);
+    if ($rateKey === '6') {
+        return '624118';
+    }
+    if ($rateKey === '13') {
+        return '624113';
+    }
+    if ($rateKey === '23') {
+        return '622111';
+    }
+    return '';
+}
+
+function normalizeRateKey(string $value): string {
+    $clean = trim(str_replace('%', '', $value));
+    if ($clean === '') {
+        return '';
+    }
+    $clean = str_replace(',', '.', $clean);
+    if (!is_numeric($clean)) {
+        return $clean;
+    }
+    $num = (float) $clean;
+    if ($num > 0 && $num <= 1) {
+        $num = $num * 100;
+    }
+    $num = round($num, 2);
+    if (abs($num - round($num)) < 0.001) {
+        return (string) (int) round($num);
+    }
+    return rtrim(rtrim(number_format($num, 2, '.', ''), '0'), '.');
 }
 
 function buildSuggestionsFromExamples(array $examples, array $rates): array {
@@ -633,39 +758,40 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         return ['ok' => false, 'error' => 'Parametros invalidos.'];
     }
     $limit = 15;
-    $pdo = getPDO();
-    $sql = 'SELECT id, field_B, field_D, account FROM accounting_imports WHERE account <> \'\'';
-    $params = [];
-    if ($acquirerNif !== '') {
-        $sql .= ' AND field_B = ?';
-        $params[] = $acquirerNif;
-    }
-    if ($docType !== '') {
-        $sql .= ' AND field_D = ?';
-        $params[] = $docType;
-    }
-    $sql .= ' ORDER BY id DESC LIMIT ' . $limit;
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $examples = [];
-    foreach ($rows as $row) {
-        $accountJson = (string) ($row['account'] ?? '');
-        if ($accountJson === '') {
-            continue;
-        }
-        $rates = extractAccountsFromPayload($accountJson);
-        if (!$rates) {
-            continue;
-        }
-        $examples[] = [
-            'id' => (int) ($row['id'] ?? 0),
-            'acquirer_nif' => (string) ($row['field_B'] ?? ''),
-            'doc_type' => (string) ($row['field_D'] ?? ''),
-            'rates' => $rates,
-        ];
-    }
+    $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict');
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
+    $missingRates = [];
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = (string) ($rateInfo['key'] ?? '');
+        if ($rateKey === '') {
+            continue;
+        }
+        $entry = $suggestedFromHistory[$rateKey] ?? [];
+        if (empty($entry['general_account'])) {
+            $missingRates[$rateKey] = true;
+        }
+    }
+    if ($missingRates) {
+        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 20, 'acquirer');
+        $extraSuggested = buildSuggestionsFromExamples($extraExamples, $rateItems);
+        $suggestedFromHistory = mergeSuggestedAccounts($suggestedFromHistory, $extraSuggested);
+    }
+    $missingRates = [];
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = (string) ($rateInfo['key'] ?? '');
+        if ($rateKey === '') {
+            continue;
+        }
+        $entry = $suggestedFromHistory[$rateKey] ?? [];
+        if (empty($entry['general_account'])) {
+            $missingRates[$rateKey] = true;
+        }
+    }
+    if ($missingRates) {
+        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 20, 'doctype');
+        $extraSuggested = buildSuggestionsFromExamples($extraExamples, $rateItems);
+        $suggestedFromHistory = mergeSuggestedAccounts($suggestedFromHistory, $extraSuggested);
+    }
 
     $finalSuggested = $suggestedFromHistory;
     $planAccounts = [];
@@ -676,6 +802,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             $year = date('Y');
             $planAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $year, $acquirerNif);
             if ($planAccounts) {
+                $missingRates = [];
                 foreach ($rateItems as $rateInfo) {
                     $rateKey = (string) ($rateInfo['key'] ?? '');
                     if ($rateKey === '') {
@@ -685,9 +812,18 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                         $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
                     }
                     if (($finalSuggested[$rateKey]['general_account'] ?? '') === '') {
-                        $general = pickGeneralAccountFromPlan($planAccounts, $rateInfo);
+                        $ivaForRate = $finalSuggested[$rateKey]['iva_account'] ?? '';
+                        $general = '';
+                        if ($ivaForRate !== '') {
+                            $general = pickGeneralAccountByIvaAccount($planAccounts, $ivaForRate);
+                        }
+                        if ($general === '') {
+                            $general = pickGeneralAccountFromPlan($planAccounts, $rateInfo);
+                        }
                         if ($general !== '') {
                             $finalSuggested[$rateKey]['general_account'] = $general;
+                        } else {
+                            $missingRates[] = $rateInfo;
                         }
                     }
                     if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
@@ -704,6 +840,76 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                         }
                     }
                 }
+                if ($missingRates) {
+                    $globalPlan = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $year, '');
+                    if ($globalPlan) {
+                        foreach ($missingRates as $rateInfo) {
+                            $rateKey = (string) ($rateInfo['key'] ?? '');
+                            if ($rateKey === '') {
+                                continue;
+                            }
+                            if (!isset($finalSuggested[$rateKey])) {
+                                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
+                            }
+                            if (($finalSuggested[$rateKey]['general_account'] ?? '') === '') {
+                                $ivaForRate = $finalSuggested[$rateKey]['iva_account'] ?? '';
+                                $general = '';
+                                if ($ivaForRate !== '') {
+                                    $general = pickGeneralAccountByIvaAccount($globalPlan, $ivaForRate);
+                                }
+                                if ($general === '') {
+                                    $general = pickGeneralAccountFromPlan($globalPlan, $rateInfo);
+                                }
+                                if ($general !== '') {
+                                    $finalSuggested[$rateKey]['general_account'] = $general;
+                                }
+                            }
+                            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
+                                $iva = '';
+                                $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
+                                if ($generalSelected !== '') {
+                                    $iva = findIvaAccountForGeneral($globalPlan, $generalSelected);
+                                }
+                                if ($iva === '') {
+                                    $iva = findIvaAccountForRate($globalPlan, $rateInfo);
+                                }
+                                if ($iva !== '') {
+                                    $finalSuggested[$rateKey]['iva_account'] = $iva;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    foreach ($rateItems as $rateInfo) {
+        $rawKey = (string) ($rateInfo['key'] ?? '');
+        if ($rawKey === '' && isset($rateInfo['label'])) {
+            $rawKey = (string) $rateInfo['label'];
+        }
+        if ($rawKey === '') {
+            continue;
+        }
+        $rateKey = normalizeRateKey($rawKey);
+        if ($rateKey === '') {
+            $rateKey = $rawKey;
+        }
+        foreach (array_unique([$rawKey, $rateKey]) as $keyVariant) {
+            if ($keyVariant === '') {
+                continue;
+            }
+            if (!isset($finalSuggested[$keyVariant])) {
+                $finalSuggested[$keyVariant] = ['iva_account' => '', 'general_account' => ''];
+            }
+        }
+        if (($finalSuggested[$rateKey]['general_account'] ?? '') === '') {
+            $fallback = pickFallbackGeneralByRateKey($rateKey);
+            if ($fallback !== '') {
+                $finalSuggested[$rateKey]['general_account'] = $fallback;
+                if ($rawKey !== $rateKey) {
+                    $finalSuggested[$rawKey]['general_account'] = $fallback;
+                }
             }
         }
     }
@@ -716,6 +922,52 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     ];
 }
 
+if ($action === 'log_feedback') {
+    $logId = isset($payload['log_id']) ? (int) $payload['log_id'] : 0;
+    $rating = isset($payload['rating']) ? (int) $payload['rating'] : null;
+    $feedback = isset($payload['feedback']) ? trim((string) $payload['feedback']) : null;
+    $category = isset($payload['category']) ? trim((string) $payload['category']) : null;
+    $sources = isset($payload['sources']) && is_array($payload['sources']) ? $payload['sources'] : null;
+    $accepted = isset($payload['accepted']) ? (int) $payload['accepted'] : null;
+    $correctedAfter = isset($payload['corrected_after']) ? (int) $payload['corrected_after'] : null;
+    $correctedAccounts = isset($payload['corrected_accounts']) && is_array($payload['corrected_accounts']) ? $payload['corrected_accounts'] : null;
+    $suggestedAccounts = isset($payload['suggested_accounts']) && is_array($payload['suggested_accounts']) ? $payload['suggested_accounts'] : null;
+
+    if (!hasTable('ai_assistant_logs')) {
+        echo json_encode(['message' => 'Logs indisponiveis.', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $pdo = getPDO();
+    if ($logId <= 0) {
+        $stmt = $pdo->prepare('SELECT id FROM ai_assistant_logs WHERE user_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT 1');
+        $stmt->execute([$userId, $sessionId]);
+        $logId = (int) ($stmt->fetchColumn() ?: 0);
+    }
+    if ($logId <= 0) {
+        echo json_encode(['message' => 'Log nao encontrado.', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    $stmt = $pdo->prepare(
+        'UPDATE ai_assistant_logs SET rating = COALESCE(?, rating), feedback = COALESCE(?, feedback), ' .
+        'category = COALESCE(?, category), sources = COALESCE(?, sources), accepted = COALESCE(?, accepted), ' .
+        'corrected_after = COALESCE(?, corrected_after), corrected_accounts = COALESCE(?, corrected_accounts), ' .
+        'suggested_accounts = COALESCE(?, suggested_accounts) WHERE id = ?'
+    );
+    $stmt->execute([
+        $rating !== null && $rating !== 0 ? $rating : null,
+        $feedback !== '' ? $feedback : null,
+        $category !== '' ? $category : null,
+        $sources ? json_encode($sources, JSON_UNESCAPED_UNICODE) : null,
+        $accepted !== null ? $accepted : null,
+        $correctedAfter !== null ? $correctedAfter : null,
+        $correctedAccounts ? json_encode($correctedAccounts, JSON_UNESCAPED_UNICODE) : null,
+        $suggestedAccounts ? json_encode($suggestedAccounts, JSON_UNESCAPED_UNICODE) : null,
+        $logId,
+    ]);
+    echo json_encode(['message' => 'Feedback registado.', 'csrf_token' => generateCsrfToken(true), 'log_id' => $logId]);
+    exit;
+}
+
 if ($action === 'suggest_accounts') {
     $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
     $result = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken);
@@ -725,13 +977,21 @@ if ($action === 'suggest_accounts') {
         exit;
     }
     $suggested = $result['suggested'] ?? [];
-    logAiInteraction($userId, $sessionId, 'Sugestao de contas', [['type' => 'suggest_accounts']]);
+    $sources = [];
+    if (!empty($result['history_count'])) {
+        $sources[] = 'mysql_history';
+    }
+    if (!empty($result['plan_db'])) {
+        $sources[] = 'erp_planocontas';
+    }
+    $logId = logAiInteraction($userId, $sessionId, 'Sugestao de contas', [['type' => 'suggest_accounts']], 'suggest_accounts', $sources, $suggested);
     echo json_encode([
         'message' => json_encode(['rates' => $suggested], JSON_UNESCAPED_UNICODE),
         'csrf_token' => generateCsrfToken(true),
         'actions' => [
-            ['type' => 'suggest_accounts', 'history' => $result['history_count'] ?? 0, 'plan_db' => $result['plan_db'] ?? ''],
+            ['type' => 'suggest_accounts', 'history' => $result['history_count'] ?? 0, 'plan_db' => $result['plan_db'] ?? '', 'log_id' => $logId],
         ],
+        'log_id' => $logId,
     ]);
     exit;
 }
@@ -1124,7 +1384,7 @@ if ($actions) {
     }, $actions));
 }
 
-logAiInteraction($userId, $sessionId, $summary, $actions);
+logAiInteraction($userId, $sessionId, $summary, $actions, 'chat', $actions ? ['chat'] : []);
 logAuditAction('ai_assistant', 'assistant', null, ['session' => $sessionId]);
 
 $newToken = generateCsrfToken(true);

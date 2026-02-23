@@ -52,6 +52,18 @@ if (!$embed) {
                     <?php if ($readOnly): ?>
                         <span class="badge bg-warning text-dark ms-2">Modo seguro</span>
                     <?php endif; ?>
+                    <div class="ai-feedback mt-3">
+                        <div class="text-muted small mb-1">Feedback rápido</div>
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <button type="button" class="btn btn-sm btn-outline-success" id="aiFeedbackPositive">
+                                <i class="fa fa-thumbs-up"></i> Útil
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger" id="aiFeedbackNegative">
+                                <i class="fa fa-thumbs-down"></i> Não útil
+                            </button>
+                            <input type="text" class="form-control form-control-sm flex-grow-1" id="aiFeedbackText" placeholder="Comentário (opcional)" style="min-width: 220px;">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -101,6 +113,9 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
     var messagesEl = document.getElementById('ai-messages');
     var inputEl = document.getElementById('ai-input');
     var sendBtn = document.getElementById('ai-send');
+    var feedbackPositiveBtn = document.getElementById('aiFeedbackPositive');
+    var feedbackNegativeBtn = document.getElementById('aiFeedbackNegative');
+    var feedbackInput = document.getElementById('aiFeedbackText');
 
     function appendMessage(role, text) {
         var bubble = document.createElement('div');
@@ -146,6 +161,30 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         });
     }
 
+    function sendFeedback(rating) {
+        var feedbackText = feedbackInput ? feedbackInput.value.trim() : '';
+        fetch('assistant-handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: window.aiCsrfToken,
+                action: 'log_feedback',
+                rating: rating,
+                feedback: feedbackText,
+                session_id: window.aiSessionId,
+                category: 'chat'
+            })
+        }).then(function(res) { return res.json(); })
+        .then(function(payload) {
+            if (payload && payload.csrf_token) {
+                window.aiCsrfToken = payload.csrf_token;
+            }
+            if (feedbackInput) {
+                feedbackInput.value = '';
+            }
+        }).catch(function() {});
+    }
+
     sendBtn.addEventListener('click', sendMessage);
     inputEl.addEventListener('keydown', function(ev) {
         if (ev.key === 'Enter' && !ev.shiftKey) {
@@ -153,6 +192,17 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
             sendMessage();
         }
     });
+
+    if (feedbackPositiveBtn) {
+        feedbackPositiveBtn.addEventListener('click', function() {
+            sendFeedback(5);
+        });
+    }
+    if (feedbackNegativeBtn) {
+        feedbackNegativeBtn.addEventListener('click', function() {
+            sendFeedback(1);
+        });
+    }
 
     appendMessage('assistant', 'Ola! Como posso ajudar?');
 })();

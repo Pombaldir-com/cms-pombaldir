@@ -235,6 +235,15 @@ CREATE TABLE IF NOT EXISTS ai_assistant_logs (
     session_id VARCHAR(64) DEFAULT NULL,
     summary TEXT DEFAULT NULL,
     actions JSON DEFAULT NULL,
+    rating TINYINT DEFAULT NULL,
+    feedback TEXT DEFAULT NULL,
+    category VARCHAR(50) DEFAULT NULL,
+    sources JSON DEFAULT NULL,
+    accepted TINYINT(1) DEFAULT NULL,
+    corrected_after TINYINT(1) DEFAULT NULL,
+    corrected_accounts JSON DEFAULT NULL,
+    suggested_accounts JSON DEFAULT NULL,
+    updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
