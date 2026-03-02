@@ -4282,6 +4282,21 @@ if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
     }
 }
 
+if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
+    $method = strtolower(trim((string) ($lastDocumentReadAction['method'] ?? '')));
+    if ($method === 'qr_only') {
+        $lowerMessage = strtolower($finalMessage);
+        $hasQrMention = strpos($lowerMessage, 'qr') !== false;
+        $hasFailureTone = strpos($lowerMessage, 'falhou') !== false
+            || strpos($lowerMessage, 'nao foi possivel extrair') !== false
+            || strpos($lowerMessage, 'problemas com ferramentas') !== false;
+        if ($hasQrMention && $hasFailureTone) {
+            $finalMessage = "A leitura textual ficou limitada, mas o QR fiscal foi lido com sucesso e os dados estruturados foram extraidos.\n\n"
+                . "Posso continuar com a classificacao/importacao com base no QR.";
+        }
+    }
+}
+
 if (!isLikelyJsonMessage($finalMessage)) {
     $lowerFinal = strtolower($finalMessage);
     $asksForId = strpos($lowerFinal, 'id do documento') !== false
