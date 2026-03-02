@@ -294,6 +294,8 @@ Quando o utilizador ativa `classify-row`:
 - `erp_empresas_list()`.
 - `erp_api_get(path, db, params)` para consultas GET genéricas em endpoints suportados.
 - `read_php_function(function_name, file_hint?)`.
+- `read_uploaded_document(attachment_id, max_chars?)` para extrair texto de anexos PDF/documentais carregados no chat.
+  - O leitor documental também tenta decodificar QR fiscal PT via `contabilidade/detectar_qr.py` e devolve payload estruturado quando disponível.
 
 ### Questões técnicas (procedimentos/cálculos)
 - Quando o utilizador/técnico pedir explicação de procedimentos, regras de negócio ou cálculos, deves:

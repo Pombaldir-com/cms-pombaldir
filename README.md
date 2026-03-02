@@ -63,6 +63,7 @@ O assistente AI guarda memória e contexto entre sessões na tabela `ai_assistan
 - Por defeito, as instruções/mensagens do utilizador são memorizadas para melhorar respostas futuras.
 - Em pedidos técnicos, o assistente pode ler funções PHP do projeto para explicar procedimentos e cálculos com base no código real.
 - O assistente também memoriza tarefas contabilísticas relevantes para reutilização em respostas futuras.
+- Para anexos no chat (ex.: PDF), o assistente pode extrair texto com leitor documental Python (`scripts/ai_document_reader.py`) quando a ferramenta `read_uploaded_document` é usada.
 - Na sugestão de contas, o assistente cruza emitente + adquirente + tipo de documento com histórico MySQL e reforça com endpoints ERP (`movimentos`, `planocontas`, `taxonomias`) para melhorar a precisão.
 - Se o utilizador indicar correção/remoção (ex.: `esquece`, `errado`, `incorreto`, `ignora`), essa informação não deve ser consolidada como memória válida.
 - Comandos disponíveis no chat:

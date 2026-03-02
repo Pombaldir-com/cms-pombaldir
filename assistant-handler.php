@@ -248,6 +248,7 @@ $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Resp
     . "Respeita as permissoes do utilizador e o modo seguro.\n"
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
     . "Pede os dados em falta antes de executar acoes.\n"
+    . "Quando o utilizador enviar anexos PDF/documentos, usa read_uploaded_document para extrair texto util.\n"
     . "Resumo interno: fornece respostas curtas e claras.";
 
 if ($markdownPrompt !== '') {
@@ -456,7 +457,7 @@ $tools = [
             'description' => 'Listar bases de dados de empresas no ERP-SINC (contabilidade/listDBemp).',
             'parameters' => [
                 'type' => 'object',
-                'properties' => [],
+                'properties' => (object) [],
                 'additionalProperties' => false,
             ],
         ],
@@ -543,6 +544,22 @@ $tools = [
                     'file_hint' => ['type' => 'string'],
                 ],
                 'required' => ['function_name'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'read_uploaded_document',
+            'description' => 'Ler e extrair texto de um anexo carregado no chat (PDF e texto) para analise documental no assistente.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'attachment_id' => ['type' => 'string'],
+                    'attachment_name' => ['type' => 'string'],
+                    'max_chars' => ['type' => 'integer'],
+                ],
                 'additionalProperties' => false,
             ],
         ],
@@ -933,23 +950,76 @@ function decodeBase64Payload(string $content): string {
     return $decoded === false ? '' : $decoded;
 }
 
+function normalizeAttachmentExcerptText(string $text, int $maxChars = 1800): string {
+    $text = preg_replace('/\s+/u', ' ', trim($text));
+    if (!is_string($text) || $text === '') {
+        return '';
+    }
+    if (function_exists('mb_substr')) {
+        return mb_substr($text, 0, $maxChars, 'UTF-8');
+    }
+    return substr($text, 0, $maxChars);
+}
+
+function extractPdfTextFromBinary(string $binaryData, int $maxChars = 1800): string {
+    if ($binaryData === '' || !function_exists('shell_exec')) {
+        return '';
+    }
+
+    $pdftotext = trim((string) @shell_exec('command -v pdftotext 2>/dev/null'));
+    if ($pdftotext === '') {
+        return '';
+    }
+
+    $tmpPdf = tempnam(sys_get_temp_dir(), 'ai_pdf_');
+    if (!is_string($tmpPdf) || $tmpPdf === '') {
+        return '';
+    }
+    $tmpTxt = $tmpPdf . '.txt';
+
+    try {
+        if (@file_put_contents($tmpPdf, $binaryData) === false) {
+            return '';
+        }
+
+        $cmd = escapeshellarg($pdftotext)
+            . ' -q -enc UTF-8 -nopgbrk '
+            . escapeshellarg($tmpPdf) . ' '
+            . escapeshellarg($tmpTxt) . ' 2>/dev/null';
+        @shell_exec($cmd);
+
+        if (!is_file($tmpTxt)) {
+            return '';
+        }
+        $content = @file_get_contents($tmpTxt);
+        if (!is_string($content) || trim($content) === '') {
+            return '';
+        }
+        return normalizeAttachmentExcerptText($content, $maxChars);
+    } finally {
+        if (is_file($tmpPdf)) {
+            @unlink($tmpPdf);
+        }
+        if (is_file($tmpTxt)) {
+            @unlink($tmpTxt);
+        }
+    }
+}
+
 function extractAssistantAttachmentExcerpt(string $mimeType, string $binaryData, int $maxChars = 1800): string {
     $mimeType = strtolower(trim($mimeType));
+    $looksLikePdf = $mimeType === 'application/pdf' || strncmp($binaryData, '%PDF-', 5) === 0;
+    if ($looksLikePdf) {
+        return extractPdfTextFromBinary($binaryData, $maxChars);
+    }
+
     $isText = strpos($mimeType, 'text/') === 0
         || in_array($mimeType, ['application/json', 'application/xml'], true);
     if (!$isText) {
         return '';
     }
 
-    $text = trim($binaryData);
-    if ($text === '') {
-        return '';
-    }
-
-    if (function_exists('mb_substr')) {
-        return mb_substr($text, 0, $maxChars, 'UTF-8');
-    }
-    return substr($text, 0, $maxChars);
+    return normalizeAttachmentExcerptText($binaryData, $maxChars);
 }
 
 function rememberAssistantAttachment(string $sessionId, array $attachment): void {
@@ -961,6 +1031,12 @@ function rememberAssistantAttachment(string $sessionId, array $attachment): void
     }
     $_SESSION['ai_session_attachments'][$sessionId][] = $attachment;
     $_SESSION['ai_session_attachments'][$sessionId] = array_slice($_SESSION['ai_session_attachments'][$sessionId], -20);
+
+    if (!isset($_SESSION['ai_recent_attachments']) || !is_array($_SESSION['ai_recent_attachments'])) {
+        $_SESSION['ai_recent_attachments'] = [];
+    }
+    $_SESSION['ai_recent_attachments'][] = $attachment;
+    $_SESSION['ai_recent_attachments'] = array_slice($_SESSION['ai_recent_attachments'], -80);
 }
 
 function resolveAssistantAttachmentsForRequest(string $sessionId, array $requestedIds = []): array {
@@ -1008,6 +1084,145 @@ function buildAssistantAttachmentContextMessage(array $attachments): string {
         }
     }
     return implode("\n", $lines);
+}
+
+function findAssistantAttachmentById(string $sessionId, string $attachmentId): ?array {
+    $attachments = $_SESSION['ai_session_attachments'][$sessionId] ?? [];
+    if (!is_array($attachments) || empty($attachments)) {
+        return null;
+    }
+    $attachmentId = trim($attachmentId);
+    if ($attachmentId === '') {
+        $last = end($attachments);
+        return is_array($last) ? $last : null;
+    }
+    foreach ($attachments as $attachment) {
+        if (!is_array($attachment)) {
+            continue;
+        }
+        if ((string) ($attachment['id'] ?? '') === $attachmentId) {
+            return $attachment;
+        }
+    }
+
+    $recentAttachments = $_SESSION['ai_recent_attachments'] ?? [];
+    if (is_array($recentAttachments)) {
+        foreach ($recentAttachments as $attachment) {
+            if (!is_array($attachment)) {
+                continue;
+            }
+            if ((string) ($attachment['id'] ?? '') === $attachmentId) {
+                return $attachment;
+            }
+        }
+    }
+
+    return null;
+}
+
+function findAssistantAttachmentByFilename(string $sessionId, string $filename): ?array {
+    $filename = trim($filename);
+    if ($filename === '') {
+        return null;
+    }
+    $target = strtolower($filename);
+
+    $sources = [];
+    $sessionAttachments = $_SESSION['ai_session_attachments'][$sessionId] ?? [];
+    if (is_array($sessionAttachments)) {
+        $sources[] = $sessionAttachments;
+    }
+    $recentAttachments = $_SESSION['ai_recent_attachments'] ?? [];
+    if (is_array($recentAttachments)) {
+        $sources[] = $recentAttachments;
+    }
+
+    foreach ($sources as $attachments) {
+        foreach ($attachments as $attachment) {
+            if (!is_array($attachment)) {
+                continue;
+            }
+            $name = strtolower(trim((string) ($attachment['filename'] ?? '')));
+            if ($name !== '' && $name === $target) {
+                return $attachment;
+            }
+        }
+    }
+
+    return null;
+}
+
+function resolveAssistantAttachmentAbsolutePath(string $relativePath): ?string {
+    $relativePath = ltrim(str_replace('\\', '/', trim($relativePath)), '/');
+    if ($relativePath === '') {
+        return null;
+    }
+
+    $root = realpath(__DIR__);
+    if ($root === false) {
+        return null;
+    }
+
+    $absolute = realpath($root . '/' . $relativePath);
+    if ($absolute === false || !is_file($absolute) || !is_readable($absolute)) {
+        return null;
+    }
+
+    $uploads = realpath($root . '/uploads');
+    if ($uploads === false || strpos($absolute, $uploads) !== 0) {
+        return null;
+    }
+
+    return $absolute;
+}
+
+function readAssistantAttachmentWithPython(array $attachment, int $maxChars = 5000): array {
+    if (!function_exists('shell_exec')) {
+        return ['ok' => false, 'error' => 'shell_exec indisponivel no servidor.'];
+    }
+
+    $relativePath = (string) ($attachment['path'] ?? '');
+    $absolutePath = resolveAssistantAttachmentAbsolutePath($relativePath);
+    if ($absolutePath === null) {
+        return ['ok' => false, 'error' => 'Ficheiro de anexo nao encontrado.'];
+    }
+
+    $pythonBin = trim((string) @shell_exec('command -v python3 2>/dev/null'));
+    if ($pythonBin === '') {
+        return ['ok' => false, 'error' => 'python3 nao encontrado no servidor.'];
+    }
+
+    $scriptPath = __DIR__ . '/scripts/ai_document_reader.py';
+    if (!is_file($scriptPath) || !is_readable($scriptPath)) {
+        return ['ok' => false, 'error' => 'Leitor documental Python indisponivel.'];
+    }
+
+    if ($maxChars <= 0 || $maxChars > 20000) {
+        $maxChars = 5000;
+    }
+
+    $mime = trim((string) ($attachment['mime_type'] ?? ''));
+    $filename = trim((string) ($attachment['filename'] ?? basename($absolutePath)));
+
+    $cmd = escapeshellarg($pythonBin)
+        . ' ' . escapeshellarg($scriptPath)
+        . ' --path ' . escapeshellarg($absolutePath)
+        . ' --mime ' . escapeshellarg($mime)
+        . ' --filename ' . escapeshellarg($filename)
+        . ' --max-chars ' . (int) $maxChars
+        . ' 2>&1';
+
+    $output = @shell_exec($cmd);
+    if (!is_string($output) || trim($output) === '') {
+        return ['ok' => false, 'error' => 'Sem resposta do leitor documental Python.'];
+    }
+
+    $decoded = json_decode(trim($output), true);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'error' => 'Resposta invalida do leitor documental Python.', 'raw_output' => trim($output)];
+    }
+
+    return $decoded;
 }
 
 function getAccountingTaskMemories(int $userId, int $limit = 12): array {
@@ -2660,6 +2875,63 @@ do {
                         'type' => 'read_php_function',
                         'function_name' => $functionName,
                         'file' => $toolResult['file'] ?? '',
+                    ];
+                }
+                break;
+
+            case 'read_uploaded_document':
+                $attachmentId = trim((string) ($args['attachment_id'] ?? ''));
+                $attachmentName = trim((string) ($args['attachment_name'] ?? ''));
+                $maxChars = isset($args['max_chars']) ? (int) $args['max_chars'] : 5000;
+                $attachment = null;
+                if ($attachmentId !== '') {
+                    $attachment = findAssistantAttachmentById($sessionId, $attachmentId);
+                }
+                if (!$attachment && $attachmentName !== '') {
+                    $attachment = findAssistantAttachmentByFilename($sessionId, $attachmentName);
+                }
+                if (!$attachment && !empty($resolvedAttachments) && is_array($resolvedAttachments)) {
+                    $lastAttachment = end($resolvedAttachments);
+                    if (is_array($lastAttachment)) {
+                        $attachment = $lastAttachment;
+                    }
+                }
+                if (!$attachment) {
+                    $recentAttachments = $_SESSION['ai_recent_attachments'] ?? [];
+                    if (is_array($recentAttachments) && !empty($recentAttachments)) {
+                        $lastRecent = end($recentAttachments);
+                        if (is_array($lastRecent)) {
+                            $attachment = $lastRecent;
+                        }
+                    }
+                }
+                if (!$attachment) {
+                    $toolResult = ['ok' => false, 'error' => 'Anexo nao encontrado na sessao atual nem na lista recente.'];
+                    break;
+                }
+                $readerResult = readAssistantAttachmentWithPython($attachment, $maxChars);
+                if (!empty($readerResult['ok'])) {
+                    $toolResult = [
+                        'ok' => true,
+                        'attachment' => [
+                            'id' => (string) ($attachment['id'] ?? ''),
+                            'filename' => (string) ($attachment['filename'] ?? ''),
+                            'mime_type' => (string) ($attachment['mime_type'] ?? ''),
+                            'size' => (int) ($attachment['size'] ?? 0),
+                        ],
+                        'extraction' => $readerResult,
+                    ];
+                    $actions[] = [
+                        'type' => 'read_uploaded_document',
+                        'attachment_id' => (string) ($attachment['id'] ?? ''),
+                        'method' => (string) ($readerResult['method'] ?? ''),
+                    ];
+                } else {
+                    $toolResult = [
+                        'ok' => false,
+                        'error' => (string) ($readerResult['error'] ?? 'Falha ao ler anexo.'),
+                        'attachment_id' => (string) ($attachment['id'] ?? ''),
+                        'details' => $readerResult,
                     ];
                 }
                 break;
