@@ -1584,7 +1584,7 @@ function parseAssistantDocumentDateInput(string $message): string {
 }
 
 function copyAttachmentToAccountingUploadPath(array $attachment): array {
-    $sourceAbsolute = resolveAssistantStoredPath($attachment);
+    $sourceAbsolute = resolveAssistantAttachmentAbsolutePath((string) ($attachment['path'] ?? ''));
     if ($sourceAbsolute === null || !is_file($sourceAbsolute)) {
         return ['ok' => false, 'error' => 'anexo_nao_encontrado'];
     }
@@ -1620,12 +1620,36 @@ function copyAttachmentToAccountingUploadPath(array $attachment): array {
     ];
 }
 
+function normalizeAssistantDocTypeForImport(string $value): string {
+    $normalized = normalizeAssistantIntentText($value);
+    if ($normalized === '') {
+        return '';
+    }
+    $normalized = str_replace(['-', '_', ' '], '', $normalized);
+    $map = [
+        'fatura' => 'FT',
+        'factura' => 'FT',
+        'invoice' => 'FT',
+        'ft' => 'FT',
+        'faturarecibo' => 'FTR',
+        'facturarecibo' => 'FTR',
+        'fr' => 'FTR',
+        'ftr' => 'FTR',
+        'recibo' => 'RC',
+        'rc' => 'RC',
+        'guia' => 'GT',
+        'gt' => 'GT',
+        'notacredito' => 'NC',
+        'nc' => 'NC',
+        'notadebito' => 'ND',
+        'nd' => 'ND',
+    ];
+    return $map[$normalized] ?? strtoupper($value);
+}
+
 function buildAccountingRowFromReaderResult(array $readerResult, array $attachment): ?array {
     $qr = isset($readerResult['qr']) && is_array($readerResult['qr']) ? $readerResult['qr'] : [];
     $payload = isset($qr['payload']) && is_array($qr['payload']) ? $qr['payload'] : [];
-    if (empty($payload)) {
-        return null;
-    }
 
     $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
     $row = [];
@@ -1645,7 +1669,9 @@ function buildAccountingRowFromReaderResult(array $readerResult, array $attachme
         $row['B'] = trim((string) ($buyer['nif'] ?? ''));
     }
     if ($row['D'] === '') {
-        $row['D'] = trim((string) ($structured['document_type_guess'] ?? ''));
+        $row['D'] = normalizeAssistantDocTypeForImport((string) ($structured['document_type_guess'] ?? ''));
+    } else {
+        $row['D'] = normalizeAssistantDocTypeForImport($row['D']);
     }
     if ($row['E'] === '') {
         $row['E'] = trim((string) ($structured['document_number'] ?? ''));
@@ -1664,6 +1690,9 @@ function buildAccountingRowFromReaderResult(array $readerResult, array $attachme
     }
     if ($row['N'] === '') {
         $row['N'] = trim((string) ($totals['subtotal'] ?? ''));
+    }
+    if ($row['H'] === '' && $row['D'] !== '' && $row['E'] !== '') {
+        $row['H'] = $row['D'] . ' ' . $row['E'];
     }
 
     $row['F'] = normalizeAssistantQrDate($row['F']);
@@ -1798,7 +1827,7 @@ function runAssistantAccountingUploadImportFlow(string $sessionId, array $pendin
             'ok' => false,
             'clear_pending' => false,
             'actions' => [['type' => 'assistant_import_upload_no_qr']],
-            'message' => "Nao foi encontrado QR fiscal com dados estruturados para importar no fluxo de Upload.\n\nMenu: Contabilidade > Upload\nLink: " . BASE_URL . 'contabilidade/upload',
+            'message' => "Nao consegui reunir dados estruturados suficientes (QR/OCR) para importar automaticamente no fluxo de Upload.\n\nMenu: Contabilidade > Upload\nLink: " . BASE_URL . 'contabilidade/upload',
         ];
     }
     if ($forcedDocumentDate !== '') {

@@ -181,6 +181,10 @@ def read_pdf(path: str, max_chars: int) -> Dict[str, Any]:
         result = extractor(path)
         if result.get("ok"):
             text = normalize_text(result.get("text", ""), max_chars)
+            # If extractor returns empty/near-empty text, continue to next strategy (including OCR).
+            if not text or len(text.strip()) < 12:
+                failures.append(f"{result.get('method', 'pdf')}_no_text")
+                continue
             return {
                 "ok": True,
                 "method": result.get("method", "pdf"),

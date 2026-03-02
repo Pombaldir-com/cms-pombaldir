@@ -169,6 +169,7 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         options = options || {};
         var retries = typeof options.retries === 'number' ? options.retries : 1;
         var timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 45000;
+        var payloadRef = payload || {};
 
         function attempt(tryIndex) {
             var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -184,7 +185,7 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(payload),
+                body: JSON.stringify(payloadRef),
                 signal: controller ? controller.signal : undefined
             }).then(function(res) {
                 return res.text().then(function(rawText) {
@@ -203,6 +204,11 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                         }
                     }
 
+                    if (data && data.csrf_token) {
+                        window.aiCsrfToken = data.csrf_token;
+                        payloadRef.csrf_token = data.csrf_token;
+                    }
+
                     if (!res.ok) {
                         var serverMsg = (data && data.message) ? String(data.message) : ('Erro HTTP ' + res.status + ' no assistente.');
                         var httpErr = new Error(serverMsg);
@@ -218,7 +224,9 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                     window.clearTimeout(timeoutId);
                 }
                 var status = (err && typeof err.status === 'number') ? err.status : 0;
-                var shouldRetry = tryIndex < retries && (err.name === 'AbortError' || status >= 500 || status === 0);
+                var errorMessage = (err && err.message) ? String(err.message).toLowerCase() : '';
+                var csrfInvalid = status === 400 && (errorMessage.indexOf('token invalido') !== -1 || errorMessage.indexOf('csrf') !== -1);
+                var shouldRetry = tryIndex < retries && (err.name === 'AbortError' || status >= 500 || status === 0 || csrfInvalid);
                 if (shouldRetry) {
                     return attempt(tryIndex + 1);
                 }
@@ -319,7 +327,7 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
             feedback: feedbackText,
             session_id: window.aiSessionId,
             category: 'chat'
-        }, { retries: 0, timeoutMs: 20000 })
+        }, { retries: 1, timeoutMs: 20000 })
         .then(function(payload) {
             if (payload && payload.csrf_token) {
                 window.aiCsrfToken = payload.csrf_token;
