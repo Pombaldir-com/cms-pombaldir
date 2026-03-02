@@ -150,6 +150,85 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         uploadStatusEl.className = isError ? 'small text-danger mt-1' : 'small text-muted mt-1';
     }
 
+    function buildAssistantErrorMessage(err, fallback) {
+        var defaultMsg = fallback || 'Erro ao comunicar com o assistente.';
+        if (!err) {
+            return defaultMsg;
+        }
+        if (err.name === 'AbortError') {
+            return 'O pedido demorou demasiado tempo. Tente novamente.';
+        }
+        var message = (err && err.message) ? String(err.message).trim() : '';
+        if (!message) {
+            return defaultMsg;
+        }
+        return message;
+    }
+
+    function requestAssistant(payload, options) {
+        options = options || {};
+        var retries = typeof options.retries === 'number' ? options.retries : 1;
+        var timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 45000;
+
+        function attempt(tryIndex) {
+            var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            var timeoutId = null;
+            if (controller) {
+                timeoutId = window.setTimeout(function() {
+                    controller.abort();
+                }, timeoutMs);
+            }
+
+            return fetch('assistant-handler.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                signal: controller ? controller.signal : undefined
+            }).then(function(res) {
+                return res.text().then(function(rawText) {
+                    if (timeoutId) {
+                        window.clearTimeout(timeoutId);
+                    }
+                    var data = null;
+                    if (rawText) {
+                        try {
+                            data = JSON.parse(rawText);
+                        } catch (parseError) {
+                            var invalidErr = new Error('Resposta invalida do servidor do assistente.');
+                            invalidErr.status = res.status;
+                            invalidErr.raw = rawText;
+                            throw invalidErr;
+                        }
+                    }
+
+                    if (!res.ok) {
+                        var serverMsg = (data && data.message) ? String(data.message) : ('Erro HTTP ' + res.status + ' no assistente.');
+                        var httpErr = new Error(serverMsg);
+                        httpErr.status = res.status;
+                        httpErr.payload = data;
+                        throw httpErr;
+                    }
+
+                    return data || {};
+                });
+            }).catch(function(err) {
+                if (timeoutId) {
+                    window.clearTimeout(timeoutId);
+                }
+                var status = (err && typeof err.status === 'number') ? err.status : 0;
+                var shouldRetry = tryIndex < retries && (err.name === 'AbortError' || status >= 500 || status === 0);
+                if (shouldRetry) {
+                    return attempt(tryIndex + 1);
+                }
+                throw err;
+            });
+        }
+
+        return attempt(0);
+    }
+
     function uploadAttachment(file) {
         if (!file) {
             return Promise.resolve();
@@ -157,22 +236,14 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         activeUploads += 1;
         setUploadStatus('A carregar anexos...', false);
         return readFileAsDataUrl(file).then(function(dataUrl) {
-            return fetch('assistant-handler.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    csrf_token: window.aiCsrfToken,
-                    action: 'upload_attachment',
-                    session_id: window.aiSessionId,
-                    filename: file.name || 'anexo.bin',
-                    mime_type: file.type || 'application/octet-stream',
-                    content_base64: dataUrl
-                })
+            return requestAssistant({
+                csrf_token: window.aiCsrfToken,
+                action: 'upload_attachment',
+                session_id: window.aiSessionId,
+                filename: file.name || 'anexo.bin',
+                mime_type: file.type || 'application/octet-stream',
+                content_base64: dataUrl
             });
-        }).then(function(res) {
-            return res.json();
         }).then(function(payload) {
             if (!payload || payload.success !== true || !payload.attachment || !payload.attachment.id) {
                 throw new Error((payload && payload.message) ? payload.message : 'Falha no upload do anexo.');
@@ -218,19 +289,11 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         appendMessage('user', text);
         inputEl.value = '';
         sendBtn.disabled = true;
-        fetch('assistant-handler.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                csrf_token: window.aiCsrfToken,
-                message: text,
-                session_id: window.aiSessionId,
-                attachments: attachmentsToSend
-            })
-        }).then(function(res) {
-            return res.json();
+        requestAssistant({
+            csrf_token: window.aiCsrfToken,
+            message: text,
+            session_id: window.aiSessionId,
+            attachments: attachmentsToSend
         }).then(function(payload) {
             if (payload && payload.message) {
                 appendMessage('assistant', payload.message);
@@ -240,8 +303,8 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
             if (payload && payload.csrf_token) {
                 window.aiCsrfToken = payload.csrf_token;
             }
-        }).catch(function() {
-            appendMessage('assistant', 'Erro ao comunicar com o assistente.');
+        }).catch(function(err) {
+            appendMessage('assistant', buildAssistantErrorMessage(err, 'Erro ao comunicar com o assistente.'));
         }).finally(function() {
             sendBtn.disabled = false;
         });
@@ -249,18 +312,14 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
 
     function sendFeedback(rating) {
         var feedbackText = feedbackInput ? feedbackInput.value.trim() : '';
-        fetch('assistant-handler.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                csrf_token: window.aiCsrfToken,
-                action: 'log_feedback',
-                rating: rating,
-                feedback: feedbackText,
-                session_id: window.aiSessionId,
-                category: 'chat'
-            })
-        }).then(function(res) { return res.json(); })
+        requestAssistant({
+            csrf_token: window.aiCsrfToken,
+            action: 'log_feedback',
+            rating: rating,
+            feedback: feedbackText,
+            session_id: window.aiSessionId,
+            category: 'chat'
+        }, { retries: 0, timeoutMs: 20000 })
         .then(function(payload) {
             if (payload && payload.csrf_token) {
                 window.aiCsrfToken = payload.csrf_token;

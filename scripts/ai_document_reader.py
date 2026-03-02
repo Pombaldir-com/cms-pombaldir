@@ -392,17 +392,16 @@ def main() -> int:
     else:
         result = {"ok": False, "error": "unsupported_binary_type"}
 
+    # Always attempt fiscal QR detection, even when text extraction fails.
+    qr_detection = run_qr_detector(path)
+    qr_texts = qr_detection.get("texts", []) if isinstance(qr_detection, dict) else []
+    qr_payload = {}
+    if qr_texts:
+        qr_payload = parse_portuguese_qr_payload(qr_texts[0])
+
     if result.get("ok"):
         excerpt = result.get("text_excerpt", "")
         result["doc_type_guess"] = guess_doc_type(filename, excerpt)
-
-        qr_detection = run_qr_detector(path)
-        qr_texts = qr_detection.get("texts", []) if isinstance(qr_detection, dict) else []
-        qr_payload = {}
-        if qr_texts:
-            # Use first decoded QR payload as primary structured source.
-            qr_payload = parse_portuguese_qr_payload(qr_texts[0])
-
         result["qr"] = {
             "ok": bool(qr_detection.get("ok")) if isinstance(qr_detection, dict) else False,
             "texts": qr_texts,
@@ -412,8 +411,45 @@ def main() -> int:
         result["structured"] = extract_structured_fields(filename, excerpt, qr_payload)
         result["filename"] = filename
         result["size"] = os.path.getsize(path)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+
+    # Fallback: QR-only structured response.
+    if qr_texts or qr_payload:
+        qr_only = {
+            "ok": True,
+            "method": "qr_only",
+            "text_excerpt": "",
+            "doc_type_guess": guess_doc_type(filename, ""),
+            "qr": {
+                "ok": bool(qr_detection.get("ok")) if isinstance(qr_detection, dict) else False,
+                "texts": qr_texts,
+                "payload": qr_payload,
+                "exit_code": qr_detection.get("exit_code") if isinstance(qr_detection, dict) else None,
+            },
+            "structured": extract_structured_fields(filename, "", qr_payload),
+            "filename": filename,
+            "size": os.path.getsize(path),
+            "warnings": {
+                "text_extraction_error": result.get("error", "text_extract_failed"),
+                "text_extraction_details": result.get("details", []),
+            },
+        }
+        print(json.dumps(qr_only, ensure_ascii=False))
+        return 0
+
+    # Complete failure.
+    result["qr"] = {
+        "ok": bool(qr_detection.get("ok")) if isinstance(qr_detection, dict) else False,
+        "texts": qr_texts,
+        "payload": qr_payload,
+        "exit_code": qr_detection.get("exit_code") if isinstance(qr_detection, dict) else None,
+        "error": qr_detection.get("error") if isinstance(qr_detection, dict) else "qr_unavailable",
+    }
+    result["filename"] = filename
+    result["size"] = os.path.getsize(path)
     print(json.dumps(result, ensure_ascii=False))
-    return 0 if result.get("ok") else 2
+    return 2
 
 
 if __name__ == "__main__":

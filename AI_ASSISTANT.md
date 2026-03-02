@@ -169,6 +169,17 @@ Atalho:
   3. Que permissões são necessárias para cada ação.
   4. Que a vista `type=import` é exclusiva para quem tem `ctb_importar_docs`.
 
+### 8.4 Upload automático via Assistente (sem pedir ID)
+- Quando existir anexo FT/FR lido no chat e o assistente perguntar `Pretende importar já para Classificação? (Sim/Não)`:
+  - Se o utilizador responder `Sim`, o assistente deve importar automaticamente o ficheiro para `accounting_imports` com `import_type=1`, seguindo a estrutura de dados do fluxo `Contabilidade > Upload`.
+  - Antes da importação, o ficheiro deve ser colocado no diretório de upload contabilístico (`uploads/<empresa>/accounting/<ano>/<mes>/`), para manter o mesmo caminho funcional da intranet.
+  - Se a data do documento não estiver disponível e o tipo for `FT` ou `FTR`, o assistente deve pedir a data ao utilizador antes de importar.
+  - Não pedir `ID do documento` nesta fase.
+  - No fim, confirmar ao utilizador:
+    - `Menu: Contabilidade > Classificação`
+    - `Link: contabilidade/classificacao-importacao?import_type=1`
+- Se o documento não tiver dados estruturados (ex.: sem QR fiscal), informar que não foi possível importar automaticamente e indicar o menu de Upload para tratamento manual.
+
 ### Estrutura de Contas
 Campo:
 - `accounting_imports.account`.
@@ -296,6 +307,12 @@ Quando o utilizador ativa `classify-row`:
 - `read_php_function(function_name, file_hint?)`.
 - `read_uploaded_document(attachment_id, max_chars?)` para extrair texto de anexos PDF/documentais carregados no chat.
   - O leitor documental também tenta decodificar QR fiscal PT via `contabilidade/detectar_qr.py` e devolve payload estruturado quando disponível.
+  - Sempre que existirem NIFs de emitente/adquirente, identificar e indicar também os nomes usando os dados/ferramentas da app (MySQL/ERP).
+  - Tentar sempre identificar a base de dados ERP do adquirente (com ferramentas/funções existentes) para suportar classificação/importação posterior.
+  - Quando o tipo documental extraído for `FT` ou `FR`, perguntar ao utilizador se pretende importar para:
+    - `Menu: Contabilidade > Classificacao`
+    - `Link: contabilidade/classificacao-importacao?import_type=1`
+  - Respeitar sempre workflow/permissoes existentes (classificacao/importacao).
 
 ### Questões técnicas (procedimentos/cálculos)
 - Quando o utilizador/técnico pedir explicação de procedimentos, regras de negócio ou cálculos, deves:

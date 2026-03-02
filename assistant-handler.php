@@ -124,6 +124,9 @@ if (!isset($_SESSION['ai_sessions'])) {
 if (!isset($_SESSION['ai_sessions'][$sessionId])) {
     $_SESSION['ai_sessions'][$sessionId] = [];
 }
+if (!isset($_SESSION['ai_pending_accounting_import']) || !is_array($_SESSION['ai_pending_accounting_import'])) {
+    $_SESSION['ai_pending_accounting_import'] = [];
+}
 
 $messages = $_SESSION['ai_sessions'][$sessionId];
 $messages[] = [
@@ -139,6 +142,126 @@ if (!empty($resolvedAttachments)) {
         'role' => 'user',
         'content' => buildAssistantAttachmentContextMessage($resolvedAttachments),
     ];
+}
+
+$pendingImport = getPendingAccountingImportIntent($sessionId);
+if ($action === '' && is_array($pendingImport)) {
+    if (!empty($pendingImport['awaiting_document_date'])) {
+        $parsedDate = parseAssistantDocumentDateInput($message);
+        if ($parsedDate === '') {
+            $finalMessage = "Para FT/FTR preciso da data do documento antes de importar.\n\n"
+                . "Indique a data em formato YYYY-MM-DD (ex.: 2026-03-02) ou DD/MM/YYYY.";
+
+            $messages[] = [
+                'role' => 'assistant',
+                'content' => $finalMessage,
+            ];
+            $_SESSION['ai_sessions'][$sessionId] = array_slice($messages, -12);
+            echo json_encode([
+                'message' => $finalMessage,
+                'csrf_token' => generateCsrfToken(true),
+                'actions' => [['type' => 'assistant_import_waiting_document_date']],
+            ]);
+            exit;
+        }
+
+        $autoImport = runAssistantAccountingUploadImportFlow(
+            $sessionId,
+            $pendingImport,
+            $resolvedAttachments,
+            $erpBaseUrl,
+            $erpToken,
+            $parsedDate
+        );
+        $finalMessage = (string) ($autoImport['message'] ?? 'Nao foi possivel concluir a importacao.');
+        $actions = isset($autoImport['actions']) && is_array($autoImport['actions']) ? $autoImport['actions'] : [];
+        if (!empty($autoImport['clear_pending'])) {
+            clearPendingAccountingImportIntent($sessionId);
+        }
+
+        $messages[] = [
+            'role' => 'assistant',
+            'content' => $finalMessage,
+        ];
+        $_SESSION['ai_sessions'][$sessionId] = array_slice($messages, -12);
+
+        $summary = 'Pedido: ' . substr($message, 0, 200);
+        if ($actions) {
+            $summary .= ' | Acoes: ' . implode(', ', array_map(function ($actionItem) {
+                return $actionItem['type'];
+            }, $actions));
+        }
+        $loggedActions = $actions;
+        $loggedActions[] = [
+            'type' => 'chat_exchange',
+            'user_message' => $message,
+            'assistant_message' => $finalMessage,
+        ];
+        logAiInteraction($userId, $sessionId, $summary, $loggedActions, 'chat', $actions ? ['chat'] : []);
+        $taskMemorySummary = buildAccountingTaskMemorySummary($message, $actions);
+        if ($taskMemorySummary !== '' && !isForgetOrWrongIntent($message)) {
+            saveAccountingTaskMemory($userId, $sessionId, $taskMemorySummary);
+        }
+        logAuditAction('ai_assistant', 'assistant', null, ['session' => $sessionId, 'auto_import' => 1, 'date_from_user' => 1]);
+
+        echo json_encode([
+            'message' => $finalMessage,
+            'csrf_token' => generateCsrfToken(true),
+            'actions' => $actions,
+        ]);
+        exit;
+    }
+
+    if (isAssistantAffirmativeIntent($message)) {
+        $autoImport = runAssistantAccountingUploadImportFlow(
+            $sessionId,
+            $pendingImport,
+            $resolvedAttachments,
+            $erpBaseUrl,
+            $erpToken,
+            ''
+        );
+        $finalMessage = (string) ($autoImport['message'] ?? 'Nao foi possivel concluir a importacao.');
+        $actions = isset($autoImport['actions']) && is_array($autoImport['actions']) ? $autoImport['actions'] : [];
+        if (!empty($autoImport['clear_pending'])) {
+            clearPendingAccountingImportIntent($sessionId);
+        }
+
+        $messages[] = [
+            'role' => 'assistant',
+            'content' => $finalMessage,
+        ];
+        $_SESSION['ai_sessions'][$sessionId] = array_slice($messages, -12);
+
+        $summary = 'Pedido: ' . substr($message, 0, 200);
+        if ($actions) {
+            $summary .= ' | Acoes: ' . implode(', ', array_map(function ($actionItem) {
+                return $actionItem['type'];
+            }, $actions));
+        }
+        $loggedActions = $actions;
+        $loggedActions[] = [
+            'type' => 'chat_exchange',
+            'user_message' => $message,
+            'assistant_message' => $finalMessage,
+        ];
+        logAiInteraction($userId, $sessionId, $summary, $loggedActions, 'chat', $actions ? ['chat'] : []);
+        $taskMemorySummary = buildAccountingTaskMemorySummary($message, $actions);
+        if ($taskMemorySummary !== '' && !isForgetOrWrongIntent($message)) {
+            saveAccountingTaskMemory($userId, $sessionId, $taskMemorySummary);
+        }
+        logAuditAction('ai_assistant', 'assistant', null, ['session' => $sessionId, 'auto_import' => 1]);
+
+        echo json_encode([
+            'message' => $finalMessage,
+            'csrf_token' => generateCsrfToken(true),
+            'actions' => $actions,
+        ]);
+        exit;
+    }
+    if (isAssistantNegativeIntent($message)) {
+        clearPendingAccountingImportIntent($sessionId);
+    }
 }
 
 function buildMarkdownKnowledgePrompt(string $rootDir, int $maxChars = 180000): string {
@@ -249,7 +372,11 @@ $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Resp
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Quando o utilizador enviar anexos PDF/documentos, usa read_uploaded_document para extrair texto util.\n"
+    . "Sempre que houver NIF de emitente/adquirente no documento, identifica e indica tambem o nome usando os dados/ferramentas da app.\n"
     . "Se read_uploaded_document falhar, explica o erro tecnico concreto e apresenta as hints devolvidas pela ferramenta.\n"
+    . "Se read_uploaded_document devolver method=qr_only, apresenta de imediato os campos estruturados extraidos do QR (NIFs, tipo, numero, data e totais) antes de sugerir proximos passos.\n"
+    . "Quando o tipo documental for FT ou FR (fatura/fatura-recibo), pergunta explicitamente se o utilizador pretende importar para Contabilidade > Classificacao (contabilidade/classificacao-importacao?import_type=1), respeitando o workflow e permissoes atuais.\n"
+    . "Neste fluxo FT/FR, nao pedir ID de documento para iniciar; orientar para menu e link de classificacao/importacao existentes.\n"
     . "Resumo interno: fornece respostas curtas e claras.";
 
 if ($markdownPrompt !== '') {
@@ -1282,6 +1409,730 @@ function buildDocumentReaderHints(array $readerResult): array {
     ];
 }
 
+function buildDocumentReaderStructuredSummary(array $readerResult): array {
+    $structured = isset($readerResult['structured']) && is_array($readerResult['structured'])
+        ? $readerResult['structured']
+        : [];
+    $totals = isset($structured['totals']) && is_array($structured['totals'])
+        ? $structured['totals']
+        : [];
+    $issuer = isset($structured['issuer']) && is_array($structured['issuer'])
+        ? $structured['issuer']
+        : [];
+    $buyer = isset($structured['buyer']) && is_array($structured['buyer'])
+        ? $structured['buyer']
+        : [];
+    $qr = isset($readerResult['qr']) && is_array($readerResult['qr'])
+        ? $readerResult['qr']
+        : [];
+
+    return [
+        'mode' => (string) ($readerResult['method'] ?? ''),
+        'document_type' => (string) ($structured['document_type_guess'] ?? ''),
+        'confidence' => $structured['confidence'] ?? null,
+        'document_number' => (string) ($structured['document_number'] ?? ''),
+        'document_date' => (string) ($structured['document_date'] ?? ''),
+        'issuer_nif' => (string) ($issuer['nif'] ?? ''),
+        'buyer_nif' => (string) ($buyer['nif'] ?? ''),
+        'total' => (string) ($totals['total'] ?? ''),
+        'iva_total' => (string) ($totals['iva_total'] ?? ''),
+        'subtotal' => (string) ($totals['subtotal'] ?? ''),
+        'qr_detected' => !empty($qr['ok']),
+    ];
+}
+
+function isInvoiceLikeDocumentType(string $documentType): bool {
+    $value = strtolower(trim($documentType));
+    if ($value === '') {
+        return false;
+    }
+    $normalized = str_replace(['-', '_', ' '], '', $value);
+    $candidates = [
+        'ft',
+        'fr',
+        'fatura',
+        'factura',
+        'faturarecibo',
+        'facturarecibo',
+        'faturarecibo',
+        'invoicereceipt',
+    ];
+    return in_array($normalized, $candidates, true);
+}
+
+function buildAccountingImportWorkflowHint(array $structuredSummary): ?array {
+    $documentType = (string) ($structuredSummary['document_type'] ?? '');
+    if (!isInvoiceLikeDocumentType($documentType)) {
+        return null;
+    }
+
+    return [
+        'should_ask_import' => true,
+        'question' => 'Pretende importar este documento para classificacao na intranet?',
+        'menu_title' => 'Contabilidade > Classificacao',
+        'url' => BASE_URL . 'contabilidade/classificacao-importacao?import_type=1',
+        'workflow_note' => 'Respeitar o workflow atual: classificacao por linha e importacao conforme permissoes e estado do documento.',
+        'do_not_ask_document_id' => true,
+        'user_guidance' => 'Nao pedir ID do documento para este passo. Encaminhar o utilizador para o menu de Classificacao/importacao existente.',
+    ];
+}
+
+function normalizeAssistantIntentText(string $text): string {
+    $normalized = strtolower(trim($text));
+    if ($normalized === '') {
+        return '';
+    }
+    $normalized = strtr($normalized, [
+        'á' => 'a',
+        'à' => 'a',
+        'â' => 'a',
+        'ã' => 'a',
+        'é' => 'e',
+        'ê' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ô' => 'o',
+        'õ' => 'o',
+        'ú' => 'u',
+        'ç' => 'c',
+    ]);
+    $normalized = preg_replace('/\s+/u', ' ', $normalized);
+    return trim((string) $normalized);
+}
+
+function isAssistantAffirmativeIntent(string $message): bool {
+    $normalized = normalizeAssistantIntentText($message);
+    if ($normalized === '') {
+        return false;
+    }
+    if (preg_match('/^(sim|s|ok|confirmo|avanca|avance|forca|pode avancar|podes avancar|quero importar|importar|importa)\b/u', $normalized)) {
+        return true;
+    }
+    return strpos($normalized, 'pode importar') !== false
+        || strpos($normalized, 'podes importar') !== false;
+}
+
+function isAssistantNegativeIntent(string $message): bool {
+    $normalized = normalizeAssistantIntentText($message);
+    if ($normalized === '') {
+        return false;
+    }
+    return (bool) preg_match('/^(nao|n|agora nao|depois|cancelar|cancela)\b/u', $normalized);
+}
+
+function setPendingAccountingImportIntent(string $sessionId, array $intent): void {
+    if (!isset($_SESSION['ai_pending_accounting_import']) || !is_array($_SESSION['ai_pending_accounting_import'])) {
+        $_SESSION['ai_pending_accounting_import'] = [];
+    }
+    $_SESSION['ai_pending_accounting_import'][$sessionId] = $intent;
+}
+
+function getPendingAccountingImportIntent(string $sessionId): ?array {
+    if (!isset($_SESSION['ai_pending_accounting_import']) || !is_array($_SESSION['ai_pending_accounting_import'])) {
+        return null;
+    }
+    $intent = $_SESSION['ai_pending_accounting_import'][$sessionId] ?? null;
+    return is_array($intent) ? $intent : null;
+}
+
+function clearPendingAccountingImportIntent(string $sessionId): void {
+    if (!isset($_SESSION['ai_pending_accounting_import']) || !is_array($_SESSION['ai_pending_accounting_import'])) {
+        return;
+    }
+    unset($_SESSION['ai_pending_accounting_import'][$sessionId]);
+}
+
+function normalizeAssistantQrDate(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^\d{8}$/', $value)) {
+        return substr($value, 0, 4) . '-' . substr($value, 4, 2) . '-' . substr($value, 6, 2);
+    }
+    return $value;
+}
+
+function isFtOrFtrDocumentType(string $documentType): bool {
+    $normalized = normalizeAssistantIntentText($documentType);
+    if ($normalized === '') {
+        return false;
+    }
+    $normalized = str_replace(['-', '_', ' '], '', $normalized);
+    return in_array($normalized, ['ft', 'fr', 'ftr', 'faturarecibo', 'facturarecibo'], true);
+}
+
+function parseAssistantDocumentDateInput(string $message): string {
+    $value = trim($message);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/\b(\d{4})-(\d{2})-(\d{2})\b/', $value, $m)) {
+        if (checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return $m[1] . '-' . $m[2] . '-' . $m[3];
+        }
+    }
+
+    if (preg_match('/\b(\d{2})[\/\-](\d{2})[\/\-](\d{4})\b/', $value, $m)) {
+        if (checkdate((int) $m[2], (int) $m[1], (int) $m[3])) {
+            return $m[3] . '-' . $m[2] . '-' . $m[1];
+        }
+    }
+
+    return '';
+}
+
+function copyAttachmentToAccountingUploadPath(array $attachment): array {
+    $sourceAbsolute = resolveAssistantStoredPath($attachment);
+    if ($sourceAbsolute === null || !is_file($sourceAbsolute)) {
+        return ['ok' => false, 'error' => 'anexo_nao_encontrado'];
+    }
+
+    $slug = getCompanySlug() ?: getConfiguredCompanySlug();
+    $safeSlug = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $slug);
+    if ($safeSlug === '') {
+        return ['ok' => false, 'error' => 'empresa_nao_selecionada'];
+    }
+
+    $year = date('Y');
+    $month = date('m');
+    $targetDir = __DIR__ . '/uploads/' . $safeSlug . '/accounting/' . $year . '/' . $month . '/';
+    if (!is_dir($targetDir) && !mkdir($targetDir, 0755, true)) {
+        return ['ok' => false, 'error' => 'falha_criar_diretorio'];
+    }
+
+    $extension = strtolower((string) pathinfo((string) ($attachment['filename'] ?? ''), PATHINFO_EXTENSION));
+    if ($extension === '') {
+        $extension = 'pdf';
+    }
+    $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+    $targetAbsolute = $targetDir . $storedName;
+
+    if (!@copy($sourceAbsolute, $targetAbsolute)) {
+        return ['ok' => false, 'error' => 'falha_copiar_anexo'];
+    }
+
+    return [
+        'ok' => true,
+        'absolute_path' => $targetAbsolute,
+        'relative_path' => 'uploads/' . $safeSlug . '/accounting/' . $year . '/' . $month . '/' . $storedName,
+    ];
+}
+
+function buildAccountingRowFromReaderResult(array $readerResult, array $attachment): ?array {
+    $qr = isset($readerResult['qr']) && is_array($readerResult['qr']) ? $readerResult['qr'] : [];
+    $payload = isset($qr['payload']) && is_array($qr['payload']) ? $qr['payload'] : [];
+    if (empty($payload)) {
+        return null;
+    }
+
+    $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
+    $row = [];
+    foreach ($keys as $key) {
+        $row[$key] = trim((string) ($payload[$key] ?? ''));
+    }
+
+    $structured = isset($readerResult['structured']) && is_array($readerResult['structured']) ? $readerResult['structured'] : [];
+    $issuer = isset($structured['issuer']) && is_array($structured['issuer']) ? $structured['issuer'] : [];
+    $buyer = isset($structured['buyer']) && is_array($structured['buyer']) ? $structured['buyer'] : [];
+    $totals = isset($structured['totals']) && is_array($structured['totals']) ? $structured['totals'] : [];
+
+    if ($row['A'] === '') {
+        $row['A'] = trim((string) ($issuer['nif'] ?? ''));
+    }
+    if ($row['B'] === '') {
+        $row['B'] = trim((string) ($buyer['nif'] ?? ''));
+    }
+    if ($row['D'] === '') {
+        $row['D'] = trim((string) ($structured['document_type_guess'] ?? ''));
+    }
+    if ($row['E'] === '') {
+        $row['E'] = trim((string) ($structured['document_number'] ?? ''));
+    }
+    if ($row['F'] === '') {
+        $row['F'] = trim((string) ($structured['document_date'] ?? ''));
+    }
+    if ($row['H'] === '') {
+        $row['H'] = trim((string) ($structured['document_number'] ?? ''));
+    }
+    if ($row['O'] === '') {
+        $row['O'] = trim((string) ($totals['total'] ?? ''));
+    }
+    if ($row['Q'] === '') {
+        $row['Q'] = trim((string) ($totals['iva_total'] ?? ''));
+    }
+    if ($row['N'] === '') {
+        $row['N'] = trim((string) ($totals['subtotal'] ?? ''));
+    }
+
+    $row['F'] = normalizeAssistantQrDate($row['F']);
+    $row['filename'] = trim((string) ($attachment['path'] ?? ''));
+    if ($row['filename'] === '') {
+        $row['filename'] = trim((string) ($attachment['url'] ?? ''));
+    }
+
+    $hasCore = $row['A'] !== '' || $row['B'] !== '' || $row['D'] !== '' || $row['H'] !== '';
+    if (!$hasCore) {
+        return null;
+    }
+
+    return $row;
+}
+
+function importAssistantAccountingRow(array $row, int $importType = 1): array {
+    if (!hasTable('accounting_imports')) {
+        return ['ok' => false, 'error' => 'Tabela accounting_imports indisponivel.'];
+    }
+
+    $importType = $importType > 0 ? $importType : 1;
+    $pdo = getPDO();
+
+    $account = '';
+    if (hasTable('accounting_classifications')) {
+        $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
+        $stmt->execute([
+            (string) ($row['A'] ?? ''),
+            (string) ($row['B'] ?? ''),
+            (string) ($row['D'] ?? ''),
+        ]);
+        $account = (string) ($stmt->fetchColumn() ?: '');
+    }
+
+    $fieldH = trim((string) ($row['H'] ?? ''));
+    if ($fieldH !== '') {
+        $exists = $pdo->prepare('SELECT id FROM accounting_imports WHERE field_H = ? AND import_type = ? LIMIT 1');
+        $exists->execute([$fieldH, $importType]);
+        $existingId = (int) ($exists->fetchColumn() ?: 0);
+        if ($existingId > 0) {
+            return ['ok' => true, 'duplicate' => true, 'id' => $existingId];
+        }
+    }
+
+    $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    $insert->execute([
+        (string) ($row['A'] ?? ''),
+        (string) ($row['B'] ?? ''),
+        (string) ($row['C'] ?? ''),
+        (string) ($row['D'] ?? ''),
+        (string) ($row['E'] ?? ''),
+        (string) ($row['F'] ?? ''),
+        (string) ($row['G'] ?? ''),
+        $fieldH,
+        (string) ($row['I1'] ?? ''),
+        (string) ($row['I3'] ?? ''),
+        (string) ($row['I4'] ?? ''),
+        (string) ($row['I5'] ?? ''),
+        (string) ($row['I6'] ?? ''),
+        (string) ($row['I7'] ?? ''),
+        (string) ($row['I8'] ?? ''),
+        (string) ($row['N'] ?? ''),
+        (string) ($row['O'] ?? ''),
+        (string) ($row['Q'] ?? ''),
+        (string) ($row['R'] ?? ''),
+        $account,
+        (string) ($row['filename'] ?? ''),
+        $importType,
+    ]);
+
+    return ['ok' => true, 'duplicate' => false, 'id' => (int) $pdo->lastInsertId()];
+}
+
+function runAssistantAccountingUploadImportFlow(string $sessionId, array $pendingIntent, array $resolvedAttachments, string $erpBaseUrl, string $erpToken, string $forcedDocumentDate = ''): array {
+    if (!userHasDepartmentPermission('compras_upload')) {
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_upload_denied']],
+            'message' => "Sem permissao para importar pelo fluxo de Upload.\n\nMenu: Contabilidade > Upload\nLink: " . BASE_URL . 'contabilidade/upload',
+        ];
+    }
+
+    $attachmentId = trim((string) ($pendingIntent['attachment_id'] ?? ''));
+    $attachment = null;
+    if ($attachmentId !== '') {
+        $attachment = findAssistantAttachmentById($sessionId, $attachmentId);
+    }
+    if (!$attachment && !empty($resolvedAttachments)) {
+        $candidate = end($resolvedAttachments);
+        if (is_array($candidate)) {
+            $attachment = $candidate;
+        }
+    }
+    if (!$attachment) {
+        $recent = $_SESSION['ai_recent_attachments'] ?? [];
+        if (is_array($recent) && !empty($recent)) {
+            $candidate = end($recent);
+            if (is_array($candidate)) {
+                $attachment = $candidate;
+            }
+        }
+    }
+    if (!$attachment) {
+        return [
+            'ok' => false,
+            'clear_pending' => true,
+            'actions' => [['type' => 'assistant_import_upload_missing_attachment']],
+            'message' => 'Nao encontrei o anexo desta conversa para importar. Envie novamente o ficheiro e eu trato do upload/importacao automaticamente.',
+        ];
+    }
+
+    $readerResult = readAssistantAttachmentWithPython($attachment, 8000);
+    if (empty($readerResult['ok'])) {
+        $diagnostics = buildDocumentReaderHints($readerResult);
+        $hint = '';
+        if (!empty($diagnostics['hints'][0])) {
+            $hint = (string) $diagnostics['hints'][0];
+        }
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_upload_extract_failed']],
+            'message' => 'Nao consegui extrair dados suficientes do documento para importar no fluxo de Upload.' . ($hint !== '' ? "\nMotivo: " . $hint : ''),
+        ];
+    }
+
+    $row = buildAccountingRowFromReaderResult($readerResult, $attachment);
+    if (!is_array($row)) {
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_upload_no_qr']],
+            'message' => "Nao foi encontrado QR fiscal com dados estruturados para importar no fluxo de Upload.\n\nMenu: Contabilidade > Upload\nLink: " . BASE_URL . 'contabilidade/upload',
+        ];
+    }
+    if ($forcedDocumentDate !== '') {
+        $row['F'] = $forcedDocumentDate;
+    }
+    $docType = trim((string) ($row['D'] ?? ''));
+    $docDate = trim((string) ($row['F'] ?? ''));
+    if ($docDate === '' && isFtOrFtrDocumentType($docType)) {
+        setPendingAccountingImportIntent($sessionId, [
+            'attachment_id' => (string) ($attachment['id'] ?? ''),
+            'awaiting_document_date' => 1,
+            'document_type' => $docType,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_ask_document_date']],
+            'message' => "Data do documento nao disponivel para " . ($docType !== '' ? $docType : 'FT/FTR') . ".\n\nIndique a data do documento (YYYY-MM-DD ou DD/MM/YYYY) para eu concluir a importacao.",
+        ];
+    }
+
+    $copied = copyAttachmentToAccountingUploadPath($attachment);
+    if (empty($copied['ok'])) {
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_upload_copy_failed']],
+            'message' => 'Nao foi possivel preparar o ficheiro no diretorio de Upload de contabilidade.',
+        ];
+    }
+    $row['filename'] = (string) ($copied['relative_path'] ?? ($row['filename'] ?? ''));
+
+    $import = importAssistantAccountingRow($row, 1);
+    if (empty($import['ok'])) {
+        return [
+            'ok' => false,
+            'clear_pending' => false,
+            'actions' => [['type' => 'assistant_import_upload_failed']],
+            'message' => 'Falha ao importar para Classificacao: ' . (string) ($import['error'] ?? 'erro interno'),
+        ];
+    }
+
+    $structuredSummary = buildDocumentReaderStructuredSummary($readerResult);
+    $issuerInfo = resolvePartyNameWithAppTools((string) ($structuredSummary['issuer_nif'] ?? ''), $erpBaseUrl, $erpToken);
+    $buyerInfo = resolvePartyNameWithAppTools((string) ($structuredSummary['buyer_nif'] ?? ''), $erpBaseUrl, $erpToken);
+    $header = buildIssuerBuyerHeader([
+        'parties' => [
+            'issuer' => $issuerInfo,
+            'buyer' => $buyerInfo,
+        ],
+    ]);
+
+    $docId = (int) ($import['id'] ?? 0);
+    $isDuplicate = !empty($import['duplicate']);
+    $statusLine = $isDuplicate
+        ? 'Documento ja existente na Classificacao (duplicado por identificador SAF-T).'
+        : ('Documento importado com sucesso para Classificacao (ID ' . $docId . ').');
+
+    $message = '';
+    if ($header !== '') {
+        $message .= $header . "\n\n";
+    }
+    $message .= $statusLine . "\n\n";
+    $message .= "Menu: Contabilidade > Classificacao\n";
+    $message .= 'Link: ' . BASE_URL . 'contabilidade/classificacao-importacao?import_type=1';
+
+    $actions = [[
+        'type' => 'assistant_import_upload',
+        'document_id' => $docId,
+        'duplicate' => $isDuplicate ? 1 : 0,
+        'attachment_id' => (string) ($attachment['id'] ?? ''),
+    ]];
+
+    logAuditAction('ai_import_upload', 'accounting_imports', $docId > 0 ? $docId : null, [
+        'duplicate' => $isDuplicate ? 1 : 0,
+        'attachment_id' => (string) ($attachment['id'] ?? ''),
+    ]);
+
+    return [
+        'ok' => true,
+        'clear_pending' => true,
+        'actions' => $actions,
+        'message' => $message,
+    ];
+}
+
+function getLocalAccountingEntityNameByNif(string $nif): string {
+    $nif = preg_replace('/\D+/', '', trim($nif));
+    if ($nif === '' || !hasTable('accounting_entities')) {
+        return '';
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT name FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $stmt->execute([$nif]);
+    $name = $stmt->fetchColumn();
+    return is_string($name) ? trim($name) : '';
+}
+
+function extractFirstErpRowFromPayload(array $payload): ?array {
+    foreach (['aaData', 'data', 'result', 'results'] as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key]) && !empty($payload[$key])) {
+            $first = $payload[$key][0] ?? null;
+            if (is_array($first)) {
+                return $first;
+            }
+        }
+    }
+
+    if (array_keys($payload) === range(0, count($payload) - 1) && !empty($payload[0]) && is_array($payload[0])) {
+        return $payload[0];
+    }
+
+    return null;
+}
+
+function extractPartyNameFromErpRow(array $row): string {
+    foreach (['strNome', 'name', 'nome', 'strName', 'strDenominacao', 'strDescricao'] as $key) {
+        if (isset($row[$key])) {
+            $value = trim((string) $row[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+    }
+    return '';
+}
+
+function extractPartyNifFromErpRow(array $row): string {
+    foreach (['strNumContrib', 'nif', 'numContrib', 'strNif', 'vat'] as $key) {
+        if (!isset($row[$key])) {
+            continue;
+        }
+        $value = preg_replace('/\D+/', '', trim((string) $row[$key]));
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+    }
+    return '';
+}
+
+function extractDatabaseCandidatesFromPayload(array $payload): array {
+    $rows = [];
+    foreach (['aaData', 'data', 'result', 'results'] as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key])) {
+            $rows = $payload[$key];
+            break;
+        }
+    }
+    if (empty($rows) && array_keys($payload) === range(0, count($payload) - 1)) {
+        $rows = $payload;
+    }
+
+    $result = [];
+    foreach ($rows as $row) {
+        if (is_string($row)) {
+            $candidate = trim($row);
+            if ($candidate !== '') {
+                $result[] = $candidate;
+            }
+            continue;
+        }
+        if (!is_array($row)) {
+            continue;
+        }
+        foreach (['db', 'database', 'base_dados', 'strBaseDados', 'strDatabase', 'EMP', 'emp'] as $key) {
+            if (!isset($row[$key])) {
+                continue;
+            }
+            $candidate = trim((string) $row[$key]);
+            if ($candidate !== '') {
+                $result[] = $candidate;
+                break;
+            }
+        }
+    }
+
+    return array_values(array_unique($result));
+}
+
+function getErpDatabaseCandidates(string $erpBaseUrl, string $erpToken): array {
+    if ($erpBaseUrl === '' || $erpToken === '') {
+        return [];
+    }
+
+    $endpoint = buildErpGetEndpoint($erpBaseUrl, '/contabilidade/listDBemp', [], '');
+    $response = callErpWebservice($endpoint, $erpToken);
+    if (empty($response['ok']) || !is_array($response['data'] ?? null)) {
+        return [];
+    }
+
+    return extractDatabaseCandidatesFromPayload($response['data']);
+}
+
+function resolveErpDatabaseForNifWithAppTools(string $nif, string $erpBaseUrl, string $erpToken): string {
+    static $cache = [];
+
+    $normalizedNif = preg_replace('/\D+/', '', trim($nif));
+    if (!is_string($normalizedNif) || $normalizedNif === '') {
+        return '';
+    }
+    if (isset($cache[$normalizedNif])) {
+        return (string) $cache[$normalizedNif];
+    }
+
+    $localDb = getErpDatabaseForNif($normalizedNif);
+    if (is_string($localDb) && trim($localDb) !== '') {
+        $cache[$normalizedNif] = trim($localDb);
+        return (string) $cache[$normalizedNif];
+    }
+
+    $dbCandidates = getErpDatabaseCandidates($erpBaseUrl, $erpToken);
+    if (empty($dbCandidates)) {
+        $cache[$normalizedNif] = '';
+        return '';
+    }
+
+    $query = [
+        'q' => $normalizedNif,
+        'searchField' => 'strNumContrib',
+        'limit' => 5,
+        'offset' => 0,
+    ];
+
+    $maxChecks = 120;
+    $checks = 0;
+    foreach ($dbCandidates as $db) {
+        if ($checks >= $maxChecks) {
+            break;
+        }
+
+        foreach (['/clientes', '/fornecedores'] as $path) {
+            if ($checks >= $maxChecks) {
+                break;
+            }
+            $checks++;
+            $endpoint = buildErpGetEndpoint($erpBaseUrl, $path, $query, (string) $db);
+            $response = callErpWebservice($endpoint, $erpToken);
+            if (empty($response['ok']) || !is_array($response['data'] ?? null)) {
+                continue;
+            }
+            $row = extractFirstErpRowFromPayload($response['data']);
+            if (!is_array($row)) {
+                continue;
+            }
+            $rowNif = extractPartyNifFromErpRow($row);
+            if ($rowNif === '' || $rowNif === $normalizedNif) {
+                $cache[$normalizedNif] = (string) $db;
+                return (string) $cache[$normalizedNif];
+            }
+        }
+    }
+
+    $cache[$normalizedNif] = '';
+    return '';
+}
+
+function resolvePartyNameWithAppTools(string $nif, string $erpBaseUrl, string $erpToken): array {
+    $normalizedNif = preg_replace('/\D+/', '', trim($nif));
+    if ($normalizedNif === '') {
+        return ['nif' => '', 'name' => '', 'source' => 'none', 'erp_database' => ''];
+    }
+
+    $resolvedDb = resolveErpDatabaseForNifWithAppTools($normalizedNif, $erpBaseUrl, $erpToken);
+    $localName = getLocalAccountingEntityNameByNif($normalizedNif);
+    if ($localName !== '') {
+        return [
+            'nif' => $normalizedNif,
+            'name' => $localName,
+            'source' => 'mysql_accounting_entities',
+            'erp_database' => $resolvedDb,
+        ];
+    }
+
+    if ($erpBaseUrl === '' || $erpToken === '') {
+        return [
+            'nif' => $normalizedNif,
+            'name' => '',
+            'source' => 'none',
+            'erp_database' => $resolvedDb,
+        ];
+    }
+
+    $dbHint = $resolvedDb;
+    $commonQuery = [
+        'q' => $normalizedNif,
+        'searchField' => 'strNumContrib',
+        'limit' => 1,
+        'offset' => 0,
+    ];
+
+    $clientesEndpoint = buildErpGetEndpoint($erpBaseUrl, '/clientes', $commonQuery, $dbHint);
+    $clientesResponse = callErpWebservice($clientesEndpoint, $erpToken);
+    if (!empty($clientesResponse['ok']) && is_array($clientesResponse['data'] ?? null)) {
+        $row = extractFirstErpRowFromPayload($clientesResponse['data']);
+        if (is_array($row)) {
+            $name = extractPartyNameFromErpRow($row);
+            if ($name !== '') {
+                return [
+                    'nif' => $normalizedNif,
+                    'name' => $name,
+                    'source' => 'erp_clientes',
+                    'erp_database' => $resolvedDb,
+                ];
+            }
+        }
+    }
+
+    $fornecedoresEndpoint = buildErpGetEndpoint($erpBaseUrl, '/fornecedores', $commonQuery, $dbHint);
+    $fornecedoresResponse = callErpWebservice($fornecedoresEndpoint, $erpToken);
+    if (!empty($fornecedoresResponse['ok']) && is_array($fornecedoresResponse['data'] ?? null)) {
+        $row = extractFirstErpRowFromPayload($fornecedoresResponse['data']);
+        if (is_array($row)) {
+            $name = extractPartyNameFromErpRow($row);
+            if ($name !== '') {
+                return [
+                    'nif' => $normalizedNif,
+                    'name' => $name,
+                    'source' => 'erp_fornecedores',
+                    'erp_database' => $resolvedDb,
+                ];
+            }
+        }
+    }
+
+    return [
+        'nif' => $normalizedNif,
+        'name' => '',
+        'source' => 'none',
+        'erp_database' => $resolvedDb,
+    ];
+}
+
 function getAccountingTaskMemories(int $userId, int $limit = 12): array {
     if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
         return [];
@@ -1382,6 +2233,34 @@ function buildAccountingTaskMemorySummary(string $userMessage, array $actions): 
         $summary .= ' | Acoes executadas: ' . implode(', ', $taskTypes);
     }
     return $summary;
+}
+
+function isLikelyJsonMessage(string $message): bool {
+    $trimmed = trim($message);
+    if ($trimmed === '') {
+        return false;
+    }
+    return ($trimmed[0] === '{' || $trimmed[0] === '[');
+}
+
+function buildIssuerBuyerHeader(array $action): string {
+    $parties = isset($action['parties']) && is_array($action['parties']) ? $action['parties'] : [];
+    $issuer = isset($parties['issuer']) && is_array($parties['issuer']) ? $parties['issuer'] : [];
+    $buyer = isset($parties['buyer']) && is_array($parties['buyer']) ? $parties['buyer'] : [];
+
+    $issuerNif = trim((string) ($issuer['nif'] ?? ''));
+    $issuerName = trim((string) ($issuer['name'] ?? ''));
+    $buyerNif = trim((string) ($buyer['nif'] ?? ''));
+    $buyerName = trim((string) ($buyer['name'] ?? ''));
+
+    if ($issuerNif === '' && $issuerName === '' && $buyerNif === '' && $buyerName === '') {
+        return '';
+    }
+
+    $issuerLabel = trim(($issuerNif !== '' ? $issuerNif : '-') . ($issuerName !== '' ? ' - ' . $issuerName : ''));
+    $buyerLabel = trim(($buyerNif !== '' ? $buyerNif : '-') . ($buyerName !== '' ? ' - ' . $buyerName : ''));
+
+    return "Emitente: " . $issuerLabel . "\nAdquirente: " . $buyerLabel;
 }
 
 function listReadablePhpFiles(string $rootDir): array {
@@ -2968,6 +3847,19 @@ do {
                 }
                 $readerResult = readAssistantAttachmentWithPython($attachment, $maxChars);
                 if (!empty($readerResult['ok'])) {
+                    $structuredSummary = buildDocumentReaderStructuredSummary($readerResult);
+                    $issuerInfo = resolvePartyNameWithAppTools((string) ($structuredSummary['issuer_nif'] ?? ''), $erpBaseUrl, $erpToken);
+                    $buyerInfo = resolvePartyNameWithAppTools((string) ($structuredSummary['buyer_nif'] ?? ''), $erpBaseUrl, $erpToken);
+                    if (($issuerInfo['name'] ?? '') !== '') {
+                        $structuredSummary['issuer_name'] = (string) $issuerInfo['name'];
+                    }
+                    if (($buyerInfo['name'] ?? '') !== '') {
+                        $structuredSummary['buyer_name'] = (string) $buyerInfo['name'];
+                    }
+                    if (($buyerInfo['erp_database'] ?? '') !== '') {
+                        $structuredSummary['buyer_erp_database'] = (string) $buyerInfo['erp_database'];
+                    }
+                    $workflowHint = buildAccountingImportWorkflowHint($structuredSummary);
                     $toolResult = [
                         'ok' => true,
                         'attachment' => [
@@ -2977,13 +3869,35 @@ do {
                             'size' => (int) ($attachment['size'] ?? 0),
                         ],
                         'extraction' => $readerResult,
+                        'structured_summary' => $structuredSummary,
+                        'parties' => [
+                            'issuer' => $issuerInfo,
+                            'buyer' => $buyerInfo,
+                        ],
                     ];
+                    if (is_array($workflowHint)) {
+                        $toolResult['workflow_hint'] = $workflowHint;
+                    }
+                    if (is_array($workflowHint) && !empty($workflowHint['should_ask_import'])) {
+                        setPendingAccountingImportIntent($sessionId, [
+                            'attachment_id' => (string) ($attachment['id'] ?? ''),
+                            'created_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    } else {
+                        clearPendingAccountingImportIntent($sessionId);
+                    }
                     $actions[] = [
                         'type' => 'read_uploaded_document',
                         'attachment_id' => (string) ($attachment['id'] ?? ''),
                         'method' => (string) ($readerResult['method'] ?? ''),
+                        'parties' => [
+                            'issuer' => $issuerInfo,
+                            'buyer' => $buyerInfo,
+                        ],
+                        'ask_import' => is_array($workflowHint) && !empty($workflowHint['should_ask_import']) ? 1 : 0,
                     ];
                 } else {
+                    clearPendingAccountingImportIntent($sessionId);
                     $diagnostics = buildDocumentReaderHints($readerResult);
                     $toolResult = [
                         'ok' => false,
@@ -3314,6 +4228,56 @@ if ($finalMessage === '') {
         $finalMessage = json_encode(['rates' => $lastSuggestedAccounts], JSON_UNESCAPED_UNICODE);
     } else {
         $finalMessage = 'Nao foi possivel obter resposta do assistente.';
+    }
+}
+
+$lastDocumentReadAction = null;
+for ($idx = count($actions) - 1; $idx >= 0; $idx--) {
+    $candidateAction = $actions[$idx] ?? null;
+    if (!is_array($candidateAction)) {
+        continue;
+    }
+    if (($candidateAction['type'] ?? '') === 'read_uploaded_document') {
+        $lastDocumentReadAction = $candidateAction;
+        break;
+    }
+}
+
+if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
+    $issuerBuyerHeader = buildIssuerBuyerHeader($lastDocumentReadAction);
+    if ($issuerBuyerHeader !== '') {
+        $lowerMessage = strtolower($finalMessage);
+        if (strpos($lowerMessage, 'emitente:') === false && strpos($lowerMessage, 'adquirente:') === false) {
+            $finalMessage = $issuerBuyerHeader . "\n\n" . ltrim($finalMessage);
+        }
+    }
+}
+
+if (!isLikelyJsonMessage($finalMessage)) {
+    $lowerFinal = strtolower($finalMessage);
+    $asksForId = strpos($lowerFinal, 'id do documento') !== false
+        || strpos($lowerFinal, 'id na base de dados') !== false;
+    if ($asksForId) {
+        $finalMessage = "Para avançar com este fluxo, nao preciso do ID nesta fase.\n\n"
+            . "Se quiser, posso importar automaticamente o ficheiro pelo fluxo de Upload e enviar para Classificacao.\n\n"
+            . "Menu: Contabilidade > Classificacao\n"
+            . "Link: " . BASE_URL . "contabilidade/classificacao-importacao?import_type=1\n\n"
+            . "Pretende que eu avance ja com a importacao? (Sim/Não)";
+    }
+}
+
+if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
+    $mustAskImport = !empty($lastDocumentReadAction['ask_import']) && (int) $lastDocumentReadAction['ask_import'] === 1;
+    if ($mustAskImport) {
+        $question = 'Pretende importar já para Classificação? (Sim/Não)';
+        if (stripos($finalMessage, $question) === false) {
+            $trimmed = rtrim($finalMessage);
+            if ($trimmed !== '') {
+                $finalMessage = $trimmed . "\n\n" . $question;
+            } else {
+                $finalMessage = $question;
+            }
+        }
     }
 }
 
