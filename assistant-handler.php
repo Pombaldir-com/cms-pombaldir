@@ -249,6 +249,7 @@ $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Resp
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Quando o utilizador enviar anexos PDF/documentos, usa read_uploaded_document para extrair texto util.\n"
+    . "Se read_uploaded_document falhar, explica o erro tecnico concreto e apresenta as hints devolvidas pela ferramenta.\n"
     . "Resumo interno: fornece respostas curtas e claras.";
 
 if ($markdownPrompt !== '') {
@@ -1223,6 +1224,62 @@ function readAssistantAttachmentWithPython(array $attachment, int $maxChars = 50
     }
 
     return $decoded;
+}
+
+function buildDocumentReaderHints(array $readerResult): array {
+    $hints = [];
+    $errors = [];
+
+    $mainError = trim((string) ($readerResult['error'] ?? ''));
+    if ($mainError !== '') {
+        $errors[] = $mainError;
+    }
+
+    $details = $readerResult['details'] ?? [];
+    if (is_array($details)) {
+        foreach ($details as $detail) {
+            $detailText = trim((string) $detail);
+            if ($detailText !== '') {
+                $errors[] = $detailText;
+            }
+        }
+    }
+
+    $all = strtolower(implode(' | ', $errors));
+
+    if (strpos($all, 'pypdf_unavailable') !== false) {
+        $hints[] = 'Dependência Python em falta: pypdf.';
+    }
+    if (strpos($all, 'pdftotext_unavailable') !== false) {
+        $hints[] = 'Utilitário do sistema em falta: pdftotext (poppler).';
+    }
+    if (strpos($all, 'pdf2image_unavailable') !== false) {
+        $hints[] = 'Dependência Python em falta: pdf2image.';
+    }
+    if (strpos($all, 'tesseract_unavailable') !== false) {
+        $hints[] = 'OCR indisponível: instalar tesseract.';
+    }
+    if (strpos($all, 'ocr_no_text') !== false) {
+        $hints[] = 'OCR executou mas não encontrou texto legível (scan com baixa qualidade ou orientação problemática).';
+    }
+    if (strpos($all, 'unsupported_binary_type') !== false) {
+        $hints[] = 'Tipo de ficheiro binário ainda não suportado pelo leitor automático.';
+    }
+    if (strpos($all, 'qr_detector_script_missing') !== false) {
+        $hints[] = 'Leitor de QR fiscal não disponível (contabilidade/detectar_qr.py em falta).';
+    }
+    if (strpos($all, 'file_not_found') !== false) {
+        $hints[] = 'Anexo não encontrado no armazenamento.';
+    }
+
+    if (empty($hints)) {
+        $hints[] = 'Falha genérica de extração; tente novo PDF (texto pesquisável) ou imagem mais nítida.';
+    }
+
+    return [
+        'errors' => $errors,
+        'hints' => array_values(array_unique($hints)),
+    ];
 }
 
 function getAccountingTaskMemories(int $userId, int $limit = 12): array {
@@ -2927,10 +2984,17 @@ do {
                         'method' => (string) ($readerResult['method'] ?? ''),
                     ];
                 } else {
+                    $diagnostics = buildDocumentReaderHints($readerResult);
                     $toolResult = [
                         'ok' => false,
                         'error' => (string) ($readerResult['error'] ?? 'Falha ao ler anexo.'),
                         'attachment_id' => (string) ($attachment['id'] ?? ''),
+                        'attachment' => [
+                            'filename' => (string) ($attachment['filename'] ?? ''),
+                            'mime_type' => (string) ($attachment['mime_type'] ?? ''),
+                            'size' => (int) ($attachment['size'] ?? 0),
+                        ],
+                        'diagnostics' => $diagnostics,
                         'details' => $readerResult,
                     ];
                 }

@@ -29,7 +29,12 @@ if [[ -z "$HOST" || -z "$PORT" || -z "$USER" || -z "$PASS" || -z "$REMOTE" ]]; t
   exit 1
 fi
 
-mapfile -t ALL_FILES < <(git show --name-only --pretty=format: HEAD | sed '/^$/d')
+ALL_FILES=()
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  ALL_FILES+=("$line")
+done < <(git show --name-only --pretty=format: HEAD | sed '/^$/d')
+
 if [[ "${#ALL_FILES[@]}" -eq 0 ]]; then
   echo "No files found in HEAD commit."
   exit 0

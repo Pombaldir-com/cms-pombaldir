@@ -5,7 +5,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from typing import Dict, Any, Optional
+
+try:
+    from pdf2image import convert_from_path
+except Exception:
+    convert_from_path = None
 
 
 def first_match(pattern: str, text: str, flags: int = 0) -> str:
@@ -109,7 +115,68 @@ def extract_pdf_text_with_pdftotext(path: str) -> Dict[str, Any]:
             pass
 
 
+def find_poppler_path() -> str:
+    for candidate in ("/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"):
+        if os.path.exists(os.path.join(candidate, "pdfinfo")):
+            return candidate
+    return ""
+
+
+def extract_pdf_text_with_ocr(path: str, max_pages: int = 4) -> Dict[str, Any]:
+    if convert_from_path is None:
+        return {"ok": False, "error": "pdf2image_unavailable"}
+
+    has_tesseract = subprocess.call(
+        ["/usr/bin/env", "bash", "-lc", "command -v tesseract >/dev/null 2>&1"]
+    ) == 0
+    if not has_tesseract:
+        return {"ok": False, "error": "tesseract_unavailable"}
+
+    poppler_path = find_poppler_path() or None
+    kwargs: Dict[str, Any] = {"dpi": 300}
+    if poppler_path:
+        kwargs["poppler_path"] = poppler_path
+
+    try:
+        pages = convert_from_path(path, first_page=1, last_page=max_pages, **kwargs)
+    except Exception as exc:
+        return {"ok": False, "error": f"pdf2image_failed: {exc}"}
+
+    chunks = []
+    for idx, page in enumerate(pages, start=1):
+        tmp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=f"_p{idx}.png", delete=False) as fh:
+                tmp_file = fh.name
+            page.save(tmp_file, format="PNG")
+            proc = subprocess.run(
+                ["tesseract", tmp_file, "stdout", "-l", "por+eng", "--psm", "6"],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if proc.returncode == 0:
+                text = (proc.stdout or "").strip()
+                if text:
+                    chunks.append(text)
+        except Exception:
+            continue
+        finally:
+            if tmp_file and os.path.isfile(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
+
+    if not chunks:
+        return {"ok": False, "error": "ocr_no_text"}
+
+    return {"ok": True, "method": "ocr_tesseract", "text": "\n".join(chunks), "pages": len(pages)}
+
+
 def read_pdf(path: str, max_chars: int) -> Dict[str, Any]:
+    failures = []
+
     for extractor in (extract_pdf_text_with_pypdf, extract_pdf_text_with_pdftotext):
         result = extractor(path)
         if result.get("ok"):
@@ -120,7 +187,20 @@ def read_pdf(path: str, max_chars: int) -> Dict[str, Any]:
                 "pages": result.get("pages"),
                 "text_excerpt": text,
             }
-    return {"ok": False, "error": "pdf_extract_failed"}
+        failures.append(result.get("error", "unknown_error"))
+
+    ocr_result = extract_pdf_text_with_ocr(path)
+    if ocr_result.get("ok"):
+        text = normalize_text(ocr_result.get("text", ""), max_chars)
+        return {
+            "ok": True,
+            "method": ocr_result.get("method", "ocr_tesseract"),
+            "pages": ocr_result.get("pages"),
+            "text_excerpt": text,
+        }
+    failures.append(ocr_result.get("error", "ocr_unknown_error"))
+
+    return {"ok": False, "error": "pdf_extract_failed", "details": failures}
 
 
 def run_qr_detector(path: str, dpi: int = 200) -> Dict[str, Any]:
