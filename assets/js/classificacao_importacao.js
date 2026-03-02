@@ -232,10 +232,13 @@ window.addEventListener('load', function() {
     }
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
+    var viewModeInput = document.getElementById('view_mode');
     var importType = importTypeInput ? parseInt(importTypeInput.value, 10) : 1;
+    var viewMode = viewModeInput ? String(viewModeInput.value || '').trim().toLowerCase() : '';
     if (isNaN(importType)) {
         importType = 1;
     }
+    var isClassificationOnlyView = importType === 1 && viewMode !== 'import';
     var importTypeAllowsImport = importType === 1 || importType === 2;
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
 
@@ -266,6 +269,9 @@ window.addEventListener('load', function() {
             var draw = requestData && typeof requestData.draw !== 'undefined' ? requestData.draw : 0;
             var payload = $.extend(true, {}, requestData || {});
             payload.import_type = importType;
+            if (viewMode !== '') {
+                payload.view_mode = viewMode;
+            }
             var queryString = $.param(payload);
 
             fetchJson('contabilidade/classificacao-importacao/data?' + queryString)
@@ -570,6 +576,9 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : '',
             mode: 'check'
         };
+        if (isClassificationOnlyView) {
+            payload.allow_classified_flow = 1;
+        }
         debugJson('Pedido de validação da base de dados do adquirente', payload);
         return fetchJson('contabilidade/classificacao-importacao/acquirer-database', {
             method: 'POST',
@@ -607,6 +616,9 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : '',
             mode: 'update'
         };
+        if (isClassificationOnlyView) {
+            payload.allow_classified_flow = 1;
+        }
         debugJson('Pedido de atualização da base de dados do adquirente', payload);
 
         return fetchJson('contabilidade/classificacao-importacao/acquirer-database', {
@@ -720,6 +732,9 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : '',
             act: 'importMovim'
         };
+        if (isClassificationOnlyView) {
+            payload.allow_classified_flow = 1;
+        }
         if (pendingAcquirerEntity && typeof pendingAcquirerEntity.erp_database === 'string') {
             var databaseValue = pendingAcquirerEntity.erp_database.trim();
             if (databaseValue !== '') {
@@ -1217,6 +1232,13 @@ window.addEventListener('load', function() {
             btn.classList.add('btn-secondary');
         }
 
+        var manualReview = (btn.getAttribute('data-manual-review') || '').trim();
+        var isManualReview = manualReview === '1';
+        var isSuccess = btn.classList.contains('btn-success');
+        var isAutoImportReady = isSuccess && !isManualReview;
+        btn.setAttribute('data-auto-import', isAutoImportReady ? '1' : '0');
+        btn.textContent = isAutoImportReady ? 'Classificado' : 'Classificar';
+
         updateImportButtonState();
 
     }
@@ -1240,6 +1262,7 @@ window.addEventListener('load', function() {
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
     var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
+    var aiSuggestionExplainBtn = document.getElementById('aiSuggestionExplainBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
     var customRateRowTemplate = document.getElementById('customRateRowTemplate');
     var rateInputs = {};
@@ -1854,6 +1877,34 @@ window.addEventListener('load', function() {
         });
     }
 
+    function buildRateExplanationPayload() {
+        var rateLines = buildRateLines();
+        return rateLines.map(function(line) {
+            var info = rateInputs[line.key] || null;
+            var data = currentRateData[line.key] || {};
+            var ivaAccount = '';
+            var generalAccount = '';
+            if (info && info.ivaAccount) {
+                ivaAccount = String(info.ivaAccount.value || '').trim();
+            } else if (data && typeof data.iva_account === 'string') {
+                ivaAccount = data.iva_account.trim();
+            }
+            if (info && info.generalAccount) {
+                generalAccount = String(info.generalAccount.value || '').trim();
+            } else if (data && typeof data.general_account === 'string') {
+                generalAccount = data.general_account.trim();
+            }
+            return {
+                key: line.key,
+                label: line.label,
+                base: line.base,
+                iva: line.iva,
+                iva_account: ivaAccount,
+                general_account: generalAccount
+            };
+        });
+    }
+
     function buildAiSuggestionPrompt() {
         if (!currentBtn) {
             return '';
@@ -1867,10 +1918,10 @@ window.addEventListener('load', function() {
         var rateLines = buildRateLines();
 
         return [
-            'Sugere contas IVA e contas gerais para as taxas abaixo.',
+            'Sugere contas IVA, contas gerais por taxa e conta do Valor Total.',
             'Usa a ferramenta suggest_accounts com NIF do adquirente, tipo de documento e taxas.',
             'Responde APENAS em JSON com o formato:',
-                '{"rates":{"<rate_key>":{"iva_account":"", "general_account":""}}}',
+                '{"rates":{"<rate_key>":{"iva_account":"", "general_account":""}},"total_account":""}',
                 'Usa exatamente as chaves de taxa indicadas.',
                 'Nao deixes campos vazios.',
                 '',
@@ -1885,6 +1936,28 @@ window.addEventListener('load', function() {
             'Taxas:',
             JSON.stringify(rateLines)
         ].join('\n');
+    }
+
+    function resolveTotalAccountSuggestion(payload, expectedLines) {
+        if (payload && typeof payload === 'object') {
+            var direct = resolveSuggestionValue(payload, ['total_account', 'totalAccount', 'conta_total', 'account_total']);
+            if (direct) {
+                return direct;
+            }
+            if (payload.meta && typeof payload.meta === 'object') {
+                var fromMeta = resolveSuggestionValue(payload.meta, ['total_account', 'totalAccount', 'conta_total']);
+                if (fromMeta) {
+                    return fromMeta;
+                }
+            }
+        }
+        if (expectedLines && typeof expectedLines === 'object') {
+            var expected = resolveSuggestionValue(expectedLines, ['total_account', 'totalAccount', 'conta_total']);
+            if (expected) {
+                return expected;
+            }
+        }
+        return '';
     }
 
     function extractJsonFromText(text) {
@@ -1994,11 +2067,14 @@ window.addEventListener('load', function() {
 
     function applyAiSuggestions(payload) {
         var ratesPayload = normalizeAiRatesPayload(payload);
-        if (!ratesPayload) {
+        var expectedLines = window.aiExpectedLines && typeof window.aiExpectedLines === 'object' ? window.aiExpectedLines : {};
+        var totalAccountSuggested = resolveTotalAccountSuggestion(payload, expectedLines);
+        if (!ratesPayload && !totalAccountSuggested) {
             return false;
         }
         var applied = false;
-        Object.keys(ratesPayload).forEach(function(rateKey) {
+        if (ratesPayload && typeof ratesPayload === 'object') {
+            Object.keys(ratesPayload).forEach(function(rateKey) {
             var resolvedKey = rateKey;
             var info = rateInputs[resolvedKey];
             if (!info) {
@@ -2040,7 +2116,20 @@ window.addEventListener('load', function() {
             if (applied) {
                 updateRowDirtyState(resolvedKey);
             }
-        });
+            });
+        }
+
+        if (totalAccountSuggested && totalAccountInput) {
+            var existingTotal = String(totalAccountInput.value || '').trim();
+            if (existingTotal === '') {
+                totalAccountInput.value = totalAccountSuggested;
+                currentTotalAccount = totalAccountSuggested;
+                if (currentBtn) {
+                    currentBtn.setAttribute('data-total-account', totalAccountSuggested);
+                }
+                applied = true;
+            }
+        }
         return applied;
     }
 
@@ -2724,6 +2813,9 @@ window.addEventListener('load', function() {
                     action: 'suggest_accounts',
                     payload: {
                         acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                        acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
+                        emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                        emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
                         rates: rateLines
                     },
@@ -2739,6 +2831,7 @@ window.addEventListener('load', function() {
                     message = res.message || res.error || res.details || '';
                 }
                 debugJson('IA resposta', res);
+                window.aiExpectedLines = (res && res.expected_lines && typeof res.expected_lines === 'object') ? res.expected_lines : null;
                 var parsed = extractJsonFromText(message);
                 if (parsed && applyAiSuggestions(parsed)) {
                     if (res) {
@@ -2753,6 +2846,12 @@ window.addEventListener('load', function() {
                                     }
                                     if (action.plan_db) {
                                         window.aiSuggestionSources.push('erp_planocontas');
+                                    }
+                                    if (action.rules && parseInt(action.rules, 10) > 0) {
+                                        window.aiSuggestionSources.push('mysql_classification_rules');
+                                    }
+                                    if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0) {
+                                        window.aiSuggestionSources.push('erp_movimentos');
                                     }
                                 }
                             });
@@ -2771,6 +2870,12 @@ window.addEventListener('load', function() {
                             if (action.plan_db) {
                                 sourceLabel = sourceLabel === 'Historico' ? 'Historico + ERP' : 'ERP';
                             }
+                            if (action.rules && parseInt(action.rules, 10) > 0 && sourceLabel.indexOf('Regras') === -1) {
+                                sourceLabel = sourceLabel === 'IA' ? 'Regras' : (sourceLabel + ' + Regras');
+                            }
+                            if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0 && sourceLabel.indexOf('Movimentos') === -1) {
+                                sourceLabel = sourceLabel === 'IA' ? 'Movimentos ERP' : (sourceLabel + ' + Movimentos ERP');
+                            }
                         });
                     }
                     showSuccess('Sugestoes aplicadas (' + sourceLabel + ').');
@@ -2784,6 +2889,181 @@ window.addEventListener('load', function() {
             }).finally(function() {
                 aiSuggestBtn.disabled = false;
                 aiSuggestBtn.classList.remove('disabled');
+            });
+        });
+    }
+
+    function buildSuggestionExplanationHtml(response) {
+        if (!response || typeof response !== 'object' || !response.rates || typeof response.rates !== 'object') {
+            return '<p>Sem detalhes de explicação disponíveis.</p>';
+        }
+        var html = '';
+        if (response.summary && typeof response.summary === 'object') {
+            var summary = response.summary;
+            html += '<div class="mb-2"><small class="text-muted">'
+                + 'Histórico: ' + escapeHtml(String(summary.history_samples || 0))
+                + ' | Regras: ' + escapeHtml(String(summary.rule_samples || 0))
+                + ' | Movimentos ERP: ' + escapeHtml(String(summary.erp_movement_rows || 0))
+                + ' | Plano ERP: ' + escapeHtml(String(summary.erp_plan_rows || 0))
+                + '</small></div>';
+        }
+
+        var ratesPayload = response.rates || {};
+        var orderedKeys = [];
+        var seen = {};
+        buildRateExplanationPayload().forEach(function(line) {
+            var key = line && line.key ? String(line.key) : '';
+            if (!key || !Object.prototype.hasOwnProperty.call(ratesPayload, key) || seen[key]) {
+                return;
+            }
+            orderedKeys.push(key);
+            seen[key] = true;
+        });
+        Object.keys(ratesPayload).forEach(function(rateKey) {
+            if (!seen[rateKey]) {
+                orderedKeys.push(rateKey);
+                seen[rateKey] = true;
+            }
+        });
+
+        orderedKeys.forEach(function(rateKey) {
+            var info = ratesPayload[rateKey] || {};
+            var label = String(info.label || rateKey).trim();
+            var suggested = info.suggested && typeof info.suggested === 'object' ? info.suggested : {};
+            var reasons = Array.isArray(info.reasons) ? info.reasons : [];
+            html += '<div class="mb-3 p-2 border rounded">'
+                + '<div><strong>Taxa ' + escapeHtml(label) + '</strong></div>'
+                + '<div><small>Conta geral: ' + escapeHtml(String(suggested.general_account || '-')) + ' | Conta IVA: ' + escapeHtml(String(suggested.iva_account || '-')) + '</small></div>';
+            if (reasons.length > 0) {
+                html += '<ul class="mb-0 mt-2">';
+                reasons.forEach(function(reason) {
+                    html += '<li>' + escapeHtml(String(reason || '')) + '</li>';
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+        });
+
+        if (response.total_account && typeof response.total_account === 'object') {
+            var totalInfo = response.total_account;
+            var totalReasons = Array.isArray(totalInfo.reasons) ? totalInfo.reasons : [];
+            html += '<div class="mb-3 p-2 border rounded bg-light">'
+                + '<div><strong>Valor Total</strong></div>'
+                + '<div><small>Conta sugerida: ' + escapeHtml(String(totalInfo.suggested || '-')) + '</small></div>';
+            if (totalReasons.length > 0) {
+                html += '<ul class="mb-0 mt-2">';
+                totalReasons.forEach(function(reason) {
+                    html += '<li>' + escapeHtml(String(reason || '')) + '</li>';
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
+        }
+
+        return html || '<p>Sem detalhes de explicação disponíveis.</p>';
+    }
+
+    var suggestionExplainModalEl = null;
+    var suggestionExplainModalBody = null;
+    var suggestionExplainModal = null;
+
+    function ensureSuggestionExplainModal() {
+        if (suggestionExplainModalEl) {
+            return true;
+        }
+        if (!document.body || !window.bootstrap || typeof window.bootstrap.Modal !== 'function') {
+            return false;
+        }
+
+        suggestionExplainModalEl = document.createElement('div');
+        suggestionExplainModalEl.className = 'modal fade';
+        suggestionExplainModalEl.id = 'suggestionExplainModal';
+        suggestionExplainModalEl.tabIndex = -1;
+        suggestionExplainModalEl.setAttribute('aria-hidden', 'true');
+        suggestionExplainModalEl.innerHTML = ''
+            + '<div class="modal-dialog modal-xl">'
+            + '  <div class="modal-content">'
+            + '    <div class="modal-header">'
+            + '      <h5 class="modal-title">Explicação da sugestão</h5>'
+            + '      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>'
+            + '    </div>'
+            + '    <div class="modal-body"></div>'
+            + '    <div class="modal-footer">'
+            + '      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>'
+            + '    </div>'
+            + '  </div>'
+            + '</div>';
+
+        document.body.appendChild(suggestionExplainModalEl);
+        suggestionExplainModalBody = suggestionExplainModalEl.querySelector('.modal-body');
+        suggestionExplainModal = new window.bootstrap.Modal(suggestionExplainModalEl);
+        return !!suggestionExplainModalBody;
+    }
+
+    function showSuggestionExplanationDialog(html) {
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            window.Swal.fire({
+                title: 'Explicação da sugestão',
+                html: html,
+                width: 900,
+                confirmButtonText: 'Fechar'
+            });
+            return;
+        }
+
+        if (ensureSuggestionExplainModal()) {
+            suggestionExplainModalBody.innerHTML = html;
+            suggestionExplainModal.show();
+            return;
+        }
+
+        showNotice('info', 'Explicação obtida, mas sem componente visual para a mostrar.');
+    }
+
+    if (aiSuggestionExplainBtn) {
+        aiSuggestionExplainBtn.addEventListener('click', function() {
+            if (!currentBtn) {
+                showNotice('warning', 'Selecione um documento antes de pedir explicação.');
+                return;
+            }
+
+            var rates = buildRateExplanationPayload();
+            if (!rates.length) {
+                showNotice('warning', 'Não existem taxas para explicar.');
+                return;
+            }
+
+            aiSuggestionExplainBtn.disabled = true;
+            aiSuggestionExplainBtn.classList.add('disabled');
+            fetchJson('contabilidade/classificacao-importacao/suggestion-explanation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    csrf_token: csrfInput ? csrfInput.value : '',
+                    payload: {
+                        acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                        acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
+                        emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                        emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                        doc_type: currentBtn.getAttribute('data-doctype') || '',
+                        total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
+                        rates: rates
+                    }
+                })
+            }).then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (!res || !res.success) {
+                    showError((res && res.error) || 'Não foi possível obter a explicação da sugestão.');
+                    return;
+                }
+                showSuggestionExplanationDialog(buildSuggestionExplanationHtml(res));
+            }).catch(function(err) {
+                showError((err && err.message) || 'Erro ao obter explicação da sugestão.');
+            }).finally(function() {
+                aiSuggestionExplainBtn.disabled = false;
+                aiSuggestionExplainBtn.classList.remove('disabled');
             });
         });
     }
@@ -3093,6 +3373,10 @@ window.addEventListener('load', function() {
                 currentTotalAccount = responseTotalAccount;
                 if (totalAccountInput) {
                     totalAccountInput.value = currentTotalAccount;
+                }
+                if (Object.prototype.hasOwnProperty.call(res, 'manual_review_required')) {
+                    var manualReviewValue = String(res.manual_review_required || '').trim();
+                    currentBtn.setAttribute('data-manual-review', manualReviewValue === '1' ? '1' : '0');
                 }
 
                 if (res.row_rates && typeof res.row_rates === 'object') {

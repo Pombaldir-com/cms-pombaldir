@@ -48,6 +48,10 @@ if (!$embed) {
                 <div id="ai-messages" class="ai-messages"></div>
                 <div class="ai-input">
                     <textarea id="ai-input" class="form-control" rows="2" placeholder="Escreva a sua mensagem..."></textarea>
+                    <div class="mt-2">
+                        <input id="ai-file" type="file" class="form-control" multiple>
+                        <div id="ai-upload-status" class="small text-muted mt-1"></div>
+                    </div>
                     <button id="ai-send" class="btn btn-primary mt-2"><i class="fa fa-paper-plane"></i> Enviar</button>
                     <?php if ($readOnly): ?>
                         <span class="badge bg-warning text-dark ms-2">Modo seguro</span>
@@ -113,9 +117,13 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
     var messagesEl = document.getElementById('ai-messages');
     var inputEl = document.getElementById('ai-input');
     var sendBtn = document.getElementById('ai-send');
+    var fileInput = document.getElementById('ai-file');
+    var uploadStatusEl = document.getElementById('ai-upload-status');
     var feedbackPositiveBtn = document.getElementById('aiFeedbackPositive');
     var feedbackNegativeBtn = document.getElementById('aiFeedbackNegative');
     var feedbackInput = document.getElementById('aiFeedbackText');
+    var pendingAttachmentIds = [];
+    var activeUploads = 0;
 
     function appendMessage(role, text) {
         var bubble = document.createElement('div');
@@ -125,11 +133,88 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    function sendMessage() {
-        var text = inputEl.value.trim();
-        if (!text) {
+    function readFileAsDataUrl(file) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() { resolve(String(reader.result || '')); };
+            reader.onerror = function() { reject(new Error('Falha ao ler ficheiro.')); };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function setUploadStatus(message, isError) {
+        if (!uploadStatusEl) {
             return;
         }
+        uploadStatusEl.textContent = message || '';
+        uploadStatusEl.className = isError ? 'small text-danger mt-1' : 'small text-muted mt-1';
+    }
+
+    function uploadAttachment(file) {
+        if (!file) {
+            return Promise.resolve();
+        }
+        activeUploads += 1;
+        setUploadStatus('A carregar anexos...', false);
+        return readFileAsDataUrl(file).then(function(dataUrl) {
+            return fetch('assistant-handler.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    csrf_token: window.aiCsrfToken,
+                    action: 'upload_attachment',
+                    session_id: window.aiSessionId,
+                    filename: file.name || 'anexo.bin',
+                    mime_type: file.type || 'application/octet-stream',
+                    content_base64: dataUrl
+                })
+            });
+        }).then(function(res) {
+            return res.json();
+        }).then(function(payload) {
+            if (!payload || payload.success !== true || !payload.attachment || !payload.attachment.id) {
+                throw new Error((payload && payload.message) ? payload.message : 'Falha no upload do anexo.');
+            }
+            if (payload.csrf_token) {
+                window.aiCsrfToken = payload.csrf_token;
+            }
+            pendingAttachmentIds.push(payload.attachment.id);
+            appendMessage('assistant', 'Anexo carregado: ' + (payload.attachment.filename || file.name));
+        });
+    }
+
+    function handleFileSelection() {
+        if (!fileInput || !fileInput.files || !fileInput.files.length) {
+            return;
+        }
+        var files = Array.prototype.slice.call(fileInput.files);
+        var sequence = Promise.resolve();
+        files.forEach(function(file) {
+            sequence = sequence.then(function() {
+                return uploadAttachment(file);
+            });
+        });
+        sequence.catch(function(err) {
+            setUploadStatus(err && err.message ? err.message : 'Falha no upload de anexos.', true);
+        }).finally(function() {
+            activeUploads = 0;
+            fileInput.value = '';
+            setUploadStatus('Anexos prontos para usar na próxima mensagem.', false);
+        });
+    }
+
+    function sendMessage() {
+        var text = inputEl.value.trim();
+        if (!text || activeUploads > 0) {
+            if (activeUploads > 0) {
+                setUploadStatus('Aguarde o fim do upload antes de enviar.', true);
+            }
+            return;
+        }
+        var attachmentsToSend = pendingAttachmentIds.slice();
+        pendingAttachmentIds = [];
         appendMessage('user', text);
         inputEl.value = '';
         sendBtn.disabled = true;
@@ -141,7 +226,8 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
             body: JSON.stringify({
                 csrf_token: window.aiCsrfToken,
                 message: text,
-                session_id: window.aiSessionId
+                session_id: window.aiSessionId,
+                attachments: attachmentsToSend
             })
         }).then(function(res) {
             return res.json();
@@ -202,6 +288,9 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         feedbackNegativeBtn.addEventListener('click', function() {
             sendFeedback(1);
         });
+    }
+    if (fileInput) {
+        fileInput.addEventListener('change', handleFileSelection);
     }
 
     appendMessage('assistant', 'Ola! Como posso ajudar?');

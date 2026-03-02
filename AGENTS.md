@@ -32,6 +32,16 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 - Não usar baseUrl hardcoded; o endpoint do ERP deve vir sempre das Definições (`erp_webservice_url`).
 - Em páginas com DataTables, chamar o webservice diretamente no browser (sem proxy interno).
 
+## Classificacao/Importacao CTB
+- `contabilidade/classificacao-importacao?import_type=1` e a vista de Classificacao.
+- Nesta vista, o botao por linha usa:
+  - `Classificar` (quando incompleto)
+  - `Classificado` (quando pronto/verde)
+- Nesta vista existe o botao global `Classificado`, que processa/importa as linhas verdes diretamente para contabilidade.
+- `contabilidade/classificacao-importacao?import_type=1&type=import` e a vista de Importacao.
+- Nesta vista aparecem apenas as linhas verdes e o botao `Importar Ctb`.
+- O item de menu `Importação` (`type=import`) deve ficar visivel apenas para utilizadores com permissao `ctb_importar_docs`.
+
 ## ERP API knowledge
 - This system uses the ERPSINC API; consult the documentation and the local repo at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt` when working on integrations. online Docs: https://app.swaggerhub.com/apis-docs/Pombaldir.com/ERPSinc/1.0.0
 
@@ -43,6 +53,12 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 ## Debug mode
 - The setting `debug_mode` is configurable in **Definicoes > Geral** and enables extra diagnostics.
 - Use `getSetting('debug_mode', '0')` to gate debug logs; `contabilidade/upload-handler.php` writes `contabilidade/debug_qr.txt` when enabled.
+
+## Assistente AI memory
+- Persistir memoria e contexto entre sessoes em `ai_assistant_logs`.
+- O comportamento por defeito e memorizar instrucoes/mensagens do utilizador.
+- Se o utilizador indicar "esquece", "errado" ou equivalente, nao memorizar essa mensagem e remover a memoria recente quando aplicavel.
+- Permitir comandos explicitos no chat: `memoriza: ...`, `listar memorias`, `esquece: ...`, `esquece memorias`.
 
 ## Testing
 - No formal test runner defined; validate changes manually when needed.

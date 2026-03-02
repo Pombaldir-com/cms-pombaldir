@@ -448,7 +448,11 @@ function currentUser(): ?array {
         return null;
     }
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
+    if (hasUserAiPreferenceColumns()) {
+        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
+    } else {
+        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, 0 AS ai_chat_floating, 1 AS ai_read_only FROM users WHERE id = ?');
+    }
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch() ?: null;
     if ($user) {
@@ -512,10 +516,19 @@ function getUsers(): array {
 function getUserById(int $id): ?array {
     $pdo = getPDO();
     $hasDept = hasTable('user_taxonomy_terms') && hasTable('taxonomy_terms') && hasTable('taxonomies');
+    $hasAiPrefs = hasUserAiPreferenceColumns();
     if ($hasDept) {
-        $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role, u.ai_chat_floating, u.ai_read_only FROM users u WHERE u.id = ?");
+        if ($hasAiPrefs) {
+            $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role, u.ai_chat_floating, u.ai_read_only FROM users u WHERE u.id = ?");
+        } else {
+            $stmt = $pdo->prepare("SELECT u.id, u.username, u.name, u.email, u.phone, u.photo, u.role, 0 AS ai_chat_floating, 1 AS ai_read_only FROM users u WHERE u.id = ?");
+        }
     } else {
-        $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
+        if ($hasAiPrefs) {
+            $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, ai_chat_floating, ai_read_only FROM users WHERE id = ?');
+        } else {
+            $stmt = $pdo->prepare('SELECT id, username, name, email, phone, photo, role, 0 AS ai_chat_floating, 1 AS ai_read_only FROM users WHERE id = ?');
+        }
     }
     $stmt->execute([$id]);
     $user = $stmt->fetch() ?: null;
@@ -532,8 +545,13 @@ function getUserById(int $id): ?array {
  */
 function createUser(string $username, string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null, int $aiChatFloating = 0, int $aiReadOnly = 1): int {
     $pdo = getPDO();
-    $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo, ai_chat_floating, ai_read_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath, $aiChatFloating, $aiReadOnly]);
+    if (hasUserAiPreferenceColumns()) {
+        $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo, ai_chat_floating, ai_read_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath, $aiChatFloating, $aiReadOnly]);
+    } else {
+        $stmt = $pdo->prepare('INSERT INTO users (username, password, name, email, phone, role, photo) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$username, $passwordHash, $name, $email, $phone, $role, $photoPath]);
+    }
     $userId = (int) $pdo->lastInsertId();
     if ($departmentTermIds !== null) {
         setUserDepartmentTerms($userId, $departmentTermIds);
@@ -550,8 +568,13 @@ function createUser(string $username, string $passwordHash, ?string $name, ?stri
  */
 function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $email, ?string $phone, int $role, ?string $photoPath = null, ?array $departmentTermIds = null, int $aiChatFloating = 0, int $aiReadOnly = 1): void {
     $pdo = getPDO();
-    $sql = 'UPDATE users SET name = ?, email = ?, phone = ?, ai_chat_floating = ?, ai_read_only = ?';
-    $params = [$name, $email, $phone, $aiChatFloating, $aiReadOnly];
+    if (hasUserAiPreferenceColumns()) {
+        $sql = 'UPDATE users SET name = ?, email = ?, phone = ?, ai_chat_floating = ?, ai_read_only = ?';
+        $params = [$name, $email, $phone, $aiChatFloating, $aiReadOnly];
+    } else {
+        $sql = 'UPDATE users SET name = ?, email = ?, phone = ?';
+        $params = [$name, $email, $phone];
+    }
     if ($id !== 1) {
         $sql .= ', role = ?';
         $params[] = $role;
@@ -572,6 +595,15 @@ function updateUser(int $id, ?string $passwordHash, ?string $name, ?string $emai
         setUserDepartmentTerms($id, $departmentTermIds);
     }
     logAuditAction('update', 'user', $id);
+}
+
+function hasUserAiPreferenceColumns(): bool {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+    $cached = hasColumn('users', 'ai_chat_floating') && hasColumn('users', 'ai_read_only');
+    return $cached;
 }
 
 function getDepartmentTaxonomyId(bool $createIfMissing = true): ?int {
@@ -621,6 +653,47 @@ function getDepartmentTermsWithCounts(): array {
     return $stmt->fetchAll();
 }
 
+function ensureUserDepartmentTermsTable(): bool {
+    if (hasTable('user_taxonomy_terms')) {
+        return true;
+    }
+    if (!hasTable('users') || !hasTable('taxonomy_terms')) {
+        return false;
+    }
+
+    $pdo = getPDO();
+    try {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS user_taxonomy_terms (
+                user_id INT NOT NULL,
+                term_id INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, term_id),
+                CONSTRAINT fk_user_taxonomy_terms_user
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                CONSTRAINT fk_user_taxonomy_terms_term
+                    FOREIGN KEY (term_id) REFERENCES taxonomy_terms(id) ON DELETE CASCADE
+            )"
+        );
+    } catch (Throwable $e) {
+        // Fallback without FK constraints for legacy schemas.
+        try {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS user_taxonomy_terms (
+                    user_id INT NOT NULL,
+                    term_id INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, term_id)
+                )"
+            );
+        } catch (Throwable $inner) {
+            return false;
+        }
+    }
+
+    return hasTable('user_taxonomy_terms');
+}
+
 function isDepartmentTermInUse(int $termId): bool {
     if (!hasTable('user_taxonomy_terms')) {
         return false;
@@ -632,7 +705,7 @@ function isDepartmentTermInUse(int $termId): bool {
 }
 
 function getUserDepartmentTermIds(int $userId): array {
-    if (!hasTable('user_taxonomy_terms')) {
+    if (!hasTable('user_taxonomy_terms') && !ensureUserDepartmentTermsTable()) {
         return [];
     }
     $taxonomyId = getDepartmentTaxonomyId();
@@ -646,7 +719,7 @@ function getUserDepartmentTermIds(int $userId): array {
 }
 
 function setUserDepartmentTerms(int $userId, array $termIds): void {
-    if (!hasTable('user_taxonomy_terms')) {
+    if (!hasTable('user_taxonomy_terms') && !ensureUserDepartmentTermsTable()) {
         return;
     }
     $taxonomyId = getDepartmentTaxonomyId();
@@ -675,7 +748,7 @@ function setUserDepartmentTerms(int $userId, array $termIds): void {
 }
 
 function getDepartmentPermissionOptions(): array {
-    return [
+    $options = [
         'compras_upload' => 'Compras -> Upload',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
@@ -685,6 +758,32 @@ function getDepartmentPermissionOptions(): array {
         'ai_suggest_vat' => 'Assistente AI - Sugerir contas IVA',
         'ai_approve_docs' => 'Assistente AI - Aprovar/Rejeitar docs',
     ];
+
+    // Keep legacy/custom permissions visible in settings so they are not
+    // silently dropped when the options list evolves over time.
+    $raw = getSetting('department_permissions', '');
+    if ($raw !== null && trim($raw) !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $permissions) {
+                if (!is_array($permissions)) {
+                    continue;
+                }
+                foreach ($permissions as $permission) {
+                    if (!is_string($permission)) {
+                        continue;
+                    }
+                    $permission = trim($permission);
+                    if ($permission === '' || isset($options[$permission])) {
+                        continue;
+                    }
+                    $options[$permission] = 'Permissao personalizada (' . $permission . ')';
+                }
+            }
+        }
+    }
+
+    return $options;
 }
 
 function getDepartmentPermissions(): array {

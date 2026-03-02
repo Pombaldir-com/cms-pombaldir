@@ -246,6 +246,14 @@ switch (true) {
         $_GET['action'] = 'acquirer_database';
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/suggestion-explanation',
+        'contabilidade/classificacao-importacao/suggestion_explanation',
+        'contabilidade/classificacao-importacao-suggestion-explanation.php'
+    ], true):
+        $_GET['action'] = 'suggestion_explanation';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;

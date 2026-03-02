@@ -111,6 +111,9 @@ document.addEventListener('DOMContentLoaded', function () {
                         if (res && res.csrf_token && csrfInput) {
                             csrfInput.value = res.csrf_token;
                         }
+                        if (res && res.requires_acquirer_database && res.acquirer && typeof window.ensureAcquirerDatabase === 'function') {
+                            window.ensureAcquirerDatabase(res.acquirer);
+                        }
                         console.log('[sync-entity] resposta', res);
                     })
                     .catch(function(){});

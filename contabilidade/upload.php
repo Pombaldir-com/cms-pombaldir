@@ -43,13 +43,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo = getPDO();
         $nif = extractVatNumber((string) $value);
-        $acquirerDatabase = '';
         $acquirerNif = extractVatNumber((string) $acquirerValue);
-        if ($database === '' && $acquirerNif !== '') {
+        $acquirerEntity = null;
+        $requiresAcquirerDatabase = false;
+        if ($acquirerNif !== '') {
             $acquirerEntity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
             if ($acquirerEntity && !empty($acquirerEntity['erp_database'])) {
-                $acquirerDatabase = trim((string) $acquirerEntity['erp_database']);
-                $database = $acquirerDatabase;
+                if ($database === '') {
+                    $database = trim((string) $acquirerEntity['erp_database']);
+                }
+            } else {
+                $requiresAcquirerDatabase = true;
             }
         }
         $debugRemote = null;
@@ -62,6 +66,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'success' => $entity !== null,
             'entity' => $entity,
             'remote' => $debugRemote,
+            'requires_acquirer_database' => $requiresAcquirerDatabase,
+            'acquirer' => $acquirerNif !== '' ? [
+                'nif' => $acquirerNif,
+                'name' => trim((string) (($acquirerEntity['name'] ?? '') ?: deriveEntityNameFromField((string) $acquirerValue, $acquirerNif))),
+                'erp_database' => trim((string) ($acquirerEntity['erp_database'] ?? '')),
+            ] : null,
+            'csrf_token' => $newToken,
+        ]);
+        exit;
+    } elseif ($action === 'set-acquirer-database') {
+        $acquirerNif = extractVatNumber((string) ($_POST['acquirer_nif'] ?? ''));
+        $acquirerValue = trim((string) ($_POST['acquirer_value'] ?? ''));
+        $selectedDatabase = trim((string) ($_POST['database'] ?? ''));
+
+        if ($acquirerNif === '' || $selectedDatabase === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'NIF e base de dados são obrigatórios.', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $pdo = getPDO();
+        $existing = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+        $name = trim((string) ($existing['name'] ?? ''));
+        if ($name === '') {
+            $source = $acquirerValue !== '' ? $acquirerValue : $acquirerNif;
+            $name = deriveEntityNameFromField($source, $acquirerNif);
+        }
+        if ($name === '') {
+            $name = 'Cliente ' . $acquirerNif;
+        }
+
+        $saveData = [
+            'nif' => $acquirerNif,
+            'name' => $name,
+            'erp_database' => $selectedDatabase,
+            'entity_type' => 'acquirer',
+            'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
+        ];
+        saveAccountingEntity($pdo, $saveData);
+
+        $stored = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+        echo json_encode([
+            'success' => true,
+            'entity' => $stored ?: $saveData,
             'csrf_token' => $newToken,
         ]);
         exit;
@@ -254,6 +302,35 @@ $erpDatabase = trim((string) getSetting('erp_database', ''));
 </div>
 </div>
 
+
+<div class="modal fade" id="uploadAcquirerDatabaseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="uploadAcquirerDatabaseForm">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa fa-database"></i> Base de dados do adquirente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="uploadAcquirerDatabaseMessage" class="mb-3">
+                        Indique a base de dados ERP para o adquirente.
+                    </p>
+                    <div class="mb-3">
+                        <label for="uploadAcquirerDatabaseInput" class="form-label">Base de dados ERP</label>
+                        <input type="text" class="form-control" id="uploadAcquirerDatabaseInput" placeholder="Ex: emp_236" required>
+                    </div>
+                    <div id="uploadAcquirerDatabaseError" class="alert alert-danger d-none" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="uploadAcquirerDatabaseConfirmBtn">
+                        <i class="fa fa-save"></i> Guardar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <?php require_once __DIR__ . '/../footer.php'; ?>
 <script>

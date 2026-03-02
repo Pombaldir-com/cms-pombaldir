@@ -15,12 +15,80 @@ $useDataTables = true;
 $useSwitchery = true;
 
 $pdo = getPDO();
+$user = currentUser();
+$isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
 $entityTypeMap = [
     'empresas' => 'acquirer',
 ];
 $entityType = $entityTypeMap[$typeSlug] ?? $typeSlug;
+$csrfToken = generateCsrfToken();
+
+$flashType = trim((string) ($_GET['status'] ?? ''));
+$flashMessage = trim((string) ($_GET['msg'] ?? ''));
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $token = trim((string) ($_POST['csrf_token'] ?? ''));
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        exit('Token invalido.');
+    }
+
+    $action = trim((string) ($_POST['action'] ?? ''));
+    if ($action === 'delete-entity') {
+        if (!$isSuperAdmin) {
+            http_response_code(403);
+            exit('Sem permissoes para eliminar entidades.');
+        }
+
+        $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
+        if ($entityId <= 0) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade invalida.'));
+            exit;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, nif, name, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $stmt->execute([$entityId]);
+        $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entity) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade nao encontrada.'));
+            exit;
+        }
+
+        if (($entity['entity_type'] ?? '') !== $entityType) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Tipo de entidade invalido.'));
+            exit;
+        }
+
+        $nif = trim((string) ($entity['nif'] ?? ''));
+        if ($nif === '') {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('NIF em falta para eliminar entidade.'));
+            exit;
+        }
+
+        try {
+            $result = deleteEntityByNifWithReferences($pdo, $nif, $entityType);
+            logAuditAction(
+                'delete',
+                'accounting_entity',
+                (int) $entity['id'],
+                [
+                    'nif' => $nif,
+                    'entity_type' => $entityType,
+                    'deleted_rows' => $result['total_deleted'],
+                    'deleted_by_table' => $result['deleted_by_table'],
+                ]
+            );
+            $okMessage = 'Empresa eliminada com sucesso. Registos apagados: ' . (int) $result['total_deleted'] . '.';
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=success&msg=' . rawurlencode($okMessage));
+            exit;
+        } catch (Throwable $e) {
+            $errorMessage = 'Falha ao eliminar a empresa: ' . $e->getMessage();
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode($errorMessage));
+            exit;
+        }
+    }
+}
 
 $consultId = isset($_GET['consulta']) ? (int) $_GET['consulta'] : 0;
 $consultEntity = null;
@@ -145,6 +213,15 @@ $entities = $stmt->fetchAll(PDO::FETCH_ASSOC);
 require_once __DIR__ . '/../header.php';
 ?>
 <div class="container-fluid">
+    <?php if ($flashMessage !== ''): ?>
+        <div class="x_panel">
+            <div class="x_content">
+                <div class="alert <?= $flashType === 'success' ? 'alert-success' : 'alert-danger'; ?>" role="alert" style="margin-bottom: 0;">
+                    <?= htmlspecialchars($flashMessage); ?>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
     <?php if (!$consultEntity): ?>
     <div class="x_panel">
         <div class="x_title">
@@ -386,7 +463,7 @@ require_once __DIR__ . '/../header.php';
                             <th>NIF</th>
                             <th>Nome</th>
                             <th>ERP Database</th>
-                            <th data-orderable="false" class="text-center">Consulta</th>
+                            <th data-orderable="false" class="text-right">Acoes</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -395,10 +472,20 @@ require_once __DIR__ . '/../header.php';
                             <td><?= htmlspecialchars($entity['nif'] ?? ''); ?></td>
                             <td><?= htmlspecialchars($entity['name'] ?? ''); ?></td>
                             <td><?= htmlspecialchars($entity['erp_database'] ?? ''); ?></td>
-                            <td class="text-center">
+                            <td class="text-right">
                                 <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>" class="btn btn-xs btn-primary">
                                     <i class="fa fa-search"></i> Consulta
                                 </a>
+                                <?php if ($isSuperAdmin && $typeSlug === 'empresas'): ?>
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Eliminar a empresa e todos os registos relacionados com este NIF? Esta acao nao pode ser revertida.');">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="delete-entity">
+                                        <input type="hidden" name="entity_id" value="<?= (int) $entity['id']; ?>">
+                                        <button type="submit" class="btn btn-xs btn-danger">
+                                            <i class="fa fa-trash"></i> Eliminar
+                                        </button>
+                                    </form>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -411,4 +498,64 @@ require_once __DIR__ . '/../header.php';
     <?php endif; ?>
 </div>
 <?php
+function deleteEntityByNifWithReferences(PDO $pdo, string $nif, string $entityType): array {
+    $normalizedNif = extractVatNumber($nif);
+    if ($normalizedNif === '') {
+        throw new RuntimeException('NIF invalido.');
+    }
+
+    $nifRegex = '(^|[^0-9])' . $normalizedNif . '([^0-9]|$)';
+    $deletedByTable = [];
+    $totalDeleted = 0;
+
+    try {
+        $pdo->beginTransaction();
+
+        if (hasTable('supplier_documents') && hasColumn('supplier_documents', 'acquirer')) {
+            $stmt = $pdo->prepare('DELETE FROM supplier_documents WHERE acquirer = ? OR acquirer REGEXP ?');
+            $stmt->execute([$normalizedNif, $nifRegex]);
+            $deletedByTable['supplier_documents'] = $stmt->rowCount();
+            $totalDeleted += (int) $stmt->rowCount();
+        }
+
+        if (hasTable('accounting_classifications') && hasColumn('accounting_classifications', 'acquirer')) {
+            $stmt = $pdo->prepare('DELETE FROM accounting_classifications WHERE acquirer = ? OR acquirer REGEXP ?');
+            $stmt->execute([$normalizedNif, $nifRegex]);
+            $deletedByTable['accounting_classifications'] = $stmt->rowCount();
+            $totalDeleted += (int) $stmt->rowCount();
+        }
+
+        if (hasTable('accounting_imports') && hasColumn('accounting_imports', 'field_B')) {
+            $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE field_B = ? OR field_B REGEXP ?');
+            $stmt->execute([$normalizedNif, $nifRegex]);
+            $deletedByTable['accounting_imports'] = $stmt->rowCount();
+            $totalDeleted += (int) $stmt->rowCount();
+        }
+
+        if (hasTable('accounting_entities')) {
+            if (hasColumn('accounting_entities', 'entity_type')) {
+                $stmt = $pdo->prepare('DELETE FROM accounting_entities WHERE nif = ? AND entity_type = ?');
+                $stmt->execute([$normalizedNif, $entityType]);
+            } else {
+                $stmt = $pdo->prepare('DELETE FROM accounting_entities WHERE nif = ?');
+                $stmt->execute([$normalizedNif]);
+            }
+            $deletedByTable['accounting_entities'] = $stmt->rowCount();
+            $totalDeleted += (int) $stmt->rowCount();
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+
+    return [
+        'total_deleted' => $totalDeleted,
+        'deleted_by_table' => $deletedByTable,
+    ];
+}
+
 require_once __DIR__ . '/../footer.php';

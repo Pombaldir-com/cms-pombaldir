@@ -121,10 +121,17 @@ foreach ($sidebarTypes as $sidebarType):
 <?php endif; ?>
 <?php if (isModuleActive('contabilidade') || isModuleActive('compras')): ?>
                             <li>
-                                <a><i class="fa fa-tasks"></i> Classificação e Importação <span class="fa fa-chevron-down"></span></a>
+                                <a><i class="fa fa-tasks"></i> Contabilidade <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
 <?php if (isModuleActive('contabilidade')): ?>
-                                    <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1">Contabilidade -> Compras</a></li>
+    <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1">Classificação</a></li>
+<?php if (userHasDepartmentPermission('ctb_importar_docs')): ?>
+    <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1&type=import">Importação</a></li>
+<?php endif; ?>
+
+<li><a href="<?= BASE_URL ?>contabilidade/lancamentos">Lançamentos</a></li>
+
+
 <?php endif; ?>
 <?php if (isModuleActive('compras')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=2">Importação de Compras</a></li>
@@ -139,19 +146,15 @@ foreach ($sidebarTypes as $sidebarType):
                                     <li><a href="<?= BASE_URL ?>contabilidade/entidades/empresas">Empresas</a></li>
                                 </ul>
                             </li>
-                            <li>
-                                <a><i class="fa fa-book"></i> Contabilidade <span class="fa fa-chevron-down"></span></a>
-                                <ul class="nav child_menu">
-                                    <li><a href="<?= BASE_URL ?>contabilidade/lancamentos">Lançamentos</a></li>
-                                    <li><a href="<?= BASE_URL ?>contabilidade/ai-tarefas">Tarefas AI</a></li>
-                                </ul>
-                            </li>
+
 <?php endif; ?>
 <?php if (($user['role'] ?? 3) <= 2): ?>
                             <li>
                                 <a><i class="fa fa-table"></i> Tabelas <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
                                     <li><a href="<?= BASE_URL ?>tabelas/departamentos">Departamentos</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/ai-tarefas">Tarefas AI</a></li>
+
                                 </ul>
                             </li>
 <?php endif; ?>

@@ -78,6 +78,7 @@ if (($_GET['action'] ?? '') === 'data') {
         'limit' => $length,
         'offset' => $start,
     ];
+    $query = array_merge($query, buildErpCompanyQueryParams($database));
     if ($docTypeFilter !== '') {
         $query['strAbrevTpDoc'] = $docTypeFilter;
     }

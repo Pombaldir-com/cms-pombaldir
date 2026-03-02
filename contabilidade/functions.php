@@ -56,19 +56,79 @@ function extractVatNumber(string $value): string {
 }
 
 /**
+ * Resolve ERP company identifier configured in settings.
+ *
+ * Source:
+ * - Definições > Módulos > Contabilidade (`accounting_base_company`)
+ */
+function getErpDefaultCompanyIdentifier(): string {
+    $company = trim((string) getSetting('accounting_base_company', ''));
+    if ($company !== '') {
+        return $company;
+    }
+    return '';
+}
+
+/**
+ * Normalize ERP database identifier with fallback to configured company.
+ */
+function resolveErpDatabaseIdentifier(string $database = ''): string {
+    $database = trim($database);
+    if ($database !== '') {
+        return $database;
+    }
+    return getErpDefaultCompanyIdentifier();
+}
+
+/**
+ * Build company-aware ERP query params.
+ *
+ * Always attempts to send `EMP` and, when available, also `db` for
+ * compatibility with legacy endpoints.
+ */
+function buildErpCompanyQueryParams(string $database = ''): array {
+    $database = resolveErpDatabaseIdentifier($database);
+    $emp = getErpDefaultCompanyIdentifier();
+    if ($emp === '' && $database !== '') {
+        $emp = $database;
+    }
+
+    $params = [];
+    if ($database !== '') {
+        $params['db'] = $database;
+    }
+    if ($emp !== '') {
+        $params['EMP'] = $emp;
+    }
+    return $params;
+}
+
+/**
+ * Append query parameters to an URL preserving existing query string.
+ */
+function appendQueryParamsToUrl(string $url, array $params): string {
+    if ($url === '' || empty($params)) {
+        return $url;
+    }
+    $separator = strpos($url, '?') === false ? '?' : '&';
+    return $url . $separator . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+}
+
+/**
  * Build a request URL for the ERP client endpoint.
  *
  * @param string $baseUrl Base URL stored in the settings.
  * @param string $nif     VAT number to query.
  * @return string Fully qualified URL.
  */
-function buildErpClientEndpoint(string $baseUrl, string $nif): string {
+function buildErpClientEndpoint(string $baseUrl, string $nif, string $database = ''): string {
     $url = trim($baseUrl);
     if ($url === '') {
         return '';
     }
 
     $encodedNif = urlencode($nif);
+    $companyParams = buildErpCompanyQueryParams($database);
 
     $placeholderPatterns = [
         '/\{nif\}/i',
@@ -79,22 +139,23 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
 
     foreach ($placeholderPatterns as $pattern) {
         if (preg_match($pattern, $url)) {
-            return preg_replace($pattern, $encodedNif, $url);
+            $resolved = preg_replace($pattern, $encodedNif, $url);
+            return appendQueryParamsToUrl((string) $resolved, $companyParams);
         }
     }
 
     if (strpos($url, '%s') !== false) {
-        return sprintf($url, $encodedNif);
+        return appendQueryParamsToUrl(sprintf($url, $encodedNif), $companyParams);
     }
 
     foreach (['nif', 'vat', 'contrib', 'q'] as $queryKeyword) {
         if (preg_match('/(?:[?&][^#]*' . $queryKeyword . '[^=]*)=$/i', $url)) {
-            return $url . $encodedNif;
+            return appendQueryParamsToUrl($url . $encodedNif, $companyParams);
         }
     }
 
     if (substr($url, -1) === '?' || substr($url, -1) === '&') {
-        return $url . 'nif=' . $encodedNif;
+        return appendQueryParamsToUrl($url . 'nif=' . $encodedNif, $companyParams);
     }
 
     $parsedUrl = @parse_url($url);
@@ -122,6 +183,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
                     'q' => $nif,
                     'searchField' => 'strNumContrib',
                 ];
+                $defaultQuery = array_merge($defaultQuery, $companyParams);
 
                 return $baseWithoutQuery . '/clientes?' . http_build_query($defaultQuery, '', '&', PHP_QUERY_RFC3986);
             }
@@ -160,6 +222,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
                 foreach ($queryData as $key => $value) {
                     $finalQuery[$key] = $value;
                 }
+                $finalQuery = array_merge($finalQuery, $companyParams);
 
                 return $baseWithoutQuery . '?' . http_build_query($finalQuery, '', '&', PHP_QUERY_RFC3986);
             }
@@ -168,7 +231,7 @@ function buildErpClientEndpoint(string $baseUrl, string $nif): string {
 
     $base = rtrim($url, '/');
     $separator = strpos($base, '?') === false ? '?' : '&';
-    return $base . $separator . 'nif=' . $encodedNif;
+    return appendQueryParamsToUrl($base . $separator . 'nif=' . $encodedNif, $companyParams);
 
 }
 
@@ -185,6 +248,8 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif, string $database
         return '';
     }
 
+    $database = resolveErpDatabaseIdentifier($database);
+    $companyParams = buildErpCompanyQueryParams($database);
     $encodedNif = urlencode($nif);
     $parsedUrl = @parse_url($url);
 
@@ -194,9 +259,7 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif, string $database
         'q' => $nif,
         'searchField' => 'strNumContrib',
     ];
-    if ($database !== '') {
-        $defaultQuery['db'] = $database;
-    }
+    $defaultQuery = array_merge($defaultQuery, $companyParams);
 
     if (is_array($parsedUrl)) {
         $host = strtolower($parsedUrl['host'] ?? '');
@@ -231,15 +294,13 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif, string $database
                 $finalQuery['offset'] = array_key_exists('offset', $queryData) ? $queryData['offset'] : 0;
                 $finalQuery['q'] = $nif;
                 $finalQuery['searchField'] = array_key_exists('searchField', $queryData) ? $queryData['searchField'] : 'strNumContrib';
-                if ($database !== '') {
-                    $finalQuery['db'] = $database;
-                }
 
                 foreach ($queryData as $key => $value) {
                     if (!array_key_exists($key, ['limit' => true, 'offset' => true, 'q' => true, 'searchField' => true])) {
                         $finalQuery[$key] = $value;
                     }
                 }
+                $finalQuery = array_merge($finalQuery, $companyParams);
 
                 $basePrefix = $baseWithoutQuery;
                 if (substr($basePrefix, -strlen('/clientes')) === '/clientes') {
@@ -526,10 +587,11 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
     }
 
     $normalizedType = strtolower(trim($entityType));
+    $database = resolveErpDatabaseIdentifier($database);
     if ($normalizedType === 'emitter') {
         $endpoint = buildErpSupplierEndpoint($baseUrl, $nif, $database);
     } else {
-        $endpoint = buildErpClientEndpoint($baseUrl, $nif);
+        $endpoint = buildErpClientEndpoint($baseUrl, $nif, $database);
     }
     if ($endpoint === '') {
         $message = 'URL do ERP-SINC inválida para o NIF ' . $nif . '.';
@@ -633,6 +695,7 @@ function fetchErpTableData(string $path, bool $returnDebug = false): array {
     }
 
     $endpoint = buildErpEndpointFromBase($baseUrl, $path);
+    $endpoint = appendQueryParamsToUrl($endpoint, buildErpCompanyQueryParams());
     if ($endpoint === '') {
         $message = 'URL do ERP-SINC inválida para obter tabelas.';
         logErpMessage($message);
@@ -1171,6 +1234,7 @@ function looksLikeAccountReference($value): bool {
 function defaultAccountingMetadata(): array {
     return [
         'total_account' => '',
+        'manual_review_required' => '0',
     ];
 }
 
@@ -1206,6 +1270,10 @@ function normalizeAccountingMetadata(?string $json): array {
                 $result['total_account'] = $value;
             }
         }
+        if (array_key_exists('manual_review_required', $candidate)) {
+            $flag = trim((string) $candidate['manual_review_required']);
+            $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+        }
     }
 
     return $result;
@@ -1235,6 +1303,11 @@ function sanitizeAccountingMetadata($input): array {
         if ($candidate !== null) {
             $result['total_account'] = $candidate;
         }
+    }
+
+    if (is_array($source) && array_key_exists('manual_review_required', $source)) {
+        $flag = trim((string) $source['manual_review_required']);
+        $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
     }
 
     return $result;

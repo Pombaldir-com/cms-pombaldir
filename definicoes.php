@@ -505,6 +505,12 @@ require_once __DIR__ . '/header.php';
                                         <label for="erp_token" class="form-label">Token</label>
                                         <input type="text" class="form-control" id="erp_token" name="erp_token" value="<?= htmlspecialchars($currentErpToken); ?>">
                                     </div>
+                                    <div class="col-12">
+                                        <div class="text-muted small">
+                                            A empresa para autenticação no ERP é obtida em
+                                            <strong>Módulos &gt; Contabilidade &gt; Empresa base</strong>.
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

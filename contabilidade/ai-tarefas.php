@@ -20,12 +20,18 @@ $useDataTables = true;
 $hideOcrModal = true;
 
 $pdo = getPDO();
+$aiTasksTableExists = tableExists($pdo, 'ai_tasks');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? '';
     if (!validateCsrfToken($token)) {
         http_response_code(400);
         exit('Token inválido.');
+    }
+
+    if (!$aiTasksTableExists) {
+        header('Location: ' . BASE_URL . 'contabilidade/ai-tarefas?schema=missing');
+        exit;
     }
 
     $action = $_POST['action'] ?? '';
@@ -57,12 +63,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $users = $pdo->query('SELECT id, username FROM users ORDER BY username ASC')->fetchAll(PDO::FETCH_ASSOC);
-$tasks = $pdo->query('SELECT t.*, u.username AS assigned_name, c.username AS creator_name FROM ai_tasks t LEFT JOIN users u ON u.id = t.assigned_to LEFT JOIN users c ON c.id = t.created_by ORDER BY t.status ASC, t.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+$tasks = [];
+if ($aiTasksTableExists) {
+    $tasks = $pdo->query('SELECT t.*, u.username AS assigned_name, c.username AS creator_name FROM ai_tasks t LEFT JOIN users u ON u.id = t.assigned_to LEFT JOIN users c ON c.id = t.created_by ORDER BY t.status ASC, t.created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
+}
 
 require_once __DIR__ . '/../header.php';
 ?>
 <div class="right_col" role="main">
     <div class="container-fluid">
+        <?php if (!$aiTasksTableExists): ?>
+            <div class="x_panel">
+                <div class="x_content">
+                    <div class="alert alert-warning" role="alert" style="margin-bottom:0;">
+                        A tabela <code>ai_tasks</code> ainda não existe nesta base de dados. Executa as migrações para ativar este módulo.
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
         <div class="x_panel">
             <div class="x_title">
                 <h2><i class="fa fa-plus-circle"></i> Nova tarefa</h2>
@@ -75,11 +93,11 @@ require_once __DIR__ . '/../header.php';
                     <div class="row">
                         <div class="col-md-4">
                             <label class="form-label">Título</label>
-                            <input type="text" name="title" class="form-control" required>
+                            <input type="text" name="title" class="form-control" required <?= !$aiTasksTableExists ? 'disabled' : ''; ?>>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Atribuir a</label>
-                            <select name="assigned_to" class="form-select">
+                            <select name="assigned_to" class="form-select" <?= !$aiTasksTableExists ? 'disabled' : ''; ?>>
                                 <option value="">(Sem atribuição)</option>
                                 <?php foreach ($users as $row): ?>
                                     <option value="<?= (int) $row['id']; ?>"><?= htmlspecialchars($row['username']); ?></option>
@@ -88,14 +106,14 @@ require_once __DIR__ . '/../header.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Prazo</label>
-                            <input type="date" name="due_date" class="form-control">
+                            <input type="date" name="due_date" class="form-control" <?= !$aiTasksTableExists ? 'disabled' : ''; ?>>
                         </div>
                         <div class="col-12 mt-3">
                             <label class="form-label">Descrição</label>
-                            <textarea name="description" class="form-control" rows="2"></textarea>
+                            <textarea name="description" class="form-control" rows="2" <?= !$aiTasksTableExists ? 'disabled' : ''; ?>></textarea>
                         </div>
                         <div class="col-12 mt-3">
-                            <button type="submit" class="btn btn-success">
+                            <button type="submit" class="btn btn-success" <?= !$aiTasksTableExists ? 'disabled' : ''; ?>>
                                 <i class="fa fa-plus"></i> Criar tarefa
                             </button>
                         </div>
@@ -197,4 +215,12 @@ if (window.jQuery && jQuery.fn.DataTable) {
 JS;
 
 require_once __DIR__ . '/../footer.php';
+
+function tableExists(PDO $pdo, string $table): bool {
+    $stmt = $pdo->prepare(
+        'SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1'
+    );
+    $stmt->execute([$table]);
+    return (bool) $stmt->fetchColumn();
+}
 ?>

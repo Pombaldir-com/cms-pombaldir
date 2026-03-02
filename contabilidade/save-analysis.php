@@ -507,6 +507,7 @@ if ($action === 'get') {
         }
         $existingRow = normalizeAccountingAccounts($importRow['account'] ?? '');
         $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
+        $existingRowMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
 
         $existingOriginalRaw = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -517,6 +518,8 @@ if ($action === 'get') {
         }
         $summaries = computeImportRateSummaries($importRow);
         $existingOriginal = mergeOriginalRateSnapshot($existingOriginalRaw, $summaries);
+        [$existingPayload, $existingRequirements] = buildRatePayload($summaries, $existingRow);
+        $existingRowWasReady = determineClassificationButtonClass($existingRequirements, $existingPayload, $existingRowMetadata) === 'btn-success';
 
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
         $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
@@ -543,8 +546,43 @@ if ($action === 'get') {
             }
         }
 
+        $normalizeRatesForComparison = static function (array $rates): array {
+            $normalized = sanitizeAccountInput($rates);
+            ksort($normalized);
+            foreach ($normalized as &$rateData) {
+                if (is_array($rateData)) {
+                    ksort($rateData);
+                }
+            }
+            unset($rateData);
+            return $normalized;
+        };
+        $normalizeCostCentersForComparison = static function ($value): array {
+            $normalized = sanitizeCostCenterValues($value);
+            ksort($normalized);
+            return $normalized;
+        };
+
+        $existingRowNormalized = $normalizeRatesForComparison($existingRow);
+        $rowAccountsNormalized = $normalizeRatesForComparison($rowAccounts);
+        $rowAccountsChanged = $existingRowNormalized !== $rowAccountsNormalized;
+        $existingCostCentersNormalized = $normalizeCostCentersForComparison($importRow['cost_center'] ?? '');
+        $submittedCostCentersNormalized = $normalizeCostCentersForComparison($costCentersData);
+        $costCentersChanged = $existingCostCentersNormalized !== $submittedCostCentersNormalized;
+        $existingTotalAccount = trim((string) ($existingRowMetadata['total_account'] ?? ''));
+        $submittedTotalAccount = trim((string) ($submittedMetadata['total_account'] ?? ''));
+        $totalAccountChanged = $existingTotalAccount !== $submittedTotalAccount;
+        $hasManualChanges = $rowAccountsChanged || $costCentersChanged || $totalAccountChanged || !empty($removedRates);
+
+        $submittedMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
+        if ($existingRowWasReady && $hasManualChanges) {
+            $submittedMetadata['manual_review_required'] = '1';
+        }
+
         $serializedRow = serializeAccountingAccounts($rowAccounts, $submittedMetadata, $existingRowMetadata);
-        $serializedClass = serializeAccountingAccounts($classAccounts, $submittedMetadata, $existingClassMetadata);
+        $classMetadata = $submittedMetadata;
+        $classMetadata['manual_review_required'] = '0';
+        $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
         $serializedCostCenters = serializeCostCenters($costCentersData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
 
@@ -566,7 +604,8 @@ if ($action === 'get') {
             'cost_centers' => $costCentersData,
             'original_rates' => $existingOriginal,
             'total_account' => $submittedMetadata['total_account'] ?? '',
-            'row_total_account' => $submittedMetadata['total_account'] ?? ''
+            'row_total_account' => $submittedMetadata['total_account'] ?? '',
+            'manual_review_required' => $submittedMetadata['manual_review_required'] ?? '0'
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {

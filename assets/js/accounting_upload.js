@@ -5,6 +5,20 @@ window.addEventListener('load', function() {
     var csrfInput = form.querySelector('input[name="csrf_token"]');
     var importBtn = document.getElementById('import-btn');
     var importComprasBtn = document.getElementById('import-compras-btn');
+    var acquirerDatabaseResolved = {};
+    var acquirerDatabasePending = {};
+    var acquirerQueue = [];
+    var acquirerModalActive = false;
+    var acquirerCurrentItem = null;
+    var acquirerModalEl = document.getElementById('uploadAcquirerDatabaseModal');
+    var acquirerForm = document.getElementById('uploadAcquirerDatabaseForm');
+    var acquirerInput = document.getElementById('uploadAcquirerDatabaseInput');
+    var acquirerMessage = document.getElementById('uploadAcquirerDatabaseMessage');
+    var acquirerError = document.getElementById('uploadAcquirerDatabaseError');
+    var acquirerConfirmBtn = document.getElementById('uploadAcquirerDatabaseConfirmBtn');
+    var acquirerModal = (acquirerModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
+        ? new window.bootstrap.Modal(acquirerModalEl)
+        : null;
 
     function showImportButtons() {
         if (importBtn) {
@@ -36,6 +50,185 @@ window.addEventListener('load', function() {
         console.info(text);
     }
 
+    function hideAcquirerError() {
+        if (acquirerError) {
+            acquirerError.classList.add('d-none');
+            acquirerError.textContent = '';
+        }
+    }
+
+    function showAcquirerError(text) {
+        if (acquirerError) {
+            acquirerError.textContent = text || 'Erro ao guardar a base de dados do adquirente.';
+            acquirerError.classList.remove('d-none');
+            return;
+        }
+        alert(text || 'Erro ao guardar a base de dados do adquirente.');
+    }
+
+    function finishAcquirerStep(nif, resolved) {
+        if (nif) {
+            acquirerDatabasePending[nif] = false;
+            if (resolved) {
+                acquirerDatabaseResolved[nif] = true;
+            }
+        }
+        acquirerCurrentItem = null;
+        acquirerModalActive = false;
+        processNextAcquirerQueue();
+    }
+
+    function processNextAcquirerQueue() {
+        if (acquirerModalActive) {
+            return;
+        }
+        if (!acquirerQueue.length) {
+            return;
+        }
+        var item = acquirerQueue.shift();
+        if (!item || !item.nif) {
+            processNextAcquirerQueue();
+            return;
+        }
+        if (acquirerDatabaseResolved[item.nif]) {
+            acquirerDatabasePending[item.nif] = false;
+            processNextAcquirerQueue();
+            return;
+        }
+
+        acquirerCurrentItem = item;
+        acquirerModalActive = true;
+        hideAcquirerError();
+
+        var label = (item.name || '').toString().trim();
+        var message = 'O NIF do adquirente <strong>' + item.nif + '</strong>' + (label ? ' (' + label + ')' : '') + ' nao existe nas entidades. Indique a base de dados ERP.';
+        if (acquirerMessage) {
+            acquirerMessage.innerHTML = message;
+        }
+
+        var initialDb = (item.erp_database || '').toString().trim();
+        if (!initialDb && typeof window.erpDatabase === 'string') {
+            initialDb = window.erpDatabase.trim();
+        }
+
+        if (acquirerInput) {
+            acquirerInput.value = initialDb;
+            window.setTimeout(function() {
+                acquirerInput.focus();
+                acquirerInput.select();
+            }, 100);
+        }
+
+        if (acquirerModal) {
+            acquirerModal.show();
+        } else {
+            var selectedDb = window.prompt(
+                'O NIF do adquirente ' + item.nif + (label ? ' (' + label + ')' : '') + ' nao existe nas entidades.\nIndique a base de dados ERP (ex: emp_236):',
+                initialDb || ''
+            );
+            if (selectedDb === null || selectedDb.trim() === '') {
+                finishAcquirerStep(item.nif, false);
+                return;
+            }
+            submitAcquirerDatabase(item, selectedDb.trim());
+        }
+    }
+
+    function submitAcquirerDatabase(item, selectedDb) {
+        var nif = item && item.nif ? item.nif : '';
+        if (!nif || !selectedDb) {
+            showAcquirerError('NIF e base de dados sao obrigatorios.');
+            return;
+        }
+
+        hideAcquirerError();
+        if (acquirerConfirmBtn) {
+            acquirerConfirmBtn.disabled = true;
+        }
+
+        var body = new URLSearchParams();
+        body.append('csrf_token', csrfInput.value);
+        body.append('action', 'set-acquirer-database');
+        body.append('acquirer_nif', nif);
+        body.append('acquirer_value', (item.name || '').toString());
+        body.append('database', selectedDb);
+
+        fetch('contabilidade/upload.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body: body.toString()
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (!res || !res.success) {
+                showAcquirerError((res && res.error) ? res.error : 'Nao foi possivel guardar a base de dados do adquirente.');
+                return;
+            }
+            if (acquirerModal) {
+                acquirerModal.hide();
+            }
+            notifySuccess('Base de dados ERP guardada para o adquirente ' + nif + '.');
+            finishAcquirerStep(nif, true);
+        })
+        .catch(function() {
+            showAcquirerError('Erro ao guardar a base de dados do adquirente.');
+        })
+        .finally(function() {
+            if (acquirerConfirmBtn) {
+                acquirerConfirmBtn.disabled = false;
+            }
+        });
+    }
+
+    function askAcquirerDatabase(acquirerInfo) {
+        if (!acquirerInfo || !acquirerInfo.nif || !csrfInput) {
+            return;
+        }
+        var nif = String(acquirerInfo.nif).trim();
+        if (!nif || acquirerDatabaseResolved[nif] || acquirerDatabasePending[nif]) {
+            return;
+        }
+        acquirerDatabasePending[nif] = true;
+        acquirerQueue.push({
+            nif: nif,
+            name: (acquirerInfo.name || '').toString().trim(),
+            erp_database: (acquirerInfo.erp_database || '').toString().trim()
+        });
+        processNextAcquirerQueue();
+    }
+
+    if (acquirerForm) {
+        acquirerForm.addEventListener('submit', function(ev) {
+            ev.preventDefault();
+            if (!acquirerCurrentItem || !acquirerInput) {
+                return;
+            }
+            var selectedDb = acquirerInput.value.trim();
+            if (!selectedDb) {
+                showAcquirerError('Indique uma base de dados ERP valida.');
+                return;
+            }
+            submitAcquirerDatabase(acquirerCurrentItem, selectedDb);
+        });
+    }
+
+    if (acquirerModalEl) {
+        acquirerModalEl.addEventListener('hidden.bs.modal', function() {
+            var nif = acquirerCurrentItem && acquirerCurrentItem.nif ? acquirerCurrentItem.nif : '';
+            if (nif && !acquirerDatabaseResolved[nif]) {
+                finishAcquirerStep(nif, false);
+            }
+            hideAcquirerError();
+        });
+    }
+
+    window.ensureAcquirerDatabase = askAcquirerDatabase;
+
     function syncEntity(value, type, acquirerValue) {
         var entityValue = (value || '').trim();
         if (!entityValue || !csrfInput) {
@@ -65,6 +258,9 @@ window.addEventListener('load', function() {
         .then(function(res) {
             if (res && res.csrf_token && csrfInput) {
                 csrfInput.value = res.csrf_token;
+            }
+            if (res && res.requires_acquirer_database && res.acquirer) {
+                askAcquirerDatabase(res.acquirer);
             }
             console.log('[sync-entity] resposta', res);
         })

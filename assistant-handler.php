@@ -51,6 +51,62 @@ $canOpenLancamentos = userHasDepartmentPermission('ai_open_lancamentos');
 $canApproveDocs = userHasDepartmentPermission('ai_approve_docs');
 $canSuggestVat = userHasDepartmentPermission('ai_suggest_vat');
 
+if ($action === '') {
+    $memoryCommand = parseAssistantMemoryCommand($message);
+    if ($memoryCommand !== null) {
+        $commandType = (string) ($memoryCommand['type'] ?? '');
+        if ($commandType === 'save') {
+            $memoryText = trim((string) ($memoryCommand['text'] ?? ''));
+            if ($memoryText === '') {
+                echo json_encode(['message' => 'Indique o texto a memorizar.', 'csrf_token' => generateCsrfToken(true)]);
+                exit;
+            }
+            if (!savePersistentAssistantMemory($userId, $sessionId, $memoryText)) {
+                echo json_encode(['message' => 'Nao foi possivel guardar a memoria (tabela de logs indisponivel).', 'csrf_token' => generateCsrfToken(true)]);
+                exit;
+            }
+            logAuditAction('ai_memory_save', 'ai_assistant_logs', null, ['session' => $sessionId]);
+            echo json_encode(['message' => 'Memorizado. Vou usar esta instrucao nas proximas sessoes.', 'csrf_token' => generateCsrfToken(true), 'actions' => [['type' => 'memory_save']]]);
+            exit;
+        }
+        if ($commandType === 'list') {
+            $memories = getPersistentAssistantMemories($userId, 20);
+            if (!$memories) {
+                echo json_encode(['message' => 'Nao tens memorias guardadas.', 'csrf_token' => generateCsrfToken(true)]);
+                exit;
+            }
+            $lines = [];
+            foreach ($memories as $index => $item) {
+                $lines[] = ($index + 1) . '. ' . $item;
+            }
+            echo json_encode(['message' => "Memorias guardadas:\n" . implode("\n", $lines), 'csrf_token' => generateCsrfToken(true), 'actions' => [['type' => 'memory_list', 'count' => count($memories)]]]);
+            exit;
+        }
+        if ($commandType === 'delete') {
+            $memoryText = trim((string) ($memoryCommand['text'] ?? ''));
+            $deleted = deletePersistentAssistantMemory($userId, $memoryText);
+            $reply = $deleted > 0
+                ? 'Memoria removida.'
+                : 'Nao encontrei essa memoria.';
+            logAuditAction('ai_memory_delete', 'ai_assistant_logs', null, ['deleted' => $deleted, 'session' => $sessionId]);
+            echo json_encode(['message' => $reply, 'csrf_token' => generateCsrfToken(true), 'actions' => [['type' => 'memory_delete', 'deleted' => $deleted]]]);
+            exit;
+        }
+        if ($commandType === 'clear_all') {
+            $deleted = clearPersistentAssistantMemories($userId);
+            logAuditAction('ai_memory_clear', 'ai_assistant_logs', null, ['deleted' => $deleted, 'session' => $sessionId]);
+            echo json_encode(['message' => 'Memorias removidas: ' . $deleted . '.', 'csrf_token' => generateCsrfToken(true), 'actions' => [['type' => 'memory_clear', 'deleted' => $deleted]]]);
+            exit;
+        }
+    }
+
+    if (shouldAutoMemorizeMessage($message)) {
+        savePersistentAssistantMemory($userId, $sessionId, $message);
+    } elseif (isForgetOrWrongIntent($message)) {
+        deleteLatestPersistentAssistantMemory($userId);
+    }
+}
+
 $openAiKey = trim((string) getSetting('openai_api_key', ''));
 $openAiModel = trim((string) getSetting('openai_model', 'gpt-4.1-mini'));
 $erpBaseUrl = trim((string) getSetting('erp_webservice_url', ''));
@@ -75,11 +131,117 @@ $messages[] = [
     'content' => $message,
 ];
 
-$basePrompt = '';
-$basePromptPath = __DIR__ . '/AI_ASSISTANT.md';
-if (is_file($basePromptPath)) {
-    $basePrompt = trim((string) file_get_contents($basePromptPath));
+$requestedAttachmentIds = isset($payload['attachments']) && is_array($payload['attachments']) ? $payload['attachments'] : [];
+$resolvedAttachments = resolveAssistantAttachmentsForRequest($sessionId, $requestedAttachmentIds);
+$requestContextMessages = [];
+if (!empty($resolvedAttachments)) {
+    $requestContextMessages[] = [
+        'role' => 'user',
+        'content' => buildAssistantAttachmentContextMessage($resolvedAttachments),
+    ];
 }
+
+function buildMarkdownKnowledgePrompt(string $rootDir, int $maxChars = 180000): string {
+    $rootRealPath = realpath($rootDir);
+    if ($rootRealPath === false) {
+        return '';
+    }
+
+    $skipSegments = [
+        '/.git/',
+        '/node_modules/',
+        '/vendor/',
+        '/vendors/',
+    ];
+
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($rootRealPath, FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $fileInfo) {
+        if (!$fileInfo instanceof SplFileInfo || !$fileInfo->isFile()) {
+            continue;
+        }
+
+        $extension = strtolower((string) $fileInfo->getExtension());
+        if ($extension !== 'md') {
+            continue;
+        }
+
+        $absolutePath = str_replace('\\', '/', $fileInfo->getPathname());
+        $relativePath = ltrim(str_replace('\\', '/', substr($absolutePath, strlen($rootRealPath))), '/');
+        $normalizedRelativePath = '/' . $relativePath . '/';
+
+        $shouldSkip = false;
+        foreach ($skipSegments as $segment) {
+            if (strpos($normalizedRelativePath, $segment) !== false) {
+                $shouldSkip = true;
+                break;
+            }
+        }
+        if ($shouldSkip) {
+            continue;
+        }
+
+        $files[] = [
+            'absolute' => $absolutePath,
+            'relative' => $relativePath,
+            'priority' => strtolower($relativePath) === 'ai_assistant.md' ? 0 : 1,
+        ];
+    }
+
+    if (empty($files)) {
+        return '';
+    }
+
+    usort($files, static function (array $a, array $b): int {
+        if ($a['priority'] !== $b['priority']) {
+            return $a['priority'] <=> $b['priority'];
+        }
+        return strcmp($a['relative'], $b['relative']);
+    });
+
+    $parts = [];
+    $usedChars = 0;
+    foreach ($files as $file) {
+        $content = @file_get_contents($file['absolute']);
+        if (!is_string($content)) {
+            continue;
+        }
+
+        $content = trim($content);
+        if ($content === '') {
+            continue;
+        }
+
+        $header = "### " . $file['relative'] . "\n";
+        $remaining = $maxChars - $usedChars - strlen($header) - 2;
+        if ($remaining <= 0) {
+            break;
+        }
+
+        if (strlen($content) > $remaining) {
+            $content = rtrim(substr($content, 0, $remaining)) . "\n[conteudo truncado por limite de contexto]";
+        }
+
+        $part = $header . $content;
+        $parts[] = $part;
+        $usedChars += strlen($part) + 2;
+
+        if ($usedChars >= $maxChars) {
+            break;
+        }
+    }
+
+    if (empty($parts)) {
+        return '';
+    }
+
+    return "Documentacao Markdown interna do sistema (usar como contexto):\n\n" . implode("\n\n", $parts);
+}
+
+$markdownPrompt = buildMarkdownKnowledgePrompt(__DIR__);
 $extraPrompt = trim((string) getSetting('ai_prompt_extra', ''));
 
 $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Responde sempre em PT-PT.\n"
@@ -88,11 +250,26 @@ $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Resp
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Resumo interno: fornece respostas curtas e claras.";
 
-if ($basePrompt !== '') {
-    $systemPrompt .= "\n\n" . $basePrompt;
+if ($markdownPrompt !== '') {
+    $systemPrompt .= "\n\n" . $markdownPrompt;
 }
 if ($extraPrompt !== '') {
     $systemPrompt .= "\n\n" . $extraPrompt;
+}
+
+$persistentMemories = getPersistentAssistantMemories($userId, 12);
+if ($persistentMemories) {
+    $systemPrompt .= "\n\nMemorias persistentes do utilizador (aplica estas instrucoes em todas as respostas):";
+    foreach ($persistentMemories as $memory) {
+        $systemPrompt .= "\n- " . $memory;
+    }
+}
+$taskMemories = getAccountingTaskMemories($userId, 12);
+if ($taskMemories) {
+    $systemPrompt .= "\n\nTarefas contabilisticas memorizadas do utilizador (usar nas proximas respostas quando relevante):";
+    foreach ($taskMemories as $taskMemory) {
+        $systemPrompt .= "\n- " . $taskMemory;
+    }
 }
 
 $tools = [
@@ -123,6 +300,9 @@ $tools = [
                 'type' => 'object',
                 'properties' => [
                     'acquirer_nif' => ['type' => 'string'],
+                    'acquirer_raw' => ['type' => 'string'],
+                    'emitter' => ['type' => 'string'],
+                    'emitter_nif' => ['type' => 'string'],
                     'doc_type' => ['type' => 'string'],
                     'rates' => [
                         'type' => 'array',
@@ -218,6 +398,92 @@ $tools = [
     [
         'type' => 'function',
         'function' => [
+            'name' => 'erp_clientes_search',
+            'description' => 'Pesquisar clientes no ERP-SINC.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'db' => ['type' => 'string'],
+                    'q' => ['type' => 'string'],
+                    'searchField' => ['type' => 'string'],
+                    'limit' => ['type' => 'integer'],
+                    'offset' => ['type' => 'integer'],
+                ],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'erp_fornecedores_search',
+            'description' => 'Pesquisar fornecedores no ERP-SINC.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'db' => ['type' => 'string'],
+                    'q' => ['type' => 'string'],
+                    'searchField' => ['type' => 'string'],
+                    'limit' => ['type' => 'integer'],
+                    'offset' => ['type' => 'integer'],
+                ],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'erp_exercicios_list',
+            'description' => 'Listar exercicios no ERP-SINC.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'limit' => ['type' => 'integer'],
+                    'offset' => ['type' => 'integer'],
+                    'order' => ['type' => 'string'],
+                    'dtmInicio' => ['type' => 'string'],
+                    'dtmFim' => ['type' => 'string'],
+                ],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'erp_empresas_list',
+            'description' => 'Listar bases de dados de empresas no ERP-SINC (contabilidade/listDBemp).',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'erp_api_get',
+            'description' => 'Consulta GET generica ao ERP-SINC para endpoints suportados (clientes, fornecedores, contabilidade, tabelas).',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'path' => ['type' => 'string'],
+                    'db' => ['type' => 'string'],
+                    'params' => [
+                        'type' => 'object',
+                        'additionalProperties' => true,
+                    ],
+                ],
+                'required' => ['path'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
             'name' => 'set_document_approval',
             'description' => 'Aprovar ou rejeitar documentos de contabilidade.',
             'parameters' => [
@@ -265,6 +531,22 @@ $tools = [
             ],
         ],
     ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'read_php_function',
+            'description' => 'Ler o codigo fonte de uma funcao PHP local para explicar procedimentos tecnicos ou calculos.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'function_name' => ['type' => 'string'],
+                    'file_hint' => ['type' => 'string'],
+                ],
+                'required' => ['function_name'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
 ];
 
 $messagesForModel = array_merge(
@@ -281,6 +563,8 @@ $messagesForModel = array_merge(
                 . ", sugerir_contas=" . ($canSuggestVat ? 'sim' : 'nao'),
         ],
     ],
+    count($messages) <= 1 ? getPersistentChatContext($userId, 6) : [],
+    $requestContextMessages,
     $messages
 );
 
@@ -352,6 +636,652 @@ function logAiInteraction(int $userId, string $sessionId, string $summary, array
         $update->execute([$category, $sourcesJson, $suggestedJson, $logId]);
     }
     return $logId;
+}
+
+function aiLogsHasCategoryColumn(): bool {
+    static $checked = null;
+    if ($checked !== null) {
+        return $checked;
+    }
+    $checked = hasTable('ai_assistant_logs') && hasColumn('ai_assistant_logs', 'category');
+    return $checked;
+}
+
+function parseAssistantMemoryCommand(string $message): ?array {
+    $text = trim($message);
+    if ($text === '') {
+        return null;
+    }
+
+    if (preg_match('/^(?:memoriza|guarda|lembra-te)\s*[:\-]\s*(.+)$/iu', $text, $m)) {
+        return ['type' => 'save', 'text' => trim((string) $m[1])];
+    }
+    if (preg_match('/^(?:listar|lista|mostrar)\s+mem[oó]rias?$/iu', $text)) {
+        return ['type' => 'list'];
+    }
+    if (preg_match('/^esquece\s+mem[oó]rias?$/iu', $text)) {
+        return ['type' => 'clear_all'];
+    }
+    if (preg_match('/^esquece\s*[:\-]\s*(.+)$/iu', $text, $m)) {
+        return ['type' => 'delete', 'text' => trim((string) $m[1])];
+    }
+
+    return null;
+}
+
+function getPersistentAssistantMemories(int $userId, int $limit = 12): array {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return [];
+    }
+
+    $limit = max(1, min($limit, 50));
+    $pdo = getPDO();
+    $rows = [];
+
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare(
+            'SELECT summary FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND summary IS NOT NULL AND summary <> "" ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$userId, 'memory_instruction']);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT summary FROM ai_assistant_logs WHERE user_id = ? AND summary LIKE ? ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$userId, 'MEMORY:%']);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    $memories = [];
+    foreach ((array) $rows as $row) {
+        $summary = trim((string) $row);
+        if ($summary === '') {
+            continue;
+        }
+        if (stripos($summary, 'MEMORY:') === 0) {
+            $summary = trim(substr($summary, 7));
+        }
+        if ($summary === '') {
+            continue;
+        }
+        if (!in_array($summary, $memories, true)) {
+            $memories[] = $summary;
+        }
+    }
+
+    return array_reverse($memories);
+}
+
+function savePersistentAssistantMemory(int $userId, string $sessionId, string $memoryText): bool {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return false;
+    }
+
+    $memoryText = trim($memoryText);
+    if ($memoryText === '') {
+        return false;
+    }
+
+    if (function_exists('mb_substr')) {
+        $memoryText = mb_substr($memoryText, 0, 500, 'UTF-8');
+    } else {
+        $memoryText = substr($memoryText, 0, 500);
+    }
+
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $check = $pdo->prepare('SELECT id FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND summary = ? LIMIT 1');
+        $check->execute([$userId, 'memory_instruction', $memoryText]);
+        if ($check->fetchColumn()) {
+            return true;
+        }
+        $stmt = $pdo->prepare('INSERT INTO ai_assistant_logs (user_id, session_id, summary, actions, category) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute([$userId, $sessionId, $memoryText, json_encode([['type' => 'memory_save']], JSON_UNESCAPED_UNICODE), 'memory_instruction']);
+        return true;
+    }
+
+    $prefixed = 'MEMORY: ' . $memoryText;
+    $check = $pdo->prepare('SELECT id FROM ai_assistant_logs WHERE user_id = ? AND summary = ? LIMIT 1');
+    $check->execute([$userId, $prefixed]);
+    if ($check->fetchColumn()) {
+        return true;
+    }
+    $stmt = $pdo->prepare('INSERT INTO ai_assistant_logs (user_id, session_id, summary, actions) VALUES (?, ?, ?, ?)');
+    $stmt->execute([$userId, $sessionId, $prefixed, json_encode([['type' => 'memory_save']], JSON_UNESCAPED_UNICODE)]);
+    return true;
+}
+
+function deletePersistentAssistantMemory(int $userId, string $memoryText): int {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return 0;
+    }
+
+    $memoryText = trim($memoryText);
+    if ($memoryText === '') {
+        return 0;
+    }
+
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare('DELETE FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND summary = ?');
+        $stmt->execute([$userId, 'memory_instruction', $memoryText]);
+        return (int) $stmt->rowCount();
+    }
+
+    $stmt = $pdo->prepare('DELETE FROM ai_assistant_logs WHERE user_id = ? AND summary = ?');
+    $stmt->execute([$userId, 'MEMORY: ' . $memoryText]);
+    return (int) $stmt->rowCount();
+}
+
+function clearPersistentAssistantMemories(int $userId): int {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return 0;
+    }
+
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare('DELETE FROM ai_assistant_logs WHERE user_id = ? AND category = ?');
+        $stmt->execute([$userId, 'memory_instruction']);
+        return (int) $stmt->rowCount();
+    }
+
+    $stmt = $pdo->prepare('DELETE FROM ai_assistant_logs WHERE user_id = ? AND summary LIKE ?');
+    $stmt->execute([$userId, 'MEMORY:%']);
+    return (int) $stmt->rowCount();
+}
+
+function isForgetOrWrongIntent(string $message): bool {
+    $text = trim($message);
+    if ($text === '') {
+        return false;
+    }
+    return (bool) preg_match('/\b(esquece|ignora|desconsidera|errado|incorreto|nao\s+consid|não\s+consid)\b/iu', $text);
+}
+
+function deleteLatestPersistentAssistantMemory(int $userId): int {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return 0;
+    }
+
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM ai_assistant_logs WHERE user_id = ? AND category = ? ORDER BY id DESC LIMIT 1'
+        );
+        $stmt->execute([$userId, 'memory_instruction']);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT id FROM ai_assistant_logs WHERE user_id = ? AND summary LIKE ? ORDER BY id DESC LIMIT 1'
+        );
+        $stmt->execute([$userId, 'MEMORY:%']);
+    }
+    $id = (int) ($stmt->fetchColumn() ?: 0);
+    if ($id <= 0) {
+        return 0;
+    }
+    $delete = $pdo->prepare('DELETE FROM ai_assistant_logs WHERE id = ?');
+    $delete->execute([$id]);
+    return (int) $delete->rowCount();
+}
+
+function shouldAutoMemorizeMessage(string $message): bool {
+    $text = trim($message);
+    if ($text === '') {
+        return false;
+    }
+    if (isForgetOrWrongIntent($text)) {
+        return false;
+    }
+    if (parseAssistantMemoryCommand($text) !== null) {
+        return false;
+    }
+    return true;
+}
+
+function getPersistentChatContext(int $userId, int $limit = 6): array {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return [];
+    }
+
+    $limit = max(1, min($limit, 20));
+    $pdo = getPDO();
+
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare(
+            'SELECT actions FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND actions IS NOT NULL ORDER BY id DESC LIMIT ' . ($limit * 4)
+        );
+        $stmt->execute([$userId, 'chat']);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT actions FROM ai_assistant_logs WHERE user_id = ? AND actions IS NOT NULL ORDER BY id DESC LIMIT ' . ($limit * 4)
+        );
+        $stmt->execute([$userId]);
+    }
+
+    $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $pairs = [];
+
+    foreach ((array) $rows as $rawActions) {
+        if (!is_string($rawActions) || trim($rawActions) === '') {
+            continue;
+        }
+        $decoded = json_decode($rawActions, true);
+        if (!is_array($decoded)) {
+            continue;
+        }
+
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (($entry['type'] ?? '') !== 'chat_exchange') {
+                continue;
+            }
+            $userText = trim((string) ($entry['user_message'] ?? ''));
+            $assistantText = trim((string) ($entry['assistant_message'] ?? ''));
+            if ($userText === '' || $assistantText === '') {
+                continue;
+            }
+            $pairs[] = ['user' => $userText, 'assistant' => $assistantText];
+            if (count($pairs) >= $limit) {
+                break 2;
+            }
+        }
+    }
+
+    $pairs = array_reverse($pairs);
+    $messages = [];
+    foreach ($pairs as $pair) {
+        $messages[] = ['role' => 'user', 'content' => $pair['user']];
+        $messages[] = ['role' => 'assistant', 'content' => $pair['assistant']];
+    }
+    return $messages;
+}
+
+function getAssistantUploadDirectory(string $companySlug): string {
+    $safeSlug = preg_replace('/[^a-zA-Z0-9_\-]/', '', $companySlug);
+    if ($safeSlug === null || $safeSlug === '') {
+        $safeSlug = 'default';
+    }
+    return __DIR__ . '/uploads/' . $safeSlug . '/assistant/' . date('Y') . '/' . date('m') . '/';
+}
+
+function sanitizeAssistantFilename(string $filename): string {
+    $filename = trim($filename);
+    if ($filename === '') {
+        return 'anexo.bin';
+    }
+    $filename = str_replace(['\\', '/'], '-', $filename);
+    $filename = preg_replace('/[^a-zA-Z0-9._\- ]/', '', $filename) ?: 'anexo.bin';
+    return trim($filename) !== '' ? trim($filename) : 'anexo.bin';
+}
+
+function getAssistantAllowedExtensions(): array {
+    return ['pdf', 'txt', 'csv', 'json', 'xml', 'md', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'xls', 'xlsx'];
+}
+
+function decodeBase64Payload(string $content): string {
+    $raw = trim($content);
+    if ($raw === '') {
+        return '';
+    }
+    if (strpos($raw, 'base64,') !== false) {
+        $parts = explode('base64,', $raw, 2);
+        $raw = $parts[1] ?? '';
+    }
+    $decoded = base64_decode($raw, true);
+    return $decoded === false ? '' : $decoded;
+}
+
+function extractAssistantAttachmentExcerpt(string $mimeType, string $binaryData, int $maxChars = 1800): string {
+    $mimeType = strtolower(trim($mimeType));
+    $isText = strpos($mimeType, 'text/') === 0
+        || in_array($mimeType, ['application/json', 'application/xml'], true);
+    if (!$isText) {
+        return '';
+    }
+
+    $text = trim($binaryData);
+    if ($text === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($text, 0, $maxChars, 'UTF-8');
+    }
+    return substr($text, 0, $maxChars);
+}
+
+function rememberAssistantAttachment(string $sessionId, array $attachment): void {
+    if (!isset($_SESSION['ai_session_attachments']) || !is_array($_SESSION['ai_session_attachments'])) {
+        $_SESSION['ai_session_attachments'] = [];
+    }
+    if (!isset($_SESSION['ai_session_attachments'][$sessionId]) || !is_array($_SESSION['ai_session_attachments'][$sessionId])) {
+        $_SESSION['ai_session_attachments'][$sessionId] = [];
+    }
+    $_SESSION['ai_session_attachments'][$sessionId][] = $attachment;
+    $_SESSION['ai_session_attachments'][$sessionId] = array_slice($_SESSION['ai_session_attachments'][$sessionId], -20);
+}
+
+function resolveAssistantAttachmentsForRequest(string $sessionId, array $requestedIds = []): array {
+    $attachments = $_SESSION['ai_session_attachments'][$sessionId] ?? [];
+    if (!is_array($attachments) || empty($attachments)) {
+        return [];
+    }
+
+    if (empty($requestedIds)) {
+        return array_slice($attachments, -6);
+    }
+
+    $requestedMap = [];
+    foreach ($requestedIds as $id) {
+        $id = trim((string) $id);
+        if ($id !== '') {
+            $requestedMap[$id] = true;
+        }
+    }
+    if (!$requestedMap) {
+        return array_slice($attachments, -6);
+    }
+
+    $result = [];
+    foreach ($attachments as $attachment) {
+        $id = (string) ($attachment['id'] ?? '');
+        if ($id !== '' && isset($requestedMap[$id])) {
+            $result[] = $attachment;
+        }
+    }
+    return $result ?: array_slice($attachments, -6);
+}
+
+function buildAssistantAttachmentContextMessage(array $attachments): string {
+    $lines = ['Contexto de anexos enviados pelo utilizador (usar se relevante):'];
+    foreach ($attachments as $attachment) {
+        $name = (string) ($attachment['filename'] ?? 'anexo');
+        $mime = (string) ($attachment['mime_type'] ?? '');
+        $size = (int) ($attachment['size'] ?? 0);
+        $path = (string) ($attachment['path'] ?? '');
+        $excerpt = trim((string) ($attachment['excerpt'] ?? ''));
+        $lines[] = '- Ficheiro: ' . $name . ' | tipo: ' . ($mime !== '' ? $mime : 'desconhecido') . ' | tamanho: ' . $size . ' bytes | caminho: ' . $path;
+        if ($excerpt !== '') {
+            $lines[] = '  Excerto: ' . $excerpt;
+        }
+    }
+    return implode("\n", $lines);
+}
+
+function getAccountingTaskMemories(int $userId, int $limit = 12): array {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return [];
+    }
+
+    $limit = max(1, min($limit, 50));
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $stmt = $pdo->prepare(
+            'SELECT summary FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND summary IS NOT NULL AND summary <> "" ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$userId, 'accounting_task_memory']);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT summary FROM ai_assistant_logs WHERE user_id = ? AND summary LIKE ? ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$userId, 'TASK_MEMORY:%']);
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    $memories = [];
+    foreach ((array) $rows as $row) {
+        $summary = trim((string) $row);
+        if ($summary === '') {
+            continue;
+        }
+        if (stripos($summary, 'TASK_MEMORY:') === 0) {
+            $summary = trim(substr($summary, 12));
+        }
+        if ($summary === '' || in_array($summary, $memories, true)) {
+            continue;
+        }
+        $memories[] = $summary;
+    }
+    return array_reverse($memories);
+}
+
+function saveAccountingTaskMemory(int $userId, string $sessionId, string $summary): bool {
+    if ($userId <= 0 || !hasTable('ai_assistant_logs')) {
+        return false;
+    }
+    $summary = trim($summary);
+    if ($summary === '') {
+        return false;
+    }
+    if (function_exists('mb_substr')) {
+        $summary = mb_substr($summary, 0, 500, 'UTF-8');
+    } else {
+        $summary = substr($summary, 0, 500);
+    }
+
+    $pdo = getPDO();
+    if (aiLogsHasCategoryColumn()) {
+        $check = $pdo->prepare('SELECT id FROM ai_assistant_logs WHERE user_id = ? AND category = ? AND summary = ? LIMIT 1');
+        $check->execute([$userId, 'accounting_task_memory', $summary]);
+        if ($check->fetchColumn()) {
+            return true;
+        }
+        $stmt = $pdo->prepare('INSERT INTO ai_assistant_logs (user_id, session_id, summary, actions, category) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute([$userId, $sessionId, $summary, json_encode([['type' => 'task_memory_save']], JSON_UNESCAPED_UNICODE), 'accounting_task_memory']);
+        return true;
+    }
+
+    $prefixed = 'TASK_MEMORY: ' . $summary;
+    $check = $pdo->prepare('SELECT id FROM ai_assistant_logs WHERE user_id = ? AND summary = ? LIMIT 1');
+    $check->execute([$userId, $prefixed]);
+    if ($check->fetchColumn()) {
+        return true;
+    }
+    $stmt = $pdo->prepare('INSERT INTO ai_assistant_logs (user_id, session_id, summary, actions) VALUES (?, ?, ?, ?)');
+    $stmt->execute([$userId, $sessionId, $prefixed, json_encode([['type' => 'task_memory_save']], JSON_UNESCAPED_UNICODE)]);
+    return true;
+}
+
+function buildAccountingTaskMemorySummary(string $userMessage, array $actions): string {
+    $taskTypes = [];
+    foreach ($actions as $action) {
+        if (!is_array($action)) {
+            continue;
+        }
+        $type = trim((string) ($action['type'] ?? ''));
+        if ($type === '') {
+            continue;
+        }
+        if (in_array($type, ['create_task', 'suggest_accounts', 'document_approved', 'document_rejected', 'open_lancamentos', 'erp_movimentos_search', 'erp_planocontas_search', 'erp_taxonomias_search', 'erp_clientes_search', 'erp_fornecedores_search', 'erp_exercicios_list', 'erp_empresas_list', 'erp_api_get', 'get_accounting_examples'], true)) {
+            $taskTypes[] = $type;
+        }
+    }
+    $taskTypes = array_values(array_unique($taskTypes));
+
+    if (empty($taskTypes) && !preg_match('/\b(tarefa|classifica|importa|contabil|lancamento|lançamento)\b/iu', $userMessage)) {
+        return '';
+    }
+
+    $summary = 'Pedido contabilistico: ' . trim($userMessage);
+    if ($taskTypes) {
+        $summary .= ' | Acoes executadas: ' . implode(', ', $taskTypes);
+    }
+    return $summary;
+}
+
+function listReadablePhpFiles(string $rootDir): array {
+    $rootRealPath = realpath($rootDir);
+    if ($rootRealPath === false) {
+        return [];
+    }
+
+    $skipSegments = ['/vendor/', '/vendors/', '/node_modules/', '/.git/', '/uploads/'];
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($rootRealPath, FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $fileInfo) {
+        if (!$fileInfo instanceof SplFileInfo || !$fileInfo->isFile()) {
+            continue;
+        }
+        if (strtolower((string) $fileInfo->getExtension()) !== 'php') {
+            continue;
+        }
+
+        $absolutePath = str_replace('\\', '/', $fileInfo->getPathname());
+        $relativePath = ltrim(str_replace('\\', '/', substr($absolutePath, strlen($rootRealPath))), '/');
+        $normalized = '/' . $relativePath . '/';
+
+        $skip = false;
+        foreach ($skipSegments as $segment) {
+            if (strpos($normalized, $segment) !== false) {
+                $skip = true;
+                break;
+            }
+        }
+        if ($skip) {
+            continue;
+        }
+
+        $files[] = ['absolute' => $absolutePath, 'relative' => $relativePath];
+    }
+
+    usort($files, static fn(array $a, array $b): int => strcmp($a['relative'], $b['relative']));
+    return $files;
+}
+
+function extractNamedFunctionFromPhp(string $source, string $functionName): ?array {
+    $tokens = token_get_all($source);
+    $offset = 0;
+    $total = count($tokens);
+    $target = strtolower($functionName);
+
+    for ($i = 0; $i < $total; $i++) {
+        $token = $tokens[$i];
+        $tokenText = is_array($token) ? (string) $token[1] : (string) $token;
+        $tokenLen = strlen($tokenText);
+
+        if (is_array($token) && $token[0] === T_FUNCTION) {
+            $functionStart = $offset;
+            $j = $i + 1;
+            $name = '';
+            while ($j < $total) {
+                $look = $tokens[$j];
+                if (is_array($look) && in_array($look[0], [T_WHITESPACE, T_AMPERSAND_FOLLOWED_BY_VAR_OR_VARARG, T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG], true)) {
+                    $j++;
+                    continue;
+                }
+                if (is_array($look) && $look[0] === T_STRING) {
+                    $name = (string) $look[1];
+                }
+                break;
+            }
+
+            if ($name !== '' && strtolower($name) === $target) {
+                $k = $j;
+                while ($k < $total) {
+                    $current = $tokens[$k];
+                    $text = is_array($current) ? (string) $current[1] : (string) $current;
+                    if ($text === '{') {
+                        $braceDepth = 1;
+                        $k++;
+                        while ($k < $total && $braceDepth > 0) {
+                            $braceToken = $tokens[$k];
+                            $braceText = is_array($braceToken) ? (string) $braceToken[1] : (string) $braceToken;
+                            if ($braceText === '{') {
+                                $braceDepth++;
+                            } elseif ($braceText === '}') {
+                                $braceDepth--;
+                            }
+                            $k++;
+                        }
+
+                        $endOffset = 0;
+                        for ($x = 0; $x < $k; $x++) {
+                            $tx = $tokens[$x];
+                            $endOffset += strlen(is_array($tx) ? (string) $tx[1] : (string) $tx);
+                        }
+
+                        return [
+                            'name' => $name,
+                            'code' => substr($source, $functionStart, max(0, $endOffset - $functionStart)),
+                        ];
+                    }
+                    if ($text === ';') {
+                        $endOffset = 0;
+                        for ($x = 0; $x <= $k; $x++) {
+                            $tx = $tokens[$x];
+                            $endOffset += strlen(is_array($tx) ? (string) $tx[1] : (string) $tx);
+                        }
+
+                        return [
+                            'name' => $name,
+                            'code' => substr($source, $functionStart, max(0, $endOffset - $functionStart)),
+                        ];
+                    }
+                    $k++;
+                }
+            }
+        }
+
+        $offset += $tokenLen;
+    }
+
+    return null;
+}
+
+function readPhpFunctionFromProject(string $rootDir, string $functionName, string $fileHint = ''): array {
+    $functionName = trim($functionName);
+    if ($functionName === '') {
+        return ['ok' => false, 'error' => 'Nome da funcao vazio.'];
+    }
+
+    $files = listReadablePhpFiles($rootDir);
+    if (empty($files)) {
+        return ['ok' => false, 'error' => 'Nao foram encontrados ficheiros PHP para leitura.'];
+    }
+
+    $fileHint = trim($fileHint);
+    if ($fileHint !== '') {
+        $files = array_values(array_filter($files, static function (array $file) use ($fileHint): bool {
+            return stripos($file['relative'], $fileHint) !== false;
+        }));
+        if (empty($files)) {
+            return ['ok' => false, 'error' => 'Nenhum ficheiro corresponde ao file_hint indicado.'];
+        }
+    }
+
+    foreach ($files as $file) {
+        $content = @file_get_contents($file['absolute']);
+        if (!is_string($content) || $content === '') {
+            continue;
+        }
+        $match = extractNamedFunctionFromPhp($content, $functionName);
+        if ($match !== null) {
+            $code = trim((string) ($match['code'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            if (function_exists('mb_substr') && mb_strlen($code, 'UTF-8') > 8000) {
+                $code = mb_substr($code, 0, 8000, 'UTF-8') . "\n// [trecho truncado por limite]";
+            } elseif (strlen($code) > 8000) {
+                $code = substr($code, 0, 8000) . "\n// [trecho truncado por limite]";
+            }
+
+            return [
+                'ok' => true,
+                'function_name' => $functionName,
+                'file' => $file['relative'],
+                'code' => $code,
+            ];
+        }
+    }
+
+    return ['ok' => false, 'error' => 'Funcao nao encontrada nos ficheiros PHP permitidos.'];
 }
 
 function extractAccountsFromPayload(string $json): array {
@@ -470,9 +1400,48 @@ function getErpDatabaseForNif(string $nif): ?string {
     return null;
 }
 
+function getErpDefaultEmp(): string {
+    $company = trim((string) getSetting('accounting_base_company', ''));
+    if ($company !== '') {
+        return $company;
+    }
+    return '';
+}
+
+function applyErpCompanyParams(array $query, string $dbHint = ''): array {
+    $dbHint = trim($dbHint);
+    $db = trim((string) ($query['db'] ?? ''));
+    if ($db === '' && $dbHint !== '') {
+        $db = $dbHint;
+    }
+
+    $emp = getErpDefaultEmp();
+    if ($emp === '' && $db !== '') {
+        $emp = $db;
+    }
+
+    if ($db !== '') {
+        $query['db'] = $db;
+    }
+    if ($emp !== '') {
+        $query['EMP'] = $emp;
+    }
+
+    return $query;
+}
+
+function buildErpGetEndpoint(string $baseUrl, string $path, array $query = [], string $dbHint = ''): string {
+    $base = rtrim($baseUrl, '/');
+    $path = '/' . ltrim($path, '/');
+    $query = applyErpCompanyParams($query, $dbHint);
+    if (empty($query)) {
+        return $base . $path;
+    }
+    return $base . $path . '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+}
+
 function fetchPlanAccounts(string $baseUrl, string $token, string $db, string $year, string $nif = ''): array {
     $query = [
-        'db' => $db,
         'strCodExercicio' => $year,
         'limit' => 200,
         'offset' => 0,
@@ -483,7 +1452,7 @@ function fetchPlanAccounts(string $baseUrl, string $token, string $db, string $y
     $results = [];
     $page = 0;
     while ($page < 20) {
-        $endpoint = rtrim($baseUrl, '/') . '/contabilidade/planocontas?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/planocontas', $query, $db);
         $response = callErpWebservice($endpoint, $token);
         if (!$response['ok']) {
             break;
@@ -520,30 +1489,85 @@ function fetchPlanAccounts(string $baseUrl, string $token, string $db, string $y
     return $results;
 }
 
-function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, string $mode = 'strict'): array {
+function extractVatLikeValue(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/(\d{9})/', $value, $matches)) {
+        return $matches[1];
+    }
+    $digits = preg_replace('/\D+/', '', $value);
+    if ($digits === '') {
+        return '';
+    }
+    return substr($digits, 0, 30);
+}
+
+function normalizePartyToken(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+        return '';
+    }
+    $value = preg_replace('/\d+/', ' ', $value);
+    $value = preg_replace('/[^a-z0-9]+/i', ' ', $value);
+    $value = trim(preg_replace('/\s+/', ' ', $value) ?? '');
+    return $value;
+}
+
+function extractTotalAccountFromPayload(string $json): string {
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return '';
+    }
+    $candidate = '';
+    if (isset($decoded['meta']) && is_array($decoded['meta'])) {
+        $candidate = trim((string) ($decoded['meta']['total_account'] ?? ''));
+    }
+    if ($candidate === '') {
+        $candidate = trim((string) ($decoded['total_account'] ?? ''));
+    }
+    return $candidate;
+}
+
+function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, string $mode = 'strict', array $context = []): array {
     $pdo = getPDO();
-    $sql = 'SELECT id, field_B, field_D, account FROM accounting_imports WHERE account <> \'\'';
+    $acquirerNif = extractVatLikeValue($acquirerNif);
+    $docType = trim($docType);
+    $emitterHint = normalizePartyToken((string) ($context['emitter'] ?? ''));
+    $acquirerHint = normalizePartyToken((string) ($context['acquirer_raw'] ?? ''));
+
+    $sql = 'SELECT id, field_A, field_B, field_C, field_D, account, line_items FROM accounting_imports WHERE account <> \'\'';
     $params = [];
+
     if ($mode === 'strict') {
         if ($acquirerNif !== '') {
-            $sql .= ' AND field_B = ?';
+            $sql .= ' AND (field_B = ? OR field_B LIKE ? OR field_C = ? OR field_C LIKE ?)';
             $params[] = $acquirerNif;
+            $params[] = '%' . $acquirerNif . '%';
+            $params[] = $acquirerNif;
+            $params[] = '%' . $acquirerNif . '%';
         }
         if ($docType !== '') {
             $sql .= ' AND field_D = ?';
             $params[] = $docType;
         }
     } elseif ($mode === 'acquirer' && $acquirerNif !== '') {
-        $sql .= ' AND field_B = ?';
+        $sql .= ' AND (field_B = ? OR field_B LIKE ? OR field_C = ? OR field_C LIKE ?)';
         $params[] = $acquirerNif;
+        $params[] = '%' . $acquirerNif . '%';
+        $params[] = $acquirerNif;
+        $params[] = '%' . $acquirerNif . '%';
     } elseif ($mode === 'doctype' && $docType !== '') {
         $sql .= ' AND field_D = ?';
         $params[] = $docType;
     }
-    $sql .= ' ORDER BY id DESC LIMIT ' . $limit;
+
+    $sql .= ' ORDER BY id DESC LIMIT ' . max(10, $limit * 4);
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
     $examples = [];
     foreach ($rows as $row) {
         $accountJson = (string) ($row['account'] ?? '');
@@ -554,14 +1578,261 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
         if (!$rates) {
             continue;
         }
+
+        $rowAcquirerNif = extractVatLikeValue((string) ($row['field_B'] ?? ''));
+        if ($rowAcquirerNif === '') {
+            $rowAcquirerNif = extractVatLikeValue((string) ($row['field_C'] ?? ''));
+        }
+
+        $score = 0;
+        if ($acquirerNif !== '' && $rowAcquirerNif !== '' && $acquirerNif === $rowAcquirerNif) {
+            $score += 6;
+        }
+        if ($docType !== '' && trim((string) ($row['field_D'] ?? '')) === $docType) {
+            $score += 4;
+        }
+        if ($emitterHint !== '') {
+            $rowEmitter = normalizePartyToken((string) ($row['field_A'] ?? ''));
+            if ($rowEmitter !== '' && strpos($rowEmitter, $emitterHint) !== false) {
+                $score += 3;
+            }
+        }
+        if ($acquirerHint !== '') {
+            $rowAcquirer = normalizePartyToken((string) ($row['field_B'] ?? ''));
+            if ($rowAcquirer !== '' && strpos($rowAcquirer, $acquirerHint) !== false) {
+                $score += 2;
+            }
+        }
+        if (trim((string) ($row['line_items'] ?? '')) !== '') {
+            $score += 1;
+        }
+
         $examples[] = [
             'id' => (int) ($row['id'] ?? 0),
-            'acquirer_nif' => (string) ($row['field_B'] ?? ''),
+            'acquirer_nif' => $rowAcquirerNif,
             'doc_type' => (string) ($row['field_D'] ?? ''),
             'rates' => $rates,
+            'score' => $score,
+            'total_account' => extractTotalAccountFromPayload($accountJson),
         ];
     }
-    return $examples;
+
+    usort($examples, static function (array $a, array $b): int {
+        $scoreCmp = (int) ($b['score'] ?? 0) <=> (int) ($a['score'] ?? 0);
+        if ($scoreCmp !== 0) {
+            return $scoreCmp;
+        }
+        return (int) ($b['id'] ?? 0) <=> (int) ($a['id'] ?? 0);
+    });
+
+    return array_slice($examples, 0, $limit);
+}
+
+function fetchClassificationRuleExamples(string $docType, string $emitter, string $acquirer, int $limit = 20): array {
+    if (!hasTable('accounting_classifications')) {
+        return [];
+    }
+    $docType = trim($docType);
+    $emitter = trim($emitter);
+    $acquirer = trim($acquirer);
+
+    $pdo = getPDO();
+    $sql = 'SELECT id, emitter, acquirer, doc_type, account FROM accounting_classifications WHERE 1=1';
+    $params = [];
+    if ($docType !== '') {
+        $sql .= ' AND doc_type = ?';
+        $params[] = $docType;
+    }
+    $sql .= ' ORDER BY id DESC LIMIT ' . max(1, $limit * 3);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $normalizedEmitter = normalizePartyToken($emitter);
+    $normalizedAcquirer = normalizePartyToken($acquirer);
+    $examples = [];
+    foreach ($rows as $row) {
+        $accountPayload = trim((string) ($row['account'] ?? ''));
+        if ($accountPayload === '') {
+            continue;
+        }
+        $rates = extractAccountsFromPayload($accountPayload);
+        $totalAccount = extractTotalAccountFromPayload($accountPayload);
+        if (!$rates && $totalAccount === '') {
+            continue;
+        }
+
+        $score = 0;
+        if ($docType !== '' && trim((string) ($row['doc_type'] ?? '')) === $docType) {
+            $score += 4;
+        }
+        $ruleEmitter = normalizePartyToken((string) ($row['emitter'] ?? ''));
+        $ruleAcquirer = normalizePartyToken((string) ($row['acquirer'] ?? ''));
+        if ($normalizedEmitter !== '' && $ruleEmitter !== '' && (strpos($ruleEmitter, $normalizedEmitter) !== false || strpos($normalizedEmitter, $ruleEmitter) !== false)) {
+            $score += 3;
+        }
+        if ($normalizedAcquirer !== '' && $ruleAcquirer !== '' && (strpos($ruleAcquirer, $normalizedAcquirer) !== false || strpos($normalizedAcquirer, $ruleAcquirer) !== false)) {
+            $score += 2;
+        }
+
+        $examples[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'acquirer_nif' => '',
+            'doc_type' => (string) ($row['doc_type'] ?? ''),
+            'rates' => $rates,
+            'score' => $score,
+            'total_account' => $totalAccount,
+        ];
+    }
+
+    usort($examples, static function (array $a, array $b): int {
+        $scoreCmp = (int) ($b['score'] ?? 0) <=> (int) ($a['score'] ?? 0);
+        if ($scoreCmp !== 0) {
+            return $scoreCmp;
+        }
+        return (int) ($b['id'] ?? 0) <=> (int) ($a['id'] ?? 0);
+    });
+
+    return array_slice($examples, 0, $limit);
+}
+
+function buildExpectedLinesFromExamples(array $examples): array {
+    $rateTally = [];
+    $totalTally = [];
+    foreach ($examples as $example) {
+        $rates = is_array($example['rates'] ?? null) ? $example['rates'] : [];
+        foreach ($rates as $rateKey => $accounts) {
+            if (!isset($rateTally[$rateKey])) {
+                $rateTally[$rateKey] = ['general' => [], 'iva' => []];
+            }
+            $general = trim((string) ($accounts['general_account'] ?? ''));
+            $iva = trim((string) ($accounts['iva_account'] ?? ''));
+            if ($general !== '') {
+                $rateTally[$rateKey]['general'][$general] = ($rateTally[$rateKey]['general'][$general] ?? 0) + 1;
+            }
+            if ($iva !== '') {
+                $rateTally[$rateKey]['iva'][$iva] = ($rateTally[$rateKey]['iva'][$iva] ?? 0) + 1;
+            }
+        }
+        $total = trim((string) ($example['total_account'] ?? ''));
+        if ($total !== '') {
+            $totalTally[$total] = ($totalTally[$total] ?? 0) + 1;
+        }
+    }
+
+    $expected = ['rates' => [], 'total_account' => '', 'sample_size' => count($examples)];
+    foreach ($rateTally as $rateKey => $counts) {
+        $general = '';
+        $iva = '';
+        if (!empty($counts['general'])) {
+            arsort($counts['general']);
+            $general = (string) array_key_first($counts['general']);
+        }
+        if (!empty($counts['iva'])) {
+            arsort($counts['iva']);
+            $iva = (string) array_key_first($counts['iva']);
+        }
+        if ($general !== '' || $iva !== '') {
+            $expected['rates'][$rateKey] = [
+                'general_account' => $general,
+                'iva_account' => $iva,
+            ];
+        }
+    }
+    if (!empty($totalTally)) {
+        arsort($totalTally);
+        $expected['total_account'] = (string) array_key_first($totalTally);
+    }
+    return $expected;
+}
+
+function collectAccountLikeTokens($value, string $key = '', array &$bucket = []): void {
+    if (is_array($value)) {
+        foreach ($value as $k => $v) {
+            collectAccountLikeTokens($v, is_string($k) ? $k : '', $bucket);
+        }
+        return;
+    }
+    if (!is_string($value) && !is_numeric($value)) {
+        return;
+    }
+    $text = trim((string) $value);
+    if ($text === '') {
+        return;
+    }
+
+    $normalizedKey = strtolower($key);
+    $looksLikeAccountField = strpos($normalizedKey, 'conta') !== false || strpos($normalizedKey, 'account') !== false;
+    if (!$looksLikeAccountField && !preg_match('/^\d{3,}$/', $text)) {
+        return;
+    }
+
+    if (!preg_match('/^\d{3,}$/', $text)) {
+        return;
+    }
+
+    $bucket[$text] = ($bucket[$text] ?? 0) + 1;
+}
+
+function fetchErpMovementAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif): array {
+    if ($baseUrl === '' || $token === '' || $db === '') {
+        return ['general' => [], 'iva' => [], 'count' => 0];
+    }
+    $query = [
+        'limit' => 120,
+        'offset' => 0,
+    ];
+    if ($docType !== '') {
+        $query['strAbrevTpDoc'] = $docType;
+    }
+    $acquirerNif = extractVatLikeValue($acquirerNif);
+    if ($acquirerNif !== '') {
+        $query['strNumContrib'] = $acquirerNif;
+    }
+
+    $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/movimentos', $query, $db);
+    $response = callErpWebservice($endpoint, $token);
+    if (!$response['ok']) {
+        return ['general' => [], 'iva' => [], 'count' => 0];
+    }
+    $payload = $response['data'];
+    $rows = [];
+    foreach (['aaData', 'data', 'result', 'results'] as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key])) {
+            $rows = $payload[$key];
+            break;
+        }
+    }
+    if (empty($rows) && array_keys($payload) === range(0, count($payload) - 1)) {
+        $rows = $payload;
+    }
+
+    $accountCounts = [];
+    foreach ($rows as $row) {
+        collectAccountLikeTokens($row, '', $accountCounts);
+    }
+    if (empty($accountCounts)) {
+        return ['general' => [], 'iva' => [], 'count' => is_array($rows) ? count($rows) : 0];
+    }
+
+    arsort($accountCounts);
+    $general = [];
+    $iva = [];
+    foreach ($accountCounts as $account => $count) {
+        if (strpos($account, '243') === 0) {
+            if (count($iva) < 5) {
+                $iva[] = $account;
+            }
+            continue;
+        }
+        if (strpos($account, '6') === 0 || strpos($account, '62') === 0 || strpos($account, '63') === 0) {
+            if (count($general) < 8) {
+                $general[] = $account;
+            }
+        }
+    }
+
+    return ['general' => $general, 'iva' => $iva, 'count' => is_array($rows) ? count($rows) : 0];
 }
 
 function findIvaAccountForGeneral(array $planAccounts, string $generalAccount): string {
@@ -751,15 +2022,30 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     if (!$canSuggestVat) {
         return ['ok' => false, 'error' => 'Sem permissao para sugerir contas.'];
     }
+    $acquirerRaw = trim((string) ($args['acquirer_raw'] ?? ''));
     $acquirerNif = trim((string) ($args['acquirer_nif'] ?? ''));
+    $acquirerNif = extractVatLikeValue($acquirerNif !== '' ? $acquirerNif : $acquirerRaw);
+    $emitter = trim((string) ($args['emitter'] ?? ''));
+    $emitterNif = extractVatLikeValue((string) ($args['emitter_nif'] ?? ''));
     $docType = trim((string) ($args['doc_type'] ?? ''));
     $rateItems = $args['rates'] ?? [];
     if ($acquirerNif === '' || !is_array($rateItems)) {
         return ['ok' => false, 'error' => 'Parametros invalidos.'];
     }
-    $limit = 15;
-    $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict');
+    $context = [
+        'emitter' => $emitter,
+        'emitter_nif' => $emitterNif,
+        'acquirer_raw' => $acquirerRaw,
+    ];
+    $limit = 18;
+    $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
+    $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12);
+    $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples));
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
+    if (!empty($ruleExamples)) {
+        $ruleSuggested = buildSuggestionsFromExamples($ruleExamples, $rateItems);
+        $suggestedFromHistory = mergeSuggestedAccounts($suggestedFromHistory, $ruleSuggested);
+    }
     $missingRates = [];
     foreach ($rateItems as $rateInfo) {
         $rateKey = (string) ($rateInfo['key'] ?? '');
@@ -772,7 +2058,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         }
     }
     if ($missingRates) {
-        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 20, 'acquirer');
+        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 24, 'acquirer', $context);
         $extraSuggested = buildSuggestionsFromExamples($extraExamples, $rateItems);
         $suggestedFromHistory = mergeSuggestedAccounts($suggestedFromHistory, $extraSuggested);
     }
@@ -788,7 +2074,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         }
     }
     if ($missingRates) {
-        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 20, 'doctype');
+        $extraExamples = fetchHistoryExamples($acquirerNif, $docType, 24, 'doctype', $context);
         $extraSuggested = buildSuggestionsFromExamples($extraExamples, $rateItems);
         $suggestedFromHistory = mergeSuggestedAccounts($suggestedFromHistory, $extraSuggested);
     }
@@ -796,10 +2082,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     $finalSuggested = $suggestedFromHistory;
     $planAccounts = [];
     $planDb = '';
+    $movementHints = ['general' => [], 'iva' => [], 'count' => 0];
     if ($erpBaseUrl !== '' && $erpToken !== '') {
         $planDb = getErpDatabaseForNif($acquirerNif) ?? '';
         if ($planDb !== '') {
             $year = date('Y');
+            $movementHints = fetchErpMovementAccountHints($erpBaseUrl, $erpToken, $planDb, $docType, $acquirerNif);
             $planAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $year, $acquirerNif);
             if ($planAccounts) {
                 $missingRates = [];
@@ -883,6 +2171,48 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
         }
     }
+
+    if (!empty($expectedLines['rates']) && is_array($expectedLines['rates'])) {
+        foreach ($rateItems as $rateInfo) {
+            $rateKey = (string) ($rateInfo['key'] ?? '');
+            if ($rateKey === '') {
+                continue;
+            }
+            if (!isset($finalSuggested[$rateKey])) {
+                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
+            }
+            $expected = $expectedLines['rates'][$rateKey] ?? $expectedLines['rates'][normalizeRateKey($rateKey)] ?? null;
+            if (is_array($expected)) {
+                if (($finalSuggested[$rateKey]['general_account'] ?? '') === '' && !empty($expected['general_account'])) {
+                    $finalSuggested[$rateKey]['general_account'] = (string) $expected['general_account'];
+                }
+                if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($expected['iva_account'])) {
+                    $finalSuggested[$rateKey]['iva_account'] = (string) $expected['iva_account'];
+                }
+            }
+        }
+    }
+
+    if (!empty($movementHints['general']) || !empty($movementHints['iva'])) {
+        $movementGeneral = is_array($movementHints['general']) ? $movementHints['general'] : [];
+        $movementIva = is_array($movementHints['iva']) ? $movementHints['iva'] : [];
+        foreach ($rateItems as $rateInfo) {
+            $rateKey = (string) ($rateInfo['key'] ?? '');
+            if ($rateKey === '') {
+                continue;
+            }
+            if (!isset($finalSuggested[$rateKey])) {
+                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
+            }
+            if (($finalSuggested[$rateKey]['general_account'] ?? '') === '' && !empty($movementGeneral)) {
+                $finalSuggested[$rateKey]['general_account'] = (string) $movementGeneral[0];
+            }
+            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($movementIva)) {
+                $finalSuggested[$rateKey]['iva_account'] = (string) $movementIva[0];
+            }
+        }
+    }
+
     foreach ($rateItems as $rateInfo) {
         $rawKey = (string) ($rateInfo['key'] ?? '');
         if ($rawKey === '' && isset($rateInfo['label'])) {
@@ -917,8 +2247,11 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'ok' => true,
         'suggested' => $finalSuggested,
         'history_count' => count($examples),
+        'rule_count' => count($ruleExamples),
         'plan_db' => $planDb,
         'plan_accounts' => count($planAccounts),
+        'expected_lines' => $expectedLines,
+        'erp_movement_rows' => (int) ($movementHints['count'] ?? 0),
     ];
 }
 
@@ -968,6 +2301,105 @@ if ($action === 'log_feedback') {
     exit;
 }
 
+if ($action === 'upload_attachment') {
+    $filename = sanitizeAssistantFilename((string) ($payload['filename'] ?? 'anexo.bin'));
+    $mimeType = trim((string) ($payload['mime_type'] ?? 'application/octet-stream'));
+    $contentBase64 = (string) ($payload['content_base64'] ?? '');
+
+    $extension = strtolower((string) pathinfo($filename, PATHINFO_EXTENSION));
+    if ($extension === '' || !in_array($extension, getAssistantAllowedExtensions(), true)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Extensao de ficheiro nao permitida.',
+            'csrf_token' => generateCsrfToken(true),
+        ]);
+        exit;
+    }
+
+    $binaryData = decodeBase64Payload($contentBase64);
+    if ($binaryData === '') {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Conteudo do ficheiro invalido.',
+            'csrf_token' => generateCsrfToken(true),
+        ]);
+        exit;
+    }
+
+    $size = strlen($binaryData);
+    if ($size <= 0 || $size > 10 * 1024 * 1024) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => 'O ficheiro excede o limite de 10MB.',
+            'csrf_token' => generateCsrfToken(true),
+        ]);
+        exit;
+    }
+
+    if (class_exists(finfo::class)) {
+        $detected = (new finfo(FILEINFO_MIME_TYPE))->buffer($binaryData);
+        if (is_string($detected) && trim($detected) !== '') {
+            $mimeType = trim($detected);
+        }
+    }
+
+    $companySlug = getCompanySlug() ?: getConfiguredCompanySlug();
+    $uploadDir = getAssistantUploadDirectory((string) $companySlug);
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Nao foi possivel criar o diretorio de anexos.',
+            'csrf_token' => generateCsrfToken(true),
+        ]);
+        exit;
+    }
+
+    $storedName = bin2hex(random_bytes(16)) . '.' . $extension;
+    $absolutePath = $uploadDir . $storedName;
+    if (file_put_contents($absolutePath, $binaryData) === false) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Nao foi possivel guardar o ficheiro.',
+            'csrf_token' => generateCsrfToken(true),
+        ]);
+        exit;
+    }
+
+    $relativePath = str_replace('\\', '/', 'uploads/' . preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $companySlug) . '/assistant/' . date('Y') . '/' . date('m') . '/' . $storedName);
+    $attachmentId = bin2hex(random_bytes(8));
+    $attachment = [
+        'id' => $attachmentId,
+        'filename' => $filename,
+        'mime_type' => $mimeType,
+        'size' => $size,
+        'path' => $relativePath,
+        'url' => BASE_URL . ltrim($relativePath, '/'),
+        'excerpt' => extractAssistantAttachmentExcerpt($mimeType, $binaryData),
+        'uploaded_at' => date('Y-m-d H:i:s'),
+    ];
+
+    rememberAssistantAttachment($sessionId, $attachment);
+    logAuditAction('ai_upload_attachment', 'assistant_attachment', null, [
+        'session' => $sessionId,
+        'path' => $relativePath,
+        'size' => $size,
+        'mime_type' => $mimeType,
+    ]);
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Anexo carregado com sucesso.',
+        'attachment' => $attachment,
+        'csrf_token' => generateCsrfToken(true),
+    ]);
+    exit;
+}
+
 if ($action === 'suggest_accounts') {
     $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
     $result = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken);
@@ -981,15 +2413,36 @@ if ($action === 'suggest_accounts') {
     if (!empty($result['history_count'])) {
         $sources[] = 'mysql_history';
     }
+    if (!empty($result['rule_count'])) {
+        $sources[] = 'mysql_classification_rules';
+    }
     if (!empty($result['plan_db'])) {
         $sources[] = 'erp_planocontas';
     }
+    if (!empty($result['erp_movement_rows'])) {
+        $sources[] = 'erp_movimentos';
+    }
     $logId = logAiInteraction($userId, $sessionId, 'Sugestao de contas', [['type' => 'suggest_accounts']], 'suggest_accounts', $sources, $suggested);
+    $expectedLines = is_array($result['expected_lines'] ?? null) ? $result['expected_lines'] : [];
+    $totalAccountSuggestion = trim((string) ($expectedLines['total_account'] ?? ''));
     echo json_encode([
-        'message' => json_encode(['rates' => $suggested], JSON_UNESCAPED_UNICODE),
+        'message' => json_encode([
+            'rates' => $suggested,
+            'total_account' => $totalAccountSuggestion,
+        ], JSON_UNESCAPED_UNICODE),
         'csrf_token' => generateCsrfToken(true),
+        'expected_lines' => $expectedLines,
+        'total_account' => $totalAccountSuggestion,
         'actions' => [
-            ['type' => 'suggest_accounts', 'history' => $result['history_count'] ?? 0, 'plan_db' => $result['plan_db'] ?? '', 'log_id' => $logId],
+            [
+                'type' => 'suggest_accounts',
+                'history' => $result['history_count'] ?? 0,
+                'rules' => $result['rule_count'] ?? 0,
+                'plan_db' => $result['plan_db'] ?? '',
+                'erp_movimentos' => $result['erp_movement_rows'] ?? 0,
+                'total_account' => $totalAccountSuggestion,
+                'log_id' => $logId
+            ],
         ],
         'log_id' => $logId,
     ]);
@@ -1124,7 +2577,13 @@ do {
             case 'suggest_accounts':
                 $toolResult = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken);
                 if ($toolResult['ok']) {
-                    $actions[] = ['type' => 'suggest_accounts', 'history' => $toolResult['history_count'] ?? 0];
+                    $actions[] = [
+                        'type' => 'suggest_accounts',
+                        'history' => $toolResult['history_count'] ?? 0,
+                        'rules' => $toolResult['rule_count'] ?? 0,
+                        'plan_db' => $toolResult['plan_db'] ?? '',
+                        'erp_movimentos' => $toolResult['erp_movement_rows'] ?? 0,
+                    ];
                 }
                 break;
 
@@ -1186,6 +2645,23 @@ do {
                 $toolResult = ['ok' => true, 'rows' => $rows];
                 $actions[] = ['type' => 'read_sql', 'rows' => count($rows)];
                 logAuditAction('ai_read_sql', 'database', null, ['rows' => count($rows)]);
+                break;
+
+            case 'read_php_function':
+                $functionName = trim((string) ($args['function_name'] ?? ''));
+                $fileHint = trim((string) ($args['file_hint'] ?? ''));
+                if ($functionName === '') {
+                    $toolResult = ['ok' => false, 'error' => 'function_name obrigatorio.'];
+                    break;
+                }
+                $toolResult = readPhpFunctionFromProject(__DIR__, $functionName, $fileHint);
+                if (!empty($toolResult['ok'])) {
+                    $actions[] = [
+                        'type' => 'read_php_function',
+                        'function_name' => $functionName,
+                        'file' => $toolResult['file'] ?? '',
+                    ];
+                }
                 break;
 
             case 'get_accounting_examples':
@@ -1262,8 +2738,8 @@ do {
                 if (!isset($query['offset'])) {
                     $query['offset'] = 0;
                 }
-                $base = rtrim($erpBaseUrl, '/');
-                $endpoint = $base . '/contabilidade/movimentos?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+                $dbHint = trim((string) ($query['db'] ?? ''));
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/contabilidade/movimentos', $query, $dbHint);
                 $erpResponse = callErpWebservice($endpoint, $erpToken);
                 if (!$erpResponse['ok']) {
                     $toolResult = [
@@ -1300,8 +2776,8 @@ do {
                 if (!isset($query['offset'])) {
                     $query['offset'] = 0;
                 }
-                $base = rtrim($erpBaseUrl, '/');
-                $endpoint = $base . '/contabilidade/planocontas?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+                $dbHint = trim((string) ($query['db'] ?? ''));
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/contabilidade/planocontas', $query, $dbHint);
                 $erpResponse = callErpWebservice($endpoint, $erpToken);
                 if (!$erpResponse['ok']) {
                     $toolResult = [
@@ -1329,8 +2805,7 @@ do {
                     $toolResult = ['ok' => false, 'error' => 'DB obrigatoria.'];
                     break;
                 }
-                $base = rtrim($erpBaseUrl, '/');
-                $endpoint = $base . '/contabilidade/taxonomias?' . http_build_query(['db' => $db], '', '&', PHP_QUERY_RFC3986);
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/contabilidade/taxonomias', ['db' => $db], $db);
                 $erpResponse = callErpWebservice($endpoint, $erpToken);
                 if (!$erpResponse['ok']) {
                     $toolResult = [
@@ -1346,6 +2821,141 @@ do {
                     'data' => $erpResponse['data'],
                 ];
                 $actions[] = ['type' => 'erp_taxonomias_search'];
+                break;
+
+            case 'erp_clientes_search':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $query = [];
+                foreach (['db', 'q', 'searchField', 'limit', 'offset'] as $key) {
+                    if (isset($args[$key]) && $args[$key] !== '') {
+                        $query[$key] = $args[$key];
+                    }
+                }
+                if (!isset($query['limit'])) {
+                    $query['limit'] = 20;
+                }
+                if (!isset($query['offset'])) {
+                    $query['offset'] = 0;
+                }
+                $dbHint = trim((string) ($query['db'] ?? ''));
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/clientes', $query, $dbHint);
+                $erpResponse = callErpWebservice($endpoint, $erpToken);
+                if (!$erpResponse['ok']) {
+                    $toolResult = ['ok' => false, 'status' => $erpResponse['status'] ?? 0, 'error' => $erpResponse['error'] ?? 'Erro ERP'];
+                    break;
+                }
+                $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
+                $actions[] = ['type' => 'erp_clientes_search'];
+                break;
+
+            case 'erp_fornecedores_search':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $query = [];
+                foreach (['db', 'q', 'searchField', 'limit', 'offset'] as $key) {
+                    if (isset($args[$key]) && $args[$key] !== '') {
+                        $query[$key] = $args[$key];
+                    }
+                }
+                if (!isset($query['limit'])) {
+                    $query['limit'] = 20;
+                }
+                if (!isset($query['offset'])) {
+                    $query['offset'] = 0;
+                }
+                $dbHint = trim((string) ($query['db'] ?? ''));
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/fornecedores', $query, $dbHint);
+                $erpResponse = callErpWebservice($endpoint, $erpToken);
+                if (!$erpResponse['ok']) {
+                    $toolResult = ['ok' => false, 'status' => $erpResponse['status'] ?? 0, 'error' => $erpResponse['error'] ?? 'Erro ERP'];
+                    break;
+                }
+                $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
+                $actions[] = ['type' => 'erp_fornecedores_search'];
+                break;
+
+            case 'erp_exercicios_list':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $query = [];
+                foreach (['limit', 'offset', 'order', 'dtmInicio', 'dtmFim'] as $key) {
+                    if (isset($args[$key]) && $args[$key] !== '') {
+                        $query[$key] = $args[$key];
+                    }
+                }
+                if (!isset($query['limit'])) {
+                    $query['limit'] = 20;
+                }
+                if (!isset($query['offset'])) {
+                    $query['offset'] = 0;
+                }
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/tabelas/exercicios', $query, '');
+                $erpResponse = callErpWebservice($endpoint, $erpToken);
+                if (!$erpResponse['ok']) {
+                    $toolResult = ['ok' => false, 'status' => $erpResponse['status'] ?? 0, 'error' => $erpResponse['error'] ?? 'Erro ERP'];
+                    break;
+                }
+                $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
+                $actions[] = ['type' => 'erp_exercicios_list'];
+                break;
+
+            case 'erp_empresas_list':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, '/contabilidade/listDBemp', [], '');
+                $erpResponse = callErpWebservice($endpoint, $erpToken);
+                if (!$erpResponse['ok']) {
+                    $toolResult = ['ok' => false, 'status' => $erpResponse['status'] ?? 0, 'error' => $erpResponse['error'] ?? 'Erro ERP'];
+                    break;
+                }
+                $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
+                $actions[] = ['type' => 'erp_empresas_list'];
+                break;
+
+            case 'erp_api_get':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $path = trim((string) ($args['path'] ?? ''));
+                if ($path === '' || $path[0] !== '/') {
+                    $toolResult = ['ok' => false, 'error' => 'path invalido. Use formato /endpoint.' ];
+                    break;
+                }
+                $allowedPrefixes = ['/clientes', '/fornecedores', '/contabilidade', '/tabelas', '/artigos', '/stocks', '/compras', '/vendas', '/encomendas', '/referencias'];
+                $allowed = false;
+                foreach ($allowedPrefixes as $prefix) {
+                    if (strpos($path, $prefix) === 0) {
+                        $allowed = true;
+                        break;
+                    }
+                }
+                if (!$allowed) {
+                    $toolResult = ['ok' => false, 'error' => 'Endpoint fora dos caminhos permitidos.'];
+                    break;
+                }
+                $query = isset($args['params']) && is_array($args['params']) ? $args['params'] : [];
+                $dbHint = trim((string) ($args['db'] ?? ($query['db'] ?? '')));
+                if ($dbHint !== '' && !isset($query['db'])) {
+                    $query['db'] = $dbHint;
+                }
+                $endpoint = buildErpGetEndpoint($erpBaseUrl, $path, $query, $dbHint);
+                $erpResponse = callErpWebservice($endpoint, $erpToken);
+                if (!$erpResponse['ok']) {
+                    $toolResult = ['ok' => false, 'status' => $erpResponse['status'] ?? 0, 'error' => $erpResponse['error'] ?? 'Erro ERP'];
+                    break;
+                }
+                $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
+                $actions[] = ['type' => 'erp_api_get', 'path' => $path];
                 break;
 
             default:
@@ -1384,7 +2994,19 @@ if ($actions) {
     }, $actions));
 }
 
-logAiInteraction($userId, $sessionId, $summary, $actions, 'chat', $actions ? ['chat'] : []);
+$loggedActions = $actions;
+$loggedActions[] = [
+    'type' => 'chat_exchange',
+    'user_message' => $message,
+    'assistant_message' => $finalMessage,
+];
+logAiInteraction($userId, $sessionId, $summary, $loggedActions, 'chat', $actions ? ['chat'] : []);
+
+$taskMemorySummary = buildAccountingTaskMemorySummary($message, $actions);
+if ($taskMemorySummary !== '' && !isForgetOrWrongIntent($message)) {
+    saveAccountingTaskMemory($userId, $sessionId, $taskMemorySummary);
+}
+
 logAuditAction('ai_assistant', 'assistant', null, ['session' => $sessionId]);
 
 $newToken = generateCsrfToken(true);

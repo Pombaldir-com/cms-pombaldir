@@ -21,3 +21,4 @@ migrations/*
 data/companies.php
 AGENTS.md
 .github/copilot-instructions.MD
+work/*

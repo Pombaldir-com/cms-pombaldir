@@ -40,6 +40,14 @@ if ($handle === false) {
 $payloadArray = [
     'act' => 'listDBemp',
 ];
+$companyParams = buildErpCompanyQueryParams();
+if (!empty($companyParams['EMP'])) {
+    $payloadArray['EMP'] = $companyParams['EMP'];
+}
+if (!empty($companyParams['db'])) {
+    $payloadArray['db'] = $companyParams['db'];
+    $payloadArray['database'] = $companyParams['db'];
+}
 
 $payload = json_encode($payloadArray, JSON_UNESCAPED_UNICODE);
 if (!is_string($payload)) {
@@ -205,4 +213,3 @@ echo json_encode([
     'success' => true,
     'options' => $options,
 ], JSON_UNESCAPED_UNICODE);
-

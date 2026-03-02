@@ -51,6 +51,50 @@ var CURRENT_URL = window.location.href.split('#')[0].split('?')[0],
     $NAV_MENU = $('.nav_menu'),
     $FOOTER = $('footer');
 
+function buildDataTableStateKey(settings) {
+    var tableNode = settings && settings.nTable ? settings.nTable : null;
+    var tableId = '';
+    if (tableNode && tableNode.id) {
+        tableId = tableNode.id;
+    } else if (settings && settings.sInstance) {
+        tableId = settings.sInstance;
+    } else {
+        tableId = 'datatable';
+    }
+
+    return ['datatable_state', window.location.pathname, tableId].join(':');
+}
+
+if ($.fn.dataTable) {
+    $.extend(true, $.fn.dataTable.defaults, {
+        stateSave: true,
+        stateDuration: -1,
+        stateSaveCallback: function(settings, data) {
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(buildDataTableStateKey(settings), JSON.stringify(data));
+                }
+            } catch (error) {
+                // Ignore storage errors to avoid blocking table rendering.
+            }
+        },
+        stateLoadCallback: function(settings) {
+            try {
+                if (!window.localStorage) {
+                    return null;
+                }
+                var raw = window.localStorage.getItem(buildDataTableStateKey(settings));
+                if (!raw) {
+                    return null;
+                }
+                return JSON.parse(raw);
+            } catch (error) {
+                return null;
+            }
+        }
+    });
+}
+
 function normalizeMenuUrl(url) {
     var cleanUrl = (url || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
     if (cleanUrl !== '' && cleanUrl.indexOf('/contabilidade/entidades/') !== -1) {

@@ -65,7 +65,15 @@ foreach ($companies as $nif => $cfg) {
         try {
             $startedTransaction = $pdo->beginTransaction();
             foreach ($statements as $statement) {
-                $pdo->exec($statement);
+                try {
+                    $pdo->exec($statement);
+                } catch (Throwable $e) {
+                    if (shouldIgnoreStatementError($e)) {
+                        fwrite(STDERR, "[{$label}] Ignored statement in {$filename}: {$e->getMessage()}\n");
+                        continue;
+                    }
+                    throw $e;
+                }
             }
             markMigrationApplied($pdo, $filename);
             if ($startedTransaction && $pdo->inTransaction()) {
@@ -76,11 +84,6 @@ foreach ($companies as $nif => $cfg) {
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
-            }
-            if (shouldSkipMigrationError($e)) {
-                markMigrationApplied($pdo, $filename);
-                fwrite(STDERR, "[{$label}] Skipped {$filename}: {$e->getMessage()}\n");
-                continue;
             }
             fwrite(STDERR, "[{$label}] Failed {$filename}: {$e->getMessage()}\n");
             $exitCode = 1;
@@ -146,10 +149,10 @@ function splitSqlStatements(string $sql): array {
     return $statements;
 }
 
-function shouldSkipMigrationError(Throwable $e): bool {
+function shouldIgnoreStatementError(Throwable $e): bool {
     if (!$e instanceof PDOException) {
         return false;
     }
     $code = $e->errorInfo[1] ?? null;
-    return in_array($code, [1050, 1060, 1091, 1146], true);
+    return in_array($code, [1050, 1060, 1091], true);
 }

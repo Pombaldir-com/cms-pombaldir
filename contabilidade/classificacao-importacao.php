@@ -42,10 +42,17 @@ $pdo = getPDO();
 $ocrSkipMap = fetchOcrSkipMap($pdo);
 $action = $_GET['action'] ?? '';
 $importType = (int)($_GET['import_type'] ?? 1);
+$viewMode = strtolower(trim((string) ($_GET['type'] ?? '')));
+$isImportOnlyView = $importType === 1 && $viewMode === 'import';
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 $currentErpToken = trim((string) getSetting('erp_token', ''));
 $canClassifyCtb = $importType !== 1 || userHasDepartmentPermission('ctb_classificar_docs');
 $canImportCtb = $importType !== 1 || userHasDepartmentPermission('ctb_importar_docs');
+
+if ($isImportOnlyView && !$canImportCtb) {
+    http_response_code(403);
+    exit('Sem permissao para importar documentos CTB.');
+}
 
 function buildDocumentFileAttachment(string $relativePath): ?array {
     $trimmedPath = trim($relativePath);
@@ -389,6 +396,9 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     ];
 
     $database = trim($database);
+    $erpEmp = trim((string) getSetting('accounting_base_company', ''));
+
+    $targetCompany = $database !== '' ? $database : $erpEmp;
 
     if (!function_exists('curl_init')) {
         $result['error'] = 'Extensão cURL não disponível no servidor.';
@@ -446,6 +456,19 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         $result['error'] = 'Nenhum documento encontrado para importar.';
         logErpMessage('Importação CTB abortada: nenhum documento encontrado para os IDs ' . implode(', ', $ids));
         return $result;
+    }
+
+    if ($targetCompany === '' && !empty($documents[0]['field_B'])) {
+        $fallbackNif = preg_replace('/\D+/', '', (string) $documents[0]['field_B']);
+        if ($fallbackNif !== '') {
+            $entity = findAccountingEntity($pdo, $fallbackNif);
+            if (is_array($entity)) {
+                $candidateDb = trim((string) ($entity['erp_database'] ?? ''));
+                if ($candidateDb !== '') {
+                    $targetCompany = $candidateDb;
+                }
+            }
+        }
     }
 
     $postingDateMode = trim((string) getSetting('accounting_posting_date_mode', 'document'));
@@ -514,8 +537,17 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         'import_type' => $importType,
         'document_ids' => array_values($ids),
         'documents' => $documentsPayload,
-        'database' => $database,
+        'database' => $targetCompany,
     ];
+
+    if ($targetCompany !== '') {
+        $postPayload['db'] = $targetCompany;
+    }
+    if ($erpEmp !== '') {
+        $postPayload['EMP'] = $erpEmp;
+    } elseif ($targetCompany !== '') {
+        $postPayload['EMP'] = $targetCompany;
+    }
 
     $accountingDiaryCode = trim((string) getSetting('accounting_diary', ''));
     if ($importType === 1 && $accountingDiaryCode !== '') {
@@ -760,6 +792,8 @@ function prepareImportRow(array $row): array {
     $row['rate_requirements'] = $requirements;
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata);
+    $row['manual_review_required'] = (($accountMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
+    $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
     $lines = json_decode($row['line_items'] ?? '', true);
@@ -784,6 +818,18 @@ function prepareImportRow(array $row): array {
     }
 
     return $row;
+}
+
+function isImportReadyRow(array $row): bool {
+    return trim((string) ($row['btn_class'] ?? '')) === 'btn-success';
+}
+
+function isAutoImportReadyRow(array $row): bool {
+    return isImportReadyRow($row) && trim((string) ($row['manual_review_required'] ?? '0')) !== '1';
+}
+
+function classificationButtonLabel(array $row): string {
+    return isAutoImportReadyRow($row) ? 'Classificado' : 'Classificar';
 }
 
 /**
@@ -899,6 +945,584 @@ function collectAcquirerEntities(PDO $pdo, array $ids, int $importType): array {
     return array_values($entities);
 }
 
+function normalizeSuggestionRateKey(string $value): string {
+    $clean = trim(str_replace('%', '', $value));
+    if ($clean === '') {
+        return '';
+    }
+
+    $clean = str_replace(',', '.', $clean);
+    if (!is_numeric($clean)) {
+        return $clean;
+    }
+
+    $number = (float) $clean;
+    if ($number > 0 && $number <= 1) {
+        $number *= 100;
+    }
+    $number = round($number, 2);
+
+    if (abs($number - round($number)) < 0.001) {
+        return (string) (int) round($number);
+    }
+
+    return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
+}
+
+function normalizePartyHintToken(string $value): string {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/\s+/u', ' ', $value);
+    if (!is_string($normalized)) {
+        return $value;
+    }
+
+    return $normalized;
+}
+
+function extractAccountTokensFromMixed($value, array &$bucket): void {
+    if (is_array($value)) {
+        foreach ($value as $nested) {
+            extractAccountTokensFromMixed($nested, $bucket);
+        }
+        return;
+    }
+
+    if (!is_string($value) && !is_numeric($value)) {
+        return;
+    }
+
+    $token = trim((string) $value);
+    if ($token === '' || !preg_match('/^\d{3,}$/', $token)) {
+        return;
+    }
+
+    $bucket[$token] = ($bucket[$token] ?? 0) + 1;
+}
+
+function extractErpRowsFromPayload(array $payload): array {
+    foreach (['aaData', 'data', 'result', 'results'] as $key) {
+        if (isset($payload[$key]) && is_array($payload[$key])) {
+            return $payload[$key];
+        }
+    }
+
+    if (array_keys($payload) === range(0, count($payload) - 1)) {
+        return $payload;
+    }
+
+    return [];
+}
+
+function extractTotalAccountFromPayloadString(?string $json): string {
+    $json = trim((string) $json);
+    if ($json === '') {
+        return '';
+    }
+
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return '';
+    }
+
+    $candidate = '';
+    if (isset($decoded['meta']) && is_array($decoded['meta'])) {
+        $candidate = trim((string) ($decoded['meta']['total_account'] ?? ''));
+    }
+    if ($candidate === '') {
+        $candidate = trim((string) ($decoded['total_account'] ?? ''));
+    }
+
+    if ($candidate !== '' && preg_match('/^\d{3,}$/', $candidate)) {
+        return $candidate;
+    }
+
+    return '';
+}
+
+function fetchErpJsonForSuggestion(string $path, array $query, string $database = ''): array {
+    $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
+    $token = trim((string) getSetting('erp_token', ''));
+
+    if ($baseUrl === '' || $token === '' || !function_exists('curl_init')) {
+        return [];
+    }
+
+    $endpoint = buildErpEndpointFromBase($baseUrl, $path);
+    if ($endpoint === '') {
+        return [];
+    }
+
+    $query = array_merge($query, buildErpCompanyQueryParams($database));
+    if (!empty($query)) {
+        $endpoint = appendQueryParamsToUrl($endpoint, $query);
+    }
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        return [];
+    }
+
+    curl_setopt_array($handle, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'X-API-KEY: ' . $token,
+        ],
+    ]);
+
+    $response = curl_exec($handle);
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    if (!is_string($response) || $response === '' || $status < 200 || $status >= 300) {
+        return [];
+    }
+
+    $decoded = json_decode($response, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function buildSuggestionTallyFromHistory(PDO $pdo, string $acquirerNif, string $docType, string $emitter, int $limit = 140): array {
+    $acquirerNif = extractVatNumber($acquirerNif);
+    $docType = trim($docType);
+    $emitterHint = normalizePartyHintToken($emitter);
+
+    $sql = 'SELECT id, field_A, field_B, field_C, field_D, account FROM accounting_imports WHERE import_type = 1 AND account IS NOT NULL AND account <> ""';
+    $params = [];
+    if ($docType !== '') {
+        $sql .= ' AND field_D = ?';
+        $params[] = $docType;
+    }
+    if ($acquirerNif !== '') {
+        $sql .= ' AND (field_B LIKE ? OR field_C LIKE ?)';
+        $params[] = '%' . $acquirerNif . '%';
+        $params[] = '%' . $acquirerNif . '%';
+    }
+    $sql .= ' ORDER BY id DESC LIMIT ' . max(40, $limit);
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $rates = [];
+    $samples = 0;
+    $totals = [];
+    foreach ($rows as $row) {
+        $accountPayload = trim((string) ($row['account'] ?? ''));
+        if ($accountPayload === '') {
+            continue;
+        }
+
+        $normalizedRates = normalizeAccountingAccounts($accountPayload);
+        if (empty($normalizedRates)) {
+            continue;
+        }
+
+        $samples += 1;
+        $score = 1;
+        $rowAcquirer = extractVatNumber((string) ($row['field_B'] ?? ''));
+        if ($rowAcquirer === '') {
+            $rowAcquirer = extractVatNumber((string) ($row['field_C'] ?? ''));
+        }
+        if ($acquirerNif !== '' && $rowAcquirer !== '' && $acquirerNif === $rowAcquirer) {
+            $score += 6;
+        }
+        if ($docType !== '' && trim((string) ($row['field_D'] ?? '')) === $docType) {
+            $score += 4;
+        }
+        if ($emitterHint !== '') {
+            $rowEmitter = normalizePartyHintToken((string) ($row['field_A'] ?? ''));
+            if ($rowEmitter !== '' && strpos($rowEmitter, $emitterHint) !== false) {
+                $score += 2;
+            }
+        }
+
+        $totalAccount = extractTotalAccountFromPayloadString($accountPayload);
+        if ($totalAccount !== '') {
+            $totals[$totalAccount] = ($totals[$totalAccount] ?? 0) + $score;
+        }
+
+        foreach ($normalizedRates as $rateKey => $entry) {
+            $effectiveRate = normalizeSuggestionRateKey((string) $rateKey);
+            if ($effectiveRate === '') {
+                $effectiveRate = (string) $rateKey;
+            }
+            if (!isset($rates[$effectiveRate])) {
+                $rates[$effectiveRate] = ['general' => [], 'iva' => []];
+            }
+
+            $general = trim((string) ($entry['general_account'] ?? ''));
+            $iva = trim((string) ($entry['iva_account'] ?? ''));
+            if ($general !== '') {
+                $rates[$effectiveRate]['general'][$general] = ($rates[$effectiveRate]['general'][$general] ?? 0) + $score;
+            }
+            if ($iva !== '') {
+                $rates[$effectiveRate]['iva'][$iva] = ($rates[$effectiveRate]['iva'][$iva] ?? 0) + $score;
+            }
+        }
+    }
+
+    foreach ($rates as $rateKey => $accountMap) {
+        arsort($accountMap['general']);
+        arsort($accountMap['iva']);
+        $rates[$rateKey] = $accountMap;
+    }
+
+    arsort($totals);
+
+    return ['samples' => $samples, 'rates' => $rates, 'totals' => $totals];
+}
+
+function buildSuggestionTallyFromRules(PDO $pdo, string $docType, string $emitter, string $acquirer, int $limit = 80): array {
+    if (!hasTable('accounting_classifications')) {
+        return ['samples' => 0, 'rates' => []];
+    }
+
+    $docType = trim($docType);
+    $emitterHint = normalizePartyHintToken($emitter);
+    $acquirerHint = normalizePartyHintToken($acquirer);
+
+    $sql = 'SELECT id, emitter, acquirer, doc_type, account FROM accounting_classifications WHERE account IS NOT NULL AND account <> ""';
+    $params = [];
+    if ($docType !== '') {
+        $sql .= ' AND doc_type = ?';
+        $params[] = $docType;
+    }
+    $sql .= ' ORDER BY id DESC LIMIT ' . max(20, $limit);
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $rates = [];
+    $samples = 0;
+    $totals = [];
+    foreach ($rows as $row) {
+        $accountPayload = trim((string) ($row['account'] ?? ''));
+        if ($accountPayload === '') {
+            continue;
+        }
+
+        $normalizedRates = normalizeAccountingAccounts($accountPayload);
+        if (empty($normalizedRates)) {
+            continue;
+        }
+
+        $samples += 1;
+        $score = 1;
+        if ($docType !== '' && trim((string) ($row['doc_type'] ?? '')) === $docType) {
+            $score += 4;
+        }
+
+        $rowEmitter = normalizePartyHintToken((string) ($row['emitter'] ?? ''));
+        if ($emitterHint !== '' && $rowEmitter !== '' && (strpos($rowEmitter, $emitterHint) !== false || strpos($emitterHint, $rowEmitter) !== false)) {
+            $score += 3;
+        }
+
+        $rowAcquirer = normalizePartyHintToken((string) ($row['acquirer'] ?? ''));
+        if ($acquirerHint !== '' && $rowAcquirer !== '' && (strpos($rowAcquirer, $acquirerHint) !== false || strpos($acquirerHint, $rowAcquirer) !== false)) {
+            $score += 2;
+        }
+
+        $totalAccount = extractTotalAccountFromPayloadString($accountPayload);
+        if ($totalAccount !== '') {
+            $totals[$totalAccount] = ($totals[$totalAccount] ?? 0) + $score;
+        }
+
+        foreach ($normalizedRates as $rateKey => $entry) {
+            $effectiveRate = normalizeSuggestionRateKey((string) $rateKey);
+            if ($effectiveRate === '') {
+                $effectiveRate = (string) $rateKey;
+            }
+            if (!isset($rates[$effectiveRate])) {
+                $rates[$effectiveRate] = ['general' => [], 'iva' => []];
+            }
+
+            $general = trim((string) ($entry['general_account'] ?? ''));
+            $iva = trim((string) ($entry['iva_account'] ?? ''));
+            if ($general !== '') {
+                $rates[$effectiveRate]['general'][$general] = ($rates[$effectiveRate]['general'][$general] ?? 0) + $score;
+            }
+            if ($iva !== '') {
+                $rates[$effectiveRate]['iva'][$iva] = ($rates[$effectiveRate]['iva'][$iva] ?? 0) + $score;
+            }
+        }
+    }
+
+    foreach ($rates as $rateKey => $accountMap) {
+        arsort($accountMap['general']);
+        arsort($accountMap['iva']);
+        $rates[$rateKey] = $accountMap;
+    }
+
+    arsort($totals);
+
+    return ['samples' => $samples, 'rates' => $rates, 'totals' => $totals];
+}
+
+if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $rawBody = file_get_contents('php://input');
+    $payload = json_decode($rawBody ?? '', true);
+    if (!is_array($payload)) {
+        echo json_encode(['success' => false, 'error' => 'Pedido inválido.', 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $csrfToken = (string) ($payload['csrf_token'] ?? '');
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        echo json_encode(['success' => false, 'error' => 'Token CSRF inválido.', 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (getSetting('ai_enabled', '0') !== '1' || !userHasDepartmentPermission('ai_suggest_vat')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Sem permissao para consultar explicações de sugestão.', 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
+    $docType = trim((string) ($args['doc_type'] ?? ''));
+    $emitter = trim((string) ($args['emitter'] ?? ''));
+    $acquirerRaw = trim((string) ($args['acquirer_raw'] ?? ''));
+    $acquirerNif = extractVatNumber((string) ($args['acquirer_nif'] ?? ''));
+    if ($acquirerNif === '' && $acquirerRaw !== '') {
+        $acquirerNif = extractVatNumber($acquirerRaw);
+    }
+
+    $rateItems = is_array($args['rates'] ?? null) ? $args['rates'] : [];
+    if ($acquirerNif === '' || empty($rateItems)) {
+        echo json_encode(['success' => false, 'error' => 'Parâmetros insuficientes para explicar a sugestão.', 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $historyTally = buildSuggestionTallyFromHistory($pdo, $acquirerNif, $docType, $emitter);
+    $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
+
+    $database = trim((string) ($args['db'] ?? $args['database'] ?? ''));
+    if ($database === '') {
+        $entity = findAccountingEntity($pdo, $acquirerNif);
+        if (is_array($entity)) {
+            $database = trim((string) ($entity['erp_database'] ?? ''));
+        }
+    }
+    if ($database === '') {
+        $database = resolveErpDatabaseIdentifier('');
+    }
+
+    $movementRows = [];
+    $movementPayload = fetchErpJsonForSuggestion('/contabilidade/movimentos', [
+        'limit' => 120,
+        'offset' => 0,
+        'strAbrevTpDoc' => $docType,
+        'strNumContrib' => $acquirerNif,
+    ], $database);
+    if (!empty($movementPayload)) {
+        $movementRows = extractErpRowsFromPayload($movementPayload);
+    }
+    $movementAccounts = [];
+    foreach ($movementRows as $row) {
+        extractAccountTokensFromMixed($row, $movementAccounts);
+    }
+
+    $planRows = [];
+    $planPayload = fetchErpJsonForSuggestion('/contabilidade/planocontas', [
+        'strCodExercicio' => date('Y'),
+        'strNumContrib' => $acquirerNif,
+        'limit' => 200,
+        'offset' => 0,
+    ], $database);
+    if (!empty($planPayload)) {
+        $planRows = extractErpRowsFromPayload($planPayload);
+    }
+
+    $planAccounts = [];
+    $planIvaAccounts = [];
+    foreach ($planRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $general = trim((string) ($row['strConta'] ?? ''));
+        $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+        if ($general !== '') {
+            $planAccounts[$general] = true;
+        }
+        if ($iva !== '') {
+            $planIvaAccounts[$iva] = true;
+        }
+    }
+
+    $explanations = [];
+    foreach ($rateItems as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $rawRateKey = trim((string) ($item['key'] ?? ''));
+        if ($rawRateKey === '') {
+            continue;
+        }
+        $rateKey = normalizeSuggestionRateKey($rawRateKey);
+        if ($rateKey === '') {
+            $rateKey = $rawRateKey;
+        }
+
+        $label = trim((string) ($item['label'] ?? ''));
+        if ($label === '') {
+            $label = buildVatRateLabel($rateKey);
+        }
+        $suggestedGeneral = trim((string) ($item['general_account'] ?? ''));
+        $suggestedIva = trim((string) ($item['iva_account'] ?? ''));
+
+        $historyRate = $historyTally['rates'][$rateKey] ?? ['general' => [], 'iva' => []];
+        $rulesRate = $ruleTally['rates'][$rateKey] ?? ['general' => [], 'iva' => []];
+
+        $topHistoryGeneral = (string) (array_key_first($historyRate['general']) ?? '');
+        $topHistoryIva = (string) (array_key_first($historyRate['iva']) ?? '');
+        $topRulesGeneral = (string) (array_key_first($rulesRate['general']) ?? '');
+        $topRulesIva = (string) (array_key_first($rulesRate['iva']) ?? '');
+
+        $reasons = [];
+        if ((int) ($historyTally['samples'] ?? 0) > 0) {
+            $line = 'Histórico MySQL analisado (' . (int) $historyTally['samples'] . ' registos)';
+            if ($topHistoryGeneral !== '' || $topHistoryIva !== '') {
+                $line .= ': top geral ' . ($topHistoryGeneral !== '' ? $topHistoryGeneral : '-') . ', top IVA ' . ($topHistoryIva !== '' ? $topHistoryIva : '-') . '.';
+            } else {
+                $line .= '.';
+            }
+            $reasons[] = $line;
+        }
+        if ((int) ($ruleTally['samples'] ?? 0) > 0) {
+            $line = 'Regras de classificação analisadas (' . (int) $ruleTally['samples'] . ' regras)';
+            if ($topRulesGeneral !== '' || $topRulesIva !== '') {
+                $line .= ': top geral ' . ($topRulesGeneral !== '' ? $topRulesGeneral : '-') . ', top IVA ' . ($topRulesIva !== '' ? $topRulesIva : '-') . '.';
+            } else {
+                $line .= '.';
+            }
+            $reasons[] = $line;
+        }
+
+        if (!empty($movementAccounts)) {
+            $movementHits = [];
+            if ($suggestedGeneral !== '') {
+                $movementHits[] = 'geral ' . $suggestedGeneral . ': ' . (int) ($movementAccounts[$suggestedGeneral] ?? 0) . ' ocorrências';
+            }
+            if ($suggestedIva !== '') {
+                $movementHits[] = 'IVA ' . $suggestedIva . ': ' . (int) ($movementAccounts[$suggestedIva] ?? 0) . ' ocorrências';
+            }
+            $reasons[] = 'Movimentos ERP analisados (' . count($movementRows) . ' linhas)' . (!empty($movementHits) ? ' - ' . implode(', ', $movementHits) . '.' : '.');
+        }
+
+        if (!empty($planRows)) {
+            $generalInPlan = $suggestedGeneral !== '' && isset($planAccounts[$suggestedGeneral]);
+            $ivaInPlan = $suggestedIva !== '' && isset($planIvaAccounts[$suggestedIva]);
+            $reasons[] = 'Plano de contas ERP consultado (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): '
+                . 'geral ' . ($generalInPlan ? 'válida' : 'não encontrada')
+                . ', IVA ' . ($ivaInPlan ? 'válida' : 'não encontrada') . '.';
+        }
+
+        if (empty($reasons)) {
+            $reasons[] = 'Sem evidências suficientes nas fontes disponíveis para esta taxa.';
+        }
+
+        $explanations[$rateKey] = [
+            'rate_key' => $rateKey,
+            'label' => $label,
+            'suggested' => [
+                'general_account' => $suggestedGeneral,
+                'iva_account' => $suggestedIva,
+            ],
+            'top_accounts' => [
+                'history' => [
+                    'general' => $topHistoryGeneral,
+                    'iva' => $topHistoryIva,
+                ],
+                'rules' => [
+                    'general' => $topRulesGeneral,
+                    'iva' => $topRulesIva,
+                ],
+            ],
+            'reasons' => $reasons,
+        ];
+    }
+
+    $suggestedTotalAccount = trim((string) ($args['total_account'] ?? ''));
+    if ($suggestedTotalAccount === '' && !empty($historyTally['totals'])) {
+        $suggestedTotalAccount = (string) array_key_first($historyTally['totals']);
+    }
+    if ($suggestedTotalAccount === '' && !empty($ruleTally['totals'])) {
+        $suggestedTotalAccount = (string) array_key_first($ruleTally['totals']);
+    }
+
+    $topHistoryTotal = !empty($historyTally['totals']) ? (string) array_key_first($historyTally['totals']) : '';
+    $topRulesTotal = !empty($ruleTally['totals']) ? (string) array_key_first($ruleTally['totals']) : '';
+
+    $totalReasons = [];
+    if ((int) ($historyTally['samples'] ?? 0) > 0) {
+        $line = 'Histórico MySQL analisado (' . (int) $historyTally['samples'] . ' registos)';
+        if ($topHistoryTotal !== '') {
+            $line .= ': conta total mais usada ' . $topHistoryTotal . '.';
+        } else {
+            $line .= '.';
+        }
+        $totalReasons[] = $line;
+    }
+    if ((int) ($ruleTally['samples'] ?? 0) > 0) {
+        $line = 'Regras de classificação analisadas (' . (int) $ruleTally['samples'] . ' regras)';
+        if ($topRulesTotal !== '') {
+            $line .= ': conta total mais usada ' . $topRulesTotal . '.';
+        } else {
+            $line .= '.';
+        }
+        $totalReasons[] = $line;
+    }
+    if (!empty($movementAccounts)) {
+        $occurrences = $suggestedTotalAccount !== '' ? (int) ($movementAccounts[$suggestedTotalAccount] ?? 0) : 0;
+        $totalReasons[] = 'Movimentos ERP analisados (' . count($movementRows) . ' linhas): conta total '
+            . ($suggestedTotalAccount !== '' ? $suggestedTotalAccount : 'n/d')
+            . ' com ' . $occurrences . ' ocorrências.';
+    }
+    if (!empty($planRows)) {
+        $inPlan = $suggestedTotalAccount !== '' && isset($planAccounts[$suggestedTotalAccount]);
+        $totalReasons[] = 'Plano de contas ERP consultado (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): conta total '
+            . ($inPlan ? 'válida' : 'não encontrada') . '.';
+    }
+    if (empty($totalReasons)) {
+        $totalReasons[] = 'Sem evidências suficientes nas fontes disponíveis para a conta de valor total.';
+    }
+
+    echo json_encode([
+        'success' => true,
+        'csrf_token' => generateCsrfToken(),
+        'summary' => [
+            'history_samples' => (int) ($historyTally['samples'] ?? 0),
+            'rule_samples' => (int) ($ruleTally['samples'] ?? 0),
+            'erp_movement_rows' => count($movementRows),
+            'erp_plan_rows' => count($planRows),
+            'database' => $database,
+        ],
+        'total_account' => [
+            'suggested' => $suggestedTotalAccount,
+            'top_accounts' => [
+                'history' => $topHistoryTotal,
+                'rules' => $topRulesTotal,
+            ],
+            'reasons' => $totalReasons,
+        ],
+        'rates' => $explanations,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -949,7 +1573,8 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($requestedImportType <= 0) {
         $requestedImportType = 1;
     }
-    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs')) {
+    $allowClassifiedFlow = (int)($payload['allow_classified_flow'] ?? 0) === 1;
+    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs') && !$allowClassifiedFlow) {
         http_response_code(403);
         echo json_encode([
             'success' => false,
@@ -1234,6 +1859,8 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($action === 'data') {
     $draw = (int)($_GET['draw'] ?? 0);
     header('Content-Type: application/json; charset=utf-8');
+    $viewMode = strtolower(trim((string) ($_GET['view_mode'] ?? ($_GET['type'] ?? ''))));
+    $isImportOnlyRequest = $importType === 1 && $viewMode === 'import';
 
     try {
         $columns = [
@@ -1270,26 +1897,41 @@ if ($action === 'data') {
             $length = 10;
         }
 
-        $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')';
-        $countStmt = $pdo->prepare($countSql);
-        $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
-        $countStmt->execute();
-        $totalCount = (int)$countStmt->fetchColumn();
-        $filteredCount = $totalCount;
-
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-        $sql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '') ORDER BY id LIMIT :start, :length";
-        $stmt = $pdo->prepare($sql);
-        $stmt->bindValue(':start', $start, PDO::PARAM_INT);
-        $stmt->bindValue(':length', $length, PDO::PARAM_INT);
-        $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $baseSql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')";
+        if ($isImportOnlyRequest) {
+            $stmt = $pdo->prepare($baseSql . ' ORDER BY id');
+            $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $row = prepareImportRow($row);
+            }
+            unset($row);
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => isImportReadyRow($row)));
+            $totalCount = count($rows);
+            $filteredCount = $totalCount;
+            $rows = array_slice($rows, $start, $length);
+        } else {
+            $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')';
+            $countStmt = $pdo->prepare($countSql);
+            $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $countStmt->execute();
+            $totalCount = (int)$countStmt->fetchColumn();
+            $filteredCount = $totalCount;
 
-        foreach ($rows as &$row) {
-            $row = prepareImportRow($row);
+            $sql = $baseSql . ' ORDER BY id LIMIT :start, :length';
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':start', $start, PDO::PARAM_INT);
+            $stmt->bindValue(':length', $length, PDO::PARAM_INT);
+            $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $row = prepareImportRow($row);
+            }
+            unset($row);
         }
-        unset($row);
 
         $data = [];
         foreach ($rows as $row) {
@@ -1311,18 +1953,21 @@ if ($action === 'data') {
 
             if ($importType === 1) {
                 $disabledAttr = $canClassifyCtb ? '' : ' disabled title="Sem permissao"';
+                $classifyLabel = classificationButtonLabel($row);
                 $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                     . 'data-id="' . (int)$row['id'] . '" '
                     . 'data-rates="' . $ratesAttr . '" '
                     . 'data-requirements="' . $requirementsAttr . '" '
                     . 'data-cost-centers="' . $costCentersAttr . '" '
                     . 'data-total-account="' . htmlspecialchars($row['total_account'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-manual-review="' . htmlspecialchars((string) ($row['manual_review_required'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-auto-import="' . (isAutoImportReadyRow($row) ? '1' : '0') . '" '
                     . 'data-emitter="' . $emitterRawEscaped . '" '
                     . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
-                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>Classificar</button>';
+                    . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
             }
             if ($importType === 2) {
                 $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['line_btn_class'] . ' analyze-lines" '
@@ -1400,14 +2045,27 @@ foreach ($rows as &$row) {
     $row = prepareImportRow($row);
 }
 unset($row);
+if ($isImportOnlyView) {
+    $rows = array_values(array_filter($rows, static fn(array $row): bool => isImportReadyRow($row)));
+}
 
 $csrfToken = generateCsrfToken();
-$showImportButton = in_array($importType, [1, 2], true) && ($importType !== 1 || $canImportCtb);
-$importButtonLabel = $importType === 2 ? 'Importar Compras' : 'Importar Ctb';
+$showImportButton = ($importType === 1) || ($importType === 2);
+if ($importType === 2) {
+    $importButtonLabel = 'Importar Compras';
+    $importButtonIcon = 'fa-shopping-cart';
+} elseif ($isImportOnlyView) {
+    $importButtonLabel = 'Importar Ctb';
+    $importButtonIcon = 'fa-cloud-upload';
+} else {
+    $importButtonLabel = 'Classificado';
+    $importButtonIcon = 'fa-check-circle';
+}
 
 require_once __DIR__ . '/../header.php';
 ?>
 <input type="hidden" id="import_type" value="<?= htmlspecialchars($importType); ?>">
+<input type="hidden" id="view_mode" value="<?= htmlspecialchars($viewMode); ?>">
 <div class="row mb-3">
     <div class="col-12">
         <?php if ($showImportButton): ?>
@@ -1415,7 +2073,7 @@ require_once __DIR__ . '/../header.php';
 
         <div id="importCtbButtonWrapper" class="d-none">
             <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>
-                <i class="fa fa-cloud-upload"></i> <?= htmlspecialchars($importButtonLabel); ?>
+                <i class="fa <?= htmlspecialchars($importButtonIcon); ?>"></i> <?= htmlspecialchars($importButtonLabel); ?>
             </button>
         </div>
         <?php endif; ?>
@@ -1489,6 +2147,7 @@ require_once __DIR__ . '/../header.php';
                     <td class="text-center">
 
                     <?php if ($importType === 1): ?>
+                            <?php $classifyLabel = classificationButtonLabel($row); ?>
                             <button
                                 type="button"
                                 class="btn btn-xs <?= $btnClass; ?> classify-row"
@@ -1496,12 +2155,14 @@ require_once __DIR__ . '/../header.php';
                                 data-rates="<?= $ratesAttr; ?>"
                                 data-requirements="<?= $requirementsAttr; ?>"
                                 data-cost-centers="<?= $costCentersAttr; ?>"
+                                data-manual-review="<?= htmlspecialchars((string) ($row['manual_review_required'] ?? '0')); ?>"
+                                data-auto-import="<?= isAutoImportReadyRow($row) ? '1' : '0'; ?>"
                                 data-emitter="<?= htmlspecialchars($emitterRawValue); ?>"
                                 data-emitter-display="<?= htmlspecialchars($emitterDisplay); ?>"
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
-                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>>Classificar</button>
+                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
                     <?php endif; ?>
 
                         <?php if ($importType === 2): ?>
@@ -1571,6 +2232,9 @@ require_once __DIR__ . '/../header.php';
                     <?php if (getSetting('ai_enabled', '0') === '1' && userHasDepartmentPermission('ai_suggest_vat')): ?>
                     <button type="button" class="btn btn-sm btn-outline-info" id="aiSuggestAccountsBtn">
                         <i class="fa fa-lightbulb-o"></i> Sugestão de contas IA
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="aiSuggestionExplainBtn">
+                        <i class="fa fa-info-circle"></i> Explicação da sugestão
                     </button>
                     <?php endif; ?>
                     <button type="button" class="btn btn-sm btn-outline-primary me-auto" id="addVatLineBtn">
