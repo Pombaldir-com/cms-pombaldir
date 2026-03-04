@@ -35,7 +35,7 @@
 </div>
 <?php endif; ?>
 
-<?php if (($aiEnabled ?? false) && ($aiChatFloating ?? false) && function_exists('userHasDepartmentPermission') && userHasDepartmentPermission('ai_assistant')): ?>
+<?php if (($aiEnabled ?? false) && ($aiChatFloating ?? false) && !($disableAiFloating ?? false) && function_exists('userHasDepartmentPermission') && userHasDepartmentPermission('ai_assistant')): ?>
 <button type="button" class="btn btn-primary" id="ai-float-btn" data-bs-toggle="modal" data-bs-target="#aiAssistModal" style="position: fixed; right: 24px; bottom: 24px; z-index: 1050; border-radius: 999px; padding: 10px 14px;">
     <i class="fa fa-comments"></i>
 </button>

@@ -1299,6 +1299,390 @@ window.addEventListener('load', function() {
         '23': '23%'
     };
     var defaultRates = Object.keys(defaultRateLabels);
+    var erpWebserviceUrl = typeof window.erpWebserviceUrl === 'string' ? window.erpWebserviceUrl.trim() : '';
+    var erpWebserviceToken = typeof window.erpWebserviceToken === 'string' ? window.erpWebserviceToken.trim() : '';
+    var erpBaseCompany = typeof window.erpBaseCompany === 'string' ? window.erpBaseCompany.trim() : '';
+    var planAccountsCache = {};
+    var planAutocompleteCounter = 0;
+    var currentPlanContext = {
+        documentId: '',
+        acquirerNif: '',
+        database: '',
+        exercise: String(new Date().getFullYear()),
+        cacheKey: '',
+        loadingPromise: null,
+        entries: [],
+        lastError: ''
+    };
+
+    function normalizePlanSearchToken(value) {
+        var text = String(value || '').toLowerCase();
+        if (typeof text.normalize === 'function') {
+            text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        }
+        return text.trim();
+    }
+
+    function extractErpRowsFromPayloadClient(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return [];
+        }
+        var keys = ['aaData', 'data', 'result', 'results'];
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (Array.isArray(payload[key])) {
+                return payload[key];
+            }
+        }
+        if (Array.isArray(payload)) {
+            return payload;
+        }
+        return [];
+    }
+
+    function resolvePlanAccountCode(row) {
+        if (!row || typeof row !== 'object') {
+            return '';
+        }
+        var candidates = [
+            'strConta', 'strconta', 'conta', 'account', 'codigo', 'strCodConta', 'strcodconta',
+            'strConta_Iva', 'strconta_iva', 'conta_iva'
+        ];
+        for (var i = 0; i < candidates.length; i += 1) {
+            var key = candidates[i];
+            if (!Object.prototype.hasOwnProperty.call(row, key)) {
+                continue;
+            }
+            var code = String(row[key] || '').trim();
+            if (code !== '') {
+                return code;
+            }
+        }
+        return '';
+    }
+
+    function resolvePlanAccountLabel(row, accountCode) {
+        var description = '';
+        var keys = ['strDescricao', 'strdescricao', 'descricao', 'description', 'strDesignacao', 'strdesignacao', 'strDescConta', 'strdescconta', 'name'];
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (!row || typeof row !== 'object' || !Object.prototype.hasOwnProperty.call(row, key)) {
+                continue;
+            }
+            var value = String(row[key] || '').trim();
+            if (value !== '') {
+                description = value;
+                break;
+            }
+        }
+        return description !== '' ? (accountCode + ' - ' + description) : accountCode;
+    }
+
+    function resolvePlanAccountDescription(row) {
+        if (!row || typeof row !== 'object') {
+            return '';
+        }
+        var keys = ['strDescricao', 'strdescricao', 'descricao', 'description', 'strDesignacao', 'strdesignacao', 'strDescConta', 'strdescconta', 'name'];
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (!Object.prototype.hasOwnProperty.call(row, key)) {
+                continue;
+            }
+            var value = String(row[key] || '').trim();
+            if (value !== '') {
+                return value;
+            }
+        }
+        return '';
+    }
+
+    function normalizePlanEntries(rows) {
+        var entries = [];
+        var seen = {};
+        rows.forEach(function(row) {
+            if (!row || typeof row !== 'object') {
+                return;
+            }
+            var accountCode = resolvePlanAccountCode(row);
+            if (accountCode === '' || Object.prototype.hasOwnProperty.call(seen, accountCode)) {
+                return;
+            }
+            seen[accountCode] = true;
+            var description = resolvePlanAccountDescription(row);
+            var label = resolvePlanAccountLabel(row, accountCode);
+            entries.push({
+                code: accountCode,
+                label: label,
+                description: description,
+                search: normalizePlanSearchToken(accountCode + ' ' + label),
+                descriptionSearch: normalizePlanSearchToken(description)
+            });
+        });
+        return entries;
+    }
+
+    function buildPlanCacheKey(context) {
+        return [
+            String(context.database || ''),
+            String(context.acquirerNif || ''),
+            String(context.exercise || ''),
+            String(erpBaseCompany || '')
+        ].join('|');
+    }
+
+    function buildPlanContasUrl(context) {
+        if (erpWebserviceUrl === '') {
+            return '';
+        }
+        var base = erpWebserviceUrl.replace(/\/+$/, '');
+        var endpoint = base + '/contabilidade/planocontas';
+        var params = new URLSearchParams();
+        params.set('limit', '500');
+        params.set('offset', '0');
+        if (context.exercise) {
+            params.set('strCodExercicio', String(context.exercise));
+        }
+        if (context.acquirerNif) {
+            params.set('strNumContrib', String(context.acquirerNif));
+        }
+        if (context.database) {
+            params.set('db', String(context.database));
+        }
+        if (erpBaseCompany) {
+            params.set('EMP', erpBaseCompany);
+        }
+        return endpoint + '?' + params.toString();
+    }
+
+    function fetchPlanEntries(context) {
+        var url = buildPlanContasUrl(context);
+        if (url === '' || erpWebserviceToken === '') {
+            return Promise.resolve([]);
+        }
+        return fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-API-KEY': erpWebserviceToken
+            },
+            credentials: 'omit'
+        }).then(function(res) {
+            return res.text().then(function(text) {
+                if (!res.ok) {
+                    throw new Error('Falha ao consultar plano de contas ERP (HTTP ' + res.status + ').');
+                }
+                if (!text || !text.trim()) {
+                    return [];
+                }
+                var payload = {};
+                try {
+                    payload = JSON.parse(text);
+                } catch (err) {
+                    throw new Error('Resposta inválida do plano de contas ERP.');
+                }
+                var rows = extractErpRowsFromPayloadClient(payload);
+                return normalizePlanEntries(rows);
+            });
+        });
+    }
+
+    function fetchAcquirerDatabaseForCurrentDocument() {
+        if (!currentPlanContext.documentId) {
+            return Promise.resolve('');
+        }
+        return fetchJson('contabilidade/classificacao-importacao/acquirer-database', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ids: [currentPlanContext.documentId],
+                import_type: importType,
+                mode: 'check',
+                allow_classified_flow: isClassificationOnlyView ? 1 : 0,
+                csrf_token: csrfInput ? csrfInput.value : ''
+            })
+        }).then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (!res || res.success === false) {
+                return '';
+            }
+            var entity = res.entity && typeof res.entity === 'object' ? res.entity : {};
+            return String(entity.erp_database || '').trim();
+        }).catch(function() {
+            return '';
+        });
+    }
+
+    function ensurePlanContextLoaded() {
+        if (currentPlanContext.entries.length > 0) {
+            return Promise.resolve(currentPlanContext.entries);
+        }
+        if (currentPlanContext.loadingPromise) {
+            return currentPlanContext.loadingPromise;
+        }
+        if (currentPlanContext.database) {
+            currentPlanContext.cacheKey = buildPlanCacheKey(currentPlanContext);
+            if (currentPlanContext.cacheKey && Array.isArray(planAccountsCache[currentPlanContext.cacheKey])) {
+                currentPlanContext.entries = planAccountsCache[currentPlanContext.cacheKey].slice();
+                return Promise.resolve(currentPlanContext.entries);
+            }
+            currentPlanContext.loadingPromise = fetchPlanEntries(currentPlanContext)
+                .then(function(entries) {
+                    currentPlanContext.entries = entries;
+                    if (currentPlanContext.cacheKey) {
+                        planAccountsCache[currentPlanContext.cacheKey] = entries.slice();
+                    }
+                    return entries;
+                })
+                .catch(function(err) {
+                    currentPlanContext.lastError = err && err.message ? err.message : 'Falha ao carregar plano de contas.';
+                    return [];
+                })
+                .finally(function() {
+                    currentPlanContext.loadingPromise = null;
+                });
+            return currentPlanContext.loadingPromise;
+        }
+        currentPlanContext.loadingPromise = fetchAcquirerDatabaseForCurrentDocument()
+            .then(function(database) {
+                currentPlanContext.database = database || '';
+                currentPlanContext.cacheKey = buildPlanCacheKey(currentPlanContext);
+                if (currentPlanContext.cacheKey && Array.isArray(planAccountsCache[currentPlanContext.cacheKey])) {
+                    currentPlanContext.entries = planAccountsCache[currentPlanContext.cacheKey].slice();
+                    return currentPlanContext.entries;
+                }
+                return fetchPlanEntries(currentPlanContext).then(function(entries) {
+                    currentPlanContext.entries = entries;
+                    if (currentPlanContext.cacheKey) {
+                        planAccountsCache[currentPlanContext.cacheKey] = entries.slice();
+                    }
+                    return entries;
+                });
+            })
+            .catch(function(err) {
+                currentPlanContext.lastError = err && err.message ? err.message : 'Falha ao carregar plano de contas.';
+                return [];
+            })
+            .finally(function() {
+                currentPlanContext.loadingPromise = null;
+            });
+        return currentPlanContext.loadingPromise;
+    }
+
+    function filterPlanEntries(entries, query, limit) {
+        var token = normalizePlanSearchToken(query);
+        var hasLetters = /[a-z\u00c0-\u024f]/i.test(token);
+        var maxItems = typeof limit === 'number' && limit > 0 ? limit : 15;
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return [];
+        }
+        var ranked = [];
+        entries.forEach(function(entry) {
+            if (!entry || !entry.code) {
+                return;
+            }
+            var score = 0;
+            if (token === '') {
+                score = 1;
+            } else if (hasLetters) {
+                if (entry.descriptionSearch.indexOf(token) === 0) {
+                    score = 120;
+                } else if (entry.descriptionSearch.indexOf(token) !== -1) {
+                    score = 90;
+                }
+            } else if (entry.code.toLowerCase().indexOf(token) === 0) {
+                score = 110;
+            } else if (entry.search.indexOf(token) !== -1) {
+                score = 60;
+            }
+            if (score > 0) {
+                ranked.push({ entry: entry, score: score });
+            }
+        });
+        ranked.sort(function(a, b) {
+            if (b.score !== a.score) {
+                return b.score - a.score;
+            }
+            return a.entry.code.localeCompare(b.entry.code);
+        });
+        return ranked.slice(0, maxItems).map(function(item) { return item.entry; });
+    }
+
+    function renderPlanAutocompleteOptions(input, entries) {
+        if (!input) {
+            return;
+        }
+        var listId = input.getAttribute('data-plan-list-id');
+        if (!listId) {
+            planAutocompleteCounter += 1;
+            listId = 'planAccountList' + planAutocompleteCounter;
+            input.setAttribute('data-plan-list-id', listId);
+            input.setAttribute('list', listId);
+            var dataList = document.createElement('datalist');
+            dataList.id = listId;
+            document.body.appendChild(dataList);
+        }
+        var list = document.getElementById(listId);
+        if (!list) {
+            return;
+        }
+        list.innerHTML = '';
+        entries.forEach(function(entry) {
+            var option = document.createElement('option');
+            option.value = entry.code;
+            option.label = entry.label;
+            list.appendChild(option);
+        });
+    }
+
+    function schedulePlanAutocomplete(input) {
+        if (!input) {
+            return;
+        }
+        var timeoutHandle = input.__planAutocompleteTimer || null;
+        if (timeoutHandle) {
+            window.clearTimeout(timeoutHandle);
+        }
+        input.__planAutocompleteTimer = window.setTimeout(function() {
+            ensurePlanContextLoaded().then(function(entries) {
+                var filtered = filterPlanEntries(entries, input.value || '', 20);
+                renderPlanAutocompleteOptions(input, filtered);
+            });
+        }, 180);
+    }
+
+    function attachPlanAutocompleteToInput(input) {
+        if (!input || input.__planAutocompleteAttached) {
+            return;
+        }
+        input.__planAutocompleteAttached = true;
+        input.setAttribute('autocomplete', 'off');
+        input.addEventListener('input', function() {
+            schedulePlanAutocomplete(input);
+        });
+        input.addEventListener('focus', function() {
+            schedulePlanAutocomplete(input);
+        });
+    }
+
+    function updateCurrentPlanContextFromButton(btn) {
+        var docId = btn ? String(btn.getAttribute('data-id') || '').trim() : '';
+        var acquirerRaw = btn ? String(btn.getAttribute('data-acquirer') || '').trim() : '';
+        var acquirerDb = btn ? String(btn.getAttribute('data-acquirer-db') || '').trim() : '';
+        var acquirerNif = acquirerRaw.replace(/\D+/g, '');
+        currentPlanContext.documentId = docId;
+        currentPlanContext.acquirerNif = acquirerNif;
+        currentPlanContext.database = acquirerDb;
+        currentPlanContext.cacheKey = '';
+        currentPlanContext.entries = [];
+        currentPlanContext.loadingPromise = null;
+        currentPlanContext.lastError = '';
+    }
+
+    if (totalAccountInput) {
+        attachPlanAutocompleteToInput(totalAccountInput);
+    }
 
     function ensureRateData(rate) {
         if (!currentRateData[rate] || typeof currentRateData[rate] !== 'object') {
@@ -2198,6 +2582,12 @@ window.addEventListener('load', function() {
         if (info.iva) {
             info.iva.readOnly = true;
         }
+        if (info.ivaAccount) {
+            attachPlanAutocompleteToInput(info.ivaAccount);
+        }
+        if (info.generalAccount) {
+            attachPlanAutocompleteToInput(info.generalAccount);
+        }
         if (info.labelInput) {
             info.labelInput.addEventListener('input', function() {
                 var rateData = ensureRateData(rate);
@@ -3081,6 +3471,7 @@ window.addEventListener('load', function() {
             }
             table.ajax.reload(null, false);
             currentBtn = null;
+            updateCurrentPlanContextFromButton(null);
             currentOriginalRatesKey = null;
             currentTotalAccount = '';
             if (totalAccountInput) {
@@ -3106,6 +3497,8 @@ window.addEventListener('load', function() {
     $('#classify-table').on('click', '.classify-row', function() {
         var btn = this;
         currentBtn = btn;
+        updateCurrentPlanContextFromButton(btn);
+        ensurePlanContextLoaded();
         currentOriginalRatesKey = buildOriginalRatesStorageKey(btn);
         var emitterRaw = btn.getAttribute('data-emitter') || '';
         var emitterDisplay = btn.getAttribute('data-emitter-display') || '';

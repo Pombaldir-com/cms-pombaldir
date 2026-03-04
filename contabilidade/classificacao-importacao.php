@@ -796,6 +796,39 @@ function prepareImportRow(array $row): array {
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
+    $row['acquirer_erp_database'] = '';
+
+    $acquirerCandidates = [
+        (string) ($row['field_B'] ?? ''),
+        (string) ($row['field_C'] ?? ''),
+    ];
+    $acquirerNif = '';
+    foreach ($acquirerCandidates as $candidateValue) {
+        $candidateNif = extractVatNumber((string) $candidateValue);
+        if ($candidateNif !== '') {
+            $acquirerNif = $candidateNif;
+            break;
+        }
+    }
+    if ($acquirerNif !== '') {
+        static $acquirerDatabaseCache = [];
+        if (!array_key_exists($acquirerNif, $acquirerDatabaseCache)) {
+            $dbValue = '';
+            if (isset($pdo) && $pdo instanceof PDO && function_exists('findAccountingEntity')) {
+                try {
+                    $entity = findAccountingEntity($pdo, $acquirerNif);
+                    if (is_array($entity)) {
+                        $dbValue = trim((string) ($entity['erp_database'] ?? ''));
+                    }
+                } catch (Throwable $throwable) {
+                    $dbValue = '';
+                }
+            }
+            $acquirerDatabaseCache[$acquirerNif] = $dbValue;
+        }
+        $row['acquirer_erp_database'] = (string) ($acquirerDatabaseCache[$acquirerNif] ?? '');
+    }
+
     $lines = json_decode($row['line_items'] ?? '', true);
     if (is_array($lines) && count($lines) > 0) {
         $allFilled = true;
@@ -1967,6 +2000,7 @@ if ($action === 'data') {
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
+                    . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
             }
             if ($importType === 2) {
@@ -1976,6 +2010,7 @@ if ($action === 'data') {
                     . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
+                    . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '">Analisar</button>';
             }
@@ -2162,6 +2197,7 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
+                                data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
                     <?php endif; ?>
 
@@ -2172,6 +2208,7 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-display="<?= htmlspecialchars($row['emitter_display_name'] ?? ($row['field_A'] ?? '')); ?>"
                                 data-emitter-nif="<?= htmlspecialchars($row['emitter_nif_normalized'] ?? ''); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
+                                data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>">Analisar</button>
                         <?php endif; ?>
@@ -2364,6 +2401,10 @@ require_once __DIR__ . '/../header.php';
     ); ?>;
     window.erpWebserviceToken = <?= json_encode(
         $currentErpToken ?? '',
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+    ); ?>;
+    window.erpBaseCompany = <?= json_encode(
+        trim((string) getSetting('accounting_base_company', '')),
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
 </script>

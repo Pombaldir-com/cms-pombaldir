@@ -62,6 +62,17 @@ $aiChatFloating = !empty($user['ai_chat_floating'] ?? 0);
     <style>
         /* You can put additional custom styles here */
     </style>
+    <script>
+      (function () {
+        try {
+          localStorage.setItem('last_company_name', <?=
+            json_encode((string) $appName, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+          ?>);
+        } catch (e) {
+          // localStorage may be unavailable in private mode or restricted browsers.
+        }
+      })();
+    </script>
 </head>
 <body class="nav-md">
 <div class="container body">

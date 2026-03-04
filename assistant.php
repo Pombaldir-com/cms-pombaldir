@@ -34,31 +34,55 @@ if ($embed) {
 }
 
 if (!$embed) {
+    $disableAiFloating = true;
     require_once __DIR__ . '/header.php';
 }
 ?>
 <div class="container-fluid">
-    <div class="x_panel">
+    <div class="x_panel ai-shell">
         <div class="x_title">
             <h2><i class="fa fa-robot"></i> Assistente AI</h2>
+            <ul class="nav navbar-right panel_toolbox">
+                <?php if ($readOnly): ?>
+                    <li><span class="badge bg-warning text-dark"><i class="fa fa-shield"></i> Modo seguro</span></li>
+                <?php else: ?>
+                    <li><span class="badge bg-success"><i class="fa fa-check-circle"></i> Modo assistido</span></li>
+                <?php endif; ?>
+            </ul>
             <div class="clearfix"></div>
         </div>
         <div class="x_content">
             <div id="ai-chat" class="ai-chat">
+                <div class="ai-toolbar">
+                    <div class="ai-toolbar-title">
+                        <strong>Conversa</strong>
+                        <small>Respostas em tempo real com suporte a anexos</small>
+                    </div>
+                    <div class="ai-toolbar-actions">
+                        <span class="badge bg-info"><i class="fa fa-bolt"></i> Contexto ativo</span>
+                    </div>
+                </div>
                 <div id="ai-messages" class="ai-messages"></div>
                 <div class="ai-input">
-                    <textarea id="ai-input" class="form-control" rows="2" placeholder="Escreva a sua mensagem..."></textarea>
-                    <div class="mt-2">
-                        <input id="ai-file" type="file" class="form-control" multiple>
-                        <div id="ai-upload-status" class="small text-muted mt-1"></div>
+                    <div class="ai-compose">
+                        <input id="ai-file" type="file" class="form-control ai-file-input" multiple>
+                        <textarea id="ai-input" class="form-control ai-compose-text" rows="3" placeholder="Escreva a sua mensagem..."></textarea>
+                        <div class="ai-compose-actions">
+                            <button type="button" class="btn btn-default ai-attach-btn" id="ai-attach-btn" title="Anexar ficheiros">
+                                <i class="fa fa-paperclip"></i>
+                            </button>
+                            <button id="ai-send" class="btn btn-primary ai-send-btn" type="button" title="Enviar">
+                                <i class="fa fa-paper-plane"></i>
+                            </button>
+                        </div>
                     </div>
-                    <button id="ai-send" class="btn btn-primary mt-2"><i class="fa fa-paper-plane"></i> Enviar</button>
-                    <?php if ($readOnly): ?>
-                        <span class="badge bg-warning text-dark ms-2">Modo seguro</span>
-                    <?php endif; ?>
+                    <div class="ai-compose-meta">
+                        <div id="ai-upload-status" class="small text-muted"></div>
+                        <span class="text-muted small ai-hint"><i class="fa fa-keyboard-o"></i> Enter envia, Shift+Enter cria nova linha</span>
+                    </div>
                     <div class="ai-feedback mt-3">
                         <div class="text-muted small mb-1">Feedback rápido</div>
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="ai-feedback-row">
                             <button type="button" class="btn btn-sm btn-outline-success" id="aiFeedbackPositive">
                                 <i class="fa fa-thumbs-up"></i> Útil
                             </button>
@@ -78,33 +102,172 @@ if (!$embed) {
 .ai-chat {
     display: flex;
     flex-direction: column;
-    height: 70vh;
+    min-height: 74vh;
+}
+.ai-shell {
+    border: 1px solid #dce6f0;
+    border-radius: 12px;
+    box-shadow: 0 16px 42px rgba(23, 36, 50, 0.08);
+}
+.ai-shell .x_title {
+    border-bottom: 1px solid #dfe8f1;
+    background: linear-gradient(90deg, #f8fbff 0%, #f3f8ff 100%);
+}
+.ai-shell .x_title h2 {
+    font-weight: 600;
+}
+.ai-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    border: 1px solid #dce6f0;
+    border-radius: 10px;
+    background: #f7fbff;
+    padding: 10px 12px;
+}
+.ai-toolbar-title strong {
+    display: block;
+    color: #2a3f54;
+    font-size: 14px;
+}
+.ai-toolbar-title small {
+    display: block;
+    color: #6b7f92;
+    font-size: 12px;
 }
 .ai-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    padding: 14px;
+    background: linear-gradient(180deg, #f8fbff 0%, #f4f8fc 100%);
+    border: 1px solid #dce6f0;
+    border-radius: 10px;
 }
 .ai-message {
-    padding: 10px 12px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-    max-width: 80%;
+    position: relative;
+    padding: 11px 13px;
+    border-radius: 12px;
+    margin-bottom: 11px;
+    max-width: 82%;
     white-space: pre-wrap;
+    box-shadow: 0 5px 14px rgba(25, 42, 61, 0.08);
 }
 .ai-message.user {
-    background: #e8f0fe;
+    background: linear-gradient(135deg, #3b87f9 0%, #2e6fd0 100%);
+    color: #fff;
     margin-left: auto;
 }
 .ai-message.assistant {
     background: #fff;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #dfe8f1;
+}
+.ai-message.attachment {
+    max-width: 92%;
+    background: #f3f8ff;
+    border: 1px dashed #b9c9d8;
+    color: #2a3f54;
+    margin-left: auto;
+    margin-right: 0;
 }
 .ai-input {
     margin-top: 12px;
+    border: 1px solid #dce6f0;
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px;
+}
+.ai-compose {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+}
+.ai-compose-text {
+    flex: 1;
+    min-height: 96px;
+    resize: vertical;
+}
+.ai-compose-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 56px;
+}
+.ai-compose-meta {
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.ai-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.ai-feedback {
+    padding-top: 8px;
+    border-top: 1px dashed #dce6f0;
+}
+.ai-feedback-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.ai-feedback-row .form-control {
+    min-width: 220px;
+    flex: 1 1 220px;
+}
+.ai-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+.ai-attach-btn {
+    width: 56px;
+    height: 44px;
+    font-size: 20px;
+    border: 1px dashed #b9c9d8;
+    background: #f8fbff;
+}
+.ai-send-btn {
+    width: 56px;
+    height: 44px;
+    padding: 0;
+}
+.ai-attach-btn:hover,
+.ai-attach-btn:focus {
+    background: #eef5fc;
+    border-color: #8eabc3;
+}
+@media (max-width: 768px) {
+    .ai-chat {
+        min-height: 68vh;
+    }
+    .ai-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .ai-message {
+        max-width: 94%;
+    }
+    .ai-compose {
+        flex-direction: column;
+    }
+    .ai-compose-actions {
+        flex-direction: row;
+        width: 100%;
+    }
+    .ai-attach-btn,
+    .ai-send-btn {
+        width: 48px;
+        height: 40px;
+    }
 }
 </style>
 
@@ -118,11 +281,12 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
     var inputEl = document.getElementById('ai-input');
     var sendBtn = document.getElementById('ai-send');
     var fileInput = document.getElementById('ai-file');
+    var attachBtn = document.getElementById('ai-attach-btn');
     var uploadStatusEl = document.getElementById('ai-upload-status');
     var feedbackPositiveBtn = document.getElementById('aiFeedbackPositive');
     var feedbackNegativeBtn = document.getElementById('aiFeedbackNegative');
     var feedbackInput = document.getElementById('aiFeedbackText');
-    var pendingAttachmentIds = [];
+    var selectedFiles = [];
     var activeUploads = 0;
 
     function appendMessage(role, text) {
@@ -131,6 +295,14 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         bubble.textContent = text;
         messagesEl.appendChild(bubble);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function appendAttachmentMessage(filenames) {
+        if (!Array.isArray(filenames) || !filenames.length) {
+            return;
+        }
+        var label = filenames.length === 1 ? 'Anexo enviado' : 'Anexos enviados';
+        appendMessage('attachment', label + ': ' + filenames.join(', '));
     }
 
     function readFileAsDataUrl(file) {
@@ -239,10 +411,8 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
 
     function uploadAttachment(file) {
         if (!file) {
-            return Promise.resolve();
+            return Promise.resolve('');
         }
-        activeUploads += 1;
-        setUploadStatus('A carregar anexos...', false);
         return readFileAsDataUrl(file).then(function(dataUrl) {
             return requestAssistant({
                 csrf_token: window.aiCsrfToken,
@@ -259,49 +429,84 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
             if (payload.csrf_token) {
                 window.aiCsrfToken = payload.csrf_token;
             }
-            pendingAttachmentIds.push(payload.attachment.id);
-            appendMessage('assistant', 'Anexo carregado: ' + (payload.attachment.filename || file.name));
+            return String(payload.attachment.id || '');
         });
     }
 
     function handleFileSelection() {
-        if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        if (!fileInput) {
             return;
         }
-        var files = Array.prototype.slice.call(fileInput.files);
+        selectedFiles = fileInput.files ? Array.prototype.slice.call(fileInput.files) : [];
+        if (!selectedFiles.length) {
+            setUploadStatus('', false);
+            return;
+        }
+        if (selectedFiles.length === 1) {
+            setUploadStatus('1 anexo selecionado. Sera enviado com a mensagem.', false);
+            return;
+        }
+        setUploadStatus(selectedFiles.length + ' anexos selecionados. Serao enviados com a mensagem.', false);
+    }
+
+    function uploadSelectedFilesWithMessage() {
+        if (!selectedFiles.length) {
+            return Promise.resolve([]);
+        }
+        activeUploads += 1;
+        setUploadStatus('A enviar anexos com a mensagem...', false);
+        var attachmentIds = [];
         var sequence = Promise.resolve();
-        files.forEach(function(file) {
+        selectedFiles.forEach(function(file) {
             sequence = sequence.then(function() {
-                return uploadAttachment(file);
+                return uploadAttachment(file).then(function(attachmentId) {
+                    if (attachmentId) {
+                        attachmentIds.push(attachmentId);
+                    }
+                });
             });
         });
-        sequence.catch(function(err) {
-            setUploadStatus(err && err.message ? err.message : 'Falha no upload de anexos.', true);
+        return sequence.then(function() {
+            return attachmentIds;
         }).finally(function() {
             activeUploads = 0;
+            selectedFiles = [];
             fileInput.value = '';
-            setUploadStatus('Anexos prontos para usar na próxima mensagem.', false);
         });
     }
 
     function sendMessage() {
         var text = inputEl.value.trim();
-        if (!text || activeUploads > 0) {
-            if (activeUploads > 0) {
-                setUploadStatus('Aguarde o fim do upload antes de enviar.', true);
-            }
+        var selectedFilenames = selectedFiles.map(function(file) {
+            return (file && file.name) ? String(file.name) : 'anexo.bin';
+        });
+        if (activeUploads > 0) {
+            setUploadStatus('Aguarde o envio dos anexos antes de continuar.', true);
             return;
         }
-        var attachmentsToSend = pendingAttachmentIds.slice();
-        pendingAttachmentIds = [];
-        appendMessage('user', text);
-        inputEl.value = '';
+        if (!text) {
+            setUploadStatus('Escreva uma mensagem para enviar com os anexos.', true);
+            return;
+        }
         sendBtn.disabled = true;
-        requestAssistant({
-            csrf_token: window.aiCsrfToken,
-            message: text,
-            session_id: window.aiSessionId,
-            attachments: attachmentsToSend
+
+        uploadSelectedFilesWithMessage().then(function(attachmentsToSend) {
+            appendMessage('user', text);
+            if (attachmentsToSend.length > 0) {
+                appendAttachmentMessage(selectedFilenames);
+            }
+            inputEl.value = '';
+            if (attachmentsToSend.length > 0) {
+                setUploadStatus('Anexos enviados com a mensagem.', false);
+            } else {
+                setUploadStatus('', false);
+            }
+            return requestAssistant({
+                csrf_token: window.aiCsrfToken,
+                message: text,
+                session_id: window.aiSessionId,
+                attachments: attachmentsToSend
+            });
         }).then(function(payload) {
             if (payload && payload.message) {
                 appendMessage('assistant', payload.message);
@@ -312,8 +517,10 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                 window.aiCsrfToken = payload.csrf_token;
             }
         }).catch(function(err) {
+            setUploadStatus(err && err.message ? err.message : 'Falha no envio de anexos.', true);
             appendMessage('assistant', buildAssistantErrorMessage(err, 'Erro ao comunicar com o assistente.'));
         }).finally(function() {
+            activeUploads = 0;
             sendBtn.disabled = false;
         });
     }
@@ -358,6 +565,11 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
     }
     if (fileInput) {
         fileInput.addEventListener('change', handleFileSelection);
+    }
+    if (attachBtn && fileInput) {
+        attachBtn.addEventListener('click', function() {
+            fileInput.click();
+        });
     }
 
     appendMessage('assistant', 'Ola! Como posso ajudar?');

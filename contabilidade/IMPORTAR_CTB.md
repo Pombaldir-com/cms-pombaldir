@@ -67,4 +67,23 @@ Este endpoint devolve uma explicação por taxa para as contas sugeridas, inclui
 - movimentos ERP (`contabilidade/movimentos`);
 - plano de contas ERP (`contabilidade/planocontas`).
 
+## Modal de Classificação: auto-sugestão de contas por escrita
+
+Na modal de **Classificação** (`import_type=1`), os campos:
+
+- `Conta IVA`
+- `Conta Geral`
+- `Valor Total`
+
+passam a ter sugestões automáticas enquanto o utilizador digita.
+
+Regras de funcionamento:
+
+- As sugestões são lidas do endpoint ERP `GET /contabilidade/planocontas`.
+- A chamada é feita no browser para o webservice configurado em `erp_webservice_url`, usando `X-API-KEY`.
+- Sempre que possível, é usada a base de dados ERP do adquirente (`accounting_entities.erp_database`).
+- Na modal, o parâmetro `db` é enviado com a base de dados ERP do adquirente associada à linha/documento selecionado.
+- É enviado `EMP` com o valor de **Módulos > Contabilidade > Empresa base** (`accounting_base_company`).
+- Os resultados do plano são mantidos em cache no cliente por contexto (db + NIF adquirente + exercício), para resposta rápida durante a escrita.
+
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).

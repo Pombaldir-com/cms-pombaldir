@@ -40,6 +40,7 @@ $sessionId = preg_replace('/[^a-zA-Z0-9]/', '', (string) ($payload['session_id']
 if ($sessionId === '') {
     $sessionId = bin2hex(random_bytes(8));
 }
+$debugModeEnabled = (int) getSetting('debug_mode', '0') === 1;
 
 $user = currentUser();
 $userId = (int) ($user['id'] ?? 0);
@@ -373,7 +374,7 @@ $systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Resp
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Quando o utilizador enviar anexos PDF/documentos, usa read_uploaded_document para extrair texto util.\n"
     . "Sempre que houver NIF de emitente/adquirente no documento, identifica e indica tambem o nome usando os dados/ferramentas da app.\n"
-    . "Se read_uploaded_document falhar, explica o erro tecnico concreto e apresenta as hints devolvidas pela ferramenta.\n"
+    . "Se read_uploaded_document falhar, responde com linguagem simples e orientada ao utilizador; evita codigos internos (ex.: pdf_extract_failed, pypdf, pdftotext), exceto se o utilizador pedir detalhe tecnico.\n"
     . "Se read_uploaded_document devolver method=qr_only, apresenta de imediato os campos estruturados extraidos do QR (NIFs, tipo, numero, data e totais) antes de sugerir proximos passos.\n"
     . "Quando o tipo documental for FT ou FR (fatura/fatura-recibo), pergunta explicitamente se o utilizador pretende importar para Contabilidade > Classificacao (contabilidade/classificacao-importacao?import_type=1), respeitando o workflow e permissoes atuais.\n"
     . "Neste fluxo FT/FR, nao pedir ID de documento para iniciar; orientar para menu e link de classificacao/importacao existentes.\n"
@@ -3915,7 +3916,7 @@ do {
                     } else {
                         clearPendingAccountingImportIntent($sessionId);
                     }
-                    $actions[] = [
+                    $actionPayload = [
                         'type' => 'read_uploaded_document',
                         'attachment_id' => (string) ($attachment['id'] ?? ''),
                         'method' => (string) ($readerResult['method'] ?? ''),
@@ -3925,12 +3926,43 @@ do {
                         ],
                         'ask_import' => is_array($workflowHint) && !empty($workflowHint['should_ask_import']) ? 1 : 0,
                     ];
+                    $readMethod = strtolower(trim((string) ($readerResult['method'] ?? '')));
+                    if ($readMethod === 'qr_only') {
+                        $warnings = isset($readerResult['warnings']) && is_array($readerResult['warnings'])
+                            ? $readerResult['warnings']
+                            : [];
+                        $textError = trim((string) ($warnings['text_extraction_error'] ?? ''));
+                        $textDetails = isset($warnings['text_extraction_details']) && is_array($warnings['text_extraction_details'])
+                            ? array_values(array_filter(array_map(static function ($item): string {
+                                return trim((string) $item);
+                            }, $warnings['text_extraction_details']), static function ($item): bool {
+                                return $item !== '';
+                            }))
+                            : [];
+                        if ($textError !== '') {
+                            $actionPayload['qr_text_extraction_error'] = $textError;
+                        }
+                        if (!empty($textDetails)) {
+                            $actionPayload['qr_text_extraction_details'] = $textDetails;
+                        }
+                    }
+                    $actions[] = $actionPayload;
                 } else {
                     clearPendingAccountingImportIntent($sessionId);
                     $diagnostics = buildDocumentReaderHints($readerResult);
+                    if (!$debugModeEnabled) {
+                        $diagnostics = [
+                            'errors' => [],
+                            'hints' => [
+                                'Nao foi possivel extrair todo o texto do documento automaticamente. Pode reenviar PDF com texto pesquisavel ou imagem mais nitida.',
+                            ],
+                        ];
+                    }
                     $toolResult = [
                         'ok' => false,
-                        'error' => (string) ($readerResult['error'] ?? 'Falha ao ler anexo.'),
+                        'error' => $debugModeEnabled
+                            ? (string) ($readerResult['error'] ?? 'Falha ao ler anexo.')
+                            : 'Nao foi possivel ler o documento por completo com os recursos disponiveis.',
                         'attachment_id' => (string) ($attachment['id'] ?? ''),
                         'attachment' => [
                             'filename' => (string) ($attachment['filename'] ?? ''),
@@ -3938,8 +3970,10 @@ do {
                             'size' => (int) ($attachment['size'] ?? 0),
                         ],
                         'diagnostics' => $diagnostics,
-                        'details' => $readerResult,
                     ];
+                    if ($debugModeEnabled) {
+                        $toolResult['details'] = $readerResult;
+                    }
                 }
                 break;
 
@@ -4291,8 +4325,28 @@ if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
             || strpos($lowerMessage, 'nao foi possivel extrair') !== false
             || strpos($lowerMessage, 'problemas com ferramentas') !== false;
         if ($hasQrMention && $hasFailureTone) {
-            $finalMessage = "A leitura textual ficou limitada, mas o QR fiscal foi lido com sucesso e os dados estruturados foram extraidos.\n\n"
+            $finalMessage = "Analisei o documento pelo QR fiscal porque nao foi possivel extrair todo o texto automaticamente.\n\n"
                 . "Posso continuar com a classificacao/importacao com base no QR.";
+            if ($debugModeEnabled) {
+                $debugParts = [];
+                $debugError = trim((string) ($lastDocumentReadAction['qr_text_extraction_error'] ?? ''));
+                if ($debugError !== '') {
+                    $debugParts[] = $debugError;
+                }
+                $debugDetails = isset($lastDocumentReadAction['qr_text_extraction_details']) && is_array($lastDocumentReadAction['qr_text_extraction_details'])
+                    ? $lastDocumentReadAction['qr_text_extraction_details']
+                    : [];
+                foreach ($debugDetails as $detail) {
+                    $detailText = trim((string) $detail);
+                    if ($detailText !== '') {
+                        $debugParts[] = $detailText;
+                    }
+                }
+                if (!empty($debugParts)) {
+                    $finalMessage .= "\n\n[DEBUG] Falhas tecnicas na extracao de texto:\n- "
+                        . implode("\n- ", $debugParts);
+                }
+            }
         }
     }
 }
@@ -4314,7 +4368,16 @@ if (is_array($lastDocumentReadAction) && !isLikelyJsonMessage($finalMessage)) {
     $mustAskImport = !empty($lastDocumentReadAction['ask_import']) && (int) $lastDocumentReadAction['ask_import'] === 1;
     if ($mustAskImport) {
         $question = 'Pretende importar já para Classificação? (Sim/Não)';
-        if (stripos($finalMessage, $question) === false) {
+        $lowerFinalMessage = strtolower($finalMessage);
+        $alreadyHasImportQuestion = strpos($lowerFinalMessage, 'importar') !== false
+            && strpos($lowerFinalMessage, 'classifica') !== false
+            && (
+                strpos($lowerFinalMessage, '(sim/não)') !== false
+                || strpos($lowerFinalMessage, '(sim/nao)') !== false
+                || strpos($lowerFinalMessage, 'sim/não') !== false
+                || strpos($lowerFinalMessage, 'sim/nao') !== false
+            );
+        if (!$alreadyHasImportQuestion) {
             $trimmed = rtrim($finalMessage);
             if ($trimmed !== '') {
                 $finalMessage = $trimmed . "\n\n" . $question;
