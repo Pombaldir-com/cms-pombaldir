@@ -25,3 +25,4 @@ work/*
 scripts/__pycache__/
 scripts/__pycache__/*
 scripts/__pycache__
+contabilidade/debug_ai.txt

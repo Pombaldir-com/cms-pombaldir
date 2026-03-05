@@ -19,7 +19,6 @@ window.addEventListener('load', function() {
     var acquirerModal = (acquirerModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
         ? new window.bootstrap.Modal(acquirerModalEl)
         : null;
-
     function showImportButtons() {
         if (importBtn) {
             importBtn.style.display = 'inline-block';

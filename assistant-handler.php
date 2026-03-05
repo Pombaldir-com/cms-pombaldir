@@ -3064,14 +3064,14 @@ function normalizeErpLigacaoDocType(string $docType): string {
 
 function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate): array {
     if ($baseUrl === '' || $token === '' || $db === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $docTypeValue = normalizeErpLigacaoDocType($docType);
     $acquirerNif = extractVatLikeValue($acquirerNif);
     $isoDocDate = normalizeErpLigacaoDocDate($docDate);
     if ($docTypeValue === '' || $acquirerNif === '' || $isoDocDate === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/LigacaoCteTipoDoc', [
@@ -3113,13 +3113,14 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'first_row' => $firstRow,
     ]);
     if (empty($rows)) {
-        return ['general' => [], 'iva' => [], 'total' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $generalCounts = [];
     $ivaCounts = [];
     $totalCreditCounts = [];
     $totalEntityCounts = [];
+    $requiredCostCenterAccounts = [];
     foreach ($rows as $row) {
         if (!is_array($row)) {
             continue;
@@ -3128,6 +3129,7 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         $general = trim((string) ($row['strConta'] ?? ''));
         $iva = trim((string) ($row['strConta_Iva'] ?? ''));
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
+        $codFichRepart = trim((string) ($row['strCodFichRepart'] ?? ''));
         if ($tipo === 'C' && $general !== '') {
             $totalCreditCounts[$general] = ($totalCreditCounts[$general] ?? 0) + 1;
         }
@@ -3143,6 +3145,9 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         if ($iva !== '') {
             $ivaCounts[$iva] = ($ivaCounts[$iva] ?? 0) + 1;
         }
+        if ($codFichRepart === '?' && $general !== '') {
+            $requiredCostCenterAccounts[$general] = true;
+        }
     }
 
     arsort($generalCounts);
@@ -3155,8 +3160,49 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'general' => array_slice(array_keys($generalCounts), 0, 8),
         'iva' => array_slice(array_keys($ivaCounts), 0, 8),
         'total' => array_slice(array_keys($totalCounts), 0, 8),
+        'required_cost_center_accounts' => array_values(array_keys($requiredCostCenterAccounts)),
         'count' => is_array($rows) ? count($rows) : 0,
     ];
+}
+
+function buildCostCenterRequiredRates(array $rateItems, array $suggestedRates, array $requiredGeneralAccounts): array {
+    $requiredMap = [];
+    if (empty($requiredGeneralAccounts)) {
+        return $requiredMap;
+    }
+
+    $requiredAccountsLookup = [];
+    foreach ($requiredGeneralAccounts as $account) {
+        $accountValue = trim((string) $account);
+        if ($accountValue !== '') {
+            $requiredAccountsLookup[$accountValue] = true;
+        }
+    }
+    if (empty($requiredAccountsLookup)) {
+        return $requiredMap;
+    }
+
+    foreach ($rateItems as $rateInfo) {
+        $rawKey = (string) ($rateInfo['key'] ?? '');
+        if ($rawKey === '' && isset($rateInfo['label'])) {
+            $rawKey = (string) $rateInfo['label'];
+        }
+        if ($rawKey === '') {
+            continue;
+        }
+        $rateKey = normalizeRateKey($rawKey);
+        if ($rateKey === '') {
+            $rateKey = $rawKey;
+        }
+
+        $entry = $suggestedRates[$rateKey] ?? $suggestedRates[$rawKey] ?? [];
+        $generalAccount = trim((string) ($entry['general_account'] ?? ''));
+        if ($generalAccount !== '' && isset($requiredAccountsLookup[$generalAccount])) {
+            $requiredMap[$rateKey] = true;
+        }
+    }
+
+    return $requiredMap;
 }
 
 function extractErpRows(array $payload): array {
@@ -3423,7 +3469,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     $planDb = '';
     $planYear = date('Y');
     $preferPlanAsLastOption = false;
-    $ligacaoHints = ['general' => [], 'iva' => [], 'total' => [], 'count' => 0];
+    $ligacaoHints = ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     $movementHints = ['general' => [], 'iva' => [], 'count' => 0];
     $ligacaoNifUsed = '';
     if ($erpBaseUrl !== '' && $erpToken !== '') {
@@ -3723,6 +3769,11 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     if ($ligacaoTotalAccount !== '') {
         $expectedLines['total_account'] = $ligacaoTotalAccount;
     }
+    $costCenterRequiredRates = buildCostCenterRequiredRates(
+        $rateItems,
+        $finalSuggested,
+        is_array($ligacaoHints['required_cost_center_accounts'] ?? null) ? $ligacaoHints['required_cost_center_accounts'] : []
+    );
 
     return [
         'ok' => true,
@@ -3734,6 +3785,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'expected_lines' => $expectedLines,
         'erp_ligacao_rows' => (int) ($ligacaoHints['count'] ?? 0),
         'erp_ligacao_total_account' => $ligacaoTotalAccount,
+        'cost_center_required_rates' => $costCenterRequiredRates,
         'erp_movement_rows' => (int) ($movementHints['count'] ?? 0),
     ];
 }
@@ -3920,6 +3972,7 @@ if ($action === 'suggest_accounts') {
         'csrf_token' => generateCsrfToken(true),
         'expected_lines' => $expectedLines,
         'total_account' => $totalAccountSuggestion,
+        'cost_center_required_rates' => is_array($result['cost_center_required_rates'] ?? null) ? $result['cost_center_required_rates'] : [],
         'actions' => [
             [
                 'type' => 'suggest_accounts',
@@ -3929,6 +3982,7 @@ if ($action === 'suggest_accounts') {
                 'erp_ligacao' => $result['erp_ligacao_rows'] ?? 0,
                 'erp_movimentos' => $result['erp_movement_rows'] ?? 0,
                 'total_account' => $totalAccountSuggestion,
+                'cost_center_required_rates' => is_array($result['cost_center_required_rates'] ?? null) ? $result['cost_center_required_rates'] : [],
                 'log_id' => $logId
             ],
         ],

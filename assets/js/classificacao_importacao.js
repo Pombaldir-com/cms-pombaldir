@@ -576,10 +576,25 @@ window.addEventListener('load', function() {
                 optionLabel = optionValue;
             }
 
+            var optionId = '';
+            var idKeys = ['id', 'intcodigo', 'codigo', 'code'];
+            for (var j = 0; j < idKeys.length; j += 1) {
+                var idKey = idKeys[j];
+                if (Object.prototype.hasOwnProperty.call(candidate, idKey) && String(candidate[idKey]).trim() !== '') {
+                    optionId = String(candidate[idKey]).trim();
+                    break;
+                }
+                if (Object.prototype.hasOwnProperty.call(normalized, idKey) && String(normalized[idKey]).trim() !== '') {
+                    optionId = String(normalized[idKey]).trim();
+                    break;
+                }
+            }
+
             seenValues[optionValue] = true;
             result.push({
                 value: optionValue,
-                label: optionLabel
+                label: optionLabel,
+                id: optionId
             });
         });
 
@@ -637,6 +652,9 @@ window.addEventListener('load', function() {
             }
             var opt = document.createElement('option');
             opt.value = String(option.value);
+            if (option.id) {
+                opt.setAttribute('data-id', String(option.id));
+            }
             var label = option.label || option.value;
             var text = String(label);
             if (option.label && option.label !== option.value) {
@@ -770,10 +788,19 @@ window.addEventListener('load', function() {
             return Promise.reject(new Error('Nenhuma linha seleccionada.'));
         }
 
+        var selectedDatabaseId = '';
+        if (acquirerDatabaseSelect && acquirerDatabaseSelect.selectedIndex >= 0) {
+            var selectedOption = acquirerDatabaseSelect.options[acquirerDatabaseSelect.selectedIndex];
+            if (selectedOption) {
+                selectedDatabaseId = String(selectedOption.getAttribute('data-id') || '').trim();
+            }
+        }
+
         var payload = {
             ids: pendingImportIds,
             import_type: importType,
             selected_database: selectedDatabase,
+            selected_database_id: selectedDatabaseId,
             csrf_token: csrfInput ? csrfInput.value : '',
             mode: 'update'
         };
@@ -1360,6 +1387,7 @@ window.addEventListener('load', function() {
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
         var requirements = parseJsonAttribute(btn, 'data-requirements') || {};
+        var costCenters = normalizeCostCenterValues(parseJsonAttribute(btn, 'data-cost-centers') || {});
 
         var requires = false;
         var allFilled = true;
@@ -1382,6 +1410,15 @@ window.addEventListener('load', function() {
                 requires = true;
                 var iva = (data.iva_account || '').trim();
                 if (!iva) {
+                    allFilled = false;
+                } else {
+                    hasAny = true;
+                }
+            }
+            if (req.cost_center) {
+                requires = true;
+                var cc = (costCenters[rate] || '').trim();
+                if (!cc) {
                     allFilled = false;
                 } else {
                     hasAny = true;
@@ -1419,14 +1456,68 @@ window.addEventListener('load', function() {
 
     }
 
+    function applyCostCenterRequirementMap(requiredRates) {
+        if (!currentBtn || !requiredRates || typeof requiredRates !== 'object') {
+            return;
+        }
+        var requirements = parseJsonAttribute(currentBtn, 'data-requirements') || {};
+        var changed = false;
+        Object.keys(requiredRates).forEach(function(rateKey) {
+            var raw = requiredRates[rateKey];
+            var enabled = !!raw && String(raw).trim() !== '0' && String(raw).trim().toLowerCase() !== 'false';
+            if (!enabled) {
+                return;
+            }
+            var resolvedKey = String(rateKey);
+            if (!requirements[resolvedKey] && findRateKeyByToken(rateKey)) {
+                resolvedKey = findRateKeyByToken(rateKey);
+            }
+            if (!requirements[resolvedKey]) {
+                requirements[resolvedKey] = {};
+            }
+            if (!requirements[resolvedKey].cost_center) {
+                requirements[resolvedKey].cost_center = true;
+                changed = true;
+            }
+            var rateData = ensureRateData(resolvedKey);
+            if (rateData.cost_center_required !== '1') {
+                rateData.cost_center_required = '1';
+                changed = true;
+            }
+        });
+        if (changed) {
+            currentBtn.setAttribute('data-requirements', JSON.stringify(requirements));
+            updateButtonClass(currentBtn);
+        }
+    }
+
+    function enrichRequirementsFromRates(baseRequirements, ratesSource) {
+        var requirements = baseRequirements && typeof baseRequirements === 'object' ? baseRequirements : {};
+        if (!ratesSource || typeof ratesSource !== 'object') {
+            return requirements;
+        }
+        Object.keys(ratesSource).forEach(function(rate) {
+            var entry = ratesSource[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var flag = String(entry.cost_center_required || '').trim();
+            if (flag !== '1' && flag.toLowerCase() !== 'true') {
+                return;
+            }
+            if (!requirements[rate]) {
+                requirements[rate] = {};
+            }
+            requirements[rate].cost_center = true;
+        });
+        return requirements;
+    }
+
     function refreshButtonClasses() {
         $('#classify-table').find('.classify-row').each(function() {
             updateButtonClass(this);
         });
     }
-
-    refreshButtonClasses();
-    table.on('draw.dt', refreshButtonClasses);
 
     var classifyModalEl = document.getElementById('classifyModal');
     var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
@@ -1490,6 +1581,9 @@ window.addEventListener('load', function() {
         entries: [],
         lastError: ''
     };
+
+    refreshButtonClasses();
+    table.on('draw.dt', refreshButtonClasses);
 
     function normalizePlanSearchToken(value) {
         var text = String(value || '').toLowerCase();
@@ -2625,7 +2719,7 @@ window.addEventListener('load', function() {
         return null;
     }
 
-    function applyAiSuggestions(payload) {
+    function applyAiSuggestions(payload, assistantResponse) {
         var ratesPayload = normalizeAiRatesPayload(payload);
         var expectedLines = window.aiExpectedLines && typeof window.aiExpectedLines === 'object' ? window.aiExpectedLines : {};
         var totalAccountSuggested = resolveTotalAccountSuggestion(payload, expectedLines);
@@ -2685,6 +2779,23 @@ window.addEventListener('load', function() {
             if (currentBtn) {
                 currentBtn.setAttribute('data-total-account', totalAccountSuggested);
             }
+            applied = true;
+        }
+        var requiredRates = null;
+        if (assistantResponse && typeof assistantResponse === 'object' && assistantResponse.cost_center_required_rates && typeof assistantResponse.cost_center_required_rates === 'object') {
+            requiredRates = assistantResponse.cost_center_required_rates;
+        } else if (assistantResponse && Array.isArray(assistantResponse.actions)) {
+            assistantResponse.actions.forEach(function(action) {
+                if (requiredRates || !action || action.type !== 'suggest_accounts') {
+                    return;
+                }
+                if (action.cost_center_required_rates && typeof action.cost_center_required_rates === 'object') {
+                    requiredRates = action.cost_center_required_rates;
+                }
+            });
+        }
+        if (requiredRates) {
+            applyCostCenterRequirementMap(requiredRates);
             applied = true;
         }
         return applied;
@@ -2971,10 +3082,11 @@ window.addEventListener('load', function() {
 
     function createEmptyCostCenters() {
         var result = {};
-        defaultRates.forEach(function(rate) {
+        var baseRates = Array.isArray(defaultRates) ? defaultRates : Object.keys(defaultRateLabels || {});
+        baseRates.forEach(function(rate) {
             result[rate] = '';
         });
-        Object.keys(currentCostCenters).forEach(function(rate) {
+        Object.keys(currentCostCenters || {}).forEach(function(rate) {
             if (!Object.prototype.hasOwnProperty.call(result, rate)) {
                 result[rate] = '';
             }
@@ -2982,7 +3094,7 @@ window.addEventListener('load', function() {
         getRateKeys().forEach(function(rate) {
             result[rate] = '';
         });
-        Object.keys(currentRateData).forEach(function(rate) {
+        Object.keys(currentRateData || {}).forEach(function(rate) {
             if (!Object.prototype.hasOwnProperty.call(result, rate)) {
                 result[rate] = '';
             }
@@ -3086,6 +3198,26 @@ window.addEventListener('load', function() {
         return Object.keys(values).some(function(rate) {
             return values[rate] !== '';
         });
+    }
+
+    function applySuggestedCostCenters(value) {
+        var suggested = normalizeCostCenterValues(value);
+        var current = getCostCenterValues();
+        var merged = {};
+        var changed = false;
+        Object.keys(current).forEach(function(rate) {
+            var currentValue = String(current[rate] || '').trim();
+            var suggestedValue = String(suggested[rate] || '').trim();
+            if (currentValue === '' && suggestedValue !== '') {
+                merged[rate] = suggestedValue;
+                changed = true;
+            } else {
+                merged[rate] = currentValue;
+            }
+        });
+        if (changed) {
+            applyCostCenterValues(merged, { skipEnsure: true });
+        }
     }
 
     function hasAccountData(entry) {
@@ -3215,6 +3347,19 @@ window.addEventListener('load', function() {
         }
         if (info.generalAccount) {
             currentRateData[rate].general_account = info.generalAccount.value;
+        }
+        var ccRequiredFlag = '';
+        if (rowData && typeof rowData.cost_center_required !== 'undefined') {
+            ccRequiredFlag = String(rowData.cost_center_required || '').trim();
+        }
+        if (ccRequiredFlag === '' && baseData && typeof baseData.cost_center_required !== 'undefined') {
+            ccRequiredFlag = String(baseData.cost_center_required || '').trim();
+        }
+        if (ccRequiredFlag === '' && defaultData && typeof defaultData.cost_center_required !== 'undefined') {
+            ccRequiredFlag = String(defaultData.cost_center_required || '').trim();
+        }
+        if (ccRequiredFlag === '1' || ccRequiredFlag.toLowerCase() === 'true') {
+            currentRateData[rate].cost_center_required = '1';
         }
         if (info.base) {
             currentRateData[rate].base = info.base.value;
@@ -3408,7 +3553,7 @@ window.addEventListener('load', function() {
                 if (!parsed) {
                     parsed = extractJsonFromText(message);
                 }
-                if (parsed && applyAiSuggestions(parsed)) {
+                if (parsed && applyAiSuggestions(parsed, res)) {
                     if (res) {
                         window.aiSuggestionLogId = res.log_id || null;
                         window.aiSuggestedAccounts = parsed.rates || null;
@@ -3799,6 +3944,10 @@ window.addEventListener('load', function() {
 
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
+                var mergedRequirements = (res.row_requirements && typeof res.row_requirements === 'object') ? res.row_requirements : (parseJsonAttribute(currentBtn, 'data-requirements') || {});
+                mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedRowRates);
+                mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedDefaultRates);
+                currentBtn.setAttribute('data-requirements', JSON.stringify(mergedRequirements));
                 removedRates = {};
                 serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
                 var rowTotalAccount = typeof res.row_total_account === 'string' ? res.row_total_account : '';
@@ -3867,6 +4016,9 @@ window.addEventListener('load', function() {
                         applyCostCenterValues(serverCostCenters, { skipEnsure: true });
                     }
                 }
+                if (res.suggested_cost_centers && typeof res.suggested_cost_centers === 'object') {
+                    applySuggestedCostCenters(res.suggested_cost_centers);
+                }
 
                 debugJson('dados de taxas após merge', currentRateData);
 
@@ -3902,11 +4054,20 @@ window.addEventListener('load', function() {
             });
 
             var totalAccountValue = totalAccountInput ? totalAccountInput.value.trim() : '';
+            var currentRequirements = parseJsonAttribute(currentBtn, 'data-requirements') || {};
             var ratesPayload = {};
             getRateKeys().forEach(function(rate) {
                 var info = rateInputs[rate];
                 var baseValue = info.base ? String(info.base.value || '').trim() : '';
                 var ivaValue = info.iva ? String(info.iva.value || '').trim() : '';
+                var rateData = ensureRateData(rate);
+                var costCenterRequired = false;
+                if (currentRequirements[rate] && currentRequirements[rate].cost_center) {
+                    costCenterRequired = true;
+                }
+                if (rateData.cost_center_required === '1') {
+                    costCenterRequired = true;
+                }
                 ratesPayload[rate] = {
                     iva_account: info.ivaAccount ? info.ivaAccount.value.trim() : '',
                     general_account: info.generalAccount ? info.generalAccount.value.trim() : '',
@@ -3914,7 +4075,8 @@ window.addEventListener('load', function() {
                     base: baseValue,
                     iva: ivaValue,
                     base_value: baseValue,
-                    iva_value: ivaValue
+                    iva_value: ivaValue,
+                    cost_center_required: costCenterRequired ? '1' : '0'
                 };
             });
 
@@ -3923,6 +4085,17 @@ window.addEventListener('load', function() {
             });
 
             var costCentersPayload = getCostCenterValues();
+            var missingCostCenterRates = [];
+            Object.keys(currentRequirements).forEach(function(rate) {
+                var req = currentRequirements[rate] || {};
+                if (!req.cost_center) {
+                    return;
+                }
+                var value = String(costCentersPayload[rate] || '').trim();
+                if (value === '') {
+                    missingCostCenterRates.push(String(rate));
+                }
+            });
             var body = new URLSearchParams({
                 id: currentBtn.getAttribute('data-id') || '',
                 A: currentBtn.getAttribute('data-emitter') || '',
@@ -3969,6 +4142,9 @@ window.addEventListener('load', function() {
                 if (Object.prototype.hasOwnProperty.call(res, 'manual_review_required')) {
                     var manualReviewValue = String(res.manual_review_required || '').trim();
                     currentBtn.setAttribute('data-manual-review', manualReviewValue === '1' ? '1' : '0');
+                }
+                if (res.requirements && typeof res.requirements === 'object') {
+                    currentBtn.setAttribute('data-requirements', JSON.stringify(res.requirements));
                 }
 
                 if (res.row_rates && typeof res.row_rates === 'object') {

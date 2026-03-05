@@ -16,8 +16,14 @@ $useDataTables = true;
 $pdo = getPDO();
 $companyDatabases = [];
 try {
-    $stmt = $pdo->query("SELECT DISTINCT erp_database FROM accounting_entities WHERE erp_database <> '' ORDER BY erp_database ASC");
-    $companyDatabases = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
+    $stmt = $pdo->query(
+        "SELECT erp_database, MAX(CASE WHEN entity_type = 'acquirer' THEN name ELSE '' END) AS company_name
+         FROM accounting_entities
+         WHERE erp_database <> ''
+         GROUP BY erp_database
+         ORDER BY erp_database ASC"
+    );
+    $companyDatabases = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 } catch (Throwable $e) {
     $companyDatabases = [];
 }
@@ -221,13 +227,25 @@ $yearOptions = [$currentYear, $currentYear - 1];
         </div>
         <div class="x_content">
             <div id="lancamentos-top-filters" class="d-none d-flex align-items-center">
-                <select class="form-select dt-filter me-2" style="min-width: 220px; height: 38px;" data-field="db" data-default="<?= htmlspecialchars((string) getSetting('erp_database', '')); ?>">
+                <select class="form-select dt-filter me-2" style="min-width: 520px; height: 38px;" data-field="db" data-default="<?= htmlspecialchars((string) getSetting('erp_database', '')); ?>">
                     <option value="">Empresa</option>
-                    <?php foreach ($companyDatabases as $dbValue): ?>
-                        <option value="<?= htmlspecialchars((string) $dbValue); ?>"><?= htmlspecialchars((string) $dbValue); ?></option>
+                    <?php foreach ($companyDatabases as $dbRow): ?>
+                        <?php
+                            $dbValue = trim((string) ($dbRow['erp_database'] ?? ''));
+                            $companyName = trim((string) ($dbRow['company_name'] ?? ''));
+                            $companyCode = preg_replace('/^emp_/i', '', $dbValue);
+                            if ($companyCode === null || $companyCode === '') {
+                                $companyCode = $dbValue;
+                            }
+                            $optionLabel = $companyCode;
+                            if ($companyName !== '') {
+                                $optionLabel .= ' - ' . $companyName;
+                            }
+                        ?>
+                        <option value="<?= htmlspecialchars($dbValue); ?>"><?= htmlspecialchars($optionLabel); ?></option>
                     <?php endforeach; ?>
                 </select>
-                <select class="form-select dt-filter" style="min-width: 140px; height: 38px;" data-field="strCodExercicio" data-default="<?= htmlspecialchars((string) $currentYear); ?>">
+                <select class="form-select dt-filter" style="min-width: 95px; height: 38px;" data-field="strCodExercicio" data-default="<?= htmlspecialchars((string) $currentYear); ?>">
                     <?php foreach ($yearOptions as $year): ?>
                         <option value="<?= htmlspecialchars((string) $year); ?>"><?= htmlspecialchars((string) $year); ?></option>
                     <?php endforeach; ?>
@@ -243,6 +261,7 @@ $yearOptions = [$currentYear, $currentYear - 1];
                         <th></th>
                         <th></th>
                         <th></th>
+                        <th width="6%"></th>
                     </tr>
                     <tr>
                         <th class="text-center">Diário</th>
@@ -252,9 +271,40 @@ $yearOptions = [$currentYear, $currentYear - 1];
                         <th>Nº Doc</th>
                         <th>Tax Payer</th>
                         <th>Total</th>
+                        <th class="text-center">PDF</th>
                     </tr>
                 </thead>
             </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="lancamentoDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lancamentoDetailTitle">Detalhe do lançamento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-bordered mb-0">
+                        <thead>
+                            <tr>
+                                <th>Conta</th>
+                                <th>Descrição</th>
+                                <th class="text-end">Débito</th>
+                                <th class="text-end">Crédito</th>
+                                <th>NIF</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lancamentoDetailBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+            </div>
         </div>
     </div>
 </div>
@@ -269,6 +319,134 @@ $pageScripts = <<<'JS'
 
     var storageKey = 'lancamentos_filters';
     var $filters = jQuery('.dt-filter');
+    var detailModalEl = document.getElementById('lancamentoDetailModal');
+    var detailBodyEl = document.getElementById('lancamentoDetailBody');
+    var detailTitleEl = document.getElementById('lancamentoDetailTitle');
+    var detailModal = (detailModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
+        ? new window.bootstrap.Modal(detailModalEl)
+        : null;
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function parseAmount(value) {
+        var raw = String(value || '').trim().replace(',', '.');
+        var num = parseFloat(raw);
+        return isNaN(num) ? 0 : num;
+    }
+
+    function formatAmount(value) {
+        var num = parseAmount(value);
+        return num.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function lineDescription(line) {
+        if (!line || typeof line !== 'object') {
+            return '-';
+        }
+        var keys = ['strDescricao', 'descricao', 'strDescricaoConta', 'strContaDescricao', 'strDescConta', 'PC_Descricao', 'Rub_Descricao'];
+        for (var i = 0; i < keys.length; i += 1) {
+            var key = keys[i];
+            if (line[key] !== undefined && line[key] !== null && String(line[key]).trim() !== '') {
+                return String(line[key]).trim();
+            }
+        }
+        return '-';
+    }
+
+    function decodeBase64ToBlob(base64Content, mimeType) {
+        var cleanBase64 = String(base64Content || '').trim();
+        var commaPos = cleanBase64.indexOf(',');
+        if (commaPos !== -1) {
+            cleanBase64 = cleanBase64.slice(commaPos + 1);
+        }
+        cleanBase64 = cleanBase64.replace(/\s+/g, '');
+        var binary = window.atob(cleanBase64);
+        var len = binary.length;
+        var bytes = new Uint8Array(len);
+        for (var i = 0; i < len; i += 1) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return new Blob([bytes], { type: mimeType || 'application/pdf' });
+    }
+
+    function downloadBlob(blob, filename) {
+        var safeName = String(filename || 'anexo.pdf').trim();
+        if (safeName === '') {
+            safeName = 'anexo.pdf';
+        }
+        if (!/\.pdf$/i.test(safeName)) {
+            safeName += '.pdf';
+        }
+        var link = document.createElement('a');
+        var objectUrl = window.URL.createObjectURL(blob);
+        link.href = objectUrl;
+        link.download = safeName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(objectUrl);
+    }
+
+    function openDetailModal(rowData) {
+        if (!detailBodyEl || !rowData) {
+            return;
+        }
+        var docNo = String(rowData.strNumDoc || '').trim();
+        var diaryNo = String(rowData.intNumDiario || '').trim();
+        var title = 'Detalhe do lançamento';
+        if (docNo !== '') {
+            title += ' - Doc ' + docNo;
+        }
+        if (diaryNo !== '') {
+            title += ' | Nº Diário ' + diaryNo;
+        }
+        if (detailTitleEl) {
+            detailTitleEl.textContent = title;
+        }
+
+        var lines = Array.isArray(rowData.linhas) ? rowData.linhas.slice() : [];
+        lines.sort(function(a, b) {
+            var aNum = parseInt(a && a.intNumlinha ? a.intNumlinha : 0, 10);
+            var bNum = parseInt(b && b.intNumlinha ? b.intNumlinha : 0, 10);
+            if (isNaN(aNum)) {
+                aNum = 0;
+            }
+            if (isNaN(bNum)) {
+                bNum = 0;
+            }
+            return aNum - bNum;
+        });
+        if (!lines.length) {
+            detailBodyEl.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Sem linhas do movimento.</td></tr>';
+        } else {
+            var html = '';
+            lines.forEach(function(line) {
+                var debCre = String(line && line.strDeb_Cre ? line.strDeb_Cre : '').toUpperCase();
+                var value = line && line.fltValor !== undefined ? line.fltValor : '';
+                var debit = debCre === 'D' ? formatAmount(value) : '';
+                var credit = debCre === 'C' ? formatAmount(value) : '';
+                html += '<tr>'
+                    + '<td>' + escapeHtml(line && line.strConta ? line.strConta : '') + '</td>'
+                    + '<td>' + escapeHtml(lineDescription(line)) + '</td>'
+                    + '<td class="text-end">' + escapeHtml(debit) + '</td>'
+                    + '<td class="text-end">' + escapeHtml(credit) + '</td>'
+                    + '<td>' + escapeHtml(line && line.strNumContrib ? line.strNumContrib : '') + '</td>'
+                    + '</tr>';
+            });
+            detailBodyEl.innerHTML = html;
+        }
+
+        if (detailModal) {
+            detailModal.show();
+        }
+    }
 
     function loadFilters() {
         if (!window.localStorage) {
@@ -322,8 +500,44 @@ $pageScripts = <<<'JS'
         order: [[2, 'desc']],
         lengthMenu: [[20, 50, 100], [20, 50, 100]],
         pageLength: 20,
+        columns: [
+            { data: 'intCodDiario' },
+            { data: 'formattedDate' },
+            { data: 'intNumDiario' },
+            { data: 'strAbrevTpDoc' },
+            {
+                data: 'strNumDoc',
+                render: function(data, type, row) {
+                    var value = data || '';
+                    if (type !== 'display') {
+                        return value;
+                    }
+                    if (Array.isArray(row && row.linhas) && row.linhas.length) {
+                        return '<a href="#" class="js-open-lancamento-lines">' + escapeHtml(value) + '</a>';
+                    }
+                    return escapeHtml(value);
+                }
+            },
+            { data: 'strFArchTaxPayer' },
+            { data: 'total' },
+            {
+                data: null,
+                render: function(data, type, row) {
+                    if (type !== 'display') {
+                        return '';
+                    }
+                    if (!row || !row.strCodExercicio || !row.intCodDiario || !row.intMes || !row.intNumDiario) {
+                        return '';
+                    }
+                    return '<a href="#" class="btn btn-xs btn-default js-download-lancamento-pdf" title="Download PDF">'
+                        + '<i class="fa fa-file-pdf-o text-danger"></i>'
+                        + '</a>';
+                }
+            }
+        ],
         columnDefs: [
-            { targets: [0, 1, 2], className: 'text-center' }
+            { targets: [0, 1, 2, 7], className: 'text-center' },
+            { targets: [7], orderable: false, searchable: false }
         ],
         dom: '<"row mb-2"<"col-md-6 d-flex align-items-center"l<' + "'lancamentos-top-filters-container'" + '>> <"col-md-6"f>>rt<"row mt-2"<"col-md-5"i><"col-md-7 d-flex justify-content-end"p>>',
         ajax: function(data, callback) {
@@ -371,15 +585,18 @@ $pageScripts = <<<'JS'
                     if (total !== '' && !isNaN(total)) {
                         total = parseFloat(total).toFixed(2);
                     }
-                    return [
-                        row && row.intCodDiario ? row.intCodDiario : '',
-                        formattedDate,
-                        row && row.intNum_Diario ? row.intNum_Diario : '',
-                        row && row.strAbrevTpDoc ? row.strAbrevTpDoc : '',
-                        row && row.strNum_Doc ? row.strNum_Doc : '',
-                        row && row.strFArchTaxPayer ? row.strFArchTaxPayer : '',
-                        total
-                    ];
+                    return {
+                        strCodExercicio: row && row.strCodExercicio ? String(row.strCodExercicio) : '',
+                        intCodDiario: row && row.intCodDiario ? row.intCodDiario : '',
+                        intMes: row && row.intMes ? row.intMes : '',
+                        formattedDate: formattedDate,
+                        intNumDiario: row && row.intNum_Diario ? row.intNum_Diario : '',
+                        strAbrevTpDoc: row && row.strAbrevTpDoc ? row.strAbrevTpDoc : '',
+                        strNumDoc: row && row.strNum_Doc ? row.strNum_Doc : '',
+                        strFArchTaxPayer: row && row.strFArchTaxPayer ? row.strFArchTaxPayer : '',
+                        total: total,
+                        linhas: Array.isArray(row && row.linhas) ? row.linhas : []
+                    };
                 });
                 var total = resp && typeof resp.iTotalRecords !== 'undefined' ? parseInt(resp.iTotalRecords, 10) : formatted.length;
                 var filtered = resp && typeof resp.iTotalDisplayRecords !== 'undefined' ? parseInt(resp.iTotalDisplayRecords, 10) : total;
@@ -460,6 +677,86 @@ $pageScripts = <<<'JS'
                 table.ajax.reload(null, true);
             }, 250);
         });
+
+    jQuery(tableEl).on('click', '.js-open-lancamento-lines', function(ev) {
+        ev.preventDefault();
+        var rowData = table.row(jQuery(this).closest('tr')).data();
+        if (!rowData) {
+            return;
+        }
+        openDetailModal(rowData);
+    });
+
+    jQuery(tableEl).on('click', '.js-download-lancamento-pdf', function(ev) {
+        ev.preventDefault();
+        if (!erpBaseUrl) {
+            alert('URL do webservice ERP não configurada.');
+            return;
+        }
+        var $btn = jQuery(this);
+        var rowData = table.row($btn.closest('tr')).data();
+        if (!rowData) {
+            return;
+        }
+        var dbValue = '';
+        $filters.each(function() {
+            if (this.getAttribute('data-field') === 'db') {
+                dbValue = this.value.trim();
+            }
+        });
+        if (!dbValue) {
+            dbValue = '';
+        }
+        if (!dbValue) {
+            alert('Selecione a empresa para descarregar o PDF.');
+            return;
+        }
+
+        var requestData = {
+            db: dbValue,
+            intTipoEntidade: 23,
+            strChave1: String(rowData.strCodExercicio || ''),
+            strChave2: String(rowData.intCodDiario || ''),
+            strChave3: String(rowData.intMes || ''),
+            intNumero: String(rowData.intNumDiario || '')
+        };
+        if (!requestData.strChave1 || !requestData.strChave2 || !requestData.strChave3 || !requestData.intNumero) {
+            alert('Não foi possível montar as chaves do anexo digital.');
+            return;
+        }
+
+        $btn.addClass('disabled');
+        jQuery.ajax({
+            url: erpBaseUrl + '/anexosdigitais',
+            method: 'GET',
+            data: requestData,
+            headers: erpToken ? { 'X-API-KEY': erpToken, 'Accept': 'application/json' } : { 'Accept': 'application/json' },
+            dataType: 'json'
+        }).done(function(resp) {
+            var anexos = Array.isArray(resp && resp.anexos) ? resp.anexos : [];
+            if (!anexos.length) {
+                alert('Sem anexos digitais para este lançamento.');
+                return;
+            }
+            var anexo = anexos[0] || {};
+            var fileBase64 = anexo.Ficheiro || '';
+            if (!fileBase64) {
+                alert('O anexo não contém ficheiro para download.');
+                return;
+            }
+            try {
+                var blob = decodeBase64ToBlob(fileBase64, 'application/pdf');
+                var filename = anexo.strIdFicheiro || ('lancamento_' + requestData.intNumero + '.pdf');
+                downloadBlob(blob, filename);
+            } catch (e) {
+                alert('Falha ao processar o ficheiro PDF.');
+            }
+        }).fail(function() {
+            alert('Erro ao obter anexo digital no ERP.');
+        }).always(function() {
+            $btn.removeClass('disabled');
+        });
+    });
 })();
 JS;
 $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"

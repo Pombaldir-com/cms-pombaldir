@@ -194,10 +194,24 @@ foreach ($optionsPayload as $entry) {
         $label = $value;
     }
 
+    $optionId = '';
+    $idKeys = ['id', 'intcodigo', 'codigo', 'code'];
+    foreach ($idKeys as $idKey) {
+        if (array_key_exists($idKey, $entry) && trim((string) $entry[$idKey]) !== '') {
+            $optionId = trim((string) $entry[$idKey]);
+            break;
+        }
+        if (array_key_exists($idKey, $normalized) && trim((string) $normalized[$idKey]) !== '') {
+            $optionId = trim((string) $normalized[$idKey]);
+            break;
+        }
+    }
+
     $seenValues[$value] = true;
     $options[] = [
         'value' => $value,
         'db' => $label,
+        'id' => $optionId,
     ];
 }
 

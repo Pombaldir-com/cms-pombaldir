@@ -104,6 +104,58 @@ function requireCtbClassificationPermission(PDO $pdo, ?int $importId = null): vo
     exit;
 }
 
+function suggestHistoricalCostCenters(PDO $pdo, string $emitter, string $acquirer, string $docType, int $excludeId = 0): array {
+    $emitter = trim($emitter);
+    $acquirer = trim($acquirer);
+    $docType = trim($docType);
+    if ($emitter === '' || $acquirer === '' || $docType === '') {
+        return buildEmptyCostCenterMap();
+    }
+
+    $sql = 'SELECT cost_center FROM accounting_imports '
+        . 'WHERE field_A = ? AND field_B = ? AND field_D = ? AND cost_center IS NOT NULL AND cost_center <> "" ';
+    $params = [$emitter, $acquirer, $docType];
+    if ($excludeId > 0) {
+        $sql .= 'AND id <> ? ';
+        $params[] = $excludeId;
+    }
+    $sql .= 'ORDER BY id DESC LIMIT 200';
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        return buildEmptyCostCenterMap();
+    }
+
+    $tallies = [];
+    foreach ($rows as $row) {
+        $costCenters = normalizeCostCenters($row['cost_center'] ?? '');
+        foreach ($costCenters as $rate => $value) {
+            $rateKey = (string) $rate;
+            $code = trim((string) $value);
+            if ($code === '') {
+                continue;
+            }
+            if (!isset($tallies[$rateKey])) {
+                $tallies[$rateKey] = [];
+            }
+            $tallies[$rateKey][$code] = ($tallies[$rateKey][$code] ?? 0) + 1;
+        }
+    }
+
+    $result = buildEmptyCostCenterMap(array_keys($tallies));
+    foreach ($tallies as $rate => $map) {
+        if (!is_array($map) || empty($map)) {
+            continue;
+        }
+        arsort($map);
+        $result[$rate] = (string) array_key_first($map);
+    }
+
+    return $result;
+}
+
 /**
  * Attempt to obtain the document/article code from a parsed invoice line.
  *
@@ -380,6 +432,7 @@ if ($action === 'get') {
     $rowCostCenters = buildEmptyCostCenterMap();
     $originalSnapshot = [];
     $summaries = [];
+    $rowRequirements = [];
     if ($id !== '') {
         $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
@@ -388,6 +441,7 @@ if ($action === 'get') {
         $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
+        [, $rowRequirements] = buildRatePayload($summaries, $rowAccounts);
 
         $decodedOriginal = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -403,11 +457,21 @@ if ($action === 'get') {
         $originalSnapshot = mergeOriginalRateSnapshot([], $summaries);
     }
 
+    $suggestedCostCenters = suggestHistoricalCostCenters(
+        $pdo,
+        (string) $a,
+        (string) $b,
+        (string) $d,
+        $idValue
+    );
+
     echo json_encode([
         'rates' => $classificationAccounts,
         'row_rates' => $rowAccounts,
+        'row_requirements' => $rowRequirements,
         'cost_center' => serializeCostCenters($rowCostCenters),
         'cost_centers' => $rowCostCenters,
+        'suggested_cost_centers' => $suggestedCostCenters,
         'total_account' => $classificationMetadata['total_account'] ?? '',
         'row_total_account' => $rowMetadata['total_account'] ?? '',
         'original_rates' => $originalSnapshot,
@@ -519,7 +583,8 @@ if ($action === 'get') {
         $summaries = computeImportRateSummaries($importRow);
         $existingOriginal = mergeOriginalRateSnapshot($existingOriginalRaw, $summaries);
         [$existingPayload, $existingRequirements] = buildRatePayload($summaries, $existingRow);
-        $existingRowWasReady = determineClassificationButtonClass($existingRequirements, $existingPayload, $existingRowMetadata) === 'btn-success';
+        $existingRowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
+        $existingRowWasReady = determineClassificationButtonClass($existingRequirements, $existingPayload, $existingRowMetadata, $existingRowCostCenters) === 'btn-success';
 
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
         $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
@@ -543,6 +608,18 @@ if ($action === 'get') {
             }
             if (array_key_exists('iva', $values)) {
                 $existingOriginal[$rate]['iva'] = $values['iva'];
+            }
+        }
+
+        [, $rowRequirements] = buildRatePayload($summaries, $rowAccounts);
+        $missingCostCenterRates = [];
+        foreach ($rowRequirements as $rate => $requirement) {
+            if (empty($requirement['cost_center'])) {
+                continue;
+            }
+            $costCenterValue = trim((string) ($costCentersData[$rate] ?? ''));
+            if ($costCenterValue === '') {
+                $missingCostCenterRates[] = (string) $rate;
             }
         }
 
@@ -600,6 +677,7 @@ if ($action === 'get') {
             'success' => true,
             'csrf_token' => generateCsrfToken(),
             'row_rates' => $rowAccounts,
+            'requirements' => $rowRequirements,
             'cost_center' => $serializedCostCenters,
             'cost_centers' => $costCentersData,
             'original_rates' => $existingOriginal,

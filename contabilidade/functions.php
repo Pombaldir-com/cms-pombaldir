@@ -87,7 +87,7 @@ function resolveErpDatabaseIdentifier(string $database = ''): string {
  * compatibility with legacy endpoints.
  */
 function buildErpCompanyQueryParams(string $database = ''): array {
-    $database = resolveErpDatabaseIdentifier($database);
+    $database = trim($database);
     $emp = getErpDefaultCompanyIdentifier();
     if ($emp === '' && $database !== '') {
         $emp = $database;
@@ -248,7 +248,7 @@ function buildErpSupplierEndpoint(string $baseUrl, string $nif, string $database
         return '';
     }
 
-    $database = resolveErpDatabaseIdentifier($database);
+    $database = trim($database);
     $companyParams = buildErpCompanyQueryParams($database);
     $encodedNif = urlencode($nif);
     $parsedUrl = @parse_url($url);
@@ -587,7 +587,7 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
     }
 
     $normalizedType = strtolower(trim($entityType));
-    $database = resolveErpDatabaseIdentifier($database);
+    $database = trim($database);
     if ($normalizedType === 'emitter') {
         $endpoint = buildErpSupplierEndpoint($baseUrl, $nif, $database);
     } else {
@@ -834,17 +834,42 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
  * @return void
  */
 function saveAccountingEntity(PDO $pdo, array $data): void {
+    $nif = trim((string) ($data['nif'] ?? ''));
+    $name = trim((string) ($data['name'] ?? ''));
+    $erpDatabase = trim((string) ($data['erp_database'] ?? ''));
+    $entityType = trim((string) ($data['entity_type'] ?? ''));
+    $erpClientCode = trim((string) ($data['erp_client_code'] ?? ''));
+
+    if ($nif === '') {
+        throw new InvalidArgumentException('NIF inválido para guardar entidade contabilística.');
+    }
+    if ($entityType === '') {
+        $entityType = 'acquirer';
+    }
+
+    $existing = findAccountingEntityByType($pdo, $nif, $entityType);
+    if ($existing === null) {
+        $existing = findAccountingEntity($pdo, $nif);
+    }
+
+    if (is_array($existing) && !empty($existing['id'])) {
+        $stmt = $pdo->prepare(
+            'UPDATE accounting_entities SET name = ?, erp_database = ?, entity_type = ?, erp_client_code = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $name,
+            $erpDatabase,
+            $entityType,
+            $erpClientCode,
+            (int) $existing['id'],
+        ]);
+        return;
+    }
+
     $stmt = $pdo->prepare(
         'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code) VALUES (?, ?, ?, ?, ?)'
-        . ' ON DUPLICATE KEY UPDATE name = VALUES(name), erp_database = VALUES(erp_database), entity_type = VALUES(entity_type), erp_client_code = VALUES(erp_client_code)'
     );
-    $stmt->execute([
-        $data['nif'],
-        $data['name'],
-        $data['erp_database'],
-        $data['entity_type'],
-        $data['erp_client_code'] ?? '',
-    ]);
+    $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode]);
 }
 
 /**
@@ -1594,6 +1619,7 @@ function sanitizeAccountInput(array $input): array {
         $label = '';
         $baseValue = '';
         $ivaValue = '';
+        $costCenterRequired = false;
 
         if (is_array($rateInput)) {
             $ivaAccountCandidate = null;
@@ -1651,6 +1677,10 @@ function sanitizeAccountInput(array $input): array {
                     $ivaValue = $ivaCandidateValue;
                 }
             }
+            if (array_key_exists('cost_center_required', $rateInput)) {
+                $flag = trim((string) $rateInput['cost_center_required']);
+                $costCenterRequired = ($flag === '1' || strcasecmp($flag, 'true') === 0);
+            }
         } elseif ($rateInput !== null) {
             $generalCandidate = extractStringValue($rateInput, ['account', 'code']);
             if ($generalCandidate !== null) {
@@ -1691,6 +1721,9 @@ function sanitizeAccountInput(array $input): array {
         ];
         if ($effectiveLabel !== '') {
             $result[$rate]['label'] = $effectiveLabel;
+        }
+        if ($costCenterRequired) {
+            $result[$rate]['cost_center_required'] = '1';
         }
     }
 
@@ -2189,6 +2222,7 @@ function buildRatePayload(array $summaries, array $accounts): array {
         $requirements[$rate] = [
             'general' => !empty($info['require_general']),
             'iva' => !empty($info['require_iva']),
+            'cost_center' => (trim((string) ($accountInfo['cost_center_required'] ?? '')) === '1'),
         ];
     }
 
@@ -2202,7 +2236,7 @@ function buildRatePayload(array $summaries, array $accounts): array {
  * @param array<string,array<string,string>> $payload
  * @return string
  */
-function determineClassificationButtonClass(array $requirements, array $payload, array $metadata = []): string {
+function determineClassificationButtonClass(array $requirements, array $payload, array $metadata = [], array $costCenters = []): string {
     $requires = false;
     $allFilled = true;
     $hasAny = false;
@@ -2223,6 +2257,15 @@ function determineClassificationButtonClass(array $requirements, array $payload,
             $requires = true;
             $iva = trim((string) ($data['iva_account'] ?? ''));
             if ($iva === '') {
+                $allFilled = false;
+            } else {
+                $hasAny = true;
+            }
+        }
+        if (!empty($req['cost_center'])) {
+            $requires = true;
+            $costCenterValue = trim((string) ($costCenters[$rate] ?? ''));
+            if ($costCenterValue === '') {
                 $allFilled = false;
             } else {
                 $hasAny = true;

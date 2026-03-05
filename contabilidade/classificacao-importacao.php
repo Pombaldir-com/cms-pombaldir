@@ -791,7 +791,7 @@ function prepareImportRow(array $row): array {
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
-    $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata);
+    $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
     $row['manual_review_required'] = (($accountMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
@@ -1143,6 +1143,131 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
 
     $decoded = json_decode($response, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function fetchErpConfigEmpresaByDatabase(string $database, string $companyId = ''): array {
+    $database = trim($database);
+    if ($database === '') {
+        return ['ok' => false, 'name' => '', 'error' => 'Base de dados ERP inválida.'];
+    }
+
+    $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
+    $token = trim((string) getSetting('erp_token', ''));
+    if ($baseUrl === '' || $token === '' || !function_exists('curl_init')) {
+        return ['ok' => false, 'name' => '', 'error' => 'Serviço ERP indisponível para validar a base de dados.'];
+    }
+
+    $endpoint = buildErpEndpointFromBase($baseUrl, '/tabelas/configEmpresa');
+    if ($endpoint === '') {
+        return ['ok' => false, 'name' => '', 'error' => 'URL ERP inválida para validar a base de dados.'];
+    }
+
+    $companyId = trim($companyId);
+    $companyIdForLookup = $companyId !== '' ? $companyId : '384';
+    $endpointPrimary = appendQueryParamsToUrl($endpoint, [
+        'db' => $database,
+        'q' => $companyIdForLookup,
+        'searchField' => 'Id',
+    ]);
+
+    $handle = curl_init($endpointPrimary);
+    if ($handle === false) {
+        return ['ok' => false, 'name' => '', 'error' => 'Não foi possível iniciar validação da base de dados ERP.'];
+    }
+
+    curl_setopt_array($handle, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'X-API-KEY: ' . $token,
+        ],
+    ]);
+
+    $response = curl_exec($handle);
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    $curlError = $response === false ? curl_error($handle) : '';
+    curl_close($handle);
+
+    if ($response === false) {
+        return ['ok' => false, 'name' => '', 'error' => 'Erro ao comunicar com ERP: ' . $curlError];
+    }
+    if ($status >= 400) {
+        return ['ok' => false, 'name' => '', 'error' => 'ERP devolveu erro HTTP ' . $status . ' ao validar a base de dados.'];
+    }
+
+    $decoded = json_decode((string) $response, true);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'name' => '', 'error' => 'Resposta inválida do ERP ao validar a base de dados.'];
+    }
+
+    $successFlag = isset($decoded['success']) ? trim((string) $decoded['success']) : '';
+    if ($successFlag === '0' || $successFlag === 'false') {
+        $message = trim((string) ($decoded['message'] ?? 'Falha ao validar base de dados no ERP.'));
+        return ['ok' => false, 'name' => '', 'error' => $message !== '' ? $message : 'Falha ao validar base de dados no ERP.'];
+    }
+
+    $rows = extractErpRowsFromPayload($decoded);
+    $companyName = '';
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $candidate = trim((string) ($row['strValor'] ?? $row['nome'] ?? $row['name'] ?? ''));
+        if ($candidate !== '') {
+            $companyName = $candidate;
+            break;
+        }
+    }
+
+    if ($companyName !== '') {
+        return ['ok' => true, 'name' => $companyName, 'error' => ''];
+    }
+
+    $endpointFallback = appendQueryParamsToUrl($endpoint, ['db' => $database]);
+    $handleFallback = curl_init($endpointFallback);
+    if ($handleFallback === false) {
+        return ['ok' => false, 'name' => '', 'error' => 'Não foi possível obter o nome da empresa para a base selecionada.'];
+    }
+    curl_setopt_array($handleFallback, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'X-API-KEY: ' . $token,
+        ],
+    ]);
+    $responseFallback = curl_exec($handleFallback);
+    $statusFallback = (int) curl_getinfo($handleFallback, CURLINFO_HTTP_CODE);
+    curl_close($handleFallback);
+    if (!is_string($responseFallback) || $responseFallback === '' || $statusFallback >= 400) {
+        $message = trim((string) ($decoded['message'] ?? 'Não foi possível obter o nome da empresa para a base selecionada.'));
+        return ['ok' => false, 'name' => '', 'error' => $message !== '' ? $message : 'Não foi possível obter o nome da empresa para a base selecionada.'];
+    }
+    $decodedFallback = json_decode($responseFallback, true);
+    if (!is_array($decodedFallback)) {
+        $message = trim((string) ($decoded['message'] ?? 'Não foi possível obter o nome da empresa para a base selecionada.'));
+        return ['ok' => false, 'name' => '', 'error' => $message !== '' ? $message : 'Não foi possível obter o nome da empresa para a base selecionada.'];
+    }
+    $rowsFallback = extractErpRowsFromPayload($decodedFallback);
+    foreach ($rowsFallback as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $candidate = trim((string) ($row['strValor'] ?? $row['nome'] ?? $row['name'] ?? ''));
+        if ($candidate !== '') {
+            return ['ok' => true, 'name' => $candidate, 'error' => ''];
+        }
+    }
+
+    $message = trim((string) ($decoded['message'] ?? 'Não foi possível obter o nome da empresa para a base selecionada.'));
+    return ['ok' => false, 'name' => '', 'error' => $message !== '' ? $message : 'Não foi possível obter o nome da empresa para a base selecionada.'];
 }
 
 function buildSuggestionTallyFromHistory(PDO $pdo, string $acquirerNif, string $docType, string $emitter, int $limit = 140): array {
@@ -1830,6 +1955,7 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $selectedDatabase = trim((string)($payload['selected_database'] ?? ''));
+    $selectedDatabaseId = trim((string)($payload['selected_database_id'] ?? ''));
     if ($selectedDatabase === '') {
         $response['error'] = 'Selecione uma base de dados válida.';
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
@@ -1849,6 +1975,20 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $entityName = 'Cliente ' . $entity['nif'];
     }
 
+    $companyValidation = fetchErpConfigEmpresaByDatabase($selectedDatabase, $selectedDatabaseId);
+    if (empty($companyValidation['ok'])) {
+        $response['error'] = trim((string) ($companyValidation['error'] ?? 'Não foi possível validar a base de dados ERP selecionada.'));
+        if ($response['error'] === '') {
+            $response['error'] = 'Não foi possível validar a base de dados ERP selecionada.';
+        }
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $validatedCompanyName = trim((string) ($companyValidation['name'] ?? ''));
+    if ($validatedCompanyName !== '') {
+        $entityName = $validatedCompanyName;
+    }
+
     $saveData = [
         'nif' => $entity['nif'],
         'name' => $entityName,
@@ -1859,12 +1999,17 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         saveAccountingEntity($pdo, $saveData);
-        $stored = findAccountingEntity($pdo, $entity['nif']);
+        $stored = findAccountingEntityByType($pdo, $entity['nif'], $entityType);
+        if (!is_array($stored)) {
+            $stored = findAccountingEntity($pdo, $entity['nif']);
+        }
         if (is_array($stored)) {
             $entityResponse['name'] = trim((string)($stored['name'] ?? $entityName)) ?: $entityName;
+            $entityResponse['display_name'] = $entityResponse['name'];
             $entityResponse['erp_database'] = trim((string)($stored['erp_database'] ?? $selectedDatabase)) ?: $selectedDatabase;
         } else {
             $entityResponse['name'] = $entityName;
+            $entityResponse['display_name'] = $entityName;
             $entityResponse['erp_database'] = $selectedDatabase;
         }
         $response['success'] = true;
