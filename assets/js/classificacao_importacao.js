@@ -230,6 +230,140 @@ window.addEventListener('load', function() {
         }
         return messages;
     }
+
+    function normalizeCostCenterOptionRows(items) {
+        if (!Array.isArray(items)) {
+            return [];
+        }
+        var seen = {};
+        var normalized = [];
+        items.forEach(function(item) {
+            if (!item || typeof item !== 'object') {
+                return;
+            }
+            var code = String(item.code || item.strConta || '').trim();
+            if (!code || seen[code]) {
+                return;
+            }
+            seen[code] = true;
+            var description = String(item.description || item.strDescricao || '').trim();
+            var label = String(item.label || '').trim();
+            if (!label) {
+                label = description ? (code + ' - ' + description) : code;
+            }
+            normalized.push({
+                code: code,
+                description: description,
+                label: label
+            });
+        });
+        return normalized;
+    }
+
+    function setCostCenterFieldOptions(field, selectedValue) {
+        if (!field) {
+            return;
+        }
+        var value = selectedValue === null || selectedValue === undefined ? '' : String(selectedValue).trim();
+        var options = Array.isArray(currentCostCenterOptions) ? currentCostCenterOptions : [];
+        var html = '<option value="">Selecione o centro de custo</option>';
+        options.forEach(function(option) {
+            var code = String(option.code || '').trim();
+            if (!code) {
+                return;
+            }
+            var label = String(option.label || code).trim();
+            html += '<option value="' + escapeHtml(code) + '">' + escapeHtml(label) + '</option>';
+        });
+        if (value && !options.some(function(option) { return String(option.code || '').trim() === value; })) {
+            html += '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + ' (atual)</option>';
+        }
+        field.innerHTML = html;
+        field.value = value;
+    }
+
+    function refreshCostCenterFields() {
+        getRateKeys().forEach(function(rate) {
+            var info = rateInputs[rate];
+            if (!info || !info.costCenter) {
+                return;
+            }
+            var currentValue = currentCostCenters[rate] || info.costCenter.value || '';
+            setCostCenterFieldOptions(info.costCenter, currentValue);
+        });
+    }
+
+    function loadCostCenterCatalogForDocument(dbValue, docDateValue, opts) {
+        var options = opts || {};
+        var database = String(dbValue || '').trim();
+        var docDate = String(docDateValue || '').trim();
+        var requestKey = [database, docDate].join('|');
+        if (!database) {
+            currentCostCenterOptions = [];
+            currentCostCenterContextKey = '';
+            refreshCostCenterFields();
+            return Promise.resolve([]);
+        }
+        if (currentCostCenterContextKey === requestKey && currentCostCenterOptions.length > 0) {
+            refreshCostCenterFields();
+            return Promise.resolve(currentCostCenterOptions);
+        }
+
+        var query = new URLSearchParams({
+            db: database
+        });
+        if (docDate) {
+            query.set('doc_date', docDate);
+        }
+        return fetchJson('contabilidade/classificacao-importacao/cost-centers?' + query.toString())
+            .then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (!res || !res.success) {
+                    throw new Error((res && (res.error || res.message)) || 'Falha ao carregar centros de custo.');
+                }
+                currentCostCenterOptions = normalizeCostCenterOptionRows(res.items || []);
+                currentCostCenterContextKey = requestKey;
+                refreshCostCenterFields();
+                return currentCostCenterOptions;
+            })
+            .catch(function(err) {
+                currentCostCenterOptions = [];
+                currentCostCenterContextKey = '';
+                refreshCostCenterFields();
+                if (!options.silent) {
+                    showError(err && err.message ? err.message : 'Falha ao carregar centros de custo.');
+                }
+                return [];
+            });
+    }
+
+    function buildCostCenterSelectHtml(selectedValue, cssClass) {
+        var selected = selectedValue === null || selectedValue === undefined ? '' : String(selectedValue).trim();
+        var className = cssClass ? String(cssClass) : 'form-control cost-center-input';
+        var html = '<select class="' + escapeHtml(className) + '">';
+        html += '<option value="">Selecione o centro de custo</option>';
+        var hasSelected = false;
+        (currentCostCenterOptions || []).forEach(function(option) {
+            var code = String(option.code || '').trim();
+            if (!code) {
+                return;
+            }
+            var label = String(option.label || code).trim();
+            var isSelected = selected !== '' && selected === code;
+            if (isSelected) {
+                hasSelected = true;
+            }
+            html += '<option value="' + escapeHtml(code) + '"' + (isSelected ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+        });
+        if (selected !== '' && !hasSelected) {
+            html += '<option value="' + escapeHtml(selected) + '" selected>' + escapeHtml(selected) + ' (atual)</option>';
+        }
+        html += '</select>';
+        return html;
+    }
+
     var csrfInput = document.getElementById('csrf_token');
     var importTypeInput = document.getElementById('import_type');
     var viewModeInput = document.getElementById('view_mode');
@@ -241,6 +375,9 @@ window.addEventListener('load', function() {
     var isClassificationOnlyView = importType === 1 && viewMode !== 'import';
     var importTypeAllowsImport = importType === 1 || importType === 2;
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
+    var erpBaseCompany = window.erpBaseCompany ? String(window.erpBaseCompany).trim() : '';
+    var currentCostCenterOptions = [];
+    var currentCostCenterContextKey = '';
 
     function buildImportCtbUrl() {
         return importCtbRelativeUrl;
@@ -248,6 +385,7 @@ window.addEventListener('load', function() {
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
     var importCtbWrapper = $('#importCtbButtonWrapper');
+    var importCtbParamInfo = $('<small id="importCtbParamInfo" class="text-muted ms-2"></small>');
     var acquirerDatabaseModalEl = document.getElementById('acquirerDatabaseModal');
     var acquirerDatabaseModal = acquirerDatabaseModalEl ? new bootstrap.Modal(acquirerDatabaseModalEl) : null;
     var acquirerDatabaseForm = document.getElementById('acquirerDatabaseForm');
@@ -336,6 +474,29 @@ window.addEventListener('load', function() {
     function showImportButtonWrapper() {
         if (importCtbWrapper.length) {
             importCtbWrapper.removeClass('d-none').removeAttr('aria-hidden');
+        }
+    }
+
+    function resolveCurrentImportParams() {
+        var emp = erpBaseCompany !== '' ? erpBaseCompany : 'n/d';
+        var db = 'auto';
+        if (pendingAcquirerEntity && typeof pendingAcquirerEntity.erp_database === 'string') {
+            var selectedDb = pendingAcquirerEntity.erp_database.trim();
+            if (selectedDb !== '') {
+                db = selectedDb;
+            }
+        }
+        return { emp: emp, db: db };
+    }
+
+    function renderImportParamInfo() {
+        if (!importCtbButton.length || !importTypeAllowsImport) {
+            return;
+        }
+        var params = resolveCurrentImportParams();
+        importCtbParamInfo.text('ERP: EMP=' + params.emp + ' | db=' + params.db);
+        if (!importCtbParamInfo.parent().length) {
+            importCtbParamInfo.insertAfter(importCtbButton);
         }
     }
 
@@ -660,6 +821,9 @@ window.addEventListener('load', function() {
             if (!layoutEnd.find('#importCtbButton').length) {
                 importCtbButton.prependTo(layoutEnd);
             }
+            if (!layoutEnd.find('#importCtbParamInfo').length) {
+                importCtbParamInfo.insertAfter(importCtbButton);
+            }
 
             var dtSearch = layoutEnd.find('.dt-search').first();
             if (dtSearch.length) {
@@ -688,10 +852,17 @@ window.addEventListener('load', function() {
             if (!label.find('#importCtbButton').length) {
                 importCtbButton.prependTo(label);
             }
+            if (!label.find('#importCtbParamInfo').length) {
+                importCtbParamInfo.insertAfter(importCtbButton);
+            }
         } else if (!filter.find('#importCtbButton').length) {
             importCtbButton.prependTo(filter);
+            if (!filter.find('#importCtbParamInfo').length) {
+                importCtbParamInfo.insertAfter(importCtbButton);
+            }
         }
 
+        renderImportParamInfo();
         hideImportButtonWrapper();
     }
 
@@ -706,6 +877,7 @@ window.addEventListener('load', function() {
         if (!importCtbButton.length || !importTypeAllowsImport) {
             return;
         }
+        renderImportParamInfo();
         if (importCtbButton.data('loading')) {
             importCtbButton.prop('disabled', true);
             return;
@@ -741,6 +913,7 @@ window.addEventListener('load', function() {
                 payload.database = databaseValue;
             }
         }
+        renderImportParamInfo();
         debugJson('Import CTB request payload', payload);
         var importUrl = buildImportCtbUrl();
         var requestOptions = {
@@ -889,6 +1062,7 @@ window.addEventListener('load', function() {
             .then(function(result) {
                 if (result && result.entity) {
                     pendingAcquirerEntity = result.entity;
+                    renderImportParamInfo();
                 }
                 if (result && result.requiresSelection) {
                     acquirerDatabasePending = true;
@@ -907,6 +1081,7 @@ window.addEventListener('load', function() {
                 pendingImportIds = null;
                 pendingAcquirerEntity = null;
                 acquirerDatabasePending = false;
+                renderImportParamInfo();
                 if (importCtbButton.length) {
                     importCtbButton.data('loading', false);
                 }
@@ -960,6 +1135,7 @@ window.addEventListener('load', function() {
                     acquirerDatabasePending = false;
                     if (res && res.entity) {
                         pendingAcquirerEntity = res.entity;
+                        renderImportParamInfo();
                     }
                     if (acquirerDatabaseModal) {
                         acquirerDatabaseModal.hide();
@@ -2504,15 +2680,12 @@ window.addEventListener('load', function() {
         }
 
         if (totalAccountSuggested && totalAccountInput) {
-            var existingTotal = String(totalAccountInput.value || '').trim();
-            if (existingTotal === '') {
-                totalAccountInput.value = totalAccountSuggested;
-                currentTotalAccount = totalAccountSuggested;
-                if (currentBtn) {
-                    currentBtn.setAttribute('data-total-account', totalAccountSuggested);
-                }
-                applied = true;
+            totalAccountInput.value = totalAccountSuggested;
+            currentTotalAccount = totalAccountSuggested;
+            if (currentBtn) {
+                currentBtn.setAttribute('data-total-account', totalAccountSuggested);
             }
+            applied = true;
         }
         return applied;
     }
@@ -2553,10 +2726,12 @@ window.addEventListener('load', function() {
             currentCostCenters[rate] = '';
         }
         if (info.costCenter) {
-            info.costCenter.setAttribute('type', 'text');
             info.costCenter.removeAttribute('readonly');
-            info.costCenter.removeAttribute('disabled');
-            info.costCenter.readOnly = false;
+            info.costCenter.disabled = false;
+            setCostCenterFieldOptions(info.costCenter, currentCostCenters[rate] || '');
+            info.costCenter.addEventListener('change', function() {
+                currentCostCenters[rate] = info.costCenter.value;
+            });
             info.costCenter.disabled = false;
             info.costCenter.addEventListener('input', function() {
                 currentCostCenters[rate] = info.costCenter.value;
@@ -2888,9 +3063,7 @@ window.addEventListener('load', function() {
                 return;
             }
             var newValue = Object.prototype.hasOwnProperty.call(normalized, rate) ? normalized[rate] : '';
-            if (info.costCenter.value !== newValue) {
-                info.costCenter.value = newValue;
-            }
+            setCostCenterFieldOptions(info.costCenter, newValue);
         });
     }
 
@@ -3205,8 +3378,11 @@ window.addEventListener('load', function() {
                         acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
                         acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
                         emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                        emitter_raw: currentBtn.getAttribute('data-emitter') || '',
                         emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                        db: currentBtn.getAttribute('data-acquirer-db') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
+                        doc_date: currentBtn.getAttribute('data-docdate') || '',
                         rates: rateLines
                     },
                     message: prompt,
@@ -3222,7 +3398,16 @@ window.addEventListener('load', function() {
                 }
                 debugJson('IA resposta', res);
                 window.aiExpectedLines = (res && res.expected_lines && typeof res.expected_lines === 'object') ? res.expected_lines : null;
-                var parsed = extractJsonFromText(message);
+                var parsed = null;
+                if (res && typeof res === 'object' && res.rates && typeof res.rates === 'object') {
+                    parsed = {
+                        rates: res.rates,
+                        total_account: (typeof res.total_account === 'string' ? res.total_account : '')
+                    };
+                }
+                if (!parsed) {
+                    parsed = extractJsonFromText(message);
+                }
                 if (parsed && applyAiSuggestions(parsed)) {
                     if (res) {
                         window.aiSuggestionLogId = res.log_id || null;
@@ -3236,6 +3421,9 @@ window.addEventListener('load', function() {
                                     }
                                     if (action.plan_db) {
                                         window.aiSuggestionSources.push('erp_planocontas');
+                                    }
+                                    if (action.erp_ligacao && parseInt(action.erp_ligacao, 10) > 0) {
+                                        window.aiSuggestionSources.push('erp_ligacao_cte_tipo_doc');
                                     }
                                     if (action.rules && parseInt(action.rules, 10) > 0) {
                                         window.aiSuggestionSources.push('mysql_classification_rules');
@@ -3259,6 +3447,9 @@ window.addEventListener('load', function() {
                             }
                             if (action.plan_db) {
                                 sourceLabel = sourceLabel === 'Historico' ? 'Historico + ERP' : 'ERP';
+                            }
+                            if (action.erp_ligacao && parseInt(action.erp_ligacao, 10) > 0 && sourceLabel.indexOf('Ligacao ERP') === -1) {
+                                sourceLabel = sourceLabel === 'IA' ? 'Ligacao ERP' : (sourceLabel + ' + Ligacao ERP');
                             }
                             if (action.rules && parseInt(action.rules, 10) > 0 && sourceLabel.indexOf('Regras') === -1) {
                                 sourceLabel = sourceLabel === 'IA' ? 'Regras' : (sourceLabel + ' + Regras');
@@ -3293,6 +3484,7 @@ window.addEventListener('load', function() {
             html += '<div class="mb-2"><small class="text-muted">'
                 + 'Histórico: ' + escapeHtml(String(summary.history_samples || 0))
                 + ' | Regras: ' + escapeHtml(String(summary.rule_samples || 0))
+                + ' | Ligação ERP: ' + escapeHtml(String(summary.erp_ligacao_rows || 0))
                 + ' | Movimentos ERP: ' + escapeHtml(String(summary.erp_movement_rows || 0))
                 + ' | Plano ERP: ' + escapeHtml(String(summary.erp_plan_rows || 0))
                 + '</small></div>';
@@ -3435,7 +3627,9 @@ window.addEventListener('load', function() {
                         acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
                         emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
                         emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                        db: currentBtn.getAttribute('data-acquirer-db') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
+                        doc_date: currentBtn.getAttribute('data-docdate') || '',
                         total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
                         rates: rates
                     }
@@ -3505,6 +3699,8 @@ window.addEventListener('load', function() {
         var emitterNif = btn.getAttribute('data-emitter-nif') || '';
         var acquirer = btn.getAttribute('data-acquirer') || '';
         var docType = btn.getAttribute('data-doctype') || '';
+        var docDate = btn.getAttribute('data-docdate') || '';
+        var documentDb = btn.getAttribute('data-acquirer-db') || erpBaseCompany || '';
         var docNumber = btn.getAttribute('data-doc-number') || '';
 
         if (modalTitleEl) {
@@ -3581,6 +3777,9 @@ window.addEventListener('load', function() {
             btnCostCenters = btn.getAttribute('data-cost-center') || '';
         }
         applyCostCenterValues(btnCostCenters, { skipEnsure: true });
+        loadCostCenterCatalogForDocument(documentDb, docDate, { silent: true }).then(function() {
+            applyCostCenterValues(currentCostCenters, { skipEnsure: true });
+        });
 
         var params = new URLSearchParams({
             action: 'get',
@@ -3928,6 +4127,8 @@ window.addEventListener('load', function() {
         var emitterNif = btn.getAttribute('data-emitter-nif') || '';
         var acquirerValue = btn.getAttribute('data-acquirer') || '';
         var docTypeValue = btn.getAttribute('data-doctype') || '';
+        var docDateValue = btn.getAttribute('data-docdate') || '';
+        var documentDbValue = btn.getAttribute('data-acquirer-db') || erpBaseCompany || '';
         currentLinesEmitter = {
             raw: emitterRaw,
             display: emitterDisplay,
@@ -3938,6 +4139,7 @@ window.addEventListener('load', function() {
         currentLinesId = id;
         linesContainer.innerHTML = '<div class="d-flex justify-content-center my-3"><div class="spinner-border" role="status"><span class="visually-hidden">A carregar...</span></div></div>';
         linesModal.show();
+        var costCenterCatalogPromise = loadCostCenterCatalogForDocument(documentDbValue, docDateValue, { silent: true });
         var params = new URLSearchParams({
             action: 'lines',
             id: id
@@ -3965,9 +4167,13 @@ window.addEventListener('load', function() {
                     if (result.skipConfirmed) {
                         markAnalyzeLinesValidated();
                     }
-                    renderLines(result.lines);
+                    costCenterCatalogPromise.finally(function() {
+                        renderLines(result.lines);
+                    });
                 }).catch(function(err) {
-                    renderLines([]);
+                    costCenterCatalogPromise.finally(function() {
+                        renderLines([]);
+                    });
                     if (err && err.message) {
                         showError(err.message);
                     }
@@ -4148,7 +4354,7 @@ window.addEventListener('load', function() {
                 '<td class="unit-price">' + escapeHtml(unitPrice) + '</td>' +
                 '<td class="price">' + escapeHtml(price) + '</td>';
             if (showLineCostCenter) {
-                html += '<td><input type="text" class="form-control cost-center-input" value="' + escapeHtml(costCenter) + '"></td>';
+                html += '<td>' + buildCostCenterSelectHtml(costCenter, 'form-control cost-center-input') + '</td>';
             }
             html += '</tr>';
         });

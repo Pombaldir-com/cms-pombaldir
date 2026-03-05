@@ -254,6 +254,14 @@ switch (true) {
         $_GET['action'] = 'suggestion_explanation';
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/cost-centers',
+        'contabilidade/classificacao-importacao/cost_centers',
+        'contabilidade/classificacao-importacao-cost-centers.php'
+    ], true):
+        $_GET['action'] = 'cost_centers';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;

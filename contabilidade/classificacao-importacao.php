@@ -1002,6 +1002,28 @@ function normalizeSuggestionRateKey(string $value): string {
     return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
 }
 
+function normalizeSuggestionDocDate(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d'];
+    foreach ($formats as $format) {
+        $date = DateTime::createFromFormat($format, $value);
+        if ($date instanceof DateTime) {
+            return $date->format('Y-m-d');
+        }
+    }
+
+    $timestamp = strtotime($value);
+    if ($timestamp !== false) {
+        return date('Y-m-d', $timestamp);
+    }
+
+    return '';
+}
+
 function normalizePartyHintToken(string $value): string {
     $value = strtolower(trim($value));
     if ($value === '') {
@@ -1325,7 +1347,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
 
     $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
     $docType = trim((string) ($args['doc_type'] ?? ''));
+    $docDate = normalizeSuggestionDocDate((string) ($args['doc_date'] ?? ''));
     $emitter = trim((string) ($args['emitter'] ?? ''));
+    $emitterNif = extractVatNumber((string) ($args['emitter_nif'] ?? ''));
     $acquirerRaw = trim((string) ($args['acquirer_raw'] ?? ''));
     $acquirerNif = extractVatNumber((string) ($args['acquirer_nif'] ?? ''));
     if ($acquirerNif === '' && $acquirerRaw !== '') {
@@ -1342,6 +1366,16 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
 
     $database = trim((string) ($args['db'] ?? $args['database'] ?? ''));
+    $ligacaoNif = $emitterNif !== '' ? $emitterNif : $acquirerNif;
+
+    if ($database === '') {
+        if ($emitterNif !== '') {
+            $entity = findAccountingEntity($pdo, $emitterNif);
+            if (is_array($entity)) {
+                $database = trim((string) ($entity['erp_database'] ?? ''));
+            }
+        }
+    }
     if ($database === '') {
         $entity = findAccountingEntity($pdo, $acquirerNif);
         if (is_array($entity)) {
@@ -1351,6 +1385,54 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     if ($database === '') {
         $database = resolveErpDatabaseIdentifier('');
     }
+
+    $ligacaoRows = [];
+    if ($docType !== '' && $docDate !== '' && $ligacaoNif !== '') {
+        $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', [
+            'datadoc' => $docDate,
+            'strNIF' => $ligacaoNif,
+            'strTpDoc' => $docType,
+        ], $database);
+        if (!empty($ligacaoPayload)) {
+            $ligacaoRows = extractErpRowsFromPayload($ligacaoPayload);
+        }
+    }
+
+    $ligacaoGeneralAccounts = [];
+    $ligacaoIvaAccounts = [];
+    $ligacaoTotalCreditAccounts = [];
+    $ligacaoTotalEntityAccounts = [];
+    foreach ($ligacaoRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
+        $general = trim((string) ($row['strConta'] ?? ''));
+        $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+        $total = trim((string) ($row['strContaEntidade'] ?? ''));
+        if ($tipo === 'C' && $general !== '') {
+            $ligacaoTotalCreditAccounts[$general] = ($ligacaoTotalCreditAccounts[$general] ?? 0) + 1;
+        }
+        if ($total !== '') {
+            $ligacaoTotalEntityAccounts[$total] = ($ligacaoTotalEntityAccounts[$total] ?? 0) + 1;
+        }
+        if ($tipo !== '' && $tipo !== 'D') {
+            continue;
+        }
+        if ($general !== '') {
+            $ligacaoGeneralAccounts[$general] = ($ligacaoGeneralAccounts[$general] ?? 0) + 1;
+        }
+        if ($iva !== '') {
+            $ligacaoIvaAccounts[$iva] = ($ligacaoIvaAccounts[$iva] ?? 0) + 1;
+        }
+    }
+    arsort($ligacaoGeneralAccounts);
+    arsort($ligacaoIvaAccounts);
+    arsort($ligacaoTotalCreditAccounts);
+    arsort($ligacaoTotalEntityAccounts);
+    $ligacaoTotalAccounts = !empty($ligacaoTotalCreditAccounts)
+        ? $ligacaoTotalCreditAccounts
+        : $ligacaoTotalEntityAccounts;
 
     $movementRows = [];
     $movementPayload = fetchErpJsonForSuggestion('/contabilidade/movimentos', [
@@ -1455,10 +1537,31 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             $reasons[] = 'Movimentos ERP analisados (' . count($movementRows) . ' linhas)' . (!empty($movementHits) ? ' - ' . implode(', ', $movementHits) . '.' : '.');
         }
 
+        if (!empty($ligacaoRows)) {
+            $ligacaoHits = [];
+            if ($suggestedGeneral !== '') {
+                $ligacaoHits[] = 'geral ' . $suggestedGeneral . ': ' . (int) ($ligacaoGeneralAccounts[$suggestedGeneral] ?? 0) . ' ocorrências';
+            }
+            if ($suggestedIva !== '') {
+                $ligacaoHits[] = 'IVA ' . $suggestedIva . ': ' . (int) ($ligacaoIvaAccounts[$suggestedIva] ?? 0) . ' ocorrências';
+            }
+            if (empty($ligacaoHits)) {
+                $topGeneral = (string) (array_key_first($ligacaoGeneralAccounts) ?? '');
+                $topIva = (string) (array_key_first($ligacaoIvaAccounts) ?? '');
+                if ($topGeneral !== '') {
+                    $ligacaoHits[] = 'top geral ' . $topGeneral;
+                }
+                if ($topIva !== '') {
+                    $ligacaoHits[] = 'top IVA ' . $topIva;
+                }
+            }
+            $reasons[] = 'Ligação Cte Tipo Doc ERP analisada (' . count($ligacaoRows) . ' linhas)' . (!empty($ligacaoHits) ? ' - ' . implode(', ', $ligacaoHits) . '.' : '.');
+        }
+
         if (!empty($planRows)) {
             $generalInPlan = $suggestedGeneral !== '' && isset($planAccounts[$suggestedGeneral]);
             $ivaInPlan = $suggestedIva !== '' && isset($planIvaAccounts[$suggestedIva]);
-            $reasons[] = 'Plano de contas ERP consultado (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): '
+            $reasons[] = 'Plano de contas ERP consultado como fallback (última opção) (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): '
                 . 'geral ' . ($generalInPlan ? 'válida' : 'não encontrada')
                 . ', IVA ' . ($ivaInPlan ? 'válida' : 'não encontrada') . '.';
         }
@@ -1495,6 +1598,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     if ($suggestedTotalAccount === '' && !empty($ruleTally['totals'])) {
         $suggestedTotalAccount = (string) array_key_first($ruleTally['totals']);
     }
+    if ($suggestedTotalAccount === '' && !empty($ligacaoTotalAccounts)) {
+        $suggestedTotalAccount = (string) array_key_first($ligacaoTotalAccounts);
+    }
 
     $topHistoryTotal = !empty($historyTally['totals']) ? (string) array_key_first($historyTally['totals']) : '';
     $topRulesTotal = !empty($ruleTally['totals']) ? (string) array_key_first($ruleTally['totals']) : '';
@@ -1524,9 +1630,17 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             . ($suggestedTotalAccount !== '' ? $suggestedTotalAccount : 'n/d')
             . ' com ' . $occurrences . ' ocorrências.';
     }
+    if (!empty($ligacaoRows)) {
+        $occurrences = $suggestedTotalAccount !== '' ? (int) ($ligacaoTotalAccounts[$suggestedTotalAccount] ?? 0) : 0;
+        $topLigacaoTotal = (string) (array_key_first($ligacaoTotalAccounts) ?? '');
+        $totalReasons[] = 'Ligação Cte Tipo Doc ERP analisada (' . count($ligacaoRows) . ' linhas): conta total '
+            . ($suggestedTotalAccount !== '' ? $suggestedTotalAccount : 'n/d')
+            . ' com ' . $occurrences . ' ocorrências'
+            . ($topLigacaoTotal !== '' ? ' (top: ' . $topLigacaoTotal . ').' : '.');
+    }
     if (!empty($planRows)) {
         $inPlan = $suggestedTotalAccount !== '' && isset($planAccounts[$suggestedTotalAccount]);
-        $totalReasons[] = 'Plano de contas ERP consultado (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): conta total '
+        $totalReasons[] = 'Plano de contas ERP consultado como fallback (última opção) (' . count($planRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . '): conta total '
             . ($inPlan ? 'válida' : 'não encontrada') . '.';
     }
     if (empty($totalReasons)) {
@@ -1539,6 +1653,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         'summary' => [
             'history_samples' => (int) ($historyTally['samples'] ?? 0),
             'rule_samples' => (int) ($ruleTally['samples'] ?? 0),
+            'erp_ligacao_rows' => count($ligacaoRows),
             'erp_movement_rows' => count($movementRows),
             'erp_plan_rows' => count($planRows),
             'database' => $database,
@@ -1552,6 +1667,58 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'reasons' => $totalReasons,
         ],
         'rates' => $explanations,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $database = trim((string) ($_GET['db'] ?? ''));
+    $docDate = normalizeSuggestionDocDate((string) ($_GET['doc_date'] ?? ''));
+    $query = [];
+    if ($docDate !== '') {
+        $query['datadoc'] = $docDate;
+    }
+
+    $payload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', $query, $database);
+    $rows = !empty($payload) ? extractErpRowsFromPayload($payload) : [];
+    if (empty($rows) && $docDate !== '') {
+        $fallbackPayload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', [], $database);
+        if (!empty($fallbackPayload)) {
+            $rows = extractErpRowsFromPayload($fallbackPayload);
+        }
+    }
+    $items = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $code = trim((string) ($row['strConta'] ?? ''));
+        if ($code === '') {
+            continue;
+        }
+        $description = trim((string) ($row['strDescricao'] ?? ''));
+        $movimenta = trim((string) ($row['bitmovimenta'] ?? $row['bitMovimenta'] ?? ''));
+        if ($movimenta !== '' && $movimenta !== '1') {
+            continue;
+        }
+        $items[] = [
+            'code' => $code,
+            'description' => $description,
+            'label' => $description !== '' ? ($code . ' - ' . $description) : $code,
+        ];
+    }
+    usort($items, static function (array $left, array $right): int {
+        return strnatcasecmp((string) ($left['code'] ?? ''), (string) ($right['code'] ?? ''));
+    });
+
+    echo json_encode([
+        'success' => true,
+        'items' => $items,
+        'db' => $database,
+        'doc_date' => $docDate,
+        'csrf_token' => generateCsrfToken(),
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -1999,6 +2166,7 @@ if ($action === 'data') {
                     . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
+                    . 'data-docdate="' . htmlspecialchars($row['field_F'] ?? '') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
@@ -2012,6 +2180,7 @@ if ($action === 'data') {
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '" '
+                    . 'data-docdate="' . htmlspecialchars($row['field_F'] ?? '') . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '">Analisar</button>';
             }
             $actionsParts[] = '<button type="button" class="btn btn-xs btn-danger remove-row" data-id="' . (int)$row['id'] . '"><i class="fa fa-trash"></i></button>';
@@ -2196,6 +2365,7 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-display="<?= htmlspecialchars($emitterDisplay); ?>"
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
+                                data-docdate="<?= htmlspecialchars($row['field_F'] ?? ''); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
@@ -2210,6 +2380,7 @@ require_once __DIR__ . '/../header.php';
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>"
+                                data-docdate="<?= htmlspecialchars($row['field_F'] ?? ''); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>">Analisar</button>
                         <?php endif; ?>
                         <button type="button" class="btn btn-xs btn-danger remove-row" data-id="<?= (int)$row['id']; ?>"><i class="fa fa-trash"></i></button>
@@ -2295,11 +2466,9 @@ require_once __DIR__ . '/../header.php';
         <td><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($importType === 1): ?>
         <td class="align-middle">
-            <input
-                type="text"
-                class="form-control form-control-sm cost-center-field"
-                placeholder="Introduza o centro de custo"
-            >
+            <select class="form-control form-control-sm cost-center-field">
+                <option value="">Selecione o centro de custo</option>
+            </select>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle actions-cell">
@@ -2327,11 +2496,9 @@ require_once __DIR__ . '/../header.php';
         <td><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($importType === 1): ?>
         <td>
-            <input
-                type="text"
-                class="form-control form-control-sm cost-center-field"
-                placeholder="Introduza o centro de custo"
-            >
+            <select class="form-control form-control-sm cost-center-field">
+                <option value="">Selecione o centro de custo</option>
+            </select>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle">

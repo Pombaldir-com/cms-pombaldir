@@ -64,7 +64,16 @@ O assistente AI guarda memória e contexto entre sessões na tabela `ai_assistan
 - Em pedidos técnicos, o assistente pode ler funções PHP do projeto para explicar procedimentos e cálculos com base no código real.
 - O assistente também memoriza tarefas contabilísticas relevantes para reutilização em respostas futuras.
 - Para anexos no chat (ex.: PDF), o assistente pode extrair texto com leitor documental Python (`scripts/ai_document_reader.py`) quando a ferramenta `read_uploaded_document` é usada.
-- Na sugestão de contas, o assistente cruza emitente + adquirente + tipo de documento com histórico MySQL e reforça com endpoints ERP (`movimentos`, `planocontas`, `taxonomias`) para melhorar a precisão.
+- Na sugestão de contas, o assistente cruza emitente + adquirente + tipo de documento com histórico MySQL e reforça com endpoints ERP (`LigacaoCteTipoDoc`, `movimentos`, `planocontas`, `taxonomias`) para melhorar a precisão.
+- No endpoint ERP `contabilidade/LigacaoCteTipoDoc`, o mapeamento usado pela sugestão IA é:
+  - `strConta` -> conta geral
+  - `strConta_Iva` -> conta IVA
+  - `strContaEntidade` -> conta de valor total (`total_account`)
+- A chamada para `LigacaoCteTipoDoc` deve ser dinâmica por documento (dados do QR):
+  - `datadoc` (data do documento do QR, formato `YYYY-MM-DD`)
+  - `strTpDoc` (tipo documental do QR, ex.: `FT`)
+  - O processamento/regra final de seleção das contas é feito do lado do webservice.
+- `planocontas` deve ser usado como fallback (última opção), apenas quando histórico/regras/ligação/movimentos não forem suficientes.
 - Se o utilizador indicar correção/remoção (ex.: `esquece`, `errado`, `incorreto`, `ignora`), essa informação não deve ser consolidada como memória válida.
 - Comandos disponíveis no chat:
   - `memoriza: ...`
@@ -104,7 +113,7 @@ O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar d
    - Botão global `Classificado`:
      - Opera sobre as linhas verdes.
      - Permite processar/importar diretamente a partir desta vista.
-   - No modal de classificação, existe o botão `Explicação da sugestão` para justificar por taxa as contas sugeridas (histórico/regras/ERP movimentos/plano).
+   - No modal de classificação, existe o botão `Explicação da sugestão` para justificar por taxa as contas sugeridas (histórico/regras/ERP ligação+movimentos/plano).
 2. **Importação**: `contabilidade/classificacao-importacao?import_type=1&type=import`
    - Mostra apenas linhas verdes (prontas).
    - Botão global `Importar Ctb` para enviar as linhas selecionadas ao ERP.

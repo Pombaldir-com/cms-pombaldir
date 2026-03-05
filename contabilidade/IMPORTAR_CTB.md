@@ -64,8 +64,29 @@ Este endpoint devolve uma explicação por taxa para as contas sugeridas, inclui
 
 - histórico MySQL;
 - regras em `accounting_classifications`;
+- ligação ERP por entidade/tipo (`contabilidade/LigacaoCteTipoDoc`);
 - movimentos ERP (`contabilidade/movimentos`);
-- plano de contas ERP (`contabilidade/planocontas`).
+- plano de contas ERP (`contabilidade/planocontas`) como fallback (última opção).
+
+No caso de `contabilidade/LigacaoCteTipoDoc`, o mapeamento usado é:
+
+- `strConta` -> conta geral;
+- `strConta_Iva` -> conta IVA;
+- `strContaEntidade` -> conta de valor total.
+
+Parâmetros recomendados para esta chamada (dinâmicos por documento):
+
+- `act=importMovim`
+- `datadoc` (data do documento no formato `YYYY-MM-DD`, vinda do QR)
+- `strNIF` (NIF do adquirente)
+- `db`
+- `strTpDoc` (tipo documental vindo do QR, ex.: `FT`)
+
+Exemplo:
+
+`GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=513364790&db=emp_306&strTpDoc=FT`
+
+O processamento final da regra de contas é feito no webservice.
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 

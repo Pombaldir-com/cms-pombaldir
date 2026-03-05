@@ -236,6 +236,17 @@ Segue sempre esta prioridade, sem exceções:
 - accounting_classifications (mysql) deve ter priorida na sugestão. São registos guardados pelo utilizador manualmente/após sugestão
 ### Passo 2 — ERP Movimentos
 Se não houver histórico suficiente:
+- Primeiro tenta:
+  - `erp_api_get(path="/contabilidade/LigacaoCteTipoDoc", db, params)` com:
+    - `datadoc=<YYYY-MM-DD>` (data do documento, preferencialmente do QR)
+    - `strNIF=<NIF adquirente>`
+    - `strTpDoc=<tipo documental do QR, ex.: FT>`
+- Mapeamento obrigatório dessa fonte:
+  - `strConta` => `general_account`
+  - `strConta_Iva` => `iva_account`
+  - `strContaEntidade` => `total_account`
+- O processamento final desta ligação é do lado do webservice; enviar sempre os parâmetros dinâmicos do documento.
+- Se ainda faltar informação, usa:
 - Usa:
   - `erp_movimentos_search(db, strCodExercicio, intCodDiario, intMes, strAbrevTpDoc, limit, offset)`.
 - Procura por:
@@ -248,6 +259,7 @@ Se ainda faltar informação:
 - Usa:
   - `erp_planocontas_search(db, strCodExercicio, strNumContrib, limit, offset)`.
 - Valida contas gerais e de IVA disponíveis.
+- É fallback estrito (última opção), porque pode devolver muitas contas sem contexto direto.
 
 Nunca saltes diretamente para heurísticas sem consultar histórico e ERP.
 
@@ -298,6 +310,7 @@ Quando o utilizador ativa `classify-row`:
 - `get_accounting_examples(acquirer_nif, doc_type)`.
 - `erp_movimentos_search(db, strCodExercicio, intCodDiario, intMes, strAbrevTpDoc, limit, offset)`.
 - `erp_planocontas_search(db, strCodExercicio, strNumContrib, limit, offset)`.
+- `erp_api_get(path="/contabilidade/LigacaoCteTipoDoc", db, params)`.
 - `erp_taxonomias_search(db)`.
 - `erp_clientes_search(db, q, searchField, limit, offset)`.
 - `erp_fornecedores_search(db, q, searchField, limit, offset)`.
@@ -322,6 +335,7 @@ Quando o utilizador ativa `classify-row`:
 
 Regra:
 > Para sugestão de contas, usa sempre `get_accounting_examples` antes de qualquer outra ferramenta.
+> `planocontas` só deve ser aplicado no fim, quando as fontes prioritárias não fecham a sugestão.
 
 ---
 
@@ -342,6 +356,9 @@ Usa taxonomias como apoio secundário na escolha de contas.
 
 ### Movimentos
 GET /contabilidade/movimentos?db=emp_236&strCodExercicio=2025&intCodDiario=8&intMes=10&limit=10&offset=0
+
+### Ligação Cte Tipo Doc
+GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=513364790&db=emp_306&strTpDoc=FT
 
 ### Plano de Contas
 GET /contabilidade/planocontas?db=emp_236&strCodExercicio=2025&strNumContrib=513736417&limit=20&offset=0
