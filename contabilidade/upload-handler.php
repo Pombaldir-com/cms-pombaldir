@@ -141,12 +141,14 @@ $script = __DIR__ . '/detectar_qr.py';
 $popplerPath = getenv('POPPLER_PATH');
 $envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
 
-$detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority) use ($envPrefix, $script, $targetPath): array {
+$detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority, int $page = 1, bool $singlePageScan = False) use ($envPrefix, $script, $targetPath): array {
     $cmd = $envPrefix . escapeshellcmd("python3 $script")
         . ' ' . escapeshellarg($targetPath)
         . ' --dpi ' . escapeshellarg((string) $dpi)
         . ' --max-pages ' . escapeshellarg((string) $maxPages)
         . ' --max-attempts ' . escapeshellarg((string) $maxAttempts)
+        . ' --page ' . escapeshellarg((string) $page)
+        . ($singlePageScan ? ' --single-page-scan' : '')
         . ($receiptPriority ? ' --receipt-priority' : '')
         . ' 2>&1';
     $output = [];
@@ -169,6 +171,8 @@ $detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $re
         'max_pages' => $maxPages,
         'max_attempts' => $maxAttempts,
         'receipt_priority' => $receiptPriority ? 1 : 0,
+        'page' => $page,
+        'single_page_scan' => $singlePageScan ? 1 : 0,
         'cmd' => $cmd,
         'ret' => $ret,
         'output' => $output,
@@ -181,14 +185,20 @@ $attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
 $qrTexts = $attempts[0]['texts'];
 
 if (empty($qrTexts)) {
-    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
+    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, false);
     $qrTexts = $attempts[1]['texts'];
+}
+
+if (empty($qrTexts)) {
+    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
+    $qrTexts = $attempts[2]['texts'];
 }
 
 if ($debugEnabled) {
     $debugLog = [];
     foreach ($attempts as $index => $attempt) {
         $debugLog[] = 'ATTEMPT ' . ($index + 1) . ' | DPI: ' . $attempt['dpi'];
+        $debugLog[] = 'PAGE: ' . $attempt['page'] . ' | SINGLE_PAGE_SCAN: ' . $attempt['single_page_scan'];
         $debugLog[] = 'MAX_PAGES: ' . $attempt['max_pages'] . ' | MAX_ATTEMPTS: ' . $attempt['max_attempts'] . ' | RECEIPT_PRIORITY: ' . $attempt['receipt_priority'];
         $debugLog[] = 'CMD: ' . $attempt['cmd'];
         $debugLog[] = 'RET: ' . $attempt['ret'];

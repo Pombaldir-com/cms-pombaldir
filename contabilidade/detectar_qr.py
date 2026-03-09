@@ -332,6 +332,7 @@ def decode_file(
     max_pages: int = 0,
     max_attempts: int = 12,
     receipt_priority: bool = False,
+    single_page_scan: bool = False,
 ) -> List[str]:
     ext = os.path.splitext(path)[1].lower()
     if crop_ratios is not None:
@@ -340,14 +341,15 @@ def decode_file(
         return _decode_with_strategies(cropped, max_attempts=max_attempts)
 
     if ext == ".pdf":
-        image, total_pages = _load_page_image(path, dpi=dpi, page=1)
+        start_page = page if single_page_scan else 1
+        image, total_pages = _load_page_image(path, dpi=dpi, page=start_page)
         texts: List[str] = []
         if receipt_priority:
             texts = _decode_receipt_candidates(image, max_attempts=max_attempts)
         if not texts:
             texts = _decode_with_strategies(image, max_attempts=max_attempts)
 
-        if total_pages == 1:
+        if total_pages == 1 or single_page_scan:
             return texts
 
         if max_pages > 0:
@@ -425,6 +427,7 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=0, help="maximum PDF pages to scan (0 = all)")
     parser.add_argument("--max-attempts", type=int, default=12, help="maximum image-processing attempts per page")
     parser.add_argument("--receipt-priority", action="store_true", help="prioritize likely QR regions for POS/receipt documents before global scan")
+    parser.add_argument("--single-page-scan", action="store_true", help="scan only the page selected in --page")
     parser.add_argument("--crop-ratios", type=_parse_crop_ratios, help="crop rectangle as x,y,w,h ratios")
     parser.add_argument("--render-preview", action="store_true", help="render the selected page to an image")
     parser.add_argument("--output", help="output image path for --render-preview")
@@ -457,6 +460,7 @@ def main() -> int:
             max_pages=args.max_pages,
             max_attempts=args.max_attempts,
             receipt_priority=args.receipt_priority,
+            single_page_scan=args.single_page_scan,
         )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
