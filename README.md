@@ -89,7 +89,7 @@ O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar d
 - O valor de `EMP` passa a ser sempre a `Empresa base` do módulo de Contabilidade.
 - Em operações POST específicas, o identificador de empresa pode ser enviado como `database`.
 - Fontes de referência da API:
-  - SwaggerHub: `https://app.swaggerhub.com/apis-docs/Pombaldir.com/ERPSinc/1.0.0`
+  - OpenAPI atualizada: `/Users/nelsonsantos/Sites2026/api.erpsinc.pt/erpsync-api.yaml`
   - Repositório partilhado local: `/Users/nelsonsantos/Sites2026/api.erpsinc.pt` (apenas leitura/consulta)
 
 ### Fluxo Classificacao / Importacao CTB

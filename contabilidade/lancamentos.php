@@ -5,6 +5,8 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 requireRole(2);
+$currentUser = currentUser();
+$isSuperAdmin = ((int) ($currentUser['role'] ?? 3)) === 1;
 
 if (!isModuleActive('contabilidade')) {
     http_response_code(404);
@@ -219,6 +221,16 @@ require_once __DIR__ . '/../header.php';
 $currentYear = (int) date('Y');
 $yearOptions = [$currentYear, $currentYear - 1];
 ?>
+<style>
+#lancamentos-table thead tr:nth-child(2) th.no-sort::before,
+#lancamentos-table thead tr:nth-child(2) th.no-sort::after {
+    display: none !important;
+}
+
+#lancamentos-table thead tr:nth-child(2) th.no-sort {
+    cursor: default !important;
+}
+</style>
 <div class="container-fluid">
     <div class="x_panel">
         <div class="x_title">
@@ -268,10 +280,10 @@ $yearOptions = [$currentYear, $currentYear - 1];
                         <th class="text-center">Data</th>
                         <th class="text-center">Nº Diário</th>
                         <th>Tipo Doc</th>
-                        <th>Nº Doc</th>
-                        <th>Tax Payer</th>
-                        <th>Total</th>
-                        <th class="text-center">PDF</th>
+                        <th class="no-sort">Nº Doc</th>
+                        <th class="no-sort">NIF</th>
+                        <th class="no-sort">Total</th>
+                        <th class="text-center no-sort">PDF</th>
                     </tr>
                 </thead>
             </table>
@@ -303,6 +315,9 @@ $yearOptions = [$currentYear, $currentYear - 1];
                 </div>
             </div>
             <div class="modal-footer">
+                <?php if ($isSuperAdmin): ?>
+                <button type="button" class="btn btn-danger" id="lancamentoDeleteBtn"><i class="fa fa-trash"></i> Eliminar lançamento</button>
+                <?php endif; ?>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
@@ -322,9 +337,12 @@ $pageScripts = <<<'JS'
     var detailModalEl = document.getElementById('lancamentoDetailModal');
     var detailBodyEl = document.getElementById('lancamentoDetailBody');
     var detailTitleEl = document.getElementById('lancamentoDetailTitle');
+    var deleteBtnEl = document.getElementById('lancamentoDeleteBtn');
     var detailModal = (detailModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
         ? new window.bootstrap.Modal(detailModalEl)
         : null;
+    var canDeleteLancamento = window.lancamentosCanDelete === true;
+    var currentDetailRow = null;
 
     function escapeHtml(value) {
         return String(value || '')
@@ -339,6 +357,52 @@ $pageScripts = <<<'JS'
         var raw = String(value || '').trim().replace(',', '.');
         var num = parseFloat(raw);
         return isNaN(num) ? 0 : num;
+    }
+
+    function normalizeBool(value) {
+        if (typeof value === 'boolean') {
+            return value;
+        }
+        if (typeof value === 'number') {
+            return value > 0;
+        }
+        var raw = String(value || '').trim().toLowerCase();
+        if (raw === '') {
+            return null;
+        }
+        if (raw === '1' || raw === 'true' || raw === 'sim' || raw === 'yes') {
+            return true;
+        }
+        if (raw === '0' || raw === 'false' || raw === 'nao' || raw === 'não' || raw === 'no') {
+            return false;
+        }
+        return null;
+    }
+
+    function extractHasDigitalAttachment(row) {
+        if (!row || typeof row !== 'object') {
+            return null;
+        }
+        var candidates = [
+            'hasDigitalAttachment',
+            'has_digital_attachment',
+            'temAnexoDigital',
+            'bitTemAnexoDigital',
+            'hasAnexoDigital',
+            'bitHasAnexoDigital',
+            'hasAttachment',
+            'bitHasAttachment',
+            'anexoDigital',
+            'hasAnexo',
+            'temAnexo',
+            'bitTemAnexo'
+        ];
+        for (var i = 0; i < candidates.length; i += 1) {
+            if (Object.prototype.hasOwnProperty.call(row, candidates[i])) {
+                return normalizeBool(row[candidates[i]]);
+            }
+        }
+        return null;
     }
 
     function formatAmount(value) {
@@ -398,6 +462,7 @@ $pageScripts = <<<'JS'
         if (!detailBodyEl || !rowData) {
             return;
         }
+        currentDetailRow = rowData;
         var docNo = String(rowData.strNumDoc || '').trim();
         var diaryNo = String(rowData.intNumDiario || '').trim();
         var title = 'Detalhe do lançamento';
@@ -493,6 +558,35 @@ $pageScripts = <<<'JS'
 
     var erpBaseUrl = (window.erpLancamentosBaseUrl || '').replace(/\/+$/, '');
     var erpToken = window.erpLancamentosToken || '';
+    var unavailablePdfRows = {};
+
+    function getErpHeaders() {
+        return erpToken
+            ? { 'X-API-KEY': erpToken, 'Accept': 'application/json' }
+            : { 'Accept': 'application/json' };
+    }
+
+    function getSelectedDatabase() {
+        var dbValue = '';
+        $filters.each(function() {
+            if (this.getAttribute('data-field') === 'db') {
+                dbValue = String(this.value || '').trim();
+            }
+        });
+        return dbValue;
+    }
+
+    function getLancamentoKey(row) {
+        if (!row) {
+            return '';
+        }
+        return [
+            String(row.strCodExercicio || ''),
+            String(row.intCodDiario || ''),
+            String(row.intMes || ''),
+            String(row.intNumDiario || '')
+        ].join('|');
+    }
 
     var table = jQuery(tableEl).DataTable({
         serverSide: true,
@@ -529,6 +623,16 @@ $pageScripts = <<<'JS'
                     if (!row || !row.strCodExercicio || !row.intCodDiario || !row.intMes || !row.intNumDiario) {
                         return '';
                     }
+                    if (row.hasDigitalAttachment === false) {
+                        return '<span class="btn btn-xs btn-default disabled" title="Sem anexo digital">'
+                            + '<i class="fa fa-file-pdf-o text-muted"></i>'
+                            + '</span>';
+                    }
+                    if (unavailablePdfRows[getLancamentoKey(row)] === true) {
+                        return '<span class="btn btn-xs btn-default disabled" title="Sem anexo digital">'
+                            + '<i class="fa fa-file-pdf-o text-muted"></i>'
+                            + '</span>';
+                    }
                     return '<a href="#" class="btn btn-xs btn-default js-download-lancamento-pdf" title="Download PDF">'
                         + '<i class="fa fa-file-pdf-o text-danger"></i>'
                         + '</a>';
@@ -537,7 +641,8 @@ $pageScripts = <<<'JS'
         ],
         columnDefs: [
             { targets: [0, 1, 2, 7], className: 'text-center' },
-            { targets: [7], orderable: false, searchable: false }
+            { targets: [4, 5, 6, 7], orderable: false },
+            { targets: [7], searchable: false }
         ],
         dom: '<"row mb-2"<"col-md-6 d-flex align-items-center"l<' + "'lancamentos-top-filters-container'" + '>> <"col-md-6"f>>rt<"row mt-2"<"col-md-5"i><"col-md-7 d-flex justify-content-end"p>>',
         ajax: function(data, callback) {
@@ -586,6 +691,7 @@ $pageScripts = <<<'JS'
                         total = parseFloat(total).toFixed(2);
                     }
                     return {
+                        Id: row && row.Id ? row.Id : '',
                         strCodExercicio: row && row.strCodExercicio ? String(row.strCodExercicio) : '',
                         intCodDiario: row && row.intCodDiario ? row.intCodDiario : '',
                         intMes: row && row.intMes ? row.intMes : '',
@@ -595,6 +701,7 @@ $pageScripts = <<<'JS'
                         strNumDoc: row && row.strNum_Doc ? row.strNum_Doc : '',
                         strFArchTaxPayer: row && row.strFArchTaxPayer ? row.strFArchTaxPayer : '',
                         total: total,
+                        hasDigitalAttachment: extractHasDigitalAttachment(row),
                         linhas: Array.isArray(row && row.linhas) ? row.linhas : []
                     };
                 });
@@ -637,6 +744,11 @@ $pageScripts = <<<'JS'
     var lengthSelect = jQuery(tableEl).closest('.dataTables_wrapper').find('select[name="lancamentos-table_length"]');
     if (lengthSelect.length) {
         lengthSelect.addClass('form-select');
+    }
+    if (detailModalEl) {
+        jQuery(detailModalEl).on('hidden.bs.modal', function() {
+            currentDetailRow = null;
+        });
     }
 
         function maybeToggleTable() {
@@ -687,6 +799,137 @@ $pageScripts = <<<'JS'
         openDetailModal(rowData);
     });
 
+    if (deleteBtnEl && canDeleteLancamento) {
+        jQuery(deleteBtnEl).on('click', function() {
+            if (!currentDetailRow) {
+                return;
+            }
+            if (!erpBaseUrl) {
+                alert('URL do webservice ERP não configurada.');
+                return;
+            }
+
+            var dbValue = getSelectedDatabase();
+            if (!dbValue) {
+                alert('Selecione a empresa para eliminar o lançamento.');
+                return;
+            }
+
+            var docLabel = String(currentDetailRow.strNumDoc || '').trim();
+            var confirmMessage = 'Confirma a eliminação deste lançamento?';
+            if (docLabel !== '') {
+                confirmMessage += '\nDocumento: ' + docLabel;
+            }
+            if (!window.confirm(confirmMessage)) {
+                return;
+            }
+
+            var deletePayload = {
+                act: 'deleteMovim',
+                db: dbValue,
+                database: dbValue,
+                strCodExercicio: String(currentDetailRow.strCodExercicio || ''),
+                intCodDiario: parseInt(currentDetailRow.intCodDiario, 10) || 0,
+                intMes: parseInt(currentDetailRow.intMes, 10) || 0,
+                intNum_Diario: parseInt(currentDetailRow.intNumDiario, 10) || 0
+            };
+            if (currentDetailRow.Id !== undefined && currentDetailRow.Id !== null && String(currentDetailRow.Id).trim() !== '') {
+                deletePayload.Id = currentDetailRow.Id;
+            }
+            if (!deletePayload.strCodExercicio || !deletePayload.intCodDiario || !deletePayload.intMes || !deletePayload.intNum_Diario) {
+                alert('Chave do lançamento inválida para eliminação.');
+                return;
+            }
+
+            var $btn = jQuery(deleteBtnEl);
+            $btn.prop('disabled', true);
+
+            function callDeleteMovimento() {
+                return jQuery.ajax({
+                    url: erpBaseUrl + '/contabilidade/movimentos',
+                    method: 'POST',
+                    headers: getErpHeaders(),
+                    contentType: 'application/json; charset=utf-8',
+                    dataType: 'json',
+                    data: JSON.stringify(deletePayload)
+                });
+            }
+
+            function deleteAnexosIfAny() {
+                if (currentDetailRow.hasDigitalAttachment !== true) {
+                    return jQuery.Deferred().resolve().promise();
+                }
+                return jQuery.ajax({
+                    url: erpBaseUrl + '/anexosdigitais',
+                    method: 'GET',
+                    headers: getErpHeaders(),
+                    dataType: 'json',
+                    data: {
+                        db: dbValue,
+                        intTipoEntidade: 23,
+                        strChave1: String(currentDetailRow.strCodExercicio || ''),
+                        strChave2: String(currentDetailRow.intCodDiario || ''),
+                        strChave3: String(currentDetailRow.intMes || ''),
+                        intNumero: String(currentDetailRow.intNumDiario || '')
+                    }
+                }).then(function(resp) {
+                    var anexos = Array.isArray(resp && resp.anexos) ? resp.anexos : [];
+                    if (!anexos.length) {
+                        return;
+                    }
+                    var sequence = jQuery.Deferred().resolve().promise();
+                    anexos.forEach(function(anexo) {
+                        sequence = sequence.then(function() {
+                            var anexoId = anexo && (anexo.id || anexo.idCab);
+                            if (!anexoId) {
+                                return;
+                            }
+                            return jQuery.ajax({
+                                url: erpBaseUrl + '/anexosdigitais',
+                                method: 'POST',
+                                headers: getErpHeaders(),
+                                contentType: 'application/json; charset=utf-8',
+                                dataType: 'json',
+                                data: JSON.stringify({
+                                    act: 'delete',
+                                    db: dbValue,
+                                    database: dbValue,
+                                    id: String(anexoId)
+                                })
+                            });
+                        });
+                    });
+                    return sequence;
+                });
+            }
+
+            deleteAnexosIfAny().always(function() {
+                callDeleteMovimento()
+                    .done(function(resp) {
+                        if (!resp || !(resp.success === 1 || resp.success === true)) {
+                            alert((resp && (resp.errormsg || resp.message)) ? (resp.errormsg || resp.message) : 'Falha ao eliminar lançamento.');
+                            return;
+                        }
+                        currentDetailRow = null;
+                        if (detailModal) {
+                            detailModal.hide();
+                        }
+                        table.ajax.reload(null, false);
+                    })
+                    .fail(function(xhr) {
+                        var msg = 'Falha ao eliminar lançamento.';
+                        if (xhr && xhr.responseJSON && (xhr.responseJSON.errormsg || xhr.responseJSON.message)) {
+                            msg = xhr.responseJSON.errormsg || xhr.responseJSON.message;
+                        }
+                        alert(msg);
+                    })
+                    .always(function() {
+                        $btn.prop('disabled', false);
+                    });
+            });
+        });
+    }
+
     jQuery(tableEl).on('click', '.js-download-lancamento-pdf', function(ev) {
         ev.preventDefault();
         if (!erpBaseUrl) {
@@ -698,12 +941,7 @@ $pageScripts = <<<'JS'
         if (!rowData) {
             return;
         }
-        var dbValue = '';
-        $filters.each(function() {
-            if (this.getAttribute('data-field') === 'db') {
-                dbValue = this.value.trim();
-            }
-        });
+        var dbValue = getSelectedDatabase();
         if (!dbValue) {
             dbValue = '';
         }
@@ -735,13 +973,15 @@ $pageScripts = <<<'JS'
         }).done(function(resp) {
             var anexos = Array.isArray(resp && resp.anexos) ? resp.anexos : [];
             if (!anexos.length) {
-                alert('Sem anexos digitais para este lançamento.');
+                unavailablePdfRows[getLancamentoKey(rowData)] = true;
+                $btn.replaceWith('<span class="btn btn-xs btn-default disabled" title="Sem anexo digital"><i class="fa fa-file-pdf-o text-muted"></i></span>');
                 return;
             }
             var anexo = anexos[0] || {};
             var fileBase64 = anexo.Ficheiro || '';
             if (!fileBase64) {
-                alert('O anexo não contém ficheiro para download.');
+                unavailablePdfRows[getLancamentoKey(rowData)] = true;
+                $btn.replaceWith('<span class="btn btn-xs btn-default disabled" title="Sem anexo digital"><i class="fa fa-file-pdf-o text-muted"></i></span>');
                 return;
             }
             try {
@@ -761,5 +1001,6 @@ $pageScripts = <<<'JS'
 JS;
 $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.erpLancamentosToken = " . json_encode((string) getSetting('erp_token', ''), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosCanDelete = " . json_encode($isSuperAdmin, JSON_UNESCAPED_UNICODE) . ";\n"
     . $pageScripts;
 require_once __DIR__ . '/../footer.php';

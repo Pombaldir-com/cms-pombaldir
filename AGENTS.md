@@ -43,7 +43,7 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 - O item de menu `Importação` (`type=import`) deve ficar visivel apenas para utilizadores com permissao `ctb_importar_docs`.
 
 ## ERP API knowledge
-- This system uses the ERPSINC API; consult the documentation and the local repo at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt` when working on integrations. online Docs: https://app.swaggerhub.com/apis-docs/Pombaldir.com/ERPSinc/1.0.0
+- This system uses the ERPSINC API; use the updated OpenAPI file at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt/erpsync-api.yaml` as the primary reference when working on integrations, together with the local repo at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt`.
 
 ## Multi-DB & tenants
 - The system can use multiple databases per company; tenant selection is required for company-scoped data.
