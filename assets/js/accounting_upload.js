@@ -12,6 +12,7 @@ window.addEventListener('load', function() {
     var previewUrl = window.accountingUploadPreviewUrl || 'contabilidade/upload.php?action=preview-page';
     var manualQrUrl = window.accountingUploadManualQrUrl || 'contabilidade/upload.php?action=manual-qr';
     var deleteUrl = window.accountingUploadDeleteUrl || 'contabilidade/upload.php?action=delete';
+    var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
     var debugEnabled = window.accountingUploadDebug === true;
 
     var acquirerDatabaseResolved = {};
@@ -78,9 +79,13 @@ window.addEventListener('load', function() {
             debugStats.files[key] = {
                 key: key,
                 name: file && file.name ? file.name : key,
+                queuedAt: 0,
                 startedAt: 0,
                 finishedAt: 0,
                 ms: 0,
+                queueMs: 0,
+                backendMs: 0,
+                frontendMs: 0,
                 state: 'pending',
                 attempts: []
             };
@@ -98,13 +103,22 @@ window.addEventListener('load', function() {
             return {
                 ficheiro: item.name,
                 ms: item.ms,
+                fila_ms: item.queueMs || 0,
+                backend_ms: item.backendMs || 0,
+                frontend_ms: item.frontendMs || 0,
                 segundos: Number((item.ms / 1000).toFixed(2)),
                 estado: item.state,
                 dpis: item.attempts.join(', ')
             };
         });
         var totalMs = rows.reduce(function(sum, row) { return sum + (row.ms || 0); }, 0);
+        var totalQueueMs = rows.reduce(function(sum, row) { return sum + (row.fila_ms || 0); }, 0);
+        var totalBackendMs = rows.reduce(function(sum, row) { return sum + (row.backend_ms || 0); }, 0);
+        var totalFrontendMs = rows.reduce(function(sum, row) { return sum + (row.frontend_ms || 0); }, 0);
         var avgMs = rows.length ? Math.round(totalMs / rows.length) : 0;
+        var avgQueueMs = rows.length ? Math.round(totalQueueMs / rows.length) : 0;
+        var avgBackendMs = rows.length ? Math.round(totalBackendMs / rows.length) : 0;
+        var avgFrontendMs = rows.length ? Math.round(totalFrontendMs / rows.length) : 0;
         console.groupCollapsed('[Upload QR] Estatisticas');
         console.table(rows);
         console.log({
@@ -115,7 +129,13 @@ window.addEventListener('load', function() {
             ignorados_manualmente: debugStats.manualDiscarded,
             falhas_duras: debugStats.hardFailures,
             tempo_total_ms: totalMs,
-            tempo_medio_ms: avgMs
+            tempo_medio_ms: avgMs,
+            fila_total_ms: totalQueueMs,
+            fila_media_ms: avgQueueMs,
+            backend_total_ms: totalBackendMs,
+            backend_medio_ms: avgBackendMs,
+            frontend_total_ms: totalFrontendMs,
+            frontend_medio_ms: avgFrontendMs
         });
         console.groupEnd();
     }
@@ -429,6 +449,7 @@ window.addEventListener('load', function() {
     function addRowsFromQrTexts(qrTexts, filePath) {
         var keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
         var added = 0;
+        var rowsToAdd = [];
         (qrTexts || []).forEach(function(qrText) {
             var trimmed = (qrText || '').trim();
             if (!trimmed) {
@@ -451,10 +472,14 @@ window.addEventListener('load', function() {
             var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + filePath + '"><i class="fa fa-trash"></i></button> ' +
                 '<a href="' + filePath + '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
             row.push(actions);
-            table.row.add(row).draw(false);
+            rowsToAdd.push(row);
             added += 1;
             syncEntity(qrData.A || '', 'emitter', qrData.B || '');
         });
+
+        if (rowsToAdd.length) {
+            table.rows.add(rowsToAdd).draw(false);
+        }
 
         if (added && table.rows().data().length) {
             showImportButtons();
@@ -879,13 +904,14 @@ window.addEventListener('load', function() {
                 }
                 if (manualActive.dropzoneFile) {
                     setDropzoneQrState(manualActive.dropzoneFile, 'auto');
-                    if (debugEnabled) {
-                        var manualSuccessItem = ensureDebugFile(manualActive.dropzoneFile);
-                        manualSuccessItem.finishedAt = performance.now();
-                        manualSuccessItem.ms = Math.max(0, Math.round(manualSuccessItem.finishedAt - manualSuccessItem.startedAt));
-                        manualSuccessItem.state = 'manual_success';
-                        debugStats.manualSuccess += 1;
-                    }
+                if (debugEnabled) {
+                    var manualSuccessItem = ensureDebugFile(manualActive.dropzoneFile);
+                    manualSuccessItem.finishedAt = performance.now();
+                    manualSuccessItem.ms = Math.max(0, Math.round(manualSuccessItem.finishedAt - manualSuccessItem.startedAt));
+                    manualSuccessItem.frontendMs = Math.max(0, manualSuccessItem.ms - (manualSuccessItem.backendMs || 0));
+                    manualSuccessItem.state = 'manual_success';
+                    debugStats.manualSuccess += 1;
+                }
                 }
                 notifySuccess('QR Code lido manualmente com sucesso.');
                 if (manualModal) {
@@ -912,8 +938,19 @@ window.addEventListener('load', function() {
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
         acceptedFiles: 'application/pdf',
-        parallelUploads: 1,
+        parallelUploads: parallelUploads,
         dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
+    });
+
+    dz.on('addedfile', function(file) {
+        if (!debugEnabled) {
+            return;
+        }
+        var item = ensureDebugFile(file);
+        if (!item.queuedAt) {
+            item.queuedAt = performance.now();
+            item.state = 'queued';
+        }
     });
 
     dz.on('sending', function(file, xhr, formData) {
@@ -922,7 +959,11 @@ window.addEventListener('load', function() {
                 debugStats.batchStartedAt = performance.now();
             }
             var item = ensureDebugFile(file);
+            if (!item.queuedAt) {
+                item.queuedAt = performance.now();
+            }
             item.startedAt = performance.now();
+            item.queueMs = Math.max(0, Math.round(item.startedAt - item.queuedAt));
             item.state = 'uploading';
         }
         uploadProcessingCount += 1;
@@ -947,6 +988,7 @@ window.addEventListener('load', function() {
         if (debugEnabled) {
             var successItem = ensureDebugFile(file);
             successItem.attempts = Array.isArray(data.qr_attempted_dpis) ? data.qr_attempted_dpis.slice() : [];
+            successItem.backendMs = data && data.timings && data.timings.total_ms ? parseInt(data.timings.total_ms, 10) || 0 : 0;
         }
 
         var added = addRowsFromQrTexts(data.qr_texts || [], data.file || '');
@@ -956,6 +998,7 @@ window.addEventListener('load', function() {
                 var autoItem = ensureDebugFile(file);
                 autoItem.finishedAt = performance.now();
                 autoItem.ms = Math.max(0, Math.round(autoItem.finishedAt - autoItem.startedAt));
+                autoItem.frontendMs = Math.max(0, autoItem.ms - (autoItem.backendMs || 0));
                 autoItem.state = 'automatic_success';
                 debugStats.automaticSuccess += 1;
             }
@@ -973,6 +1016,7 @@ window.addEventListener('load', function() {
                 var failItem = ensureDebugFile(file);
                 failItem.finishedAt = performance.now();
                 failItem.ms = Math.max(0, Math.round(failItem.finishedAt - failItem.startedAt));
+                failItem.frontendMs = Math.max(0, failItem.ms - (failItem.backendMs || 0));
                 failItem.state = 'hard_failure';
                 debugStats.hardFailures += 1;
             }
@@ -1015,6 +1059,7 @@ window.addEventListener('load', function() {
             var errorItem = ensureDebugFile(file);
             errorItem.finishedAt = performance.now();
             errorItem.ms = Math.max(0, Math.round(errorItem.finishedAt - errorItem.startedAt));
+            errorItem.frontendMs = Math.max(0, errorItem.ms - (errorItem.backendMs || 0));
             errorItem.state = 'request_error';
             debugStats.hardFailures += 1;
         }

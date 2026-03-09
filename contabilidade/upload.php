@@ -931,6 +931,13 @@ $useDataTables = true;
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 $erpDatabase = trim((string) getSetting('erp_database', ''));
+$qrParallelUploads = (int) getSetting('qr_parallel_uploads', '2');
+if ($qrParallelUploads <= 0) {
+    $qrParallelUploads = 2;
+}
+if ($qrParallelUploads > 6) {
+    $qrParallelUploads = 6;
+}
 ?>
 <div class="row mb-3">
     <div class="col-12">
@@ -1127,6 +1134,7 @@ $pageScripts = "window.erpDatabase = " . json_encode($erpDatabase, JSON_UNESCAPE
     . "window.accountingUploadPreviewUrl = " . json_encode((string) (BASE_URL . 'upload?action=preview-page'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadManualQrUrl = " . json_encode((string) (BASE_URL . 'upload?action=manual-qr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDeleteUrl = " . json_encode((string) (BASE_URL . 'upload?action=delete'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadParallelUploads = " . json_encode($qrParallelUploads, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDebug = " . json_encode(getSetting('debug_mode', '0') === '1', JSON_UNESCAPED_UNICODE) . ";\n";
 ?>
 <?php require_once __DIR__ . '/../footer.php'; ?>

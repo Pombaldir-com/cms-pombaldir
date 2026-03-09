@@ -67,6 +67,10 @@ if ($csrfToken === '' || !validateCsrfToken($csrfToken, false)) {
     exit;
 }
 
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $finfo = new finfo(FILEINFO_MIME_TYPE);
 $mime = $finfo->file($_FILES['file']['tmp_name']);
 $allowed = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -137,6 +141,9 @@ if ($mime === 'application/pdf') {
 
 // Detectar QR codes com Python
 $qrTexts = [];
+$timings = [
+    'started_at_ms' => (int) round(microtime(true) * 1000),
+];
 $script = __DIR__ . '/detectar_qr.py';
 $popplerPath = getenv('POPPLER_PATH');
 $envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
@@ -194,6 +201,9 @@ if (empty($qrTexts)) {
     $qrTexts = $attempts[2]['texts'];
 }
 
+$timings['finished_at_ms'] = (int) round(microtime(true) * 1000);
+$timings['total_ms'] = max(0, (int) ($timings['finished_at_ms'] - $timings['started_at_ms']));
+
 if ($debugEnabled) {
     $debugLog = [];
     foreach ($attempts as $index => $attempt) {
@@ -229,5 +239,17 @@ echo json_encode([
     'qr_attempted_dpis' => array_values(array_map(static function (array $attempt): int {
         return (int) ($attempt['dpi'] ?? 0);
     }, $attempts)),
+    'qr_attempts' => array_values(array_map(static function (array $attempt): array {
+        return [
+            'dpi' => (int) ($attempt['dpi'] ?? 0),
+            'max_pages' => (int) ($attempt['max_pages'] ?? 0),
+            'max_attempts' => (int) ($attempt['max_attempts'] ?? 0),
+            'receipt_priority' => !empty($attempt['receipt_priority']),
+            'page' => (int) ($attempt['page'] ?? 1),
+            'single_page_scan' => !empty($attempt['single_page_scan']),
+            'ret' => (int) ($attempt['ret'] ?? 0),
+        ];
+    }, $attempts)),
+    'timings' => $timings,
     'csrf_token' => $newToken,
 ]);

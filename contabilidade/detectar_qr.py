@@ -53,6 +53,10 @@ def _find_poppler_path() -> Optional[str]:
     return None
 
 
+def _pdf_page_cache_path(path: str, page: int, dpi: int) -> str:
+    return f"{path}.qr-cache-p{page}-d{dpi}.png"
+
+
 def _prepare_base(image: np.ndarray) -> np.ndarray:
     if image.ndim == 3 and image.shape[2] == 4:
         bgr = image[:, :, :3]
@@ -302,11 +306,21 @@ def _load_page_image(path: str, dpi: int = 300, page: int = 1) -> Tuple[np.ndarr
         if selected_page > total_pages:
             selected_page = total_pages
 
+        cache_path = _pdf_page_cache_path(path, selected_page, dpi)
+        if os.path.exists(cache_path):
+            cached = cv2.imread(cache_path, cv2.IMREAD_UNCHANGED)
+            if cached is not None:
+                return cached, total_pages
+
         pages = convert_from_path(path, first_page=selected_page, last_page=selected_page, **kwargs)
         if not pages:
             raise RuntimeError("unable to render pdf page")
 
         img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
+        try:
+            cv2.imwrite(cache_path, img)
+        except Exception:
+            pass
         return img, total_pages
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     if img is None:

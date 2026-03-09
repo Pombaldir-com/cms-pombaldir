@@ -148,6 +148,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($qrAutoMaxAttempts <= 0) {
             $qrAutoMaxAttempts = 6;
         }
+        $qrParallelUploads = (int) ($_POST['qr_parallel_uploads'] ?? 2);
+        if ($qrParallelUploads <= 0) {
+            $qrParallelUploads = 2;
+        }
+        if ($qrParallelUploads > 6) {
+            $qrParallelUploads = 6;
+        }
         $qrRetryMaxPages = (int) ($_POST['qr_retry_max_pages'] ?? 2);
         if ($qrRetryMaxPages < 0) {
             $qrRetryMaxPages = 2;
@@ -164,6 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setSetting('qr_retry_dpi', (string) $qrRetryDpi);
         setSetting('qr_auto_max_pages', (string) $qrAutoMaxPages);
         setSetting('qr_auto_max_attempts', (string) $qrAutoMaxAttempts);
+        setSetting('qr_parallel_uploads', (string) $qrParallelUploads);
         setSetting('qr_retry_max_pages', (string) $qrRetryMaxPages);
         setSetting('qr_retry_max_attempts', (string) $qrRetryMaxAttempts);
 
@@ -265,6 +273,7 @@ $currentQrDpi = (int)getSetting('qr_dpi', '150');
 $currentQrRetryDpi = (int)getSetting('qr_retry_dpi', (string) max(300, $currentQrDpi * 2));
 $currentQrAutoMaxPages = (int)getSetting('qr_auto_max_pages', '1');
 $currentQrAutoMaxAttempts = (int)getSetting('qr_auto_max_attempts', '6');
+$currentQrParallelUploads = (int)getSetting('qr_parallel_uploads', '2');
 $currentQrRetryMaxPages = (int)getSetting('qr_retry_max_pages', '2');
 $currentQrRetryMaxAttempts = (int)getSetting('qr_retry_max_attempts', '12');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
@@ -516,6 +525,11 @@ require_once __DIR__ . '/header.php';
                                         <label for="qr_auto_max_attempts" class="form-label">QR Max Attempts</label>
                                         <input type="number" class="form-control" id="qr_auto_max_attempts" name="qr_auto_max_attempts" min="1" max="50" step="1" value="<?= htmlspecialchars((string) $currentQrAutoMaxAttempts); ?>">
                                         <small class="text-muted">Número máximo de tentativas por página no modo automático.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_parallel_uploads" class="form-label">QR Parallel Uploads</label>
+                                        <input type="number" class="form-control" id="qr_parallel_uploads" name="qr_parallel_uploads" min="1" max="6" step="1" value="<?= htmlspecialchars((string) $currentQrParallelUploads); ?>">
+                                        <small class="text-muted">Quantidade de ficheiros processados em paralelo no upload.</small>
                                     </div>
                                     <div class="col-12 col-lg-3">
                                         <label for="qr_retry_max_pages" class="form-label">QR Retry Max Pages</label>
