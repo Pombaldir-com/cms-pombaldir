@@ -235,17 +235,20 @@ function generateCsrfToken(bool $renew = false): string {
 /**
  * Validate a CSRF token against the session.
  *
- * On success the stored token is cleared to enforce single-use.
+ * By default the stored token is cleared to enforce single-use.
  *
  * @param string $token Token supplied by the client
+ * @param bool $consume Whether to consume the token on success
  * @return bool True if the token matches the session value
  */
-function validateCsrfToken(string $token): bool {
+function validateCsrfToken(string $token, bool $consume = true): bool {
     startSession();
     if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         return false;
     }
-    unset($_SESSION['csrf_token']);
+    if ($consume) {
+        unset($_SESSION['csrf_token']);
+    }
     return true;
 }
 

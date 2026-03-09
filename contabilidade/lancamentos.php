@@ -217,9 +217,73 @@ if (($_GET['action'] ?? '') === 'data') {
     exit;
 }
 
+if (($_GET['action'] ?? '') === 'delete_local_import' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!$isSuperAdmin) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Sem permissao para remover registos locais.',
+            'csrf_token' => generateCsrfToken(true),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $csrfToken = trim((string) ($_POST['csrf_token'] ?? ''));
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Token CSRF invalido.',
+            'csrf_token' => generateCsrfToken(true),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $cabId = trim((string) ($_POST['cab_id'] ?? ''));
+    if ($cabId === '') {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'cab_id em falta.',
+            'csrf_token' => generateCsrfToken(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE cab_id = ?');
+        $stmt->execute([$cabId]);
+        $deletedRows = (int) $stmt->rowCount();
+        if ($deletedRows > 0) {
+            logAuditAction('delete_local_import_by_cab', 'accounting_imports', null, [
+                'cab_id' => $cabId,
+                'deleted_rows' => $deletedRows,
+            ]);
+        }
+
+        echo json_encode([
+            'success' => true,
+            'deleted_rows' => $deletedRows,
+            'csrf_token' => generateCsrfToken(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Erro ao remover registo local.',
+            'csrf_token' => generateCsrfToken(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 require_once __DIR__ . '/../header.php';
 $currentYear = (int) date('Y');
 $yearOptions = [$currentYear, $currentYear - 1];
+$csrfToken = generateCsrfToken();
 ?>
 <style>
 #lancamentos-table thead tr:nth-child(2) th.no-sort::before,
@@ -558,6 +622,8 @@ $pageScripts = <<<'JS'
 
     var erpBaseUrl = (window.erpLancamentosBaseUrl || '').replace(/\/+$/, '');
     var erpToken = window.erpLancamentosToken || '';
+    var localDeleteUrl = window.lancamentosDeleteLocalUrl || '';
+    var localCsrfToken = window.lancamentosCsrfToken || '';
     var unavailablePdfRows = {};
 
     function getErpHeaders() {
@@ -855,6 +921,32 @@ $pageScripts = <<<'JS'
                 });
             }
 
+            function deleteLocalImportIfAny() {
+                var cabId = currentDetailRow && currentDetailRow.Id !== undefined && currentDetailRow.Id !== null
+                    ? String(currentDetailRow.Id).trim()
+                    : '';
+                if (!cabId) {
+                    return jQuery.Deferred().resolve({ success: true, deleted_rows: 0 }).promise();
+                }
+                return jQuery.ajax({
+                    url: localDeleteUrl,
+                    method: 'POST',
+                    dataType: 'json',
+                    data: {
+                        cab_id: cabId,
+                        csrf_token: localCsrfToken
+                    }
+                }).done(function(resp) {
+                    if (resp && resp.csrf_token) {
+                        localCsrfToken = resp.csrf_token;
+                    }
+                }).fail(function(xhr) {
+                    if (xhr && xhr.responseJSON && xhr.responseJSON.csrf_token) {
+                        localCsrfToken = xhr.responseJSON.csrf_token;
+                    }
+                });
+            }
+
             function deleteAnexosIfAny() {
                 if (currentDetailRow.hasDigitalAttachment !== true) {
                     return jQuery.Deferred().resolve().promise();
@@ -910,11 +1002,25 @@ $pageScripts = <<<'JS'
                             alert((resp && (resp.errormsg || resp.message)) ? (resp.errormsg || resp.message) : 'Falha ao eliminar lançamento.');
                             return;
                         }
-                        currentDetailRow = null;
-                        if (detailModal) {
-                            detailModal.hide();
-                        }
-                        table.ajax.reload(null, false);
+                        deleteLocalImportIfAny()
+                            .done(function(localResp) {
+                                if (localResp && localResp.success === false) {
+                                    alert(localResp.error || 'Lançamento eliminado no ERP, mas falhou a remoção do registo local.');
+                                    return;
+                                }
+                                currentDetailRow = null;
+                                if (detailModal) {
+                                    detailModal.hide();
+                                }
+                                table.ajax.reload(null, false);
+                            })
+                            .fail(function(xhr) {
+                                var localMsg = 'Lançamento eliminado no ERP, mas falhou a remoção do registo local.';
+                                if (xhr && xhr.responseJSON && xhr.responseJSON.error) {
+                                    localMsg = xhr.responseJSON.error;
+                                }
+                                alert(localMsg);
+                            });
                     })
                     .fail(function(xhr) {
                         var msg = 'Falha ao eliminar lançamento.';
@@ -1002,5 +1108,7 @@ JS;
 $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.erpLancamentosToken = " . json_encode((string) getSetting('erp_token', ''), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosCanDelete = " . json_encode($isSuperAdmin, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosDeleteLocalUrl = " . json_encode((string) (BASE_URL . 'contabilidade/lancamentos?action=delete_local_import'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosCsrfToken = " . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ";\n"
     . $pageScripts;
 require_once __DIR__ . '/../footer.php';

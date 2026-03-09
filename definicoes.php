@@ -35,12 +35,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $debugMode = isset($_POST['debug_mode']) ? '1' : '0';
         setSetting('debug_mode', $debugMode);
 
-        $qrDpi = (int) ($_POST['qr_dpi'] ?? 150);
-        if ($qrDpi <= 0) {
-            $qrDpi = 150;
-        }
-        setSetting('qr_dpi', (string) $qrDpi);
-
         $apiEnabled = isset($_POST['api_enabled']) ? '1' : '0';
         setSetting('api_enabled', $apiEnabled);
         $apiToken = trim($_POST['api_token'] ?? '');
@@ -138,10 +132,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $awsSecret = trim($_POST['aws_secret_access_key'] ?? '');
         $awsRegion = trim($_POST['aws_region'] ?? '');
         $ocrProvider = trim($_POST['ocr_provider'] ?? 'tesseract');
+        $qrDpi = (int) ($_POST['qr_dpi'] ?? 150);
+        if ($qrDpi <= 0) {
+            $qrDpi = 150;
+        }
+        $qrRetryDpi = (int) ($_POST['qr_retry_dpi'] ?? max(300, $qrDpi * 2));
+        if ($qrRetryDpi <= $qrDpi) {
+            $qrRetryDpi = max(300, $qrDpi * 2);
+        }
+        $qrAutoMaxPages = (int) ($_POST['qr_auto_max_pages'] ?? 1);
+        if ($qrAutoMaxPages < 0) {
+            $qrAutoMaxPages = 1;
+        }
+        $qrAutoMaxAttempts = (int) ($_POST['qr_auto_max_attempts'] ?? 6);
+        if ($qrAutoMaxAttempts <= 0) {
+            $qrAutoMaxAttempts = 6;
+        }
+        $qrRetryMaxPages = (int) ($_POST['qr_retry_max_pages'] ?? 2);
+        if ($qrRetryMaxPages < 0) {
+            $qrRetryMaxPages = 2;
+        }
+        $qrRetryMaxAttempts = (int) ($_POST['qr_retry_max_attempts'] ?? 12);
+        if ($qrRetryMaxAttempts <= 0) {
+            $qrRetryMaxAttempts = 12;
+        }
         setSetting('aws_access_key_id', $awsKey);
         setSetting('aws_secret_access_key', $awsSecret);
         setSetting('aws_region', $awsRegion);
         setSetting('ocr_provider', $ocrProvider);
+        setSetting('qr_dpi', (string) $qrDpi);
+        setSetting('qr_retry_dpi', (string) $qrRetryDpi);
+        setSetting('qr_auto_max_pages', (string) $qrAutoMaxPages);
+        setSetting('qr_auto_max_attempts', (string) $qrAutoMaxAttempts);
+        setSetting('qr_retry_max_pages', (string) $qrRetryMaxPages);
+        setSetting('qr_retry_max_attempts', (string) $qrRetryMaxAttempts);
 
         $emailSaved = true;
     }
@@ -238,6 +262,11 @@ $currentAppName = getSetting('app_name', '');
 $currentAppLogo = getSetting('app_logo', '');
 $currentDebugMode = (int)getSetting('debug_mode', '0');
 $currentQrDpi = (int)getSetting('qr_dpi', '150');
+$currentQrRetryDpi = (int)getSetting('qr_retry_dpi', (string) max(300, $currentQrDpi * 2));
+$currentQrAutoMaxPages = (int)getSetting('qr_auto_max_pages', '1');
+$currentQrAutoMaxAttempts = (int)getSetting('qr_auto_max_attempts', '6');
+$currentQrRetryMaxPages = (int)getSetting('qr_retry_max_pages', '2');
+$currentQrRetryMaxAttempts = (int)getSetting('qr_retry_max_attempts', '12');
 $currentApiEnabled = (int)getSetting('api_enabled', '0');
 $currentApiToken = getSetting('api_token', '');
 $currentAccountingBaseCompany = getSetting('accounting_base_company', '');
@@ -343,10 +372,6 @@ require_once __DIR__ . '/header.php';
                                     <?php endif; ?>
                                     <input type="file" class="form-control" id="app_logo" name="app_logo" accept="image/png,image/jpeg">
                                     <small class="text-muted">Usado como imagem predefinida para utilizadores sem foto.</small>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="qr_dpi" class="form-label">QR DPI</label>
-                                    <input type="number" class="form-control" id="qr_dpi" name="qr_dpi" min="72" max="600" step="1" value="<?= htmlspecialchars((string) $currentQrDpi); ?>">
                                 </div>
                                 <div class="form-check form-switch setting-switch">
                                     <input class="form-check-input" type="checkbox" id="debug_mode" name="debug_mode" value="1" <?= $currentDebugMode ? 'checked' : ''; ?>>
@@ -471,6 +496,36 @@ require_once __DIR__ . '/header.php';
                                     <div class="col-12 col-lg-3">
                                         <label for="aws_region" class="form-label">AWS Region</label>
                                         <input type="text" class="form-control" id="aws_region" name="aws_region" value="<?= htmlspecialchars($currentAwsRegion); ?>">
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_dpi" class="form-label">QR DPI</label>
+                                        <input type="number" class="form-control" id="qr_dpi" name="qr_dpi" min="72" max="600" step="1" value="<?= htmlspecialchars((string) $currentQrDpi); ?>">
+                                        <small class="text-muted">DPI da primeira tentativa automática.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_retry_dpi" class="form-label">QR Retry DPI</label>
+                                        <input type="number" class="form-control" id="qr_retry_dpi" name="qr_retry_dpi" min="72" max="600" step="1" value="<?= htmlspecialchars((string) $currentQrRetryDpi); ?>">
+                                        <small class="text-muted">DPI da segunda tentativa automática quando a primeira falha.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_auto_max_pages" class="form-label">QR Max Pages</label>
+                                        <input type="number" class="form-control" id="qr_auto_max_pages" name="qr_auto_max_pages" min="0" max="50" step="1" value="<?= htmlspecialchars((string) $currentQrAutoMaxPages); ?>">
+                                        <small class="text-muted">Número máximo de páginas analisadas automaticamente. `0` = todas.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_auto_max_attempts" class="form-label">QR Max Attempts</label>
+                                        <input type="number" class="form-control" id="qr_auto_max_attempts" name="qr_auto_max_attempts" min="1" max="50" step="1" value="<?= htmlspecialchars((string) $currentQrAutoMaxAttempts); ?>">
+                                        <small class="text-muted">Número máximo de tentativas por página no modo automático.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_retry_max_pages" class="form-label">QR Retry Max Pages</label>
+                                        <input type="number" class="form-control" id="qr_retry_max_pages" name="qr_retry_max_pages" min="0" max="50" step="1" value="<?= htmlspecialchars((string) $currentQrRetryMaxPages); ?>">
+                                        <small class="text-muted">Número máximo de páginas na segunda tentativa. `0` = todas.</small>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="qr_retry_max_attempts" class="form-label">QR Retry Max Attempts</label>
+                                        <input type="number" class="form-control" id="qr_retry_max_attempts" name="qr_retry_max_attempts" min="1" max="50" step="1" value="<?= htmlspecialchars((string) $currentQrRetryMaxAttempts); ?>">
+                                        <small class="text-muted">Número máximo de tentativas por página na segunda tentativa.</small>
                                     </div>
                                 </div>
                             </div>

@@ -14,9 +14,10 @@ command‑line option (default: 300).
 """
 import sys
 import os
+import json
 import argparse
 import shutil
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 try:
     from pdf2image import convert_from_path, pdfinfo_from_path
@@ -236,7 +237,46 @@ def _decode_tiles(image: np.ndarray) -> List[str]:
     return texts
 
 
-def decode_file(path: str, dpi: int = 300) -> List[str]:
+def _is_receipt_like(image: np.ndarray) -> bool:
+    height, width = image.shape[:2]
+    if width <= 0 or height <= 0:
+        return False
+    ratio = height / float(width)
+    return ratio >= 2.2 and width <= 1800
+
+
+def _receipt_candidate_regions(image: np.ndarray) -> List[np.ndarray]:
+    height, width = image.shape[:2]
+    candidates: List[np.ndarray] = []
+    windows = [
+        (0.05, 0.58, 0.90, 0.32),
+        (0.08, 0.64, 0.84, 0.24),
+        (0.10, 0.70, 0.80, 0.20),
+        (0.12, 0.76, 0.76, 0.16),
+    ]
+    for x_ratio, y_ratio, w_ratio, h_ratio in windows:
+        x0 = max(0, min(width - 1, int(round(x_ratio * width))))
+        y0 = max(0, min(height - 1, int(round(y_ratio * height))))
+        x1 = max(x0 + 1, min(width, int(round((x_ratio + w_ratio) * width))))
+        y1 = max(y0 + 1, min(height, int(round((y_ratio + h_ratio) * height))))
+        candidates.append(image[y0:y1, x0:x1])
+    return candidates
+
+
+def _decode_receipt_candidates(image: np.ndarray, max_attempts: int) -> List[str]:
+    if not _is_receipt_like(image):
+        return []
+    results: List[str] = []
+    for candidate in _receipt_candidate_regions(image):
+        for text in _decode_with_strategies(candidate, max_attempts=max(4, min(max_attempts, 8))):
+            if text not in results:
+                results.append(text)
+        if results:
+            break
+    return results
+
+
+def _load_page_image(path: str, dpi: int = 300, page: int = 1) -> Tuple[np.ndarray, int]:
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
         if convert_from_path is None:
@@ -258,32 +298,111 @@ def decode_file(path: str, dpi: int = 300) -> List[str]:
                 info = pdfinfo_from_path(path)  # type: ignore[arg-type]
         total_pages = int(info.get("Pages", 1))
 
-        pages = convert_from_path(path, first_page=1, last_page=1, **kwargs)
-        if not pages:
-            return []
+        selected_page = max(1, page)
+        if selected_page > total_pages:
+            selected_page = total_pages
 
-        first_img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
-        texts = _decode_with_strategies(first_img)
+        pages = convert_from_path(path, first_page=selected_page, last_page=selected_page, **kwargs)
+        if not pages:
+            raise RuntimeError("unable to render pdf page")
+
+        img = cv2.cvtColor(np.array(pages[0]), cv2.COLOR_RGB2BGR)
+        return img, total_pages
+    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise RuntimeError("unable to read image")
+    return img, 1
+
+
+def _crop_by_ratios(image: np.ndarray, crop_ratios: Tuple[float, float, float, float]) -> np.ndarray:
+    height, width = image.shape[:2]
+    x_ratio, y_ratio, w_ratio, h_ratio = crop_ratios
+    x0 = max(0, min(width - 1, int(round(x_ratio * width))))
+    y0 = max(0, min(height - 1, int(round(y_ratio * height))))
+    x1 = max(x0 + 1, min(width, int(round((x_ratio + w_ratio) * width))))
+    y1 = max(y0 + 1, min(height, int(round((y_ratio + h_ratio) * height))))
+    return image[y0:y1, x0:x1]
+
+
+def decode_file(
+    path: str,
+    dpi: int = 300,
+    page: int = 1,
+    crop_ratios: Optional[Tuple[float, float, float, float]] = None,
+    max_pages: int = 0,
+    max_attempts: int = 12,
+    receipt_priority: bool = False,
+) -> List[str]:
+    ext = os.path.splitext(path)[1].lower()
+    if crop_ratios is not None:
+        image, _ = _load_page_image(path, dpi=dpi, page=page)
+        cropped = _crop_by_ratios(image, crop_ratios)
+        return _decode_with_strategies(cropped, max_attempts=max_attempts)
+
+    if ext == ".pdf":
+        image, total_pages = _load_page_image(path, dpi=dpi, page=1)
+        texts: List[str] = []
+        if receipt_priority:
+            texts = _decode_receipt_candidates(image, max_attempts=max_attempts)
+        if not texts:
+            texts = _decode_with_strategies(image, max_attempts=max_attempts)
 
         if total_pages == 1:
             return texts
 
+        if max_pages > 0:
+            total_pages = min(total_pages, max_pages)
+
         seen = set(texts)
         for page_num in range(2, total_pages + 1):
-            page = convert_from_path(
-                path, first_page=page_num, last_page=page_num, **kwargs
-            )[0]
-            img = cv2.cvtColor(np.array(page), cv2.COLOR_RGB2BGR)
-            for t in _decode_with_strategies(img):
+            img, _ = _load_page_image(path, dpi=dpi, page=page_num)
+            page_texts: List[str] = []
+            if receipt_priority:
+                page_texts = _decode_receipt_candidates(img, max_attempts=max_attempts)
+            if not page_texts:
+                page_texts = _decode_with_strategies(img, max_attempts=max_attempts)
+            for t in page_texts:
                 if t not in seen:
                     texts.append(t)
                     seen.add(t)
         return texts
-    else:
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise RuntimeError("unable to read image")
-        return _decode_with_strategies(img)
+
+    img, _ = _load_page_image(path, dpi=dpi, page=page)
+    if receipt_priority:
+        receipt_texts = _decode_receipt_candidates(img, max_attempts=max_attempts)
+        if receipt_texts:
+            return receipt_texts
+    return _decode_with_strategies(img, max_attempts=max_attempts)
+
+
+def render_preview(path: str, output_path: str, dpi: int = 150, page: int = 1) -> Dict[str, int]:
+    image, page_count = _load_page_image(path, dpi=dpi, page=page)
+    ok = cv2.imwrite(output_path, image)
+    if not ok:
+        raise RuntimeError("unable to write preview image")
+    height, width = image.shape[:2]
+    selected_page = max(1, min(int(page), int(page_count)))
+    return {
+        "ok": 1,
+        "width": int(width),
+        "height": int(height),
+        "page": selected_page,
+        "page_count": int(page_count),
+    }
+
+
+def _parse_crop_ratios(value: str) -> Tuple[float, float, float, float]:
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError("crop ratios must have 4 comma-separated values")
+    try:
+        ratios = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("crop ratios must be numeric") from exc
+    for ratio in ratios:
+        if ratio < 0 or ratio > 1:
+            raise argparse.ArgumentTypeError("crop ratios must be between 0 and 1")
+    return ratios
 
 
 def main() -> int:
@@ -302,6 +421,14 @@ def main() -> int:
         metavar="VALUE",
         help="override Pillow's MAX_IMAGE_PIXELS (use 'none' to disable the limit)",
     )
+    parser.add_argument("--page", type=int, default=1, help="page number to use in single-page operations")
+    parser.add_argument("--max-pages", type=int, default=0, help="maximum PDF pages to scan (0 = all)")
+    parser.add_argument("--max-attempts", type=int, default=12, help="maximum image-processing attempts per page")
+    parser.add_argument("--receipt-priority", action="store_true", help="prioritize likely QR regions for POS/receipt documents before global scan")
+    parser.add_argument("--crop-ratios", type=_parse_crop_ratios, help="crop rectangle as x,y,w,h ratios")
+    parser.add_argument("--render-preview", action="store_true", help="render the selected page to an image")
+    parser.add_argument("--output", help="output image path for --render-preview")
+    parser.add_argument("--json", action="store_true", help="emit JSON metadata for preview rendering")
     args = parser.parse_args()
 
     Image.MAX_IMAGE_PIXELS = args.max_image_pixels
@@ -311,7 +438,26 @@ def main() -> int:
         print("file not found", file=sys.stderr)
         return 2
     try:
-        texts = decode_file(file_path, dpi=args.dpi)
+        if args.render_preview:
+            if not args.output:
+                print("missing output path", file=sys.stderr)
+                return 2
+            preview = render_preview(file_path, args.output, dpi=args.dpi, page=args.page)
+            if args.json:
+                print(json.dumps(preview, ensure_ascii=True))
+            else:
+                print(args.output)
+            return 0
+
+        texts = decode_file(
+            file_path,
+            dpi=args.dpi,
+            page=args.page,
+            crop_ratios=args.crop_ratios,
+            max_pages=args.max_pages,
+            max_attempts=args.max_attempts,
+            receipt_priority=args.receipt_priority,
+        )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 3

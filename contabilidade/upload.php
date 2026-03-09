@@ -414,6 +414,235 @@ function fetchUploadAcquirerCompanyName(string $database, string $companyId = ''
     return ['ok' => false, 'name' => '', 'error' => 'Não foi possível obter o nome da empresa para a base selecionada.'];
 }
 
+function resolveAccountingUploadPath(string $relativeFile): array {
+    $relativeFile = trim(str_replace('\\', '/', $relativeFile));
+    if ($relativeFile === '') {
+        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    }
+
+    $slug = getCompanySlug();
+    if (!$slug) {
+        return ['ok' => false, 'error' => 'Empresa não selecionada.'];
+    }
+
+    $baseDir = realpath(dirname(__DIR__) . '/uploads/' . $slug . '/accounting/');
+    if ($baseDir === false) {
+        return ['ok' => false, 'error' => 'Diretório de uploads indisponível.'];
+    }
+
+    $fullPath = realpath(dirname(__DIR__) . '/' . ltrim($relativeFile, '/'));
+    if ($fullPath === false || strpos($fullPath, $baseDir) !== 0 || !is_file($fullPath)) {
+        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    }
+
+    return [
+        'ok' => true,
+        'relative' => ltrim($relativeFile, '/'),
+        'absolute' => $fullPath,
+        'base_dir' => $baseDir,
+    ];
+}
+
+function runQrToolCommand(array $arguments): array {
+    $script = __DIR__ . '/detectar_qr.py';
+    $popplerPath = getenv('POPPLER_PATH');
+    $commandParts = [];
+    if ($popplerPath) {
+        $commandParts[] = 'POPPLER_PATH=' . escapeshellarg($popplerPath);
+    }
+    $commandParts[] = escapeshellcmd('python3');
+    $commandParts[] = escapeshellarg($script);
+    foreach ($arguments as $argument) {
+        $commandParts[] = escapeshellarg((string) $argument);
+    }
+    $cmd = implode(' ', $commandParts) . ' 2>&1';
+    $output = [];
+    $ret = 0;
+    exec($cmd, $output, $ret);
+    return [
+        'command' => $cmd,
+        'output' => $output,
+        'status' => $ret,
+    ];
+}
+
+function renderAccountingUploadPreview(string $absoluteFile, int $page = 1): array {
+    $previewDpi = (int) getSetting('qr_preview_dpi', '150');
+    if ($previewDpi <= 0) {
+        $previewDpi = 150;
+    }
+
+    $previewPath = $absoluteFile . '.preview-p' . max(1, $page) . '.png';
+    $run = runQrToolCommand([
+        $absoluteFile,
+        '--render-preview',
+        '--page',
+        (string) max(1, $page),
+        '--dpi',
+        (string) $previewDpi,
+        '--output',
+        $previewPath,
+        '--json',
+    ]);
+
+    if ($run['status'] !== 0 || empty($run['output'])) {
+        return ['ok' => false, 'error' => 'Falha ao gerar pré-visualização do documento.'];
+    }
+
+    $json = trim((string) end($run['output']));
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded) || empty($decoded['ok']) || !file_exists($previewPath)) {
+        return ['ok' => false, 'error' => 'Pré-visualização inválida.'];
+    }
+
+    $slug = getCompanySlug() ?: '';
+    $relativePreview = str_replace(dirname(__DIR__) . '/', '', $previewPath);
+
+    return [
+        'ok' => true,
+        'preview_file' => $relativePreview,
+        'preview_width' => (int) ($decoded['width'] ?? 0),
+        'preview_height' => (int) ($decoded['height'] ?? 0),
+        'page' => (int) ($decoded['page'] ?? $page),
+        'page_count' => (int) ($decoded['page_count'] ?? 1),
+        'document_file' => str_replace(dirname(__DIR__) . '/', '', $absoluteFile),
+    ];
+}
+
+function decodeAccountingUploadQrSelection(string $absoluteFile, int $page, array $ratios): array {
+    $qrDpi = (int) getSetting('qr_dpi', '150');
+    if ($qrDpi <= 0) {
+        $qrDpi = 150;
+    }
+
+    $crop = implode(',', [
+        number_format((float) ($ratios['x'] ?? 0), 6, '.', ''),
+        number_format((float) ($ratios['y'] ?? 0), 6, '.', ''),
+        number_format((float) ($ratios['w'] ?? 0), 6, '.', ''),
+        number_format((float) ($ratios['h'] ?? 0), 6, '.', ''),
+    ]);
+
+    $run = runQrToolCommand([
+        $absoluteFile,
+        '--page',
+        (string) max(1, $page),
+        '--dpi',
+        (string) $qrDpi,
+        '--crop-ratios',
+        $crop,
+    ]);
+
+    $texts = [];
+    if ($run['status'] === 0 && !empty($run['output'])) {
+        foreach ($run['output'] as $line) {
+            $line = trim((string) $line);
+            if ($line !== '') {
+                $texts[] = $line;
+            }
+        }
+    }
+
+    return [
+        'ok' => true,
+        'qr_texts' => array_values(array_unique($texts)),
+    ];
+}
+
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'preview-image') {
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        exit('Sessão inválida');
+    }
+
+    $file = trim((string) ($_GET['file'] ?? ''));
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $resolved = resolveAccountingUploadPath($file);
+    if (empty($resolved['ok'])) {
+        http_response_code(400);
+        exit('Ficheiro inválido.');
+    }
+
+    $preview = renderAccountingUploadPreview((string) $resolved['absolute'], $page);
+    if (empty($preview['ok'])) {
+        http_response_code(500);
+        exit('Falha ao gerar pré-visualização.');
+    }
+
+    $previewPath = dirname(__DIR__) . '/' . ltrim((string) $preview['preview_file'], '/');
+    if (!is_file($previewPath)) {
+        http_response_code(404);
+        exit('Pré-visualização não encontrada.');
+    }
+
+    header('Content-Type: image/png');
+    header('Content-Length: ' . (string) filesize($previewPath));
+    header('Cache-Control: private, max-age=300');
+    readfile($previewPath);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'document-file') {
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        exit('Sessão inválida');
+    }
+
+    $file = trim((string) ($_GET['file'] ?? ''));
+    $resolved = resolveAccountingUploadPath($file);
+    if (empty($resolved['ok'])) {
+        http_response_code(400);
+        exit('Ficheiro inválido.');
+    }
+
+    $absolutePath = (string) $resolved['absolute'];
+    header('Content-Type: application/pdf');
+    header('Content-Length: ' . (string) filesize($absolutePath));
+    header('Content-Disposition: inline; filename="' . basename($absolutePath) . '"');
+    header('Cache-Control: private, max-age=300');
+    readfile($absolutePath);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'preview-page') {
+    header('Content-Type: application/json');
+
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Sessão inválida']);
+        exit;
+    }
+
+    $file = trim((string) ($_GET['file'] ?? ''));
+    $page = max(1, (int) ($_GET['page'] ?? 1));
+    $resolved = resolveAccountingUploadPath($file);
+    if (empty($resolved['ok'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => $resolved['error'] ?? 'Ficheiro inválido.']);
+        exit;
+    }
+
+    $preview = renderAccountingUploadPreview((string) $resolved['absolute'], $page);
+    if (empty($preview['ok'])) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $preview['error'] ?? 'Falha ao gerar pré-visualização.']);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'preview_url' => BASE_URL . 'upload?action=preview-image&file='
+            . rawurlencode($file) . '&page=' . rawurlencode((string) $page),
+        'document_url' => BASE_URL . 'upload?action=document-file&file=' . rawurlencode($file),
+        'preview_width' => (int) $preview['preview_width'],
+        'preview_height' => (int) $preview['preview_height'],
+        'page' => (int) $preview['page'],
+        'page_count' => (int) $preview['page_count'],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
 
@@ -423,7 +652,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $action = $_GET['action'] ?? $_POST['action'] ?? '';
     $newToken = generateCsrfToken();
 
     if ($action === 'sync-entity') {
@@ -552,7 +780,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $token = $data['csrf_token'] ?? '';
-        if (!validateCsrfToken($token)) {
+        if (!validateCsrfToken($token, false)) {
             http_response_code(400);
             echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => $newToken]);
             exit;
@@ -627,6 +855,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         echo json_encode(['success' => true, 'csrf_token' => $newToken]);
+        exit;
+    } elseif ($action === 'manual-qr') {
+        $token = trim((string) ($_POST['csrf_token'] ?? ''));
+        if ($token === '' || !validateCsrfToken($token, false)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Token CSRF inválido', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $file = trim((string) ($_POST['file'] ?? ''));
+        $page = max(1, (int) ($_POST['page'] ?? 1));
+        $resolved = resolveAccountingUploadPath($file);
+        if (empty($resolved['ok'])) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => $resolved['error'] ?? 'Ficheiro inválido', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $ratios = [
+            'x' => max(0, min(1, (float) ($_POST['x'] ?? 0))),
+            'y' => max(0, min(1, (float) ($_POST['y'] ?? 0))),
+            'w' => max(0, min(1, (float) ($_POST['w'] ?? 0))),
+            'h' => max(0, min(1, (float) ($_POST['h'] ?? 0))),
+        ];
+        if ($ratios['w'] <= 0 || $ratios['h'] <= 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Selecione uma zona válida do documento.', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $decoded = decodeAccountingUploadQrSelection((string) $resolved['absolute'], $page, $ratios);
+        echo json_encode([
+            'success' => true,
+            'qr_texts' => $decoded['qr_texts'] ?? [],
+            'csrf_token' => $newToken,
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     } elseif ($action === 'delete') {
         $file = $_POST['file'] ?? '';
@@ -760,7 +1024,109 @@ $erpDatabase = trim((string) getSetting('erp_database', ''));
     </div>
 </div>
 
+<div class="modal fade" id="manualQrModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-1"><i class="fa fa-qrcode"></i> Selecionar zona do QR Code</h5>
+                    <div class="text-muted small">
+                        <span id="manualQrQueueLabel">Ficheiro 1 de 1</span>
+                        <span class="mx-1">|</span>
+                        <span id="manualQrFileName">-</span>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    Abra a página correta, desenhe um retângulo sobre o QR Code e depois clique em <strong>Ler QR selecionado</strong>.
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm" id="manualQrPrevPageBtn"><i class="fa fa-chevron-left"></i> Página anterior</button>
+                        <span id="manualQrPageLabel" class="mx-2">Página 1 de 1</span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="manualQrNextPageBtn">Página seguinte <i class="fa fa-chevron-right"></i></button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Zoom da pré-visualização">
+                            <button type="button" class="btn btn-default" id="manualQrZoom100Btn">100%</button>
+                            <button type="button" class="btn btn-default" id="manualQrZoom150Btn">150%</button>
+                            <button type="button" class="btn btn-default" id="manualQrZoom200Btn">200%</button>
+                        </div>
+                        <a href="#" target="_blank" rel="noopener" class="btn btn-default btn-sm" id="manualQrOpenFileBtn"><i class="fa fa-file-pdf-o"></i> Abrir anexo</a>
+                    </div>
+                </div>
+                <div id="manualQrError" class="alert alert-danger d-none"></div>
+                <div id="manualQrLoading" class="dataTables_processing panel panel-default d-none" style="display: block;">
+                    <span><i class="fa fa-spinner fa-spin"></i> A gerar pré-visualização...</span>
+                </div>
+                <div class="manual-qr-stage">
+                    <div class="manual-qr-canvas-wrap" id="manualQrCanvasWrap">
+                        <img id="manualQrPreviewImage" class="img-responsive" alt="Pré-visualização do documento">
+                        <div id="manualQrSelectionBox"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="manualQrDiscardBtn"><i class="fa fa-trash"></i> Ignorar ficheiro</button>
+                <button type="button" class="btn btn-default" id="manualQrClearBtn"><i class="fa fa-eraser"></i> Limpar seleção</button>
+                <button type="button" class="btn btn-primary" id="manualQrDecodeBtn"><i class="fa fa-qrcode"></i> Ler QR selecionado</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.manual-qr-stage {
+    max-height: 70vh;
+    overflow: auto;
+    border: 1px solid #ddd;
+    background: #f7f7f7;
+    padding: 10px;
+}
+
+.manual-qr-canvas-wrap {
+    position: relative;
+    display: inline-block;
+    cursor: crosshair;
+}
+
+#manualQrPreviewImage {
+    display: block;
+    height: auto;
+}
+
+#manualQrPreviewImage.is-hidden {
+    visibility: hidden;
+}
+
+#manualQrSelectionBox {
+    position: absolute;
+    border: 2px dashed #26b99a;
+    background: rgba(38, 185, 154, 0.18);
+    display: none;
+    pointer-events: none;
+}
+
+#multi-upload .dz-preview.qr-auto-detected .dz-image {
+    border: 2px solid #26b99a;
+    background: #dff5ee;
+    box-shadow: 0 0 0 3px rgba(38, 185, 154, 0.18);
+}
+
+#multi-upload .dz-preview.qr-manual-required .dz-image {
+    border: 2px solid #f0ad4e;
+    background: #fff4df;
+    box-shadow: 0 0 0 3px rgba(240, 173, 78, 0.18);
+}
+</style>
+
+<?php
+$pageScripts = "window.erpDatabase = " . json_encode($erpDatabase, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ";\n"
+    . "window.accountingUploadPreviewUrl = " . json_encode((string) (BASE_URL . 'upload?action=preview-page'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadManualQrUrl = " . json_encode((string) (BASE_URL . 'upload?action=manual-qr'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadDeleteUrl = " . json_encode((string) (BASE_URL . 'upload?action=delete'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadDebug = " . json_encode(getSetting('debug_mode', '0') === '1', JSON_UNESCAPED_UNICODE) . ";\n";
+?>
 <?php require_once __DIR__ . '/../footer.php'; ?>
-<script>
-window.erpDatabase = <?= json_encode($erpDatabase, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
-</script>

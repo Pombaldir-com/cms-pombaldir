@@ -29,6 +29,26 @@ $qrDpi = (int) getSetting('qr_dpi', '150');
 if ($qrDpi <= 0) {
     $qrDpi = 150;
 }
+$qrRetryDpi = (int) getSetting('qr_retry_dpi', (string) max(300, $qrDpi * 2));
+if ($qrRetryDpi <= $qrDpi) {
+    $qrRetryDpi = max(300, $qrDpi * 2);
+}
+$qrAutoMaxPages = (int) getSetting('qr_auto_max_pages', '1');
+if ($qrAutoMaxPages < 0) {
+    $qrAutoMaxPages = 1;
+}
+$qrAutoMaxAttempts = (int) getSetting('qr_auto_max_attempts', '6');
+if ($qrAutoMaxAttempts <= 0) {
+    $qrAutoMaxAttempts = 6;
+}
+$qrRetryMaxPages = (int) getSetting('qr_retry_max_pages', '2');
+if ($qrRetryMaxPages < 0) {
+    $qrRetryMaxPages = 2;
+}
+$qrRetryMaxAttempts = (int) getSetting('qr_retry_max_attempts', '12');
+if ($qrRetryMaxAttempts <= 0) {
+    $qrRetryMaxAttempts = 12;
+}
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['file']['tmp_name'])) {
     $errorMessage = 'Ficheiro não enviado';
@@ -37,6 +57,13 @@ if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is
     }
     http_response_code(400);
     echo json_encode(['error' => $errorMessage, 'csrf_token' => $newToken]);
+    exit;
+}
+
+$csrfToken = trim((string) ($_POST['csrf_token'] ?? ''));
+if ($csrfToken === '' || !validateCsrfToken($csrfToken, false)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
     exit;
 }
 
@@ -110,30 +137,77 @@ if ($mime === 'application/pdf') {
 
 // Detectar QR codes com Python
 $qrTexts = [];
-
 $script = __DIR__ . '/detectar_qr.py';
 $popplerPath = getenv('POPPLER_PATH');
 $envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
-$cmd = $envPrefix . escapeshellcmd("python3 $script") . ' ' . escapeshellarg($targetPath) . ' --dpi ' . escapeshellarg((string) $qrDpi) . ' 2>&1';
-$output = [];
-$ret = 0;
-exec($cmd, $output, $ret);
 
-// Log de debug (opcional)
-if ($debugEnabled) {
-    file_put_contents(__DIR__ . '/debug_qr.txt', "CMD: $cmd\nRET: $ret\n" . implode(PHP_EOL, $output));
+$detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority) use ($envPrefix, $script, $targetPath): array {
+    $cmd = $envPrefix . escapeshellcmd("python3 $script")
+        . ' ' . escapeshellarg($targetPath)
+        . ' --dpi ' . escapeshellarg((string) $dpi)
+        . ' --max-pages ' . escapeshellarg((string) $maxPages)
+        . ' --max-attempts ' . escapeshellarg((string) $maxAttempts)
+        . ($receiptPriority ? ' --receipt-priority' : '')
+        . ' 2>&1';
+    $output = [];
+    $ret = 0;
+    exec($cmd, $output, $ret);
+
+    $texts = [];
+    if ($ret === 0 && !empty($output)) {
+        foreach ($output as $line) {
+            $line = trim((string) $line);
+            if ($line !== '') {
+                $texts[] = $line;
+            }
+        }
+        $texts = array_values(array_unique(array_map('trim', $texts)));
+    }
+
+    return [
+        'dpi' => $dpi,
+        'max_pages' => $maxPages,
+        'max_attempts' => $maxAttempts,
+        'receipt_priority' => $receiptPriority ? 1 : 0,
+        'cmd' => $cmd,
+        'ret' => $ret,
+        'output' => $output,
+        'texts' => $texts,
+    ];
+};
+
+$attempts = [];
+$attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
+$qrTexts = $attempts[0]['texts'];
+
+if (empty($qrTexts)) {
+    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
+    $qrTexts = $attempts[1]['texts'];
 }
 
-if ($ret === 0 && !empty($output)) {
-    foreach ($output as $line) {
-        $line = trim($line);
-        if ($line !== '') {
-            $qrTexts[] = $line;
-        }
+if ($debugEnabled) {
+    $debugLog = [];
+    foreach ($attempts as $index => $attempt) {
+        $debugLog[] = 'ATTEMPT ' . ($index + 1) . ' | DPI: ' . $attempt['dpi'];
+        $debugLog[] = 'MAX_PAGES: ' . $attempt['max_pages'] . ' | MAX_ATTEMPTS: ' . $attempt['max_attempts'] . ' | RECEIPT_PRIORITY: ' . $attempt['receipt_priority'];
+        $debugLog[] = 'CMD: ' . $attempt['cmd'];
+        $debugLog[] = 'RET: ' . $attempt['ret'];
+        $debugLog[] = implode(PHP_EOL, $attempt['output']);
+        $debugLog[] = '';
     }
-    $qrTexts = array_unique(array_map('trim', $qrTexts));
-} else {
-    error_log("Erro ao executar detectar_qr.py\nRet: $ret\nSaída:\n" . implode(PHP_EOL, $output));
+    file_put_contents(__DIR__ . '/debug_qr.txt', implode(PHP_EOL, $debugLog));
+}
+
+if (empty($qrTexts)) {
+    foreach ($attempts as $attempt) {
+        error_log(
+            "Erro ao executar detectar_qr.py\nDPI: " . $attempt['dpi']
+            . "\nMAX_PAGES: " . $attempt['max_pages']
+            . "\nMAX_ATTEMPTS: " . $attempt['max_attempts']
+            . "\nRet: " . $attempt['ret']
+            . "\nSaída:\n" . implode(PHP_EOL, $attempt['output'])
+        );
+    }
 }
 
 $relativePath = "uploads/$slug/accounting/$year/$month/$filename";
@@ -142,5 +216,8 @@ echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'qr_texts' => $qrTexts,
+    'qr_attempted_dpis' => array_values(array_map(static function (array $attempt): int {
+        return (int) ($attempt['dpi'] ?? 0);
+    }, $attempts)),
     'csrf_token' => $newToken,
 ]);

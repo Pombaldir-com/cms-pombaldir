@@ -182,9 +182,13 @@ switch (true) {
         $_GET['manage_types'] = 1;
         require __DIR__ . '/content.php';
         break;
+    case $path === 'upload':
+    case $path === 'upload.php':
     case $path === 'contabilidade/upload':
+    case $path === 'contabilidade/upload.php':
         require __DIR__ . '/contabilidade/upload.php';
         break;
+    case $path === 'upload-handler.php':
     case $path === 'contabilidade/upload-handler.php':
         require __DIR__ . '/contabilidade/upload-handler.php';
         break;
