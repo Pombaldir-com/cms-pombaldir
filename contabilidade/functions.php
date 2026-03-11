@@ -1938,6 +1938,145 @@ function buildEmptyCostCenterMap(array $additionalRates = []): array {
 }
 
 /**
+ * Build an empty detailed cost centre distribution map keyed by VAT rate.
+ *
+ * @return array<string,array<int,array<string,string>>>
+ */
+function buildEmptyCostCenterBreakdownMap(array $additionalRates = []): array {
+    $base = buildEmptyCostCenterMap($additionalRates);
+    $result = [];
+    foreach ($base as $rate => $_) {
+        $result[(string) $rate] = [];
+    }
+    return $result;
+}
+
+/**
+ * Sanitize a detailed cost centre distribution row list.
+ *
+ * @param mixed $rows
+ * @return array<int,array<string,string>>
+ */
+function sanitizeCostCenterBreakdownRows($rows): array {
+    if (!is_array($rows)) {
+        return [];
+    }
+
+    $result = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $costCenter = '';
+        foreach (['cost_center', 'code', 'strConta_CCusto', 'value'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $candidate = trim((string) $row[$key]);
+            if ($candidate !== '') {
+                $costCenter = $candidate;
+                break;
+            }
+        }
+        if ($costCenter === '') {
+            continue;
+        }
+
+        $percentage = null;
+        foreach (['percentage', 'fltPercentagem', 'percent'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $candidate = extractDecimalAmount($row[$key]);
+            if ($candidate !== null && $candidate !== '') {
+                $percentage = (float) $candidate;
+                break;
+            }
+        }
+
+        $value = null;
+        foreach (['amount', 'value_amount', 'fltValor', 'value'] as $key) {
+            if (!array_key_exists($key, $row)) {
+                continue;
+            }
+            $candidate = extractDecimalAmount($row[$key]);
+            if ($candidate !== null && $candidate !== '') {
+                $value = (float) $candidate;
+                break;
+            }
+        }
+
+        $entry = [
+            'cost_center' => $costCenter,
+            'percentage' => $percentage === null ? '' : number_format($percentage, 3, '.', ''),
+            'value' => $value === null ? '' : number_format($value, 2, '.', ''),
+        ];
+
+        if ($entry['percentage'] === '' && $entry['value'] === '') {
+            continue;
+        }
+
+        $result[] = $entry;
+    }
+
+    return $result;
+}
+
+/**
+ * Sanitize arbitrary detailed cost centre distributions keyed by VAT rate.
+ *
+ * @param mixed $input
+ * @return array<string,array<int,array<string,string>>>
+ */
+function sanitizeCostCenterBreakdownValues($input): array {
+    $detectedRates = array_keys(getDefaultVatRates());
+
+    if (is_array($input)) {
+        $source = $input;
+        if (isset($input['rates']) && is_array($input['rates'])) {
+            $source = $input['rates'];
+        }
+        foreach ($source as $key => $_) {
+            $detectedRates[] = (string) $key;
+        }
+    }
+
+    $result = buildEmptyCostCenterBreakdownMap($detectedRates);
+
+    if (!is_array($input)) {
+        return $result;
+    }
+
+    if (isset($input['rates']) && is_array($input['rates'])) {
+        $input = $input['rates'];
+    }
+
+    foreach ($input as $rate => $value) {
+        $rateKey = (string) $rate;
+        if (!array_key_exists($rateKey, $result)) {
+            $result[$rateKey] = [];
+        }
+
+        if (is_array($value) && isset($value['distribution']) && is_array($value['distribution'])) {
+            $result[$rateKey] = sanitizeCostCenterBreakdownRows($value['distribution']);
+            continue;
+        }
+
+        if (is_array($value) && isset($value['entries']) && is_array($value['entries'])) {
+            $result[$rateKey] = sanitizeCostCenterBreakdownRows($value['entries']);
+            continue;
+        }
+
+        if (is_array($value) && array_keys($value) === range(0, count($value) - 1)) {
+            $result[$rateKey] = sanitizeCostCenterBreakdownRows($value);
+        }
+    }
+
+    return $result;
+}
+
+/**
  * Sanitize arbitrary cost centre input ensuring expected VAT keys exist.
  *
  * The function accepts the different shapes that may appear either from
@@ -1992,6 +2131,12 @@ function sanitizeCostCenterValues($input): array {
         if (is_array($value)) {
             if (array_key_exists('cost_center', $value)) {
                 $value = $value['cost_center'];
+            } elseif (array_key_exists('distribution', $value) && is_array($value['distribution'])) {
+                $distribution = sanitizeCostCenterBreakdownRows($value['distribution']);
+                $value = $distribution[0]['cost_center'] ?? '';
+            } elseif (array_key_exists('entries', $value) && is_array($value['entries'])) {
+                $distribution = sanitizeCostCenterBreakdownRows($value['entries']);
+                $value = $distribution[0]['cost_center'] ?? '';
             } elseif (array_key_exists('value', $value)) {
                 $value = $value['value'];
             }
@@ -2032,17 +2177,55 @@ function normalizeCostCenters(?string $json): array {
 }
 
 /**
+ * Normalize stored detailed cost centre information into a predictable structure.
+ *
+ * @param string|null $json JSON-encoded cost centre data or legacy value.
+ * @return array<string,array<int,array<string,string>>>
+ */
+function normalizeCostCenterBreakdowns(?string $json): array {
+    if ($json === null) {
+        return buildEmptyCostCenterBreakdownMap();
+    }
+
+    $trimmed = trim($json);
+    if ($trimmed === '') {
+        return buildEmptyCostCenterBreakdownMap();
+    }
+
+    $decoded = json_decode($trimmed, true);
+    if (json_last_error() === JSON_ERROR_NONE) {
+        return sanitizeCostCenterBreakdownValues($decoded);
+    }
+
+    return buildEmptyCostCenterBreakdownMap();
+}
+
+/**
  * Serialize cost centre values to be stored in the database.
  *
  * @param array<string,mixed> $centers
  * @return string
  */
-function serializeCostCenters(array $centers): string {
+function serializeCostCenters(array $centers, array $breakdowns = []): string {
     $sanitized = sanitizeCostCenterValues($centers);
+    $sanitizedBreakdowns = sanitizeCostCenterBreakdownValues($breakdowns);
+
+    $ratesPayload = [];
+    foreach ($sanitized as $rate => $costCenter) {
+        $distribution = $sanitizedBreakdowns[(string) $rate] ?? [];
+        if (!empty($distribution)) {
+            $ratesPayload[(string) $rate] = [
+                'cost_center' => $costCenter,
+                'distribution' => array_values($distribution),
+            ];
+            continue;
+        }
+        $ratesPayload[(string) $rate] = $costCenter;
+    }
 
     return json_encode([
-        'version' => 1,
-        'rates' => $sanitized,
+        'version' => 2,
+        'rates' => $ratesPayload,
     ], JSON_UNESCAPED_UNICODE);
 }
 
@@ -2383,7 +2566,7 @@ function resolveAccountingLineAmount($primaryValue, $fallbackValue = null): ?flo
  * @param string|null $rate
  * @param string      $component Either 'base' or 'iva'.
  */
-function buildAccountingLineEntry(string $account, float $amount, string $description, ?string $costCenter, ?string $rate, string $component): array {
+function buildAccountingLineEntry(string $account, float $amount, string $description, ?string $costCenter, ?string $rate, string $component, array $costCenterDistribution = []): array {
     $entry = [
         'strConta' => $account,
         'fltValor' => round(abs($amount), 2),
@@ -2400,6 +2583,21 @@ function buildAccountingLineEntry(string $account, float $amount, string $descri
         $entry['tax_rate'] = $rate;
     }
 
+    $distributionRows = sanitizeCostCenterBreakdownRows($costCenterDistribution);
+    if (!empty($distributionRows)) {
+        $movCc = [];
+        foreach ($distributionRows as $index => $distributionRow) {
+            $movCc[] = [
+                'intNumLinha_CC' => $index + 1,
+                'strConta_CCusto' => $distributionRow['cost_center'],
+                'fltPercentagem' => (float) ($distributionRow['percentage'] !== '' ? $distributionRow['percentage'] : 0),
+                'fltValor' => (float) ($distributionRow['value'] !== '' ? $distributionRow['value'] : 0),
+                'strDeb_Cre' => $entry['strDeb_Cre'],
+            ];
+        }
+        $entry['mov_cc'] = $movCc;
+    }
+
     return $entry;
 }
 
@@ -2413,6 +2611,7 @@ function buildDocumentAccountingLines(array $document): array {
     $accounts = normalizeAccountingAccounts($document['account'] ?? '');
     $metadata = normalizeAccountingMetadata($document['account'] ?? '');
     $costCenters = normalizeCostCenters($document['cost_center'] ?? '');
+    $costCenterBreakdowns = normalizeCostCenterBreakdowns($document['cost_center'] ?? '');
     $summaries = computeImportRateSummaries($document);
     $lines = [];
 
@@ -2434,7 +2633,8 @@ function buildDocumentAccountingLines(array $document): array {
                 $description,
                 $costCenters[$rateKey] ?? '',
                 $rateKey,
-                'base'
+                'base',
+                $costCenterBreakdowns[$rateKey] ?? []
             );
         }
 
@@ -2448,7 +2648,8 @@ function buildDocumentAccountingLines(array $document): array {
                 $description,
                 $costCenters[$rateKey] ?? '',
                 $rateKey,
-                'iva'
+                'iva',
+                $costCenterBreakdowns[$rateKey] ?? []
             );
         }
     }

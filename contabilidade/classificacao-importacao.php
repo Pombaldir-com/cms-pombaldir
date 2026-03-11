@@ -791,6 +791,7 @@ function prepareImportRow(array $row): array {
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
+    $row['cost_center_breakdowns'] = normalizeCostCenterBreakdowns($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
     $row['manual_review_required'] = (($accountMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
@@ -2295,6 +2296,7 @@ if ($action === 'data') {
             $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
             $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
             $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+            $costCenterBreakdownsAttr = htmlspecialchars(json_encode($row['cost_center_breakdowns'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
             if ($importType === 1) {
                 $disabledAttr = $canClassifyCtb ? '' : ' disabled title="Sem permissao"';
@@ -2304,6 +2306,7 @@ if ($action === 'data') {
                     . 'data-rates="' . $ratesAttr . '" '
                     . 'data-requirements="' . $requirementsAttr . '" '
                     . 'data-cost-centers="' . $costCentersAttr . '" '
+                    . 'data-cost-center-breakdowns="' . $costCenterBreakdownsAttr . '" '
                     . 'data-total-account="' . htmlspecialchars($row['total_account'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-manual-review="' . htmlspecialchars((string) ($row['manual_review_required'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-auto-import="' . (isAutoImportReadyRow($row) ? '1' : '0') . '" '
@@ -2491,6 +2494,7 @@ require_once __DIR__ . '/../header.php';
                         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                        $costCenterBreakdownsAttr = htmlspecialchars(json_encode($row['cost_center_breakdowns'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
                     ?>
                     <td class="text-center">
@@ -2504,6 +2508,7 @@ require_once __DIR__ . '/../header.php';
                                 data-rates="<?= $ratesAttr; ?>"
                                 data-requirements="<?= $requirementsAttr; ?>"
                                 data-cost-centers="<?= $costCentersAttr; ?>"
+                                data-cost-center-breakdowns="<?= $costCenterBreakdownsAttr; ?>"
                                 data-manual-review="<?= htmlspecialchars((string) ($row['manual_review_required'] ?? '0')); ?>"
                                 data-auto-import="<?= isAutoImportReadyRow($row) ? '1' : '0'; ?>"
                                 data-emitter="<?= htmlspecialchars($emitterRawValue); ?>"
@@ -2614,6 +2619,10 @@ require_once __DIR__ . '/../header.php';
             <select class="form-control form-control-sm cost-center-field">
                 <option value="">Selecione o centro de custo</option>
             </select>
+            <div class="cost-center-distribution-wrap">
+                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn">C Custo</button>
+                <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+            </div>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle actions-cell">
@@ -2644,6 +2653,10 @@ require_once __DIR__ . '/../header.php';
             <select class="form-control form-control-sm cost-center-field">
                 <option value="">Selecione o centro de custo</option>
             </select>
+            <div class="cost-center-distribution-wrap">
+                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn">C Custo</button>
+                <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+            </div>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle">
@@ -2655,6 +2668,97 @@ require_once __DIR__ . '/../header.php';
                 <i class="fa fa-undo"></i>
             </button>
             <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
+                <i class="fa fa-trash"></i>
+            </button>
+        </td>
+    </tr>
+</template>
+<div class="modal fade" id="costCenterDistributionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Distribuição por Centros de Custo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label mb-1">Documento</label>
+                        <input type="text" class="form-control" id="ccDistributionDocumentInfo" readonly>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">Data</label>
+                        <input type="text" class="form-control" id="ccDistributionDateInfo" readonly>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">Tipo</label>
+                        <input type="text" class="form-control" id="ccDistributionTypeInfo" readonly>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label mb-1">Emitente</label>
+                        <input type="text" class="form-control" id="ccDistributionEmitterInfo" readonly>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">Conta</label>
+                        <input type="text" class="form-control" id="ccDistributionAccountInfo" readonly>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label mb-1">Descrição</label>
+                        <input type="text" class="form-control" id="ccDistributionAccountLabelInfo" readonly>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-1">Valor a atribuir</label>
+                        <input type="text" class="form-control" id="ccDistributionAmountInfo" readonly>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">Taxa</label>
+                        <input type="text" class="form-control" id="ccDistributionRateInfo" readonly>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped table-bordered table-sm mb-0" id="ccDistributionTable">
+                        <thead>
+                            <tr>
+                                <th>Conta C.C.</th>
+                                <th style="width: 14%;" class="text-end">%</th>
+                                <th style="width: 18%;" class="text-end">Valor</th>
+                                <th style="width: 1%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="ccDistributionTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="mt-3 d-flex flex-wrap justify-content-end gap-3">
+                    <div><strong>% Atribuída:</strong> <span id="ccDistributionPercentAssigned">0,00</span></div>
+                    <div><strong>% Por atribuir:</strong> <span id="ccDistributionPercentRemaining">100,00</span></div>
+                    <div><strong>Valor por atribuir:</strong> <span id="ccDistributionAmountRemaining">0,00</span></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-outline-primary me-auto" id="ccDistributionAddRowBtn">
+                    <i class="fa fa-plus"></i> Adicionar linha
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="ccDistributionSaveBtn">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<template id="costCenterDistributionRowTemplate">
+    <tr>
+        <td>
+            <select class="form-control form-control-sm cc-distribution-code">
+                <option value="">Selecione o centro de custo</option>
+            </select>
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm text-end cc-distribution-percentage" inputmode="decimal" placeholder="0,00">
+        </td>
+        <td class="text-end align-middle cc-distribution-value">0,00</td>
+        <td class="text-center align-middle">
+            <button type="button" class="btn btn-sm btn-outline-danger cc-distribution-remove-row" title="Remover">
                 <i class="fa fa-trash"></i>
             </button>
         </td>

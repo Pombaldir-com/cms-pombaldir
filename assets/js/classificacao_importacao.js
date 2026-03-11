@@ -1488,6 +1488,9 @@ window.addEventListener('load', function() {
         if (changed) {
             currentBtn.setAttribute('data-requirements', JSON.stringify(requirements));
             updateButtonClass(currentBtn);
+            getRateKeys().forEach(function(rate) {
+                updateCostCenterFieldMode(rate);
+            });
         }
     }
 
@@ -1513,6 +1516,18 @@ window.addEventListener('load', function() {
         return requirements;
     }
 
+    function rebuildRequirementsForCurrentButton() {
+        if (!currentBtn) {
+            return {};
+        }
+        var requirements = parseJsonAttribute(currentBtn, 'data-requirements') || {};
+        requirements = enrichRequirementsFromRates(requirements, currentRateData);
+        requirements = enrichRequirementsFromRates(requirements, storedRowRates);
+        requirements = enrichRequirementsFromRates(requirements, storedDefaultRates);
+        currentBtn.setAttribute('data-requirements', JSON.stringify(requirements));
+        return requirements;
+    }
+
     function refreshButtonClasses() {
         $('#classify-table').find('.classify-row').each(function() {
             updateButtonClass(this);
@@ -1521,7 +1536,24 @@ window.addEventListener('load', function() {
 
     var classifyModalEl = document.getElementById('classifyModal');
     var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
+    var costCenterDistributionModalEl = document.getElementById('costCenterDistributionModal');
+    var costCenterDistributionModal = costCenterDistributionModalEl ? new bootstrap.Modal(costCenterDistributionModalEl) : null;
     var modalTitleEl = document.getElementById('classifyModalLabel');
+    var costCenterDistributionDocumentInfoEl = document.getElementById('ccDistributionDocumentInfo');
+    var costCenterDistributionDateInfoEl = document.getElementById('ccDistributionDateInfo');
+    var costCenterDistributionTypeInfoEl = document.getElementById('ccDistributionTypeInfo');
+    var costCenterDistributionEmitterInfoEl = document.getElementById('ccDistributionEmitterInfo');
+    var costCenterDistributionAccountInfoEl = document.getElementById('ccDistributionAccountInfo');
+    var costCenterDistributionAccountLabelInfoEl = document.getElementById('ccDistributionAccountLabelInfo');
+    var costCenterDistributionAmountInfoEl = document.getElementById('ccDistributionAmountInfo');
+    var costCenterDistributionRateInfoEl = document.getElementById('ccDistributionRateInfo');
+    var costCenterDistributionTableBody = document.getElementById('ccDistributionTableBody');
+    var costCenterDistributionPercentAssignedEl = document.getElementById('ccDistributionPercentAssigned');
+    var costCenterDistributionPercentRemainingEl = document.getElementById('ccDistributionPercentRemaining');
+    var costCenterDistributionAmountRemainingEl = document.getElementById('ccDistributionAmountRemaining');
+    var costCenterDistributionAddRowBtn = document.getElementById('ccDistributionAddRowBtn');
+    var costCenterDistributionSaveBtn = document.getElementById('ccDistributionSaveBtn');
+    var costCenterDistributionRowTemplate = document.getElementById('costCenterDistributionRowTemplate');
     var defaultModalTitle = '';
     if (modalTitleEl) {
         defaultModalTitle = (modalTitleEl.textContent || '').trim();
@@ -1535,7 +1567,9 @@ window.addEventListener('load', function() {
     var rateInputs = {};
     var currentRateData = {};
     var currentCostCenters = {};
+    var currentCostCenterBreakdowns = {};
     var currentTotalAccount = '';
+    var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
     var storedRowRates = {};
     var storedDefaultRates = {};
@@ -1906,6 +1940,51 @@ window.addEventListener('load', function() {
         });
     }
 
+    function findPlanEntryByCode(code) {
+        var target = String(code || '').trim();
+        if (!target) {
+            return null;
+        }
+        var entries = Array.isArray(currentPlanContext.entries) ? currentPlanContext.entries : [];
+        for (var i = 0; i < entries.length; i += 1) {
+            var entry = entries[i];
+            if (entry && String(entry.code || '').trim() === target) {
+                return entry;
+            }
+        }
+        return null;
+    }
+
+    function updatePlanInputTitle(input) {
+        if (!input) {
+            return;
+        }
+        var code = String(input.value || '').trim();
+        if (!code) {
+            input.removeAttribute('title');
+            return;
+        }
+        var applyTitle = function() {
+            var entry = findPlanEntryByCode(code);
+            var title = entry && entry.description ? String(entry.description).trim() : '';
+            if (!title && entry && entry.label) {
+                title = String(entry.label).trim();
+            }
+            if (title) {
+                input.setAttribute('title', title);
+            } else {
+                input.removeAttribute('title');
+            }
+        };
+        if (currentPlanContext.entries.length > 0) {
+            applyTitle();
+            return;
+        }
+        ensurePlanContextLoaded().then(function() {
+            applyTitle();
+        });
+    }
+
     function schedulePlanAutocomplete(input) {
         if (!input) {
             return;
@@ -1930,9 +2009,14 @@ window.addEventListener('load', function() {
         input.setAttribute('autocomplete', 'off');
         input.addEventListener('input', function() {
             schedulePlanAutocomplete(input);
+            updatePlanInputTitle(input);
         });
         input.addEventListener('focus', function() {
             schedulePlanAutocomplete(input);
+            updatePlanInputTitle(input);
+        });
+        input.addEventListener('blur', function() {
+            updatePlanInputTitle(input);
         });
     }
 
@@ -2022,6 +2106,41 @@ window.addEventListener('load', function() {
             return '';
         }
         return value.toFixed(2);
+    }
+
+    function formatPercentageValue(value) {
+        if (typeof value !== 'number' || !isFinite(value)) {
+            return '';
+        }
+        return value.toFixed(3);
+    }
+
+    function formatNumberValue(value) {
+        var num = typeof value === 'number' ? value : parseDecimalValue(value);
+        if (num === null || !isFinite(num)) {
+            num = 0;
+        }
+        return num.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatPercentageDisplayValue(value) {
+        var num = typeof value === 'number' ? value : parseDecimalValue(value);
+        if (num === null || !isFinite(num)) {
+            num = 0;
+        }
+        return num.toLocaleString('pt-PT', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    }
+
+    function formatAutoPercentageDisplayValue(value) {
+        var num = typeof value === 'number' ? value : parseDecimalValue(value);
+        if (num === null || !isFinite(num)) {
+            num = 0;
+        }
+        var rounded = Math.round(num);
+        if (Math.abs(num - rounded) < 0.0005) {
+            return String(rounded);
+        }
+        return formatPercentageDisplayValue(num);
     }
 
     function extractPercentageFromData(data) {
@@ -2775,6 +2894,7 @@ window.addEventListener('load', function() {
 
         if (totalAccountSuggested && totalAccountInput) {
             totalAccountInput.value = totalAccountSuggested;
+            updatePlanInputTitle(totalAccountInput);
             currentTotalAccount = totalAccountSuggested;
             if (currentBtn) {
                 currentBtn.setAttribute('data-total-account', totalAccountSuggested);
@@ -2821,6 +2941,7 @@ window.addEventListener('load', function() {
             ivaAccount: row.querySelector('.iva-account-field'),
             generalAccount: row.querySelector('.general-account-field'),
             costCenter: row.querySelector('.cost-center-field') || null,
+            costCenterDistributionBtn: row.querySelector('.cost-center-distribution-btn') || null,
             labelInput: row.querySelector('.rate-label-field') || null,
             labelText: row.querySelector('.rate-label-static') || null,
             removeBtn: row.querySelector('.remove-rate-row') || null,
@@ -2836,6 +2957,9 @@ window.addEventListener('load', function() {
         if (!Object.prototype.hasOwnProperty.call(currentCostCenters, rate)) {
             currentCostCenters[rate] = '';
         }
+        if (!Object.prototype.hasOwnProperty.call(currentCostCenterBreakdowns, rate)) {
+            currentCostCenterBreakdowns[rate] = [];
+        }
         if (info.costCenter) {
             info.costCenter.removeAttribute('readonly');
             info.costCenter.disabled = false;
@@ -2846,6 +2970,11 @@ window.addEventListener('load', function() {
             info.costCenter.disabled = false;
             info.costCenter.addEventListener('input', function() {
                 currentCostCenters[rate] = info.costCenter.value;
+            });
+        }
+        if (info.costCenterDistributionBtn) {
+            info.costCenterDistributionBtn.addEventListener('click', function() {
+                openCostCenterDistributionModal(rate);
             });
         }
         if (info.base) {
@@ -2870,9 +2999,27 @@ window.addEventListener('load', function() {
         }
         if (info.ivaAccount) {
             attachPlanAutocompleteToInput(info.ivaAccount);
+            info.ivaAccount.addEventListener('input', function() {
+                updateCostCenterFieldMode(rate);
+            });
+            info.ivaAccount.addEventListener('change', function() {
+                updateCostCenterFieldMode(rate);
+            });
+            info.ivaAccount.addEventListener('blur', function() {
+                updateCostCenterFieldMode(rate);
+            });
         }
         if (info.generalAccount) {
             attachPlanAutocompleteToInput(info.generalAccount);
+            info.generalAccount.addEventListener('input', function() {
+                updateCostCenterFieldMode(rate);
+            });
+            info.generalAccount.addEventListener('change', function() {
+                updateCostCenterFieldMode(rate);
+            });
+            info.generalAccount.addEventListener('blur', function() {
+                updateCostCenterFieldMode(rate);
+            });
         }
         if (info.labelInput) {
             info.labelInput.addEventListener('input', function() {
@@ -2918,6 +3065,7 @@ window.addEventListener('load', function() {
             });
         }
         updateRowDirtyState(rate);
+        updateCostCenterFieldMode(rate);
         return info;
     }
 
@@ -2931,6 +3079,7 @@ window.addEventListener('load', function() {
         }
         delete rateInputs[rate];
         delete currentCostCenters[rate];
+        delete currentCostCenterBreakdowns[rate];
         if (Object.prototype.hasOwnProperty.call(originalRateValues, rate)) {
             delete originalRateValues[rate];
         }
@@ -3159,6 +3308,390 @@ window.addEventListener('load', function() {
         return normalized;
     }
 
+    function createEmptyCostCenterBreakdowns() {
+        var result = {};
+        Object.keys(createEmptyCostCenters()).forEach(function(rate) {
+            result[rate] = [];
+        });
+        return result;
+    }
+
+    function normalizeCostCenterDistributionRows(rows) {
+        if (!Array.isArray(rows)) {
+            return [];
+        }
+        var normalized = [];
+        rows.forEach(function(row) {
+            if (!row || typeof row !== 'object') {
+                return;
+            }
+            var code = String(row.cost_center || row.code || row.strConta_CCusto || '').trim();
+            if (!code) {
+                return;
+            }
+            var percentage = parseDecimalValue(row.percentage || row.fltPercentagem || '');
+            var value = parseDecimalValue(row.value || row.fltValor || '');
+            normalized.push({
+                cost_center: code,
+                percentage: percentage === null ? '' : formatPercentageValue(percentage),
+                value: value === null ? '' : formatDecimalValue(value)
+            });
+        });
+        return normalized;
+    }
+
+    function normalizeCostCenterBreakdownValues(value) {
+        var normalized = createEmptyCostCenterBreakdowns();
+        if (!value || typeof value !== 'object') {
+            return normalized;
+        }
+        var source = value;
+        if (source.rates && typeof source.rates === 'object') {
+            source = source.rates;
+        }
+        Object.keys(source).forEach(function(rate) {
+            if (!Object.prototype.hasOwnProperty.call(normalized, rate)) {
+                normalized[rate] = [];
+            }
+            var entry = source[rate];
+            if (entry && typeof entry === 'object' && Array.isArray(entry.distribution)) {
+                normalized[rate] = normalizeCostCenterDistributionRows(entry.distribution);
+            } else if (entry && typeof entry === 'object' && Array.isArray(entry.entries)) {
+                normalized[rate] = normalizeCostCenterDistributionRows(entry.entries);
+            } else if (Array.isArray(entry)) {
+                normalized[rate] = normalizeCostCenterDistributionRows(entry);
+            }
+        });
+        return normalized;
+    }
+
+    function applyCostCenterBreakdownValues(value) {
+        var normalized = normalizeCostCenterBreakdownValues(value);
+        currentCostCenterBreakdowns = {};
+        Object.keys(normalized).forEach(function(rate) {
+            currentCostCenterBreakdowns[rate] = normalized[rate];
+        });
+        getRateKeys().forEach(function(rate) {
+            updateCostCenterFieldMode(rate);
+        });
+    }
+
+    function getCostCenterBreakdownValues() {
+        var values = {};
+        Object.keys(currentCostCenterBreakdowns || {}).forEach(function(rate) {
+            var rows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
+            var info = rateInputs[rate] || null;
+            var totalAmount = info && info.base ? (parseDecimalValue(info.base.value) || 0) : 0;
+            values[rate] = rows.map(function(row) {
+                var percentage = parseDecimalValue(row.percentage) || 0;
+                return {
+                    cost_center: row.cost_center,
+                    percentage: formatPercentageValue(percentage),
+                    value: formatDecimalValue(totalAmount * (percentage / 100))
+                };
+            });
+        });
+        return values;
+    }
+
+    function getCostCenterOptionMeta(code) {
+        var target = String(code || '').trim();
+        if (!target) {
+            return null;
+        }
+        var options = Array.isArray(currentCostCenterOptions) ? currentCostCenterOptions : [];
+        for (var i = 0; i < options.length; i += 1) {
+            var option = options[i];
+            if (String(option.code || '').trim() === target) {
+                return option;
+            }
+        }
+        return null;
+    }
+
+    function getCostCenterOptionDescription(code) {
+        var option = getCostCenterOptionMeta(code);
+        if (!option) {
+            return '';
+        }
+        return String(option.description || option.label || option.code || '').trim();
+    }
+
+    function isRateCostCenterRequired(rate) {
+        var requirements = currentBtn ? (parseJsonAttribute(currentBtn, 'data-requirements') || {}) : {};
+        var rateData = ensureRateData(rate);
+        var info = rateInputs[rate] || null;
+        var accountCandidates = [
+            info && info.generalAccount ? info.generalAccount.value : '',
+            info && info.ivaAccount ? info.ivaAccount.value : '',
+            rateData.general_account || '',
+            rateData.iva_account || '',
+            storedRowRates[rate] && storedRowRates[rate].general_account ? storedRowRates[rate].general_account : '',
+            storedDefaultRates[rate] && storedDefaultRates[rate].general_account ? storedDefaultRates[rate].general_account : ''
+        ];
+        if (requirements[rate] && requirements[rate].cost_center) {
+            return true;
+        }
+        if (String(rateData.cost_center_required || '').trim() === '1') {
+            return true;
+        }
+        return accountCandidates.some(function(value) {
+            return String(value || '').indexOf('?') !== -1;
+        });
+    }
+
+    function rateHasAssignedAccount(rate) {
+        var info = rateInputs[rate] || null;
+        var rateData = ensureRateData(rate);
+        var candidates = [
+            info && info.generalAccount ? info.generalAccount.value : '',
+            info && info.ivaAccount ? info.ivaAccount.value : '',
+            rateData.general_account || '',
+            rateData.iva_account || ''
+        ];
+        return candidates.some(function(value) {
+            return String(value || '').trim() !== '';
+        });
+    }
+
+    function getCostCenterDistributionSummary(rate) {
+        var rows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
+        if (!rows.length) {
+            return '';
+        }
+        var labels = rows.map(function(row) {
+            return row.cost_center + ' (' + (row.percentage || '0.000') + '%)';
+        });
+        return labels.join(', ');
+    }
+
+    function updateCostCenterFieldMode(rate) {
+        var info = rateInputs[rate];
+        if (!info || !info.row) {
+            return;
+        }
+        var selectEl = info.costCenter;
+        var wrapEl = info.row.querySelector('.cost-center-distribution-wrap');
+        var btnEl = info.row.querySelector('.cost-center-distribution-btn');
+        var summaryEl = info.row.querySelector('.cost-center-distribution-summary');
+        var required = isRateCostCenterRequired(rate);
+        var hasValue = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []).length > 0;
+        if (selectEl) {
+            selectEl.classList.add('d-none');
+        }
+        if (wrapEl) {
+            wrapEl.classList.remove('d-none');
+        }
+        if (btnEl) {
+            btnEl.classList.remove('btn-default', 'btn-warning', 'btn-success');
+            if (hasValue) {
+                btnEl.classList.add('btn-success');
+            } else if (required || rateHasAssignedAccount(rate)) {
+                btnEl.classList.add('btn-warning');
+            } else {
+                btnEl.classList.add('btn-default');
+            }
+        }
+        if (summaryEl) {
+            summaryEl.textContent = getCostCenterDistributionSummary(rate);
+        }
+    }
+
+    function refreshCostCenterFieldModes() {
+        getRateKeys().forEach(function(rate) {
+            updateCostCenterFieldMode(rate);
+        });
+    }
+
+    function setCostCenterDistributionMeta(field, value) {
+        if (field) {
+            field.value = value || '';
+        }
+    }
+
+    function renderCostCenterDistributionOptions(selectEl, selectedValue) {
+        if (!selectEl) {
+            return;
+        }
+        var selected = String(selectedValue || '').trim();
+        var html = '<option value="">Selecione o centro de custo</option>';
+        (currentCostCenterOptions || []).forEach(function(option) {
+            var code = String(option.code || '').trim();
+            if (!code) {
+                return;
+            }
+            var description = String(option.description || '').trim();
+            var label = description ? (code + ' - ' + description) : code;
+            html += '<option value="' + escapeHtml(code) + '"' + (selected === code ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+        });
+        if (selected && !getCostCenterOptionMeta(selected)) {
+            html += '<option value="' + escapeHtml(selected) + '" selected>' + escapeHtml(selected) + '</option>';
+        }
+        selectEl.innerHTML = html;
+        selectEl.value = selected;
+    }
+
+    function recalculateCostCenterDistributionModal() {
+        if (!costCenterDistributionTableBody) {
+            return;
+        }
+        var rate = currentCostCenterDistributionRate;
+        var info = rate ? rateInputs[rate] : null;
+        var totalAmount = info && info.base ? (parseDecimalValue(info.base.value) || 0) : 0;
+        var rows = costCenterDistributionTableBody.querySelectorAll('tr');
+        var totalPercentage = 0;
+        rows.forEach(function(row) {
+            var percentageInput = row.querySelector('.cc-distribution-percentage');
+            var valueCell = row.querySelector('.cc-distribution-value');
+            var percentage = percentageInput ? parseDecimalValue(percentageInput.value) : null;
+            if (percentage === null) {
+                percentage = 0;
+            }
+            totalPercentage += percentage;
+            var lineValue = totalAmount * (percentage / 100);
+            if (valueCell) {
+                valueCell.textContent = formatNumberValue(lineValue);
+            }
+        });
+        var remainingPercentage = Math.max(0, 100 - totalPercentage);
+        var remainingAmount = totalAmount * (remainingPercentage / 100);
+        if (costCenterDistributionPercentAssignedEl) {
+            costCenterDistributionPercentAssignedEl.textContent = formatPercentageDisplayValue(totalPercentage);
+        }
+        if (costCenterDistributionPercentRemainingEl) {
+            costCenterDistributionPercentRemainingEl.textContent = formatPercentageDisplayValue(remainingPercentage);
+        }
+        if (costCenterDistributionAmountRemainingEl) {
+            costCenterDistributionAmountRemainingEl.textContent = formatNumberValue(remainingAmount);
+        }
+    }
+
+    function rebalancePreviousCostCenterRow(row, percentageInput) {
+        if (!costCenterDistributionTableBody || !row || !percentageInput) {
+            return;
+        }
+        var currentPercentage = parseDecimalValue(percentageInput.value);
+        if (currentPercentage === null || currentPercentage < 0) {
+            return;
+        }
+        var previousRow = row.previousElementSibling;
+        if (!previousRow) {
+            return;
+        }
+        var previousInput = previousRow.querySelector('.cc-distribution-percentage');
+        if (!previousInput) {
+            return;
+        }
+        var previousPercentage = parseDecimalValue(previousInput.value);
+        if (previousPercentage === null) {
+            return;
+        }
+        var previousWasAutoManaged = previousInput.getAttribute('data-auto-managed') === '1';
+        if (!previousWasAutoManaged && Math.abs(previousPercentage - 100) > 0.0001) {
+            return;
+        }
+        previousInput.value = formatAutoPercentageDisplayValue(Math.max(0, 100 - currentPercentage));
+        previousInput.setAttribute('data-auto-managed', '1');
+    }
+
+    function addCostCenterDistributionRow(data) {
+        if (!costCenterDistributionRowTemplate || !costCenterDistributionTableBody) {
+            return;
+        }
+        var fragment = costCenterDistributionRowTemplate.content ? costCenterDistributionRowTemplate.content.cloneNode(true) : null;
+        if (!fragment) {
+            return;
+        }
+        var row = fragment.querySelector('tr');
+        if (!row) {
+            return;
+        }
+        var codeSelect = row.querySelector('.cc-distribution-code');
+        var percentageInput = row.querySelector('.cc-distribution-percentage');
+        var removeBtn = row.querySelector('.cc-distribution-remove-row');
+        var selectedCode = data && data.cost_center ? data.cost_center : '';
+        renderCostCenterDistributionOptions(codeSelect, selectedCode);
+        if (percentageInput) {
+            percentageInput.value = data && data.percentage ? formatPercentageDisplayValue(data.percentage) : '';
+            percentageInput.addEventListener('input', function() {
+                rebalancePreviousCostCenterRow(row, percentageInput);
+                recalculateCostCenterDistributionModal();
+            });
+            percentageInput.addEventListener('blur', function() {
+                percentageInput.removeAttribute('data-auto-managed');
+                var previousRow = row.previousElementSibling;
+                if (!previousRow) {
+                    return;
+                }
+                var previousInput = previousRow.querySelector('.cc-distribution-percentage');
+                if (previousInput) {
+                    previousInput.removeAttribute('data-auto-managed');
+                }
+            });
+        }
+        if (codeSelect) {
+            codeSelect.addEventListener('change', function() {
+                if (percentageInput) {
+                    var allRows = costCenterDistributionTableBody ? costCenterDistributionTableBody.querySelectorAll('tr') : [];
+                    var isFirstRow = allRows.length > 0 && allRows[0] === row;
+                    var currentPercentage = parseDecimalValue(percentageInput.value);
+                    if (isFirstRow && codeSelect.value && (currentPercentage === null || currentPercentage === 0)) {
+                        percentageInput.value = '100';
+                    }
+                }
+                renderCostCenterDistributionOptions(codeSelect, codeSelect.value);
+                recalculateCostCenterDistributionModal();
+            });
+        }
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function() {
+                row.remove();
+                recalculateCostCenterDistributionModal();
+            });
+        }
+        costCenterDistributionTableBody.appendChild(row);
+        recalculateCostCenterDistributionModal();
+    }
+
+    function openCostCenterDistributionModal(rate) {
+        if (!costCenterDistributionModal || !currentBtn) {
+            return;
+        }
+        currentCostCenterDistributionRate = rate;
+        var info = rateInputs[rate] || null;
+        var emitterDisplay = currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '';
+        var docNumber = currentBtn.getAttribute('data-doc-number') || '';
+        var docDate = currentBtn.getAttribute('data-docdate') || '';
+        var docType = currentBtn.getAttribute('data-doctype') || '';
+        var accountCode = info && info.generalAccount ? String(info.generalAccount.value || '').trim() : '';
+        var accountLabel = getRateLabel(rate) || getDefaultRateLabel(rate);
+        var amount = info && info.base ? (parseDecimalValue(info.base.value) || 0) : 0;
+
+        setCostCenterDistributionMeta(costCenterDistributionDocumentInfoEl, docNumber);
+        setCostCenterDistributionMeta(costCenterDistributionDateInfoEl, docDate);
+        setCostCenterDistributionMeta(costCenterDistributionTypeInfoEl, docType);
+        setCostCenterDistributionMeta(costCenterDistributionEmitterInfoEl, emitterDisplay);
+        setCostCenterDistributionMeta(costCenterDistributionAccountInfoEl, accountCode);
+        setCostCenterDistributionMeta(costCenterDistributionAccountLabelInfoEl, accountLabel);
+        setCostCenterDistributionMeta(costCenterDistributionAmountInfoEl, formatNumberValue(amount));
+        setCostCenterDistributionMeta(costCenterDistributionRateInfoEl, accountLabel);
+
+        if (costCenterDistributionTableBody) {
+            costCenterDistributionTableBody.innerHTML = '';
+        }
+
+        var existingRows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
+        if (!existingRows.length) {
+            addCostCenterDistributionRow(null);
+        } else {
+            existingRows.forEach(function(row) {
+                addCostCenterDistributionRow(row);
+            });
+        }
+        recalculateCostCenterDistributionModal();
+        costCenterDistributionModal.show();
+    }
+
     function applyCostCenterValues(value, options) {
         var opts = options || {};
         if (!opts.skipEnsure) {
@@ -3176,6 +3709,9 @@ window.addEventListener('load', function() {
             }
             var newValue = Object.prototype.hasOwnProperty.call(normalized, rate) ? normalized[rate] : '';
             setCostCenterFieldOptions(info.costCenter, newValue);
+        });
+        getRateKeys().forEach(function(rate) {
+            updateCostCenterFieldMode(rate);
         });
     }
 
@@ -3325,6 +3861,12 @@ window.addEventListener('load', function() {
         if (info.generalAccount && info.generalAccount.value !== generalAccount) {
             info.generalAccount.value = generalAccount;
         }
+        if (info.ivaAccount) {
+            updatePlanInputTitle(info.ivaAccount);
+        }
+        if (info.generalAccount) {
+            updatePlanInputTitle(info.generalAccount);
+        }
         var label = '';
         if (typeof baseData.label === 'string' && baseData.label.trim() !== '') {
             label = baseData.label.trim();
@@ -3397,6 +3939,7 @@ window.addEventListener('load', function() {
                 }
             }
         }
+        updateCostCenterFieldMode(rate);
         updateRowDirtyState(rate);
     }
 
@@ -3799,6 +4342,7 @@ window.addEventListener('load', function() {
 
     if (classifyModalEl) {
         classifyModalEl.addEventListener('shown.bs.modal', function() {
+            refreshCostCenterFieldModes();
             var keys = getRateKeys();
             if (keys.length > 0) {
                 focusRateInput(rateInputs[keys[0]]);
@@ -3813,8 +4357,73 @@ window.addEventListener('load', function() {
             updateCurrentPlanContextFromButton(null);
             currentOriginalRatesKey = null;
             currentTotalAccount = '';
+            currentCostCenterDistributionRate = '';
             if (totalAccountInput) {
                 totalAccountInput.value = '';
+            }
+        });
+    }
+
+    if (costCenterDistributionAddRowBtn) {
+        costCenterDistributionAddRowBtn.addEventListener('click', function() {
+            addCostCenterDistributionRow(null);
+        });
+    }
+
+    if (costCenterDistributionSaveBtn) {
+        costCenterDistributionSaveBtn.addEventListener('click', function() {
+            var rate = currentCostCenterDistributionRate;
+            if (!rate || !costCenterDistributionTableBody) {
+                return;
+            }
+            var rows = [];
+            var totalPercentage = 0;
+            var invalid = false;
+            costCenterDistributionTableBody.querySelectorAll('tr').forEach(function(row) {
+                var codeSelect = row.querySelector('.cc-distribution-code');
+                var percentageInput = row.querySelector('.cc-distribution-percentage');
+                var code = codeSelect ? String(codeSelect.value || '').trim() : '';
+                var percentage = percentageInput ? parseDecimalValue(percentageInput.value) : null;
+                if (!code && (percentage === null || percentage === 0)) {
+                    return;
+                }
+                if (!code || percentage === null || percentage <= 0) {
+                    invalid = true;
+                    return;
+                }
+                totalPercentage += percentage;
+                rows.push({
+                    cost_center: code,
+                    percentage: formatPercentageValue(percentage),
+                    value: ''
+                });
+            });
+            if (invalid || !rows.length) {
+                showError('Preencha centros de custo e percentagens válidas.');
+                return;
+            }
+            if (Math.abs(totalPercentage - 100) > 0.005) {
+                showError('A percentagem atribuída tem de totalizar 100%.');
+                return;
+            }
+            var info = rateInputs[rate] || null;
+            var totalAmount = info && info.base ? (parseDecimalValue(info.base.value) || 0) : 0;
+            rows = rows.map(function(row) {
+                var percentage = parseDecimalValue(row.percentage) || 0;
+                return {
+                    cost_center: row.cost_center,
+                    percentage: formatPercentageValue(percentage),
+                    value: formatDecimalValue(totalAmount * (percentage / 100))
+                };
+            });
+            currentCostCenterBreakdowns[rate] = rows;
+            currentCostCenters[rate] = rows[0] ? rows[0].cost_center : '';
+            if (rateInputs[rate] && rateInputs[rate].costCenter) {
+                setCostCenterFieldOptions(rateInputs[rate].costCenter, currentCostCenters[rate]);
+            }
+            updateCostCenterFieldMode(rate);
+            if (costCenterDistributionModal) {
+                costCenterDistributionModal.hide();
             }
         });
     }
@@ -3874,10 +4483,12 @@ window.addEventListener('load', function() {
         storedRowRates = {};
         storedDefaultRates = {};
         currentCostCenters = {};
+        currentCostCenterBreakdowns = {};
         removedRates = {};
         currentTotalAccount = (btn.getAttribute('data-total-account') || '').trim();
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
+            updatePlanInputTitle(totalAccountInput);
         }
 
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -3912,18 +4523,26 @@ window.addEventListener('load', function() {
             }
         });
         ensureRowsForRates(currentRateData, { allowCreate: true });
+        rebuildRequirementsForCurrentButton();
         getRateKeys().forEach(function(rate) {
             populateRateRow(rate);
         });
+        rebuildRequirementsForCurrentButton();
+        refreshCostCenterFieldModes();
         captureOriginalRateValues({ initialize: true, refresh: false, allowCreate: false });
 
         var btnCostCenters = parseJsonAttribute(btn, 'data-cost-centers');
+        var btnCostCenterBreakdowns = parseJsonAttribute(btn, 'data-cost-center-breakdowns') || {};
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
             btnCostCenters = btn.getAttribute('data-cost-center') || '';
         }
         applyCostCenterValues(btnCostCenters, { skipEnsure: true });
+        applyCostCenterBreakdownValues(btnCostCenterBreakdowns);
+        refreshCostCenterFieldModes();
         loadCostCenterCatalogForDocument(documentDb, docDate, { silent: true }).then(function() {
             applyCostCenterValues(currentCostCenters, { skipEnsure: true });
+            applyCostCenterBreakdownValues(currentCostCenterBreakdowns);
+            refreshCostCenterFieldModes();
         });
 
         var params = new URLSearchParams({
@@ -3957,6 +4576,7 @@ window.addEventListener('load', function() {
                 currentTotalAccount = effectiveTotalAccount || '';
                 if (totalAccountInput) {
                     totalAccountInput.value = currentTotalAccount;
+                    updatePlanInputTitle(totalAccountInput);
                 }
 
                 Object.keys(storedRowRates).forEach(function(rate) {
@@ -4016,18 +4636,20 @@ window.addEventListener('load', function() {
                         applyCostCenterValues(serverCostCenters, { skipEnsure: true });
                     }
                 }
-                if (res.suggested_cost_centers && typeof res.suggested_cost_centers === 'object') {
-                    applySuggestedCostCenters(res.suggested_cost_centers);
+                if (res.cost_center_breakdowns && typeof res.cost_center_breakdowns === 'object') {
+                    applyCostCenterBreakdownValues(res.cost_center_breakdowns);
+                    currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
                 }
-
                 debugJson('dados de taxas após merge', currentRateData);
 
                 var restored = restoreSavedRates();
+                rebuildRequirementsForCurrentButton();
                 getRateKeys().forEach(function(rate) {
                     populateRateRow(rate);
                 });
                 captureOriginalRateValues({ initialize: true });
                 currentCostCenters = getCostCenterValues();
+                refreshCostCenterFieldModes();
 
                 if (restored.length > 0) {
                     focusRateInput(rateInputs[restored[0]]);
@@ -4085,6 +4707,7 @@ window.addEventListener('load', function() {
             });
 
             var costCentersPayload = getCostCenterValues();
+            var costCenterBreakdownsPayload = getCostCenterBreakdownValues();
             var missingCostCenterRates = [];
             Object.keys(currentRequirements).forEach(function(rate) {
                 var req = currentRequirements[rate] || {};
@@ -4092,10 +4715,15 @@ window.addEventListener('load', function() {
                     return;
                 }
                 var value = String(costCentersPayload[rate] || '').trim();
-                if (value === '') {
+                var breakdownRows = Array.isArray(costCenterBreakdownsPayload[rate]) ? costCenterBreakdownsPayload[rate] : [];
+                if (value === '' && !breakdownRows.length) {
                     missingCostCenterRates.push(String(rate));
                 }
             });
+            if (missingCostCenterRates.length) {
+                showError('Preencha os centros de custo obrigatórios antes de guardar.');
+                return;
+            }
             var body = new URLSearchParams({
                 id: currentBtn.getAttribute('data-id') || '',
                 A: currentBtn.getAttribute('data-emitter') || '',
@@ -4105,6 +4733,7 @@ window.addEventListener('load', function() {
                 removed_rates: JSON.stringify(removedPayload),
                 original_rates: JSON.stringify(originalRateValues),
                 cost_centers: JSON.stringify(costCentersPayload),
+                cost_center_breakdowns: JSON.stringify(costCenterBreakdownsPayload),
                 total_account: totalAccountValue,
                 csrf_token: csrfInput.value
             });
@@ -4127,6 +4756,11 @@ window.addEventListener('load', function() {
                     responseCostCenters = costCentersPayload;
                 }
                 applyCostCenterValues(responseCostCenters, { skipEnsure: true });
+                if (res.cost_center_breakdowns && typeof res.cost_center_breakdowns === 'object') {
+                    applyCostCenterBreakdownValues(res.cost_center_breakdowns);
+                } else {
+                    applyCostCenterBreakdownValues(costCenterBreakdownsPayload);
+                }
                 currentCostCenters = getCostCenterValues();
                 var responseTotalAccount = '';
                 if (typeof res.row_total_account === 'string') {
@@ -4138,6 +4772,7 @@ window.addEventListener('load', function() {
                 currentTotalAccount = responseTotalAccount;
                 if (totalAccountInput) {
                     totalAccountInput.value = currentTotalAccount;
+                    updatePlanInputTitle(totalAccountInput);
                 }
                 if (Object.prototype.hasOwnProperty.call(res, 'manual_review_required')) {
                     var manualReviewValue = String(res.manual_review_required || '').trim();
@@ -4145,6 +4780,9 @@ window.addEventListener('load', function() {
                 }
                 if (res.requirements && typeof res.requirements === 'object') {
                     currentBtn.setAttribute('data-requirements', JSON.stringify(res.requirements));
+                    getRateKeys().forEach(function(rate) {
+                        updateCostCenterFieldMode(rate);
+                    });
                 }
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
@@ -4249,6 +4887,7 @@ window.addEventListener('load', function() {
 
                 currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
                 currentBtn.setAttribute('data-cost-centers', JSON.stringify(currentCostCenters));
+                currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
                 currentBtn.setAttribute('data-total-account', currentTotalAccount);
                 updateButtonClass(currentBtn);
                 removedRates = {};

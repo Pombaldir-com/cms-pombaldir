@@ -363,18 +363,34 @@ $csrfToken = generateCsrfToken();
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body">
+                <div class="mb-3">
+                    <h6 class="mb-2">Linhas do movimento</h6>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Conta</th>
+                                    <th>Descrição</th>
+                                    <th class="text-end">Débito</th>
+                                    <th class="text-end">Crédito</th>
+                                    <th>NIF</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lancamentoDetailBody"></tbody>
+                        </table>
+                    </div>
+                </div>
                 <div class="table-responsive">
+                    <h6 class="mb-2">Resumo centros de custo</h6>
                     <table class="table table-striped table-bordered mb-0">
                         <thead>
                             <tr>
-                                <th>Conta</th>
-                                <th>Descrição</th>
-                                <th class="text-end">Débito</th>
-                                <th class="text-end">Crédito</th>
-                                <th>NIF</th>
+                                <th>Conta/C.Custo</th>
+                                <th class="text-end">%</th>
+                                <th>N</th>
                             </tr>
                         </thead>
-                        <tbody id="lancamentoDetailBody"></tbody>
+                        <tbody id="lancamentoCostCenterBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -400,6 +416,7 @@ $pageScripts = <<<'JS'
     var $filters = jQuery('.dt-filter');
     var detailModalEl = document.getElementById('lancamentoDetailModal');
     var detailBodyEl = document.getElementById('lancamentoDetailBody');
+    var detailCostCenterBodyEl = document.getElementById('lancamentoCostCenterBody');
     var detailTitleEl = document.getElementById('lancamentoDetailTitle');
     var deleteBtnEl = document.getElementById('lancamentoDeleteBtn');
     var detailModal = (detailModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
@@ -488,6 +505,21 @@ $pageScripts = <<<'JS'
         return '-';
     }
 
+    function findLineAccount(lines, lineNo) {
+        if (!Array.isArray(lines) || !lines.length) {
+            return '';
+        }
+        var wanted = String(lineNo || '').trim();
+        for (var i = 0; i < lines.length; i += 1) {
+            var line = lines[i];
+            var candidate = String(line && (line.intNumlinha || line.intNumLinha || '')).trim();
+            if (candidate !== '' && candidate === wanted) {
+                return String(line && line.strConta ? line.strConta : '').trim();
+            }
+        }
+        return '';
+    }
+
     function decodeBase64ToBlob(base64Content, mimeType) {
         var cleanBase64 = String(base64Content || '').trim();
         var commaPos = cleanBase64.indexOf(',');
@@ -570,6 +602,51 @@ $pageScripts = <<<'JS'
                     + '</tr>';
             });
             detailBodyEl.innerHTML = html;
+        }
+
+        if (detailCostCenterBodyEl) {
+            var movCc = Array.isArray(rowData.mov_cc) ? rowData.mov_cc.slice() : [];
+            movCc.sort(function(a, b) {
+                var aLine = parseInt(a && a.intNumLinha ? a.intNumLinha : 0, 10);
+                var bLine = parseInt(b && b.intNumLinha ? b.intNumLinha : 0, 10);
+                var aCc = parseInt(a && a.intNumLinha_CC ? a.intNumLinha_CC : 0, 10);
+                var bCc = parseInt(b && b.intNumLinha_CC ? b.intNumLinha_CC : 0, 10);
+                if (isNaN(aLine)) {
+                    aLine = 0;
+                }
+                if (isNaN(bLine)) {
+                    bLine = 0;
+                }
+                if (aLine !== bLine) {
+                    return aLine - bLine;
+                }
+                if (isNaN(aCc)) {
+                    aCc = 0;
+                }
+                if (isNaN(bCc)) {
+                    bCc = 0;
+                }
+                return aCc - bCc;
+            });
+
+            if (!movCc.length) {
+                detailCostCenterBodyEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Sem centros de custo.</td></tr>';
+            } else {
+                var costCenterHtml = '';
+                movCc.forEach(function(item) {
+                    var conta = findLineAccount(lines, item && item.intNumLinha ? item.intNumLinha : '');
+                    var ccusto = String(item && item.strConta_CCusto ? item.strConta_CCusto : '').trim();
+                    var contaCcusto = conta !== '' ? conta + ' / ' + ccusto : ccusto;
+                    var percentagem = item && item.fltPercentagem !== undefined ? formatAmount(item.fltPercentagem) : '';
+                    var natureza = String(item && item.strDeb_Cre ? item.strDeb_Cre : '').trim().toUpperCase();
+                    costCenterHtml += '<tr>'
+                        + '<td>' + escapeHtml(contaCcusto) + '</td>'
+                        + '<td class="text-end">' + escapeHtml(percentagem) + '</td>'
+                        + '<td>' + escapeHtml(natureza) + '</td>'
+                        + '</tr>';
+                });
+                detailCostCenterBodyEl.innerHTML = costCenterHtml;
+            }
         }
 
         if (detailModal) {
@@ -768,7 +845,8 @@ $pageScripts = <<<'JS'
                         strFArchTaxPayer: row && row.strFArchTaxPayer ? row.strFArchTaxPayer : '',
                         total: total,
                         hasDigitalAttachment: extractHasDigitalAttachment(row),
-                        linhas: Array.isArray(row && row.linhas) ? row.linhas : []
+                        linhas: Array.isArray(row && row.linhas) ? row.linhas : [],
+                        mov_cc: Array.isArray(row && row.mov_cc) ? row.mov_cc : []
                     };
                 });
                 var total = resp && typeof resp.iTotalRecords !== 'undefined' ? parseInt(resp.iTotalRecords, 10) : formatted.length;

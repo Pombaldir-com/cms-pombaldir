@@ -440,6 +440,7 @@ if ($action === 'get') {
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
         $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
+        $rowCostCenterBreakdowns = normalizeCostCenterBreakdowns($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
         [, $rowRequirements] = buildRatePayload($summaries, $rowAccounts);
 
@@ -469,8 +470,9 @@ if ($action === 'get') {
         'rates' => $classificationAccounts,
         'row_rates' => $rowAccounts,
         'row_requirements' => $rowRequirements,
-        'cost_center' => serializeCostCenters($rowCostCenters),
+        'cost_center' => serializeCostCenters($rowCostCenters, $rowCostCenterBreakdowns),
         'cost_centers' => $rowCostCenters,
+        'cost_center_breakdowns' => $rowCostCenterBreakdowns,
         'suggested_cost_centers' => $suggestedCostCenters,
         'total_account' => $classificationMetadata['total_account'] ?? '',
         'row_total_account' => $rowMetadata['total_account'] ?? '',
@@ -551,6 +553,9 @@ if ($action === 'get') {
             }
         }
 
+        $costCenterBreakdownsJson = $_POST['cost_center_breakdowns'] ?? '';
+        $costCenterBreakdownsData = [];
+
         $submittedMetadata = sanitizeAccountingMetadata([
             'total_account' => $_POST['total_account'] ?? ''
         ]);
@@ -568,6 +573,15 @@ if ($action === 'get') {
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC);
         if (!$importRow) {
             throw new RuntimeException('Importação inexistente');
+        }
+        if ($costCenterBreakdownsJson !== '') {
+            $decodedCostCenterBreakdowns = json_decode($costCenterBreakdownsJson, true);
+            if (!is_array($decodedCostCenterBreakdowns)) {
+                $decodedCostCenterBreakdowns = [];
+            }
+            $costCenterBreakdownsData = sanitizeCostCenterBreakdownValues($decodedCostCenterBreakdowns);
+        } else {
+            $costCenterBreakdownsData = normalizeCostCenterBreakdowns($importRow['cost_center'] ?? '');
         }
         $existingRow = normalizeAccountingAccounts($importRow['account'] ?? '');
         $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
@@ -591,6 +605,7 @@ if ($action === 'get') {
 
         foreach ($removedRates as $rate) {
             unset($rowAccounts[$rate], $classAccounts[$rate], $costCentersData[$rate]);
+            unset($costCenterBreakdownsData[$rate]);
             unset($existingOriginal[$rate]);
         }
 
@@ -618,7 +633,8 @@ if ($action === 'get') {
                 continue;
             }
             $costCenterValue = trim((string) ($costCentersData[$rate] ?? ''));
-            if ($costCenterValue === '') {
+            $distributionRows = sanitizeCostCenterBreakdownRows($costCenterBreakdownsData[$rate] ?? []);
+            if ($costCenterValue === '' && empty($distributionRows)) {
                 $missingCostCenterRates[] = (string) $rate;
             }
         }
@@ -639,6 +655,22 @@ if ($action === 'get') {
             ksort($normalized);
             return $normalized;
         };
+        $normalizeCostCenterBreakdownsForComparison = static function ($value): array {
+            $normalized = sanitizeCostCenterBreakdownValues($value);
+            ksort($normalized);
+            foreach ($normalized as &$rows) {
+                if (is_array($rows)) {
+                    usort($rows, static function (array $a, array $b): int {
+                        return strcmp(
+                            ($a['cost_center'] ?? '') . '|' . ($a['percentage'] ?? '') . '|' . ($a['value'] ?? ''),
+                            ($b['cost_center'] ?? '') . '|' . ($b['percentage'] ?? '') . '|' . ($b['value'] ?? '')
+                        );
+                    });
+                }
+            }
+            unset($rows);
+            return $normalized;
+        };
 
         $existingRowNormalized = $normalizeRatesForComparison($existingRow);
         $rowAccountsNormalized = $normalizeRatesForComparison($rowAccounts);
@@ -646,10 +678,13 @@ if ($action === 'get') {
         $existingCostCentersNormalized = $normalizeCostCentersForComparison($importRow['cost_center'] ?? '');
         $submittedCostCentersNormalized = $normalizeCostCentersForComparison($costCentersData);
         $costCentersChanged = $existingCostCentersNormalized !== $submittedCostCentersNormalized;
+        $existingCostCenterBreakdownsNormalized = $normalizeCostCenterBreakdownsForComparison($importRow['cost_center'] ?? '');
+        $submittedCostCenterBreakdownsNormalized = $normalizeCostCenterBreakdownsForComparison($costCenterBreakdownsData);
+        $costCenterBreakdownsChanged = $existingCostCenterBreakdownsNormalized !== $submittedCostCenterBreakdownsNormalized;
         $existingTotalAccount = trim((string) ($existingRowMetadata['total_account'] ?? ''));
         $submittedTotalAccount = trim((string) ($submittedMetadata['total_account'] ?? ''));
         $totalAccountChanged = $existingTotalAccount !== $submittedTotalAccount;
-        $hasManualChanges = $rowAccountsChanged || $costCentersChanged || $totalAccountChanged || !empty($removedRates);
+        $hasManualChanges = $rowAccountsChanged || $costCentersChanged || $costCenterBreakdownsChanged || $totalAccountChanged || !empty($removedRates);
 
         $submittedMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
         if ($existingRowWasReady && $hasManualChanges) {
@@ -660,7 +695,7 @@ if ($action === 'get') {
         $classMetadata = $submittedMetadata;
         $classMetadata['manual_review_required'] = '0';
         $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
-        $serializedCostCenters = serializeCostCenters($costCentersData);
+        $serializedCostCenters = serializeCostCenters($costCentersData, $costCenterBreakdownsData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
 
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ?, account_original = ? WHERE id = ?');
@@ -680,6 +715,7 @@ if ($action === 'get') {
             'requirements' => $rowRequirements,
             'cost_center' => $serializedCostCenters,
             'cost_centers' => $costCentersData,
+            'cost_center_breakdowns' => $costCenterBreakdownsData,
             'original_rates' => $existingOriginal,
             'total_account' => $submittedMetadata['total_account'] ?? '',
             'row_total_account' => $submittedMetadata['total_account'] ?? '',
