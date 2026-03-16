@@ -1540,6 +1540,7 @@ window.addEventListener('load', function() {
     var costCenterDistributionModal = costCenterDistributionModalEl ? new bootstrap.Modal(costCenterDistributionModalEl) : null;
     var costCenterDistributionDialogEl = costCenterDistributionModalEl ? costCenterDistributionModalEl.querySelector('.modal-dialog') : null;
     var costCenterDistributionHeaderEl = costCenterDistributionModalEl ? costCenterDistributionModalEl.querySelector('.modal-header') : null;
+    var costCenterDistributionResizeObserver = null;
     var modalTitleEl = document.getElementById('classifyModalLabel');
     var classifyDocumentPreviewFrame = document.getElementById('classifyDocumentPreviewFrame');
     var classifyDocumentPreviewEmpty = document.getElementById('classifyDocumentPreviewEmpty');
@@ -1639,11 +1640,28 @@ window.addEventListener('load', function() {
         costCenterDistributionDialogEl.style.top = position.top + 'px';
     }
 
+    function fixCostCenterDistributionDialogSize() {
+        if (!costCenterDistributionDialogEl) {
+            return;
+        }
+
+        var rect = costCenterDistributionDialogEl.getBoundingClientRect();
+        var width = rect.width || costCenterDistributionDialogEl.offsetWidth || 0;
+        var height = rect.height || costCenterDistributionDialogEl.offsetHeight || 0;
+        if (width > 0) {
+            costCenterDistributionDialogEl.style.width = width + 'px';
+        }
+        if (height > 0) {
+            costCenterDistributionDialogEl.style.height = height + 'px';
+        }
+    }
+
     function resetCostCenterDistributionDialogPosition() {
         if (!costCenterDistributionDialogEl) {
             return;
         }
 
+        fixCostCenterDistributionDialogSize();
         costCenterDistributionDialogEl.style.position = 'fixed';
         costCenterDistributionDialogEl.style.margin = '0';
         costCenterDistributionDialogEl.style.transform = 'none';
@@ -1745,7 +1763,6 @@ window.addEventListener('load', function() {
         });
         costCenterDistributionModalEl.addEventListener('hidden.bs.modal', function() {
             stopDrag();
-            resetCostCenterDistributionDialogPosition();
         });
         window.addEventListener('resize', function() {
             if (!costCenterDistributionModalEl.classList.contains('show')) {
@@ -1754,6 +1771,17 @@ window.addEventListener('load', function() {
             var rect = costCenterDistributionDialogEl.getBoundingClientRect();
             setCostCenterDistributionDialogPosition(rect.left, rect.top);
         });
+
+        if (typeof window.ResizeObserver === 'function') {
+            costCenterDistributionResizeObserver = new ResizeObserver(function() {
+                if (!costCenterDistributionModalEl.classList.contains('show')) {
+                    return;
+                }
+                var rect = costCenterDistributionDialogEl.getBoundingClientRect();
+                setCostCenterDistributionDialogPosition(rect.left, rect.top);
+            });
+            costCenterDistributionResizeObserver.observe(costCenterDistributionDialogEl);
+        }
 
         costCenterDistributionModalEl.__dragInitialized = true;
     }

@@ -2707,6 +2707,18 @@ require_once __DIR__ . '/../header.php';
         cursor: move;
     }
 
+    #costCenterDistributionModal .modal-dialog {
+        max-width: none;
+        min-width: 720px;
+        min-height: 320px;
+        resize: both;
+        overflow: auto;
+    }
+
+    #costCenterDistributionModal .modal-content {
+        height: 100%;
+    }
+
     #costCenterDistributionModal.is-dragging,
     #costCenterDistributionModal.is-dragging .modal-header {
         user-select: none;
