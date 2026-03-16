@@ -2315,6 +2315,7 @@ if ($action === 'data') {
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                     . 'data-docdate="' . htmlspecialchars($row['field_F'] ?? '') . '" '
+                    . 'data-file-url="' . htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
@@ -2516,6 +2517,7 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                                 data-docdate="<?= htmlspecialchars($row['field_F'] ?? ''); ?>"
+                                data-file-url="<?= htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
@@ -2543,8 +2545,197 @@ require_once __DIR__ . '/../header.php';
         <input type="hidden" id="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </div>
 </div>
+<style>
+    .classify-modal-dialog {
+        width: min(96vw, 1680px);
+        max-width: min(96vw, 1680px);
+    }
+
+    .classify-modal-layout {
+        display: flex;
+        gap: 1rem;
+        align-items: stretch;
+        min-height: 72vh;
+    }
+
+    .classify-modal-preview-pane {
+        flex: 0 0 50%;
+        max-width: 50%;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .classify-modal-form-pane {
+        flex: 0 0 50%;
+        max-width: 50%;
+        display: flex;
+        flex-direction: column;
+        min-width: 320px;
+    }
+
+    .classify-document-preview-frame {
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: 64vh;
+        border: 1px solid #dee2e6;
+        border-radius: 0.5rem;
+        background: #f8f9fa;
+    }
+
+    .classify-document-preview-empty {
+        min-height: 64vh;
+        border: 1px dashed #ced4da;
+        border-radius: 0.5rem;
+        background: #f8f9fa;
+        color: #6c757d;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 1.5rem;
+    }
+
+    .classify-modal-form-pane .table-responsive {
+        max-height: 58vh;
+        overflow: auto;
+    }
+
+    .classify-modal-vat-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .classify-modal-vat-table .col-rate {
+        width: 10%;
+    }
+
+    .classify-modal-vat-table .col-base {
+        width: 14%;
+    }
+
+    .classify-modal-vat-table .col-iva {
+        width: 14%;
+    }
+
+    .classify-modal-vat-table .col-iva-account {
+        width: 22%;
+    }
+
+    .classify-modal-vat-table .col-general-account {
+        width: 22%;
+    }
+
+    .classify-modal-vat-table .col-cost-center {
+        width: 12%;
+    }
+
+    .classify-modal-vat-table .col-actions {
+        width: 8%;
+        white-space: nowrap;
+    }
+
+    .classify-modal-vat-table th,
+    .classify-modal-vat-table td {
+        vertical-align: middle;
+    }
+
+    .classify-modal-vat-table .form-control {
+        width: 100%;
+    }
+
+    .classify-modal-vat-table .actions-cell .btn {
+        width: auto;
+    }
+
+    .classify-modal-vat-table .actions-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .classify-modal-vat-table .actions-cell .restore-base-btn.d-none {
+        display: inline-flex !important;
+        visibility: hidden;
+    }
+
+    .classify-modal-vat-table .rate-label-field {
+        min-width: 0;
+    }
+
+    .classify-modal-vat-table .cost-center-distribution-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+    }
+
+    .classify-modal-vat-table .cost-center-distribution-btn {
+        width: auto;
+        min-width: 3rem;
+        padding-left: 0.65rem;
+        padding-right: 0.65rem;
+    }
+
+    .classify-modal-vat-table tr[data-custom-rate="1"] .cost-center-distribution-btn {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .classify-modal-vat-table .cost-center-distribution-summary {
+        width: 100%;
+        text-align: center;
+    }
+
+    .classify-modal-vat-table .cost-center-cell {
+        text-align: center;
+    }
+
+    .classify-modal-vat-table .cost-center-cell .cost-center-distribution-summary:empty {
+        display: none;
+    }
+
+    .classify-modal-section-label {
+        font-weight: 700;
+    }
+
+    #costCenterDistributionModal .modal-header {
+        cursor: move;
+    }
+
+    #costCenterDistributionModal.is-dragging,
+    #costCenterDistributionModal.is-dragging .modal-header {
+        user-select: none;
+    }
+
+    @media (max-width: 1199.98px) {
+        .classify-modal-layout {
+            flex-direction: column;
+            min-height: auto;
+        }
+
+        .classify-modal-preview-pane,
+        .classify-modal-form-pane {
+            flex: 1 1 100%;
+            max-width: 100%;
+        }
+
+        .classify-modal-form-pane {
+            min-width: 0;
+        }
+
+        .classify-document-preview-frame,
+        .classify-document-preview-empty {
+            min-height: 48vh;
+        }
+    }
+</style>
 <div class="modal fade" id="classifyModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable classify-modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="classifyModalLabel">Classificar</h5>
@@ -2552,41 +2743,57 @@ require_once __DIR__ . '/../header.php';
             </div>
             <form id="classify-form">
                 <div class="modal-body">
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Taxa</th>
-                                    <th>Base</th>
-                                    <th>IVA</th>
-                                    <th>Conta IVA</th>
-                                    <th>Conta Geral</th>
-                                    <?php if ($importType === 1): ?>
-                                    <th>Centro de Custo</th>
-                                    <?php endif; ?>
-                                    <th class="text-center" width="1%">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                    <?php if ($importType === 1): ?>
-                    <div class="mt-3">
-                        <label for="totalAccountInput" class="form-label mb-1">Valor Total</label>
-                        <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <input
-                                type="text"
-                                class="form-control form-control-sm w-auto"
-                                id="totalAccountInput"
-                                placeholder="Conta para o valor total"
-                                style="min-width: 160px; max-width: 220px;"
-                            >
-                            <small class="text-muted">Será enviada como última linha, com o total do documento e NIF.</small>
+                    <div class="classify-modal-layout">
+                        <div class="classify-modal-preview-pane">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Documento</h6>
+                            </div>
+                            <iframe id="classifyDocumentPreviewFrame" class="classify-document-preview-frame d-none" title="Pre-visualizacao do documento"></iframe>
+                            <div id="classifyDocumentPreviewEmpty" class="classify-document-preview-empty">
+                                Nao foi possivel apresentar a pre-visualizacao deste documento.
+                            </div>
+                        </div>
+                        <div class="classify-modal-form-pane">
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-rate">Taxa</th>
+                                            <th class="col-base">Base</th>
+                                            <th class="col-iva">IVA</th>
+                                            <th class="col-iva-account">Conta IVA</th>
+                                            <th class="col-general-account">Conta Geral</th>
+                                            <?php if ($importType === 1): ?>
+                                            <th class="col-cost-center">C Custo</th>
+                                            <?php endif; ?>
+                                            <th class="text-center col-actions">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <?php if ($importType === 1): ?>
+                            <div class="mt-3">
+                                <label for="totalAccountInput" class="form-label mb-1 classify-modal-section-label">Valor Total</label>
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <input
+                                        type="text"
+                                        class="form-control form-control-sm w-auto"
+                                        id="totalAccountInput"
+                                        placeholder="Conta para o valor total"
+                                        style="min-width: 160px; max-width: 220px;"
+                                    >
+                                    <small class="text-muted">Será enviada como última linha, com o total do documento e NIF.</small>
+                                </div>
+                            </div>
+                            <?php endif; ?>
                         </div>
                     </div>
-                    <?php endif; ?>
                 </div>
                 <div class="modal-footer">
+                    <a href="#" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary me-auto d-none" id="classifyDocumentOpenBtn">
+                        <i class="fa fa-external-link"></i> Abrir
+                    </a>
                     <?php if (getSetting('ai_enabled', '0') === '1' && userHasDepartmentPermission('ai_suggest_vat')): ?>
                     <button type="button" class="btn btn-sm btn-outline-info" id="aiSuggestAccountsBtn">
                         <i class="fa fa-lightbulb-o"></i> Sugestão de contas IA
@@ -2595,7 +2802,7 @@ require_once __DIR__ . '/../header.php';
                         <i class="fa fa-info-circle"></i> Explicação da sugestão
                     </button>
                     <?php endif; ?>
-                    <button type="button" class="btn btn-sm btn-outline-primary me-auto" id="addVatLineBtn">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="addVatLineBtn">
                         <i class="fa fa-plus"></i> Adicionar linha de IVA
                     </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -2607,25 +2814,25 @@ require_once __DIR__ . '/../header.php';
 </div>
 <template id="vatRateRowTemplate">
     <tr data-custom-rate="0">
-        <td class="align-middle">
+        <td class="align-middle col-rate">
             <span class="rate-label-static"></span>
         </td>
-        <td><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
-        <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
-        <td><input type="text" class="form-control form-control-sm iva-account-field"></td>
-        <td><input type="text" class="form-control form-control-sm general-account-field"></td>
+        <td class="col-base"><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
+        <td class="col-iva"><input type="text" class="form-control form-control-sm iva-field" readonly></td>
+        <td class="col-iva-account"><input type="text" class="form-control form-control-sm iva-account-field"></td>
+        <td class="col-general-account"><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($importType === 1): ?>
-        <td class="align-middle">
+        <td class="align-middle col-cost-center cost-center-cell">
             <select class="form-control form-control-sm cost-center-field">
                 <option value="">Selecione o centro de custo</option>
             </select>
             <div class="cost-center-distribution-wrap">
-                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn">C Custo</button>
+                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
                 <div class="cost-center-distribution-summary text-muted small mt-1"></div>
             </div>
         </td>
         <?php endif; ?>
-        <td class="text-center align-middle actions-cell">
+        <td class="text-center align-middle actions-cell col-actions">
             <button
                 type="button"
                 class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
@@ -2641,25 +2848,25 @@ require_once __DIR__ . '/../header.php';
 </template>
 <template id="customRateRowTemplate">
     <tr data-custom-rate="1">
-        <td>
-            <input type="text" class="form-control form-control-sm rate-label-field" placeholder="Identificador da taxa">
+        <td class="col-rate">
+            <input type="text" class="form-control form-control-sm rate-label-field" placeholder="Taxa">
         </td>
-        <td><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
-        <td><input type="text" class="form-control form-control-sm iva-field" readonly></td>
-        <td><input type="text" class="form-control form-control-sm iva-account-field"></td>
-        <td><input type="text" class="form-control form-control-sm general-account-field"></td>
+        <td class="col-base"><input type="text" class="form-control form-control-sm base-field" inputmode="decimal"></td>
+        <td class="col-iva"><input type="text" class="form-control form-control-sm iva-field" readonly></td>
+        <td class="col-iva-account"><input type="text" class="form-control form-control-sm iva-account-field"></td>
+        <td class="col-general-account"><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($importType === 1): ?>
-        <td>
+        <td class="align-middle col-cost-center cost-center-cell">
             <select class="form-control form-control-sm cost-center-field">
                 <option value="">Selecione o centro de custo</option>
             </select>
             <div class="cost-center-distribution-wrap">
-                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn">C Custo</button>
+                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
                 <div class="cost-center-distribution-summary text-muted small mt-1"></div>
             </div>
         </td>
         <?php endif; ?>
-        <td class="text-center align-middle">
+        <td class="text-center align-middle actions-cell col-actions">
             <button
                 type="button"
                 class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"

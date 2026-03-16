@@ -2009,7 +2009,7 @@ function sanitizeCostCenterBreakdownRows($rows): array {
 
         $entry = [
             'cost_center' => $costCenter,
-            'percentage' => $percentage === null ? '' : number_format($percentage, 3, '.', ''),
+            'percentage' => $percentage === null ? '' : number_format($percentage, 2, '.', ''),
             'value' => $value === null ? '' : number_format($value, 2, '.', ''),
         ];
 
@@ -2622,6 +2622,8 @@ function buildDocumentAccountingLines(array $document): array {
             $label = trim($config['label']);
         }
         $summary = $summaries[$rateKey] ?? null;
+        $rateCostCenter = $costCenters[$rateKey] ?? '';
+        $rateCostCenterBreakdown = $costCenterBreakdowns[$rateKey] ?? [];
 
         $generalAccount = trim((string) ($config['general_account'] ?? ''));
         $baseAmount = resolveAccountingLineAmount($config['base'] ?? '', $summary['base_value'] ?? null);
@@ -2631,10 +2633,10 @@ function buildDocumentAccountingLines(array $document): array {
                 $generalAccount,
                 $baseAmount,
                 $description,
-                $costCenters[$rateKey] ?? '',
+                $rateCostCenter,
                 $rateKey,
                 'base',
-                $costCenterBreakdowns[$rateKey] ?? []
+                $rateCostCenterBreakdown
             );
         }
 
@@ -2646,10 +2648,9 @@ function buildDocumentAccountingLines(array $document): array {
                 $ivaAccount,
                 $ivaAmount,
                 $description,
-                $costCenters[$rateKey] ?? '',
+                '',
                 $rateKey,
-                'iva',
-                $costCenterBreakdowns[$rateKey] ?? []
+                'iva'
             );
         }
     }

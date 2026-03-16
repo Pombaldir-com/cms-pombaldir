@@ -1538,7 +1538,12 @@ window.addEventListener('load', function() {
     var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
     var costCenterDistributionModalEl = document.getElementById('costCenterDistributionModal');
     var costCenterDistributionModal = costCenterDistributionModalEl ? new bootstrap.Modal(costCenterDistributionModalEl) : null;
+    var costCenterDistributionDialogEl = costCenterDistributionModalEl ? costCenterDistributionModalEl.querySelector('.modal-dialog') : null;
+    var costCenterDistributionHeaderEl = costCenterDistributionModalEl ? costCenterDistributionModalEl.querySelector('.modal-header') : null;
     var modalTitleEl = document.getElementById('classifyModalLabel');
+    var classifyDocumentPreviewFrame = document.getElementById('classifyDocumentPreviewFrame');
+    var classifyDocumentPreviewEmpty = document.getElementById('classifyDocumentPreviewEmpty');
+    var classifyDocumentOpenBtn = document.getElementById('classifyDocumentOpenBtn');
     var costCenterDistributionDocumentInfoEl = document.getElementById('ccDistributionDocumentInfo');
     var costCenterDistributionDateInfoEl = document.getElementById('ccDistributionDateInfo');
     var costCenterDistributionTypeInfoEl = document.getElementById('ccDistributionTypeInfo');
@@ -1600,9 +1605,201 @@ window.addEventListener('load', function() {
         '23': '23%'
     };
     var defaultRates = Object.keys(defaultRateLabels);
+
+    function clampCostCenterDistributionDialogPosition(left, top) {
+        if (!costCenterDistributionModalEl || !costCenterDistributionDialogEl) {
+            return { left: 0, top: 0 };
+        }
+
+        var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var dialogRect = costCenterDistributionDialogEl.getBoundingClientRect();
+        var dialogWidth = dialogRect.width || costCenterDistributionDialogEl.offsetWidth || 0;
+        var dialogHeight = dialogRect.height || costCenterDistributionDialogEl.offsetHeight || 0;
+        var minVisibleWidth = Math.min(Math.max(120, dialogWidth * 0.2), dialogWidth);
+        var minVisibleHeight = Math.min(72, dialogHeight);
+        var minLeft = Math.min(0, viewportWidth - dialogWidth);
+        var maxLeft = Math.max(minLeft, viewportWidth - minVisibleWidth);
+        var minTop = Math.min(0, viewportHeight - dialogHeight);
+        var maxTop = Math.max(minTop, viewportHeight - minVisibleHeight);
+
+        return {
+            left: Math.min(Math.max(left, minLeft), maxLeft),
+            top: Math.min(Math.max(top, minTop), maxTop)
+        };
+    }
+
+    function setCostCenterDistributionDialogPosition(left, top) {
+        if (!costCenterDistributionDialogEl) {
+            return;
+        }
+
+        var position = clampCostCenterDistributionDialogPosition(left, top);
+        costCenterDistributionDialogEl.style.left = position.left + 'px';
+        costCenterDistributionDialogEl.style.top = position.top + 'px';
+    }
+
+    function resetCostCenterDistributionDialogPosition() {
+        if (!costCenterDistributionDialogEl) {
+            return;
+        }
+
+        costCenterDistributionDialogEl.style.position = 'fixed';
+        costCenterDistributionDialogEl.style.margin = '0';
+        costCenterDistributionDialogEl.style.transform = 'none';
+
+        var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+        var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        var dialogWidth = costCenterDistributionDialogEl.offsetWidth || 0;
+        var dialogHeight = costCenterDistributionDialogEl.offsetHeight || 0;
+        var left = Math.max((viewportWidth - dialogWidth) / 2, 0);
+        var top = Math.max(Math.min((viewportHeight - dialogHeight) / 2, 24), 16);
+        setCostCenterDistributionDialogPosition(left, top);
+    }
+
+    function initializeCostCenterDistributionDrag() {
+        if (!costCenterDistributionModalEl || !costCenterDistributionDialogEl || !costCenterDistributionHeaderEl) {
+            return;
+        }
+        if (costCenterDistributionModalEl.__dragInitialized) {
+            return;
+        }
+
+        var dragState = {
+            active: false,
+            offsetX: 0,
+            offsetY: 0
+        };
+
+        function getPointerPoint(event) {
+            if (event.touches && event.touches.length) {
+                return event.touches[0];
+            }
+            if (event.changedTouches && event.changedTouches.length) {
+                return event.changedTouches[0];
+            }
+            return event;
+        }
+
+        function shouldIgnoreDragStart(target) {
+            if (!target || !(target instanceof Element)) {
+                return false;
+            }
+            return Boolean(target.closest('button, .btn, a, input, select, textarea, label'));
+        }
+
+        function startDrag(event) {
+            if (event.type === 'mousedown' && event.button !== 0) {
+                return;
+            }
+            if (shouldIgnoreDragStart(event.target)) {
+                return;
+            }
+
+            var point = getPointerPoint(event);
+            var rect = costCenterDistributionDialogEl.getBoundingClientRect();
+            dragState.active = true;
+            dragState.offsetX = point.clientX - rect.left;
+            dragState.offsetY = point.clientY - rect.top;
+            costCenterDistributionModalEl.classList.add('is-dragging');
+
+            if (event.cancelable) {
+                event.preventDefault();
+            }
+        }
+
+        function moveDrag(event) {
+            if (!dragState.active) {
+                return;
+            }
+
+            var point = getPointerPoint(event);
+            setCostCenterDistributionDialogPosition(
+                point.clientX - dragState.offsetX,
+                point.clientY - dragState.offsetY
+            );
+
+            if (event.cancelable) {
+                event.preventDefault();
+            }
+        }
+
+        function stopDrag() {
+            if (!dragState.active) {
+                return;
+            }
+            dragState.active = false;
+            costCenterDistributionModalEl.classList.remove('is-dragging');
+        }
+
+        costCenterDistributionHeaderEl.addEventListener('mousedown', startDrag);
+        costCenterDistributionHeaderEl.addEventListener('touchstart', startDrag, { passive: false });
+        document.addEventListener('mousemove', moveDrag);
+        document.addEventListener('touchmove', moveDrag, { passive: false });
+        document.addEventListener('mouseup', stopDrag);
+        document.addEventListener('touchend', stopDrag);
+        document.addEventListener('touchcancel', stopDrag);
+
+        costCenterDistributionModalEl.addEventListener('shown.bs.modal', function() {
+            resetCostCenterDistributionDialogPosition();
+        });
+        costCenterDistributionModalEl.addEventListener('hidden.bs.modal', function() {
+            stopDrag();
+            resetCostCenterDistributionDialogPosition();
+        });
+        window.addEventListener('resize', function() {
+            if (!costCenterDistributionModalEl.classList.contains('show')) {
+                return;
+            }
+            var rect = costCenterDistributionDialogEl.getBoundingClientRect();
+            setCostCenterDistributionDialogPosition(rect.left, rect.top);
+        });
+
+        costCenterDistributionModalEl.__dragInitialized = true;
+    }
+
+    initializeCostCenterDistributionDrag();
     var erpWebserviceUrl = typeof window.erpWebserviceUrl === 'string' ? window.erpWebserviceUrl.trim() : '';
     var erpWebserviceToken = typeof window.erpWebserviceToken === 'string' ? window.erpWebserviceToken.trim() : '';
     var erpBaseCompany = typeof window.erpBaseCompany === 'string' ? window.erpBaseCompany.trim() : '';
+
+    function resetClassifyDocumentPreview() {
+        if (classifyDocumentPreviewFrame) {
+            classifyDocumentPreviewFrame.src = 'about:blank';
+            classifyDocumentPreviewFrame.classList.add('d-none');
+        }
+        if (classifyDocumentPreviewEmpty) {
+            classifyDocumentPreviewEmpty.style.display = 'none';
+        }
+        if (classifyDocumentOpenBtn) {
+            classifyDocumentOpenBtn.setAttribute('href', '#');
+            classifyDocumentOpenBtn.classList.add('d-none');
+        }
+    }
+
+    function setClassifyDocumentPreview(fileUrl) {
+        resetClassifyDocumentPreview();
+
+        var normalizedUrl = typeof fileUrl === 'string' ? fileUrl.trim() : '';
+        if (!normalizedUrl) {
+            if (classifyDocumentPreviewEmpty) {
+                classifyDocumentPreviewEmpty.style.display = 'flex';
+            }
+            return;
+        }
+
+        if (classifyDocumentOpenBtn) {
+            classifyDocumentOpenBtn.setAttribute('href', normalizedUrl);
+            classifyDocumentOpenBtn.classList.remove('d-none');
+        }
+
+        if (classifyDocumentPreviewFrame) {
+            classifyDocumentPreviewFrame.src = normalizedUrl;
+            classifyDocumentPreviewFrame.classList.remove('d-none');
+        } else if (classifyDocumentPreviewEmpty) {
+            classifyDocumentPreviewEmpty.style.display = 'flex';
+        }
+    }
     var planAccountsCache = {};
     var planAutocompleteCounter = 0;
     var currentPlanContext = {
@@ -2108,13 +2305,6 @@ window.addEventListener('load', function() {
         return value.toFixed(2);
     }
 
-    function formatPercentageValue(value) {
-        if (typeof value !== 'number' || !isFinite(value)) {
-            return '';
-        }
-        return value.toFixed(3);
-    }
-
     function formatNumberValue(value) {
         var num = typeof value === 'number' ? value : parseDecimalValue(value);
         if (num === null || !isFinite(num)) {
@@ -2128,19 +2318,11 @@ window.addEventListener('load', function() {
         if (num === null || !isFinite(num)) {
             num = 0;
         }
-        return num.toLocaleString('pt-PT', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-    }
-
-    function formatAutoPercentageDisplayValue(value) {
-        var num = typeof value === 'number' ? value : parseDecimalValue(value);
-        if (num === null || !isFinite(num)) {
-            num = 0;
-        }
         var rounded = Math.round(num);
         if (Math.abs(num - rounded) < 0.0005) {
             return String(rounded);
         }
-        return formatPercentageDisplayValue(num);
+        return num.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function extractPercentageFromData(data) {
@@ -3333,7 +3515,7 @@ window.addEventListener('load', function() {
             var value = parseDecimalValue(row.value || row.fltValor || '');
             normalized.push({
                 cost_center: code,
-                percentage: percentage === null ? '' : formatPercentageValue(percentage),
+                percentage: percentage === null ? '' : formatDecimalValue(percentage),
                 value: value === null ? '' : formatDecimalValue(value)
             });
         });
@@ -3386,7 +3568,7 @@ window.addEventListener('load', function() {
                 var percentage = parseDecimalValue(row.percentage) || 0;
                 return {
                     cost_center: row.cost_center,
-                    percentage: formatPercentageValue(percentage),
+                    percentage: formatDecimalValue(percentage),
                     value: formatDecimalValue(totalAmount * (percentage / 100))
                 };
             });
@@ -3460,7 +3642,7 @@ window.addEventListener('load', function() {
             return '';
         }
         var labels = rows.map(function(row) {
-            return row.cost_center + ' (' + (row.percentage || '0.000') + '%)';
+            return row.cost_center + ' (' + (row.percentage || '0.00') + '%)';
         });
         return labels.join(', ');
     }
@@ -3553,7 +3735,11 @@ window.addEventListener('load', function() {
                 valueCell.textContent = formatNumberValue(lineValue);
             }
         });
-        var remainingPercentage = Math.max(0, 100 - totalPercentage);
+        var remainingPercentage = 100 - totalPercentage;
+        if (Math.abs(remainingPercentage) <= 0.01) {
+            remainingPercentage = 0;
+        }
+        remainingPercentage = Math.max(0, remainingPercentage);
         var remainingAmount = totalAmount * (remainingPercentage / 100);
         if (costCenterDistributionPercentAssignedEl) {
             costCenterDistributionPercentAssignedEl.textContent = formatPercentageDisplayValue(totalPercentage);
@@ -3590,7 +3776,7 @@ window.addEventListener('load', function() {
         if (!previousWasAutoManaged && Math.abs(previousPercentage - 100) > 0.0001) {
             return;
         }
-        previousInput.value = formatAutoPercentageDisplayValue(Math.max(0, 100 - currentPercentage));
+        previousInput.value = formatPercentageDisplayValue(Math.max(0, 100 - currentPercentage));
         previousInput.setAttribute('data-auto-managed', '1');
     }
 
@@ -4352,6 +4538,7 @@ window.addEventListener('load', function() {
             if (modalTitleEl) {
                 modalTitleEl.textContent = defaultModalTitle || 'Classificar';
             }
+            resetClassifyDocumentPreview();
             table.ajax.reload(null, false);
             currentBtn = null;
             updateCurrentPlanContextFromButton(null);
@@ -4394,7 +4581,7 @@ window.addEventListener('load', function() {
                 totalPercentage += percentage;
                 rows.push({
                     cost_center: code,
-                    percentage: formatPercentageValue(percentage),
+                    percentage: formatDecimalValue(percentage),
                     value: ''
                 });
             });
@@ -4402,7 +4589,7 @@ window.addEventListener('load', function() {
                 showError('Preencha centros de custo e percentagens válidas.');
                 return;
             }
-            if (Math.abs(totalPercentage - 100) > 0.005) {
+            if (Math.abs(totalPercentage - 100) > 0.01) {
                 showError('A percentagem atribuída tem de totalizar 100%.');
                 return;
             }
@@ -4412,7 +4599,7 @@ window.addEventListener('load', function() {
                 var percentage = parseDecimalValue(row.percentage) || 0;
                 return {
                     cost_center: row.cost_center,
-                    percentage: formatPercentageValue(percentage),
+                    percentage: formatDecimalValue(percentage),
                     value: formatDecimalValue(totalAmount * (percentage / 100))
                 };
             });
@@ -4536,6 +4723,7 @@ window.addEventListener('load', function() {
         if (!btnCostCenters && btn.hasAttribute('data-cost-center')) {
             btnCostCenters = btn.getAttribute('data-cost-center') || '';
         }
+        setClassifyDocumentPreview(btn.getAttribute('data-file-url') || '');
         applyCostCenterValues(btnCostCenters, { skipEnsure: true });
         applyCostCenterBreakdownValues(btnCostCenterBreakdowns);
         refreshCostCenterFieldModes();
