@@ -7,11 +7,6 @@ requireLogin();
 header('Content-Type: application/json; charset=UTF-8');
 
 $aiEnabled = getSetting('ai_enabled', '0') === '1';
-if (!$aiEnabled || !userHasDepartmentPermission('ai_assistant')) {
-    http_response_code(403);
-    echo json_encode(['message' => 'Acesso negado.']);
-    exit;
-}
 
 $raw = file_get_contents('php://input');
 $payload = json_decode($raw, true);
@@ -30,6 +25,17 @@ if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
 
 $action = (string) ($payload['action'] ?? '');
 $message = trim((string) ($payload['message'] ?? ''));
+
+$hasAssistantAccess = userHasDepartmentPermission('ai_assistant');
+$hasSuggestAccountsAccess = userHasDepartmentPermission('ai_suggest_vat');
+$allowStandaloneSuggestAccounts = $action === 'suggest_accounts' && $hasSuggestAccountsAccess;
+
+if (!$aiEnabled || (!$hasAssistantAccess && !$allowStandaloneSuggestAccounts)) {
+    http_response_code(403);
+    echo json_encode(['message' => 'Acesso negado.']);
+    exit;
+}
+
 if ($message === '' && $action === '') {
     http_response_code(400);
     echo json_encode(['message' => 'Mensagem vazia.']);
@@ -50,7 +56,7 @@ $readOnly = (int) ($user['ai_read_only'] ?? (int) getSetting('ai_default_read_on
 $canCreateTasks = userHasDepartmentPermission('ai_create_tasks');
 $canOpenLancamentos = userHasDepartmentPermission('ai_open_lancamentos');
 $canApproveDocs = userHasDepartmentPermission('ai_approve_docs');
-$canSuggestVat = userHasDepartmentPermission('ai_suggest_vat');
+$canSuggestVat = $hasSuggestAccountsAccess;
 
 if ($action === '') {
     $memoryCommand = parseAssistantMemoryCommand($message);

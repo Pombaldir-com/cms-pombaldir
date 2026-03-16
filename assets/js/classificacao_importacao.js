@@ -1516,11 +1516,35 @@ window.addEventListener('load', function() {
         return requirements;
     }
 
+    function buildRequirementsFromCurrentRates() {
+        var requirements = {};
+        Object.keys(currentRateData).forEach(function(rate) {
+            var entry = currentRateData[rate];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var general = String(entry.general_account || '').trim();
+            var iva = String(entry.iva_account || '').trim();
+            var base = String(entry.base_value || entry.base || '').trim();
+            var ivaValue = String(entry.iva_value || entry.iva || '').trim();
+            var hasValues = general !== '' || iva !== '' || base !== '' || ivaValue !== '';
+            if (!hasValues) {
+                return;
+            }
+            requirements[rate] = {
+                general: true,
+                iva: String(rate) !== '0',
+                cost_center: String(entry.cost_center_required || '').trim() === '1'
+            };
+        });
+        return requirements;
+    }
+
     function rebuildRequirementsForCurrentButton() {
         if (!currentBtn) {
             return {};
         }
-        var requirements = parseJsonAttribute(currentBtn, 'data-requirements') || {};
+        var requirements = currentIgnoreDetectedRates ? buildRequirementsFromCurrentRates() : (parseJsonAttribute(currentBtn, 'data-requirements') || {});
         requirements = enrichRequirementsFromRates(requirements, currentRateData);
         requirements = enrichRequirementsFromRates(requirements, storedRowRates);
         requirements = enrichRequirementsFromRates(requirements, storedDefaultRates);
@@ -1575,8 +1599,16 @@ window.addEventListener('load', function() {
     var currentCostCenters = {};
     var currentCostCenterBreakdowns = {};
     var currentTotalAccount = '';
+    var currentIgnoreDetectedRates = false;
+    var currentClassificationModelName = '';
+    var classificationModels = [];
     var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
+    var classificationModelSelect = document.getElementById('classificationModelSelect');
+    var applyClassificationModelBtn = document.getElementById('applyClassificationModelBtn');
+    var deleteClassificationModelBtn = document.getElementById('deleteClassificationModelBtn');
+    var saveClassificationModelSwitch = document.getElementById('saveClassificationModelSwitch');
+    var classificationModelNameInput = document.getElementById('classificationModelNameInput');
     var storedRowRates = {};
     var storedDefaultRates = {};
     var originalRateValues = {};
@@ -1648,10 +1680,10 @@ window.addEventListener('load', function() {
         var rect = costCenterDistributionDialogEl.getBoundingClientRect();
         var width = rect.width || costCenterDistributionDialogEl.offsetWidth || 0;
         var height = rect.height || costCenterDistributionDialogEl.offsetHeight || 0;
-        if (width > 0) {
+        if (width > 0 && !costCenterDistributionDialogEl.style.width) {
             costCenterDistributionDialogEl.style.width = width + 'px';
         }
-        if (height > 0) {
+        if (height > 0 && !costCenterDistributionDialogEl.style.height) {
             costCenterDistributionDialogEl.style.height = height + 'px';
         }
     }
@@ -1771,17 +1803,6 @@ window.addEventListener('load', function() {
             var rect = costCenterDistributionDialogEl.getBoundingClientRect();
             setCostCenterDistributionDialogPosition(rect.left, rect.top);
         });
-
-        if (typeof window.ResizeObserver === 'function') {
-            costCenterDistributionResizeObserver = new ResizeObserver(function() {
-                if (!costCenterDistributionModalEl.classList.contains('show')) {
-                    return;
-                }
-                var rect = costCenterDistributionDialogEl.getBoundingClientRect();
-                setCostCenterDistributionDialogPosition(rect.left, rect.top);
-            });
-            costCenterDistributionResizeObserver.observe(costCenterDistributionDialogEl);
-        }
 
         costCenterDistributionModalEl.__dragInitialized = true;
     }
@@ -2275,6 +2296,122 @@ window.addEventListener('load', function() {
             data.iva = data.iva_value;
         }
         return data;
+    }
+
+    function cloneJsonValue(value, fallback) {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch (err) {
+            return fallback;
+        }
+    }
+
+    function normalizeClassificationModelList(models) {
+        if (!Array.isArray(models)) {
+            return [];
+        }
+        return models.map(function(model) {
+            var item = model && typeof model === 'object' ? model : {};
+            return {
+                name: String(item.name || '').trim(),
+                rates: item.rates && typeof item.rates === 'object' ? cloneJsonValue(item.rates, {}) : {},
+                cost_centers: item.cost_centers && typeof item.cost_centers === 'object' ? cloneJsonValue(item.cost_centers, {}) : {},
+                cost_center_breakdowns: item.cost_center_breakdowns && typeof item.cost_center_breakdowns === 'object' ? cloneJsonValue(item.cost_center_breakdowns, {}) : {},
+                total_account: String(item.total_account || '').trim()
+            };
+        }).filter(function(model) {
+            return model.name !== '';
+        }).sort(function(a, b) {
+            return a.name.localeCompare(b.name, 'pt', { sensitivity: 'base' });
+        });
+    }
+
+    function renderClassificationModelOptions(selectedName) {
+        if (!classificationModelSelect) {
+            return;
+        }
+        var currentValue = typeof selectedName === 'string' ? selectedName.trim() : '';
+        classificationModelSelect.innerHTML = '';
+        var emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'Selecionar modelo';
+        classificationModelSelect.appendChild(emptyOption);
+
+        classificationModels.forEach(function(model) {
+            var option = document.createElement('option');
+            option.value = model.name;
+            option.textContent = model.name;
+            if (currentValue !== '' && model.name === currentValue) {
+                option.selected = true;
+            }
+            classificationModelSelect.appendChild(option);
+        });
+    }
+
+    function toggleClassificationModelSaveFields() {
+        if (!classificationModelNameInput || !saveClassificationModelSwitch) {
+            return;
+        }
+        var enabled = !!saveClassificationModelSwitch.checked;
+        classificationModelNameInput.classList.toggle('d-none', !enabled);
+        if (!enabled) {
+            classificationModelNameInput.value = '';
+        } else if (!classificationModelNameInput.value.trim() && currentClassificationModelName) {
+            classificationModelNameInput.value = currentClassificationModelName;
+        }
+    }
+
+    function applyClassificationModel(modelName) {
+        var name = String(modelName || '').trim();
+        if (name === '') {
+            showNotice('warning', 'Selecione um modelo antes de aplicar.');
+            return;
+        }
+        var selectedModel = null;
+        classificationModels.forEach(function(model) {
+            if (!selectedModel && model.name === name) {
+                selectedModel = model;
+            }
+        });
+        if (!selectedModel) {
+            showError('Modelo não encontrado.');
+            return;
+        }
+
+        resetRateRows();
+        currentRateData = cloneJsonValue(selectedModel.rates, {});
+        storedRowRates = {};
+        storedDefaultRates = {};
+        currentCostCenters = cloneJsonValue(selectedModel.cost_centers, {});
+        currentCostCenterBreakdowns = cloneJsonValue(selectedModel.cost_center_breakdowns, {});
+        currentTotalAccount = selectedModel.total_account;
+        currentIgnoreDetectedRates = true;
+        currentClassificationModelName = selectedModel.name;
+
+        Object.keys(currentRateData).forEach(function(rate) {
+            var data = ensureRateData(rate);
+            if (!data.label) {
+                data.label = getDefaultRateLabel(rate);
+            }
+        });
+
+        ensureRowsForRates(currentRateData, { allowCreate: true });
+        rebuildRequirementsForCurrentButton();
+        getRateKeys().forEach(function(rate) {
+            populateRateRow(rate);
+        });
+        if (totalAccountInput) {
+            totalAccountInput.value = currentTotalAccount;
+            updatePlanInputTitle(totalAccountInput);
+        }
+        applyCostCenterValues(currentCostCenters, { skipEnsure: true });
+        applyCostCenterBreakdownValues(currentCostCenterBreakdowns);
+        refreshCostCenterFieldModes();
+        captureOriginalRateValues({ initialize: true, refresh: false, allowCreate: false });
+        renderClassificationModelOptions(currentClassificationModelName);
+        if (currentBtn) {
+            updateButtonClass(currentBtn);
+        }
     }
 
     function parsePercentageValue(value) {
@@ -4256,6 +4393,66 @@ window.addEventListener('load', function() {
         });
     }
 
+    if (saveClassificationModelSwitch) {
+        saveClassificationModelSwitch.addEventListener('change', function() {
+            toggleClassificationModelSaveFields();
+        });
+        toggleClassificationModelSaveFields();
+    }
+
+    if (applyClassificationModelBtn) {
+        applyClassificationModelBtn.addEventListener('click', function() {
+            if (!classificationModelSelect) {
+                return;
+            }
+            applyClassificationModel(classificationModelSelect.value || '');
+        });
+    }
+
+    if (deleteClassificationModelBtn) {
+        deleteClassificationModelBtn.addEventListener('click', function() {
+            if (!classificationModelSelect || !currentBtn) {
+                return;
+            }
+            var modelName = String(classificationModelSelect.value || '').trim();
+            if (!modelName) {
+                showNotice('warning', 'Selecione um modelo antes de eliminar.');
+                return;
+            }
+            if (!window.confirm('Eliminar o modelo "' + modelName + '"?')) {
+                return;
+            }
+
+            var body = new URLSearchParams({
+                action: 'delete_model',
+                id: currentBtn.getAttribute('data-id') || '',
+                A: currentBtn.getAttribute('data-emitter') || '',
+                B: currentBtn.getAttribute('data-acquirer') || '',
+                D: currentBtn.getAttribute('data-doctype') || '',
+                model_name: modelName,
+                csrf_token: csrfInput ? csrfInput.value : ''
+            });
+
+            fetchJson('contabilidade/save-analysis.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            }).then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                classificationModels = normalizeClassificationModelList(res.classification_models);
+                if (currentClassificationModelName === modelName) {
+                    currentClassificationModelName = '';
+                }
+                renderClassificationModelOptions(currentClassificationModelName);
+                showSuccess('Modelo eliminado.');
+            }).catch(function(err) {
+                showError((err && err.message) || 'Erro ao eliminar o modelo.');
+            });
+        });
+    }
+
     if (aiSuggestBtn) {
         aiSuggestBtn.addEventListener('click', function() {
             if (!currentBtn) {
@@ -4363,7 +4560,7 @@ window.addEventListener('load', function() {
                     }
                     showSuccess('Sugestoes aplicadas (' + sourceLabel + ').');
                 } else if (message) {
-                    showNotice('warning', 'Nao foi possivel aplicar as sugestoes.');
+                    showNotice('warning', message);
                 } else {
                     showNotice('warning', 'Nao foi possivel obter sugestoes.');
                 }
@@ -4701,9 +4898,19 @@ window.addEventListener('load', function() {
         currentCostCenterBreakdowns = {};
         removedRates = {};
         currentTotalAccount = (btn.getAttribute('data-total-account') || '').trim();
+        currentIgnoreDetectedRates = false;
+        currentClassificationModelName = '';
+        classificationModels = [];
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
             updatePlanInputTitle(totalAccountInput);
+        }
+        if (classificationModelSelect) {
+            renderClassificationModelOptions('');
+        }
+        if (saveClassificationModelSwitch) {
+            saveClassificationModelSwitch.checked = false;
+            toggleClassificationModelSaveFields();
         }
 
         currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -4794,6 +5001,10 @@ window.addEventListener('load', function() {
                     totalAccountInput.value = currentTotalAccount;
                     updatePlanInputTitle(totalAccountInput);
                 }
+                currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
+                currentClassificationModelName = String(res.classification_model_name || '').trim();
+                classificationModels = normalizeClassificationModelList(res.classification_models);
+                renderClassificationModelOptions(currentClassificationModelName);
 
                 Object.keys(storedRowRates).forEach(function(rate) {
                     if (!currentRateData[rate]) {
@@ -4940,6 +5151,14 @@ window.addEventListener('load', function() {
                 showError('Preencha os centros de custo obrigatórios antes de guardar.');
                 return;
             }
+            var saveModelName = '';
+            if (saveClassificationModelSwitch && saveClassificationModelSwitch.checked) {
+                saveModelName = classificationModelNameInput ? classificationModelNameInput.value.trim() : '';
+                if (!saveModelName) {
+                    showError('Indique o nome do modelo antes de guardar.');
+                    return;
+                }
+            }
             var body = new URLSearchParams({
                 id: currentBtn.getAttribute('data-id') || '',
                 A: currentBtn.getAttribute('data-emitter') || '',
@@ -4951,6 +5170,9 @@ window.addEventListener('load', function() {
                 cost_centers: JSON.stringify(costCentersPayload),
                 cost_center_breakdowns: JSON.stringify(costCenterBreakdownsPayload),
                 total_account: totalAccountValue,
+                ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
+                classification_model_name: currentClassificationModelName,
+                save_model_name: saveModelName,
                 csrf_token: csrfInput.value
             });
             fetchJson('contabilidade/save-analysis.php?action=save', {
@@ -4993,6 +5215,14 @@ window.addEventListener('load', function() {
                 if (Object.prototype.hasOwnProperty.call(res, 'manual_review_required')) {
                     var manualReviewValue = String(res.manual_review_required || '').trim();
                     currentBtn.setAttribute('data-manual-review', manualReviewValue === '1' ? '1' : '0');
+                }
+                currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
+                currentClassificationModelName = String(res.classification_model_name || '').trim();
+                classificationModels = normalizeClassificationModelList(res.classification_models);
+                renderClassificationModelOptions(currentClassificationModelName);
+                if (saveClassificationModelSwitch) {
+                    saveClassificationModelSwitch.checked = false;
+                    toggleClassificationModelSaveFields();
                 }
                 if (res.requirements && typeof res.requirements === 'object') {
                     currentBtn.setAttribute('data-requirements', JSON.stringify(res.requirements));

@@ -1260,6 +1260,8 @@ function defaultAccountingMetadata(): array {
     return [
         'total_account' => '',
         'manual_review_required' => '0',
+        'ignore_detected_rates' => '0',
+        'classification_model_name' => '',
     ];
 }
 
@@ -1299,6 +1301,16 @@ function normalizeAccountingMetadata(?string $json): array {
             $flag = trim((string) $candidate['manual_review_required']);
             $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
         }
+        if (array_key_exists('ignore_detected_rates', $candidate)) {
+            $flag = trim((string) $candidate['ignore_detected_rates']);
+            $result['ignore_detected_rates'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+        }
+        if (array_key_exists('classification_model_name', $candidate)) {
+            $value = extractStringValue($candidate['classification_model_name'], ['value', 'name', 'label']);
+            if ($value !== null) {
+                $result['classification_model_name'] = $value;
+            }
+        }
     }
 
     return $result;
@@ -1333,6 +1345,18 @@ function sanitizeAccountingMetadata($input): array {
     if (is_array($source) && array_key_exists('manual_review_required', $source)) {
         $flag = trim((string) $source['manual_review_required']);
         $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+    }
+
+    if (is_array($source) && array_key_exists('ignore_detected_rates', $source)) {
+        $flag = trim((string) $source['ignore_detected_rates']);
+        $result['ignore_detected_rates'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+    }
+
+    if (is_array($source) && array_key_exists('classification_model_name', $source)) {
+        $candidate = extractStringValue($source['classification_model_name'], ['value', 'name', 'label']);
+        if ($candidate !== null) {
+            $result['classification_model_name'] = $candidate;
+        }
     }
 
     return $result;
@@ -1891,6 +1915,49 @@ function mergeAccountingAccounts(array $base, array $override): array {
 }
 
 /**
+ * Remove empty/default rows from a normalized account payload.
+ *
+ * @param array<string,mixed> $rates
+ * @return array<string,array<string,string>>
+ */
+function filterVisibleAccountingRates(array $rates): array {
+    $sanitized = sanitizeAccountInput($rates);
+    $result = [];
+
+    foreach ($sanitized as $rate => $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $general = trim((string) ($entry['general_account'] ?? ''));
+        $iva = trim((string) ($entry['iva_account'] ?? ''));
+        $base = trim((string) ($entry['base'] ?? ''));
+        $ivaValue = trim((string) ($entry['iva'] ?? ''));
+        $label = trim((string) ($entry['label'] ?? ''));
+        $costCenterRequired = trim((string) ($entry['cost_center_required'] ?? ''));
+
+        if ($general === '' && $iva === '' && $base === '' && $ivaValue === '' && $costCenterRequired === '') {
+            continue;
+        }
+
+        $result[(string) $rate] = [
+            'iva_account' => $iva,
+            'general_account' => $general,
+            'base' => $base,
+            'iva' => $ivaValue,
+        ];
+        if ($label !== '') {
+            $result[(string) $rate]['label'] = $label;
+        }
+        if ($costCenterRequired !== '') {
+            $result[(string) $rate]['cost_center_required'] = $costCenterRequired;
+        }
+    }
+
+    return $result;
+}
+
+/**
  * Serialize normalized account information as JSON.
  *
  * @param array<string,mixed> $rates
@@ -2407,6 +2474,63 @@ function buildRatePayload(array $summaries, array $accounts): array {
             'iva' => !empty($info['require_iva']),
             'cost_center' => (trim((string) ($accountInfo['cost_center_required'] ?? '')) === '1'),
         ];
+    }
+
+    return [$payload, $requirements];
+}
+
+/**
+ * Build requirements directly from the rows defined by the user.
+ *
+ * @param array<string,array<string,mixed>> $payload
+ * @return array<string,array<string,bool>>
+ */
+function buildManualClassificationRequirements(array $payload): array {
+    $requirements = [];
+
+    foreach ($payload as $rate => $data) {
+        $rateKey = (string) $rate;
+        if (!is_array($data)) {
+            continue;
+        }
+
+        $general = trim((string) ($data['general_account'] ?? ''));
+        $iva = trim((string) ($data['iva_account'] ?? ''));
+        $base = trim((string) ($data['base'] ?? $data['base_value'] ?? ''));
+        $ivaValue = trim((string) ($data['iva'] ?? $data['iva_value'] ?? ''));
+        $costCenterRequired = trim((string) ($data['cost_center_required'] ?? '')) === '1';
+
+        if ($general === '' && $iva === '' && $base === '' && $ivaValue === '') {
+            continue;
+        }
+
+        $requirements[$rateKey] = [
+            'general' => true,
+            'iva' => ($rateKey !== '0'),
+            'cost_center' => $costCenterRequired,
+        ];
+    }
+
+    return $requirements;
+}
+
+/**
+ * Build the effective requirements for a classification row.
+ *
+ * @param array<string,array<string,mixed>> $summaries
+ * @param array<string,array<string,mixed>> $accounts
+ * @param array<string,string> $metadata
+ * @return array{0: array<string,array<string,mixed>>, 1: array<string,array<string,bool>>}
+ */
+function buildClassificationRequirements(array $summaries, array $accounts, array $metadata = []): array {
+    [$payload, $requirements] = buildRatePayload($summaries, $accounts);
+
+    if (($metadata['ignore_detected_rates'] ?? '0') === '1') {
+        $payload = filterVisibleAccountingRates($accounts);
+        $manualRequirements = buildManualClassificationRequirements($payload);
+        if (!empty($manualRequirements)) {
+            $requirements = $manualRequirements;
+        }
     }
 
     return [$payload, $requirements];

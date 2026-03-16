@@ -815,27 +815,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($row);
 
-        // Inserir linhas na tabela accounting_imports, evitando duplicados pelo field_H e pelo tipo de importação
+        // Inserir linhas na tabela accounting_imports, evitando duplicados reais
+        // com base em identificadores documentais, sem bloquear documentos
+        // diferentes do mesmo fornecedor por partilharem um field_H pouco específico.
         $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $exists = $pdo->prepare('SELECT 1 FROM accounting_imports WHERE field_H = ? AND import_type = ? LIMIT 1');
+        $existsByComposite = $pdo->prepare(
+            'SELECT 1 FROM accounting_imports '
+            . 'WHERE import_type = ? '
+            . 'AND field_A = ? '
+            . 'AND field_B = ? '
+            . 'AND field_D = ? '
+            . 'AND field_F = ? '
+            . 'AND field_G = ? '
+            . 'AND field_R = ? '
+            . 'LIMIT 1'
+        );
+        $existsByFieldH = $pdo->prepare(
+            'SELECT 1 FROM accounting_imports '
+            . 'WHERE import_type = ? '
+            . 'AND field_H = ? '
+            . 'AND field_A = ? '
+            . 'AND field_B = ? '
+            . 'AND field_D = ? '
+            . 'AND field_F = ? '
+            . 'AND field_G = ? '
+            . 'LIMIT 1'
+        );
         foreach ($rows as $row) {
+            $fieldA = trim((string) ($row['A'] ?? ''));
+            $fieldB = trim((string) ($row['B'] ?? ''));
+            $fieldD = trim((string) ($row['D'] ?? ''));
+            $fieldF = trim((string) ($row['F'] ?? ''));
+            $fieldG = trim((string) ($row['G'] ?? ''));
             $fieldH = $row['H'] ?? '';
+            $fieldR = trim((string) ($row['R'] ?? ''));
+
+            $existsByComposite->execute([$importType, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG, $fieldR]);
+            if ($existsByComposite->fetchColumn()) {
+                continue;
+            }
+
             if ($fieldH !== '') {
-                // Verifica se já existe um registo com o mesmo documento e tipo de importação
-                $exists->execute([$fieldH, $importType]);
-                if ($exists->fetchColumn()) {
-                    continue; // pular se já existir
+                $existsByFieldH->execute([$importType, $fieldH, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG]);
+                if ($existsByFieldH->fetchColumn()) {
+                    continue;
                 }
             }
 
             $insert->execute([
-                $row['A'] ?? '',
-                $row['B'] ?? '',
+                $fieldA,
+                $fieldB,
                 $row['C'] ?? '',
-                $row['D'] ?? '',
+                $fieldD,
                 $row['E'] ?? '',
-                $row['F'] ?? '',
-                $row['G'] ?? '',
+                $fieldF,
+                $fieldG,
                 $fieldH,
                 $row['I1'] ?? '',
                 $row['I3'] ?? '',
@@ -847,7 +881,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['N'] ?? '',
                 $row['O'] ?? '',
                 $row['Q'] ?? '',
-                $row['R'] ?? '',
+                $fieldR,
                 $row['account'] ?? '',
                 $row['filename'] ?? '',
                 $importType

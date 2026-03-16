@@ -750,8 +750,8 @@ function setUserDepartmentTerms(int $userId, array $termIds): void {
     $pdo->commit();
 }
 
-function getDepartmentPermissionOptions(): array {
-    $options = [
+function getBaseDepartmentPermissionOptions(): array {
+    return [
         'compras_upload' => 'Compras -> Upload',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
@@ -761,6 +761,76 @@ function getDepartmentPermissionOptions(): array {
         'ai_suggest_vat' => 'Assistente AI - Sugerir contas IVA',
         'ai_approve_docs' => 'Assistente AI - Aprovar/Rejeitar docs',
     ];
+}
+
+function normalizeDepartmentPermissionKey(string $permission, array $customPermissions = []): ?string {
+    $permission = trim($permission);
+    if ($permission === '') {
+        return null;
+    }
+
+    $baseOptions = getBaseDepartmentPermissionOptions();
+    if (isset($baseOptions[$permission])) {
+        return $permission;
+    }
+
+    if (in_array($permission, $customPermissions, true)) {
+        return $permission;
+    }
+
+    $normalized = strtolower($permission);
+    $normalized = strtr($normalized, [
+        'á' => 'a',
+        'à' => 'a',
+        'ã' => 'a',
+        'â' => 'a',
+        'é' => 'e',
+        'ê' => 'e',
+        'í' => 'i',
+        'ó' => 'o',
+        'ô' => 'o',
+        'õ' => 'o',
+        'ú' => 'u',
+        'ç' => 'c',
+    ]);
+    $normalized = preg_replace('/[^a-z0-9]+/', '', $normalized) ?? '';
+    if ($normalized === '') {
+        return null;
+    }
+
+    $aliases = [];
+    foreach ($baseOptions as $key => $label) {
+        $aliases[strtolower($key)] = $key;
+        $labelKey = strtolower(strtr($label, [
+            'á' => 'a',
+            'à' => 'a',
+            'ã' => 'a',
+            'â' => 'a',
+            'é' => 'e',
+            'ê' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ô' => 'o',
+            'õ' => 'o',
+            'ú' => 'u',
+            'ç' => 'c',
+        ]));
+        $labelKey = preg_replace('/[^a-z0-9]+/', '', $labelKey) ?? '';
+        if ($labelKey !== '') {
+            $aliases[$labelKey] = $key;
+        }
+    }
+
+    $aliases['assistenteaisugerircontasdeiva'] = 'ai_suggest_vat';
+    $aliases['assisteneaisugerircontasdeiva'] = 'ai_suggest_vat';
+    $aliases['assisteneaisugerircontasiva'] = 'ai_suggest_vat';
+    $aliases['aisuggestiva'] = 'ai_suggest_vat';
+
+    return $aliases[$normalized] ?? null;
+}
+
+function getDepartmentPermissionOptions(): array {
+    $options = getBaseDepartmentPermissionOptions();
 
     // Keep legacy/custom permissions visible in settings so they are not
     // silently dropped when the options list evolves over time.
@@ -777,7 +847,10 @@ function getDepartmentPermissionOptions(): array {
                         continue;
                     }
                     $permission = trim($permission);
-                    if ($permission === '' || isset($options[$permission])) {
+                    if ($permission === '') {
+                        continue;
+                    }
+                    if (normalizeDepartmentPermissionKey($permission) !== null || isset($options[$permission])) {
                         continue;
                     }
                     $options[$permission] = 'Permissao personalizada (' . $permission . ')';
@@ -801,6 +874,7 @@ function getDepartmentPermissions(): array {
     }
 
     $allowed = array_keys(getDepartmentPermissionOptions());
+    $customPermissions = array_values(array_diff($allowed, array_keys(getBaseDepartmentPermissionOptions())));
     $result = [];
 
     foreach ($decoded as $deptId => $permissions) {
@@ -810,8 +884,12 @@ function getDepartmentPermissions(): array {
         }
         $clean = [];
         foreach ($permissions as $permission) {
-            if (is_string($permission) && in_array($permission, $allowed, true)) {
-                $clean[] = $permission;
+            if (!is_string($permission)) {
+                continue;
+            }
+            $normalized = normalizeDepartmentPermissionKey($permission, $customPermissions);
+            if ($normalized !== null && in_array($normalized, $allowed, true)) {
+                $clean[] = $normalized;
             }
         }
         $result[$deptId] = array_values(array_unique($clean));

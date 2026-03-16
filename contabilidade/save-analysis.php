@@ -156,6 +156,221 @@ function suggestHistoricalCostCenters(PDO $pdo, string $emitter, string $acquire
     return $result;
 }
 
+function getSharedClassificationModelPath(): string {
+    return dirname(__DIR__) . '/data/shared/accounting_classification_models.json';
+}
+
+function sanitizeClassificationModelName($value): string {
+    $name = trim((string) ($value ?? ''));
+    if ($name === '') {
+        return '';
+    }
+    if (function_exists('mb_substr')) {
+        return mb_substr($name, 0, 120, 'UTF-8');
+    }
+    return substr($name, 0, 120);
+}
+
+function buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType): string {
+    $parts = [
+        trim((string) ($companySlug ?? '')),
+        normalizeSupplierPartyValue($emitter),
+        normalizeSupplierPartyValue($acquirer),
+        normalizeDocTypeValue($docType),
+    ];
+    return implode('|', $parts);
+}
+
+function loadAllSharedClassificationModels(): array {
+    $path = getSharedClassificationModelPath();
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $raw = @file_get_contents($path);
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $models = is_array($decoded['models'] ?? null) ? $decoded['models'] : $decoded;
+    if (!is_array($models)) {
+        return [];
+    }
+
+    $result = [];
+    foreach ($models as $model) {
+        if (!is_array($model)) {
+            continue;
+        }
+        $companySlug = trim((string) ($model['company_slug'] ?? ''));
+        $name = sanitizeClassificationModelName($model['name'] ?? '');
+        $emitter = normalizeSupplierPartyValue($model['emitter'] ?? '');
+        $acquirer = normalizeSupplierPartyValue($model['acquirer'] ?? '');
+        $docType = normalizeDocTypeValue($model['doc_type'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+
+        $rates = sanitizeAccountInput(is_array($model['rates'] ?? null) ? $model['rates'] : []);
+        $costCenters = sanitizeCostCenterValues($model['cost_centers'] ?? []);
+        $costCenterBreakdowns = sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []);
+        $metadata = sanitizeAccountingMetadata([
+            'total_account' => $model['total_account'] ?? '',
+            'ignore_detected_rates' => '1',
+            'classification_model_name' => $name,
+        ]);
+
+        $result[] = [
+            'company_slug' => $companySlug,
+            'name' => $name,
+            'emitter' => $emitter,
+            'acquirer' => $acquirer,
+            'doc_type' => $docType,
+            'scope_key' => buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
+            'rates' => $rates,
+            'cost_centers' => $costCenters,
+            'cost_center_breakdowns' => $costCenterBreakdowns,
+            'total_account' => $metadata['total_account'] ?? '',
+            'ignore_detected_rates' => '1',
+            'updated_at' => trim((string) ($model['updated_at'] ?? '')),
+        ];
+    }
+
+    usort($result, static function (array $a, array $b): int {
+        return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+    });
+
+    return $result;
+}
+
+function loadSharedClassificationModels($emitter, $acquirer, $docType): array {
+    $companySlug = (string) (getCompanySlug() ?? '');
+    $scopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+    if ($scopeKey === '|||') {
+        return [];
+    }
+
+    $models = loadAllSharedClassificationModels();
+    $filtered = [];
+    foreach ($models as $model) {
+        if (($model['scope_key'] ?? '') !== $scopeKey) {
+            continue;
+        }
+        $filtered[] = $model;
+    }
+
+    return $filtered;
+}
+
+function saveSharedClassificationModels(array $models): void {
+    $path = getSharedClassificationModelPath();
+    $dir = dirname($path);
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+
+    $payload = [
+        'models' => array_values($models),
+        'updated_at' => date('c'),
+    ];
+
+    $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json)) {
+        throw new RuntimeException('Não foi possível serializar os modelos.');
+    }
+
+    if (@file_put_contents($path, $json . PHP_EOL, LOCK_EX) === false) {
+        throw new RuntimeException('Não foi possível guardar os modelos partilhados.');
+    }
+}
+
+function upsertSharedClassificationModel(array $model): array {
+    $companySlug = (string) (getCompanySlug() ?? '');
+    $name = sanitizeClassificationModelName($model['name'] ?? '');
+    $emitter = normalizeSupplierPartyValue($model['emitter'] ?? '');
+    $acquirer = normalizeSupplierPartyValue($model['acquirer'] ?? '');
+    $docType = normalizeDocTypeValue($model['doc_type'] ?? '');
+    if ($name === '') {
+        throw new RuntimeException('Indique um nome para o modelo.');
+    }
+    if ($emitter === '' || $acquirer === '') {
+        throw new RuntimeException('Modelo sem emitente/adquirente válido.');
+    }
+
+    $models = loadAllSharedClassificationModels();
+    $normalized = [
+        'company_slug' => $companySlug,
+        'name' => $name,
+        'emitter' => $emitter,
+        'acquirer' => $acquirer,
+        'doc_type' => $docType,
+        'scope_key' => buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
+        'rates' => sanitizeAccountInput(is_array($model['rates'] ?? null) ? $model['rates'] : []),
+        'cost_centers' => sanitizeCostCenterValues($model['cost_centers'] ?? []),
+        'cost_center_breakdowns' => sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []),
+        'total_account' => trim((string) ($model['total_account'] ?? '')),
+        'ignore_detected_rates' => '1',
+        'updated_at' => date('c'),
+    ];
+
+    $updated = false;
+    foreach ($models as $index => $existing) {
+        if (
+            strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
+            && (string) ($existing['scope_key'] ?? '') === $normalized['scope_key']
+        ) {
+            $models[$index] = $normalized;
+            $updated = true;
+            break;
+        }
+    }
+    if (!$updated) {
+        $models[] = $normalized;
+    }
+
+    usort($models, static function (array $a, array $b): int {
+        return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+    });
+
+    saveSharedClassificationModels($models);
+
+    return $normalized;
+}
+
+function deleteSharedClassificationModel($emitter, $acquirer, $docType, $name): bool {
+    $companySlug = (string) (getCompanySlug() ?? '');
+    $scopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+    $modelName = sanitizeClassificationModelName($name);
+    if ($scopeKey === '|||' || $modelName === '') {
+        return false;
+    }
+
+    $models = loadAllSharedClassificationModels();
+    $filtered = [];
+    $deleted = false;
+
+    foreach ($models as $model) {
+        $sameScope = (string) ($model['scope_key'] ?? '') === $scopeKey;
+        $sameName = strcasecmp((string) ($model['name'] ?? ''), $modelName) === 0;
+        if ($sameScope && $sameName) {
+            $deleted = true;
+            continue;
+        }
+        $filtered[] = $model;
+    }
+
+    if ($deleted) {
+        saveSharedClassificationModels($filtered);
+    }
+
+    return $deleted;
+}
+
 /**
  * Attempt to obtain the document/article code from a parsed invoice line.
  *
@@ -426,6 +641,9 @@ if ($action === 'get') {
     $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     $classificationAccounts = normalizeAccountingAccounts($row['account'] ?? '');
     $classificationMetadata = normalizeAccountingMetadata($row['account'] ?? '');
+    if (($classificationMetadata['ignore_detected_rates'] ?? '0') === '1') {
+        $classificationAccounts = filterVisibleAccountingRates($classificationAccounts);
+    }
 
     $rowAccounts = normalizeAccountingAccounts(null);
     $rowMetadata = normalizeAccountingMetadata(null);
@@ -439,10 +657,13 @@ if ($action === 'get') {
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
         $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
+        if (($rowMetadata['ignore_detected_rates'] ?? '0') === '1') {
+            $rowAccounts = filterVisibleAccountingRates($rowAccounts);
+        }
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $rowCostCenterBreakdowns = normalizeCostCenterBreakdowns($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
-        [, $rowRequirements] = buildRatePayload($summaries, $rowAccounts);
+        [, $rowRequirements] = buildClassificationRequirements($summaries, $rowAccounts, $rowMetadata);
 
         $decodedOriginal = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -476,8 +697,51 @@ if ($action === 'get') {
         'suggested_cost_centers' => $suggestedCostCenters,
         'total_account' => $classificationMetadata['total_account'] ?? '',
         'row_total_account' => $rowMetadata['total_account'] ?? '',
+        'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
+        'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
+        'classification_models' => loadSharedClassificationModels($a, $b, $d),
         'original_rates' => $originalSnapshot,
         'csrf_token' => generateCsrfToken()
+    ]);
+    exit;
+} elseif ($action === 'delete_model') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+
+    $a = $_POST['A'] ?? '';
+    $b = $_POST['B'] ?? '';
+    $d = $_POST['D'] ?? '';
+    $name = $_POST['model_name'] ?? '';
+
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
+
+    $idValue = isset($_POST['id']) && is_numeric($_POST['id']) ? (int) $_POST['id'] : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
+
+    if (!deleteSharedClassificationModel($a, $b, $d, $name)) {
+        http_response_code(404);
+        echo json_encode([
+            'error' => 'Modelo não encontrado.',
+            'classification_models' => loadSharedClassificationModels($a, $b, $d),
+            'csrf_token' => generateCsrfToken(true)
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'classification_models' => loadSharedClassificationModels($a, $b, $d),
+        'csrf_token' => generateCsrfToken(true)
     ]);
     exit;
 } elseif ($action === 'save') {
@@ -556,8 +820,13 @@ if ($action === 'get') {
         $costCenterBreakdownsJson = $_POST['cost_center_breakdowns'] ?? '';
         $costCenterBreakdownsData = [];
 
+        $selectedModelName = sanitizeClassificationModelName($_POST['classification_model_name'] ?? '');
+        $saveModelName = sanitizeClassificationModelName($_POST['save_model_name'] ?? '');
+        $ignoreDetectedRates = trim((string) ($_POST['ignore_detected_rates'] ?? '0'));
         $submittedMetadata = sanitizeAccountingMetadata([
-            'total_account' => $_POST['total_account'] ?? ''
+            'total_account' => $_POST['total_account'] ?? '',
+            'ignore_detected_rates' => ($ignoreDetectedRates === '1' || $selectedModelName !== '' || $saveModelName !== '') ? '1' : '0',
+            'classification_model_name' => $saveModelName !== '' ? $saveModelName : $selectedModelName,
         ]);
 
         $stmtExisting = $pdo->prepare(
@@ -596,7 +865,7 @@ if ($action === 'get') {
         }
         $summaries = computeImportRateSummaries($importRow);
         $existingOriginal = mergeOriginalRateSnapshot($existingOriginalRaw, $summaries);
-        [$existingPayload, $existingRequirements] = buildRatePayload($summaries, $existingRow);
+        [$existingPayload, $existingRequirements] = buildClassificationRequirements($summaries, $existingRow, $existingRowMetadata);
         $existingRowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $existingRowWasReady = determineClassificationButtonClass($existingRequirements, $existingPayload, $existingRowMetadata, $existingRowCostCenters) === 'btn-success';
 
@@ -626,7 +895,7 @@ if ($action === 'get') {
             }
         }
 
-        [, $rowRequirements] = buildRatePayload($summaries, $rowAccounts);
+        [, $rowRequirements] = buildClassificationRequirements($summaries, $rowAccounts, $submittedMetadata);
         $missingCostCenterRates = [];
         foreach ($rowRequirements as $rate => $requirement) {
             if (empty($requirement['cost_center'])) {
@@ -697,6 +966,23 @@ if ($action === 'get') {
         $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
         $serializedCostCenters = serializeCostCenters($costCentersData, $costCenterBreakdownsData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
+        $responseRowRates = (($submittedMetadata['ignore_detected_rates'] ?? '0') === '1')
+            ? filterVisibleAccountingRates($rowAccounts)
+            : $rowAccounts;
+
+        $savedModel = null;
+        if ($saveModelName !== '') {
+            $savedModel = upsertSharedClassificationModel([
+                'name' => $saveModelName,
+                'emitter' => $a,
+                'acquirer' => $b,
+                'doc_type' => $d,
+                'rates' => $rowAccounts,
+                'cost_centers' => $costCentersData,
+                'cost_center_breakdowns' => $costCenterBreakdownsData,
+                'total_account' => $submittedMetadata['total_account'] ?? '',
+            ]);
+        }
 
         $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ?, account_original = ? WHERE id = ?');
         $stmt->execute([$serializedRow, $serializedCostCenters, $serializedOriginal, $id]);
@@ -711,7 +997,7 @@ if ($action === 'get') {
         echo json_encode([
             'success' => true,
             'csrf_token' => generateCsrfToken(),
-            'row_rates' => $rowAccounts,
+            'row_rates' => $responseRowRates,
             'requirements' => $rowRequirements,
             'cost_center' => $serializedCostCenters,
             'cost_centers' => $costCentersData,
@@ -719,7 +1005,11 @@ if ($action === 'get') {
             'original_rates' => $existingOriginal,
             'total_account' => $submittedMetadata['total_account'] ?? '',
             'row_total_account' => $submittedMetadata['total_account'] ?? '',
-            'manual_review_required' => $submittedMetadata['manual_review_required'] ?? '0'
+            'manual_review_required' => $submittedMetadata['manual_review_required'] ?? '0',
+            'ignore_detected_rates' => $submittedMetadata['ignore_detected_rates'] ?? '0',
+            'classification_model_name' => $submittedMetadata['classification_model_name'] ?? '',
+            'classification_models' => loadSharedClassificationModels($a, $b, $d),
+            'saved_model_name' => $savedModel['name'] ?? ''
         ]);
     } catch (Exception $e) {
         if ($pdo->inTransaction()) {
