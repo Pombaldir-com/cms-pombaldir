@@ -755,6 +755,8 @@ function getBaseDepartmentPermissionOptions(): array {
         'compras_upload' => 'Compras -> Upload',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
+        'ctb_lancamentos_aceder' => 'CTB Lancamentos - Aceder',
+        'ctb_lancamentos_remover_local' => 'CTB Lancamentos - Remover locais',
         'ai_assistant' => 'Assistente AI - Acesso',
         'ai_create_tasks' => 'Assistente AI - Criar tarefas',
         'ai_open_lancamentos' => 'Assistente AI - Abrir lancamentos',

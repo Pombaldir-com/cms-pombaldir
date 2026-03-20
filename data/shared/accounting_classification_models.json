@@ -1,4 +1,59 @@
 {
-    "models": [],
-    "updated_at": "2026-03-16T16:46:07+00:00"
+    "models": [
+        {
+            "company_slug": "zcontas",
+            "tenant_key": "emp_314",
+            "name": "Restaurante",
+            "emitter": "510501753",
+            "acquirer": "513732713",
+            "doc_type": "FS",
+            "scope_key": "emp_314|513732713|FS",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "62662",
+                    "base": "",
+                    "iva": "",
+                    "label": "0%"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1205",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-03-18T15:52:46+00:00"
+        }
+    ],
+    "updated_at": "2026-03-18T15:52:46+00:00"
 }

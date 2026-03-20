@@ -6493,6 +6493,11 @@ ul.notifications {
     border-radius: .2rem;
 }
 
+.input-error {
+    border-color: #d9534f !important;
+    box-shadow: 0 0 0 0.12rem rgba(217, 83, 79, 0.15) !important;
+}
+
 @media (max-width: 576px) {
     .songinfo-modal {
         align-items: center;
@@ -6518,4 +6523,3 @@ ul.notifications {
         overflow-y: auto;
     }
 }
-

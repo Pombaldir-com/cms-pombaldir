@@ -523,6 +523,27 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
+    $accountValidation = validateDocumentAccountsAgainstErpPlan($documentsPayload, $targetCompany);
+    if (!($accountValidation['ok'] ?? false)) {
+        $invalidDetails = [];
+        foreach (($accountValidation['invalid_documents'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $docLabel = trim((string) ($item['document'] ?? ''));
+            $accounts = isset($item['accounts']) && is_array($item['accounts']) ? $item['accounts'] : [];
+            if ($docLabel === '' || empty($accounts)) {
+                continue;
+            }
+            $invalidDetails[] = $docLabel . ' [' . implode(', ', $accounts) . ']';
+        }
+
+        $result['error'] = 'Existem contas que não existem no plano de contas ERP da base ' . $targetCompany . ': ' . implode('; ', $invalidDetails);
+        $result['error_detail'] = $result['error'];
+        logErpMessage('Importação CTB abortada por contas inexistentes no plano ERP da base ' . $targetCompany . '. Detalhe: ' . $result['error']);
+        return $result;
+    }
+
     $tpValue = 'importMovim';
     $actValue = 'importMovim';
     if ($importType === 2) {
@@ -1147,6 +1168,97 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
 
     $decoded = json_decode($response, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function fetchErpPlanAccountCode(string $accountCode, string $database = ''): bool {
+    $accountCode = trim($accountCode);
+    $database = trim($database);
+    if ($database === '' || $accountCode === '' || !preg_match('/^\d{3,}$/', $accountCode)) {
+        return false;
+    }
+
+    $payload = fetchErpJsonForSuggestion('/contabilidade/planocontas', [
+        'strCodExercicio' => date('Y'),
+        'strConta' => $accountCode,
+        'limit' => 10,
+        'offset' => 0,
+    ], $database);
+    if (empty($payload)) {
+        return false;
+    }
+
+    $rows = extractErpRowsFromPayload($payload);
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $code = trim((string) ($row['strConta'] ?? ''));
+        if ($code !== '' && strcasecmp($code, $accountCode) === 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function validateDocumentAccountsAgainstErpPlan(array $documentsPayload, string $database): array {
+    $checkedAccounts = [];
+    $planLoaded = false;
+    if (trim($database) === '') {
+        return [
+            'ok' => true,
+            'invalid_documents' => [],
+            'invalid_accounts' => [],
+            'plan_loaded' => $planLoaded,
+        ];
+    }
+
+    $invalidDocuments = [];
+    $invalidAccounts = [];
+
+    foreach ($documentsPayload as $document) {
+        if (!is_array($document)) {
+            continue;
+        }
+        $documentAccounts = [];
+        $accountLines = isset($document['account_lines']) && is_array($document['account_lines']) ? $document['account_lines'] : [];
+        foreach ($accountLines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $account = trim((string) ($line['strConta'] ?? ''));
+            if ($account === '') {
+                continue;
+            }
+            if (!array_key_exists($account, $checkedAccounts)) {
+                $checkedAccounts[$account] = fetchErpPlanAccountCode($account, $database);
+                $planLoaded = true;
+            }
+            if ($checkedAccounts[$account]) {
+                continue;
+            }
+            $documentAccounts[$account] = true;
+            $invalidAccounts[$account] = true;
+        }
+
+        if (!empty($documentAccounts)) {
+            $docLabel = trim((string) ($document['field_G'] ?? ''));
+            if ($docLabel === '') {
+                $docLabel = 'ID ' . (string) ($document['id'] ?? '?');
+            }
+            $invalidDocuments[] = [
+                'document' => $docLabel,
+                'accounts' => array_values(array_keys($documentAccounts)),
+            ];
+        }
+    }
+
+    return [
+        'ok' => empty($invalidDocuments),
+        'invalid_documents' => $invalidDocuments,
+        'invalid_accounts' => array_values(array_keys($invalidAccounts)),
+        'plan_loaded' => $planLoaded,
+    ];
 }
 
 function fetchErpConfigEmpresaByDatabase(string $database, string $companyId = ''): array {
@@ -2300,6 +2412,13 @@ if ($action === 'data') {
             $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
             $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
             $costCenterBreakdownsAttr = htmlspecialchars(json_encode($row['cost_center_breakdowns'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+            $qrFields = [];
+            foreach ($row as $rowKey => $rowValue) {
+                if (preg_match('/^field_[A-Z0-9]+$/', (string) $rowKey)) {
+                    $qrFields[$rowKey] = (string) $rowValue;
+                }
+            }
+            $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
             if ($importType === 1) {
                 $disabledAttr = $canClassifyCtb ? '' : ' disabled title="Sem permissao"';
@@ -2318,6 +2437,7 @@ if ($action === 'data') {
                     . 'data-emitter-nif="' . htmlspecialchars($emitterNifValue) . '" '
                     . 'data-doc-number="' . htmlspecialchars($row['field_G'] ?? '') . '" '
                     . 'data-docdate="' . htmlspecialchars($row['field_F'] ?? '') . '" '
+                    . 'data-qr-fields="' . $qrFieldsAttr . '" '
                     . 'data-file-url="' . htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
@@ -2499,6 +2619,13 @@ require_once __DIR__ . '/../header.php';
                         $requirementsAttr = htmlspecialchars(json_encode($row['rate_requirements'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $costCentersAttr = htmlspecialchars(json_encode($row['cost_centers'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $costCenterBreakdownsAttr = htmlspecialchars(json_encode($row['cost_center_breakdowns'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+                        $qrFields = [];
+                        foreach ($row as $rowKey => $rowValue) {
+                            if (preg_match('/^field_[A-Z0-9]+$/', (string) $rowKey)) {
+                                $qrFields[$rowKey] = (string) $rowValue;
+                            }
+                        }
+                        $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
                     ?>
                     <td class="text-center">
@@ -2520,6 +2647,7 @@ require_once __DIR__ . '/../header.php';
                                 data-emitter-nif="<?= htmlspecialchars($emitterNifValue); ?>"
                                 data-doc-number="<?= htmlspecialchars($row['field_G'] ?? ''); ?>"
                                 data-docdate="<?= htmlspecialchars($row['field_F'] ?? ''); ?>"
+                                data-qr-fields="<?= $qrFieldsAttr; ?>"
                                 data-file-url="<?= htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"

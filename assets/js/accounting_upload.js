@@ -14,6 +14,8 @@ window.addEventListener('load', function() {
     var deleteUrl = window.accountingUploadDeleteUrl || 'contabilidade/upload.php?action=delete';
     var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
     var debugEnabled = window.accountingUploadDebug === true;
+    var navigationGuardEnabled = true;
+    var suppressNextPopstateGuard = false;
 
     var acquirerDatabaseResolved = {};
     var acquirerDatabasePending = {};
@@ -147,6 +149,76 @@ window.addEventListener('load', function() {
         if (importComprasBtn) {
             importComprasBtn.style.display = 'inline-block';
         }
+    }
+
+    function hideImportButtons() {
+        if (importBtn) {
+            importBtn.style.display = 'none';
+        }
+        if (importComprasBtn) {
+            importComprasBtn.style.display = 'none';
+        }
+    }
+
+    function buildActionsHtml(filePath, imported) {
+        var safeFile = String(filePath || '');
+        var pdfBtnClass = imported ? 'btn-success' : 'btn-secondary';
+        var pdfBtn = '<a href="' + safeFile + '" target="_blank" class="btn btn-xs ' + pdfBtnClass + ' open-file" data-file="' + safeFile + '"><i class="fa fa-file-pdf-o"></i></a>';
+        if (imported) {
+            return pdfBtn;
+        }
+        return '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + safeFile + '"><i class="fa fa-trash"></i></button> ' + pdfBtn;
+    }
+
+    function getRowFilePath(node) {
+        var filePath = $(node).find('.delete-row').data('file');
+        if (!filePath) {
+            filePath = $(node).find('.open-file').data('file');
+        }
+        return filePath || '';
+    }
+
+    function getPendingRowNodes() {
+        return table.rows().nodes().toArray().filter(function(node) {
+            return $(node).find('.delete-row').length > 0;
+        });
+    }
+
+    function hasPendingRows() {
+        return getPendingRowNodes().length > 0;
+    }
+
+    function hasPendingUploadWork() {
+        return uploadProcessingCount > 0 || !!manualActive || manualQueue.length > 0 || hasPendingRows();
+    }
+
+    function getPendingNavigationMessage() {
+        if (!hasPendingUploadWork()) {
+            return '';
+        }
+        return 'Existem ficheiros ainda não importados. Pretende mesmo sair desta página e perder os ficheiros pendentes?';
+    }
+
+    function refreshUploadActionState() {
+        if (hasPendingRows()) {
+            showImportButtons();
+        } else {
+            hideImportButtons();
+        }
+    }
+
+    function markCurrentRowsAsImported() {
+        table.rows().every(function() {
+            var data = this.data() || [];
+            if (!data.length) {
+                return;
+            }
+            var filePath = getRowFilePath(this.node());
+            data[data.length - 1] = buildActionsHtml(filePath, true);
+            this.data(data);
+        });
+        table.draw(false);
+        refreshUploadActionState();
     }
 
     function notifySuccess(message) {
@@ -469,8 +541,7 @@ window.addEventListener('load', function() {
                 }
                 return value;
             });
-            var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + filePath + '"><i class="fa fa-trash"></i></button> ' +
-                '<a href="' + filePath + '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
+            var actions = buildActionsHtml(filePath, false);
             row.push(actions);
             rowsToAdd.push(row);
             added += 1;
@@ -481,9 +552,7 @@ window.addEventListener('load', function() {
             table.rows.add(rowsToAdd).draw(false);
         }
 
-        if (added && table.rows().data().length) {
-            showImportButtons();
-        }
+        refreshUploadActionState();
         return added;
     }
 
@@ -1067,9 +1136,7 @@ window.addEventListener('load', function() {
     });
 
     dz.on('queuecomplete', function() {
-        if (table.rows().data().length) {
-            showImportButtons();
-        }
+        refreshUploadActionState();
         if (uploadProcessingCount === 0 && !manualActive && manualQueue.length) {
             manualTotal = manualQueue.length;
             manualSequence = 0;
@@ -1092,11 +1159,12 @@ window.addEventListener('load', function() {
             }
             row.remove().draw();
             removeDropzoneFileByServerPath(filePath);
+            refreshUploadActionState();
         });
     });
 
     function handleImport(type) {
-        var nodes = table.rows().nodes().toArray();
+        var nodes = getPendingRowNodes();
         if (!nodes.length) {
             showAlert('Não há dados para importar');
             return;
@@ -1121,14 +1189,7 @@ window.addEventListener('load', function() {
             updateCsrfToken(res);
             if (res.success) {
                 notifySuccess('Importação concluída');
-                if (importBtn) {
-                    importBtn.style.display = 'none';
-                }
-                if (importComprasBtn) {
-                    importComprasBtn.style.display = 'none';
-                }
-                table.clear().draw();
-                dz.removeAllFiles(true);
+                markCurrentRowsAsImported();
             } else {
                 showAlert(res.error || 'Falha na importação');
             }
@@ -1144,4 +1205,48 @@ window.addEventListener('load', function() {
     if (importComprasBtn) {
         importComprasBtn.addEventListener('click', function() { handleImport(2); });
     }
+
+    window.addEventListener('beforeunload', function(ev) {
+        if (!navigationGuardEnabled) {
+            return;
+        }
+        var message = getPendingNavigationMessage();
+        if (!message) {
+            return;
+        }
+        ev.preventDefault();
+        ev.returnValue = message;
+        return message;
+    });
+
+    try {
+        window.history.replaceState({ accountingUploadGuard: 'root' }, '', window.location.href);
+        window.history.pushState({ accountingUploadGuard: 'stay' }, '', window.location.href);
+    } catch (err) {}
+
+    window.addEventListener('popstate', function() {
+        if (suppressNextPopstateGuard) {
+            suppressNextPopstateGuard = false;
+            return;
+        }
+        if (!navigationGuardEnabled) {
+            return;
+        }
+        var message = getPendingNavigationMessage();
+        if (!message) {
+            return;
+        }
+        var shouldLeave = window.confirm(message);
+        if (!shouldLeave) {
+            try {
+                window.history.pushState({ accountingUploadGuard: 'stay' }, '', window.location.href);
+            } catch (err) {}
+            return;
+        }
+        navigationGuardEnabled = false;
+        suppressNextPopstateGuard = true;
+        window.history.back();
+    });
+
+    refreshUploadActionState();
 });

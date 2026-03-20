@@ -96,6 +96,7 @@ function buildErpCompanyQueryParams(string $database = ''): array {
     $params = [];
     if ($database !== '') {
         $params['db'] = $database;
+        $params['bd'] = $database;
     }
     if ($emp !== '') {
         $params['EMP'] = $emp;
@@ -1644,6 +1645,7 @@ function sanitizeAccountInput(array $input): array {
         $baseValue = '';
         $ivaValue = '';
         $costCenterRequired = false;
+        $baseSourceField = '';
 
         if (is_array($rateInput)) {
             $ivaAccountCandidate = null;
@@ -1705,6 +1707,12 @@ function sanitizeAccountInput(array $input): array {
                 $flag = trim((string) $rateInput['cost_center_required']);
                 $costCenterRequired = ($flag === '1' || strcasecmp($flag, 'true') === 0);
             }
+            if (array_key_exists('base_source_field', $rateInput)) {
+                $candidate = extractStringValue($rateInput['base_source_field'], ['field', 'value', 'name', 'code']);
+                if ($candidate !== null) {
+                    $baseSourceField = trim($candidate);
+                }
+            }
         } elseif ($rateInput !== null) {
             $generalCandidate = extractStringValue($rateInput, ['account', 'code']);
             if ($generalCandidate !== null) {
@@ -1748,6 +1756,9 @@ function sanitizeAccountInput(array $input): array {
         }
         if ($costCenterRequired) {
             $result[$rate]['cost_center_required'] = '1';
+        }
+        if (!empty($baseSourceField)) {
+            $result[$rate]['base_source_field'] = $baseSourceField;
         }
     }
 
@@ -1915,6 +1926,26 @@ function mergeAccountingAccounts(array $base, array $override): array {
 }
 
 /**
+ * Remove document-specific amounts from reusable accounting mappings.
+ *
+ * Reusable templates/classifications must only persist the account structure;
+ * base and IVA values are always derived from the current document.
+ *
+ * @param array<string,mixed> $rates
+ * @return array<string,array<string,string>>
+ */
+function stripAccountingAmounts(array $rates): array {
+    $sanitized = sanitizeAccountInput($rates);
+
+    foreach ($sanitized as $rate => $entry) {
+        $sanitized[$rate]['base'] = '';
+        $sanitized[$rate]['iva'] = '';
+    }
+
+    return $sanitized;
+}
+
+/**
  * Remove empty/default rows from a normalized account payload.
  *
  * @param array<string,mixed> $rates
@@ -1935,8 +1966,9 @@ function filterVisibleAccountingRates(array $rates): array {
         $ivaValue = trim((string) ($entry['iva'] ?? ''));
         $label = trim((string) ($entry['label'] ?? ''));
         $costCenterRequired = trim((string) ($entry['cost_center_required'] ?? ''));
+        $baseSourceField = trim((string) ($entry['base_source_field'] ?? ''));
 
-        if ($general === '' && $iva === '' && $base === '' && $ivaValue === '' && $costCenterRequired === '') {
+        if ($general === '' && $iva === '' && $base === '' && $ivaValue === '' && $costCenterRequired === '' && $baseSourceField === '') {
             continue;
         }
 
@@ -1951,6 +1983,9 @@ function filterVisibleAccountingRates(array $rates): array {
         }
         if ($costCenterRequired !== '') {
             $result[(string) $rate]['cost_center_required'] = $costCenterRequired;
+        }
+        if ($baseSourceField !== '') {
+            $result[(string) $rate]['base_source_field'] = $baseSourceField;
         }
     }
 
@@ -2547,12 +2582,15 @@ function determineClassificationButtonClass(array $requirements, array $payload,
     $requires = false;
     $allFilled = true;
     $hasAny = false;
+    $hasMissingBaseAmount = false;
 
 
     foreach ($requirements as $rate => $req) {
         $data = $payload[$rate] ?? [];
+        $hasRelevantConfiguration = false;
         if (!empty($req['general'])) {
             $requires = true;
+            $hasRelevantConfiguration = true;
             $general = trim((string) ($data['general_account'] ?? ''));
             if ($general === '') {
                 $allFilled = false;
@@ -2562,6 +2600,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
         }
         if (!empty($req['iva'])) {
             $requires = true;
+            $hasRelevantConfiguration = true;
             $iva = trim((string) ($data['iva_account'] ?? ''));
             if ($iva === '') {
                 $allFilled = false;
@@ -2571,9 +2610,25 @@ function determineClassificationButtonClass(array $requirements, array $payload,
         }
         if (!empty($req['cost_center'])) {
             $requires = true;
+            $hasRelevantConfiguration = true;
             $costCenterValue = trim((string) ($costCenters[$rate] ?? ''));
             if ($costCenterValue === '') {
                 $allFilled = false;
+            } else {
+                $hasAny = true;
+            }
+        }
+        if (!$hasRelevantConfiguration) {
+            $general = trim((string) ($data['general_account'] ?? ''));
+            $iva = trim((string) ($data['iva_account'] ?? ''));
+            $costCenterValue = trim((string) ($costCenters[$rate] ?? ''));
+            $hasRelevantConfiguration = ($general !== '' || $iva !== '' || $costCenterValue !== '');
+        }
+        if ($hasRelevantConfiguration) {
+            $baseValue = extractDecimalAmount($data['base'] ?? ($data['base_value'] ?? ''));
+            if ($baseValue === null || $baseValue === '' || abs((float) $baseValue) < 0.00001) {
+                $allFilled = false;
+                $hasMissingBaseAmount = true;
             } else {
                 $hasAny = true;
             }
@@ -2592,7 +2647,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
         $hasAny = true;
     }
 
-    if (!$requires || $allFilled) {
+    if ((!$requires || $allFilled) && !$hasMissingBaseAmount) {
         return 'btn-success';
     }
 

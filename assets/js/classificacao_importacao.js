@@ -1392,13 +1392,16 @@ window.addEventListener('load', function() {
         var requires = false;
         var allFilled = true;
         var hasAny = false;
+        var hasMissingBaseAmount = false;
         var totalAccount = '';
 
         Object.keys(requirements).forEach(function(rate) {
             var req = requirements[rate] || {};
             var data = rateData[rate] || {};
+            var hasRelevantConfiguration = false;
             if (req.general) {
                 requires = true;
+                hasRelevantConfiguration = true;
                 var general = (data.general_account || '').trim();
                 if (!general) {
                     allFilled = false;
@@ -1408,6 +1411,7 @@ window.addEventListener('load', function() {
             }
             if (req.iva) {
                 requires = true;
+                hasRelevantConfiguration = true;
                 var iva = (data.iva_account || '').trim();
                 if (!iva) {
                     allFilled = false;
@@ -1417,9 +1421,25 @@ window.addEventListener('load', function() {
             }
             if (req.cost_center) {
                 requires = true;
+                hasRelevantConfiguration = true;
                 var cc = (costCenters[rate] || '').trim();
                 if (!cc) {
                     allFilled = false;
+                } else {
+                    hasAny = true;
+                }
+            }
+            if (!hasRelevantConfiguration) {
+                hasRelevantConfiguration = String(data.general_account || '').trim() !== ''
+                    || String(data.iva_account || '').trim() !== ''
+                    || String(costCenters[rate] || '').trim() !== '';
+            }
+            if (hasRelevantConfiguration) {
+                var baseCandidate = resolveBaseSourceForRate(rate, data);
+                var baseValue = baseCandidate ? baseCandidate.base : getEntryAmount(data, 'base');
+                if (baseValue === null || Math.abs(parseFloat(baseValue)) < 0.00001) {
+                    allFilled = false;
+                    hasMissingBaseAmount = true;
                 } else {
                     hasAny = true;
                 }
@@ -1437,7 +1457,7 @@ window.addEventListener('load', function() {
         }
 
         btn.classList.remove('btn-success', 'btn-warning', 'btn-secondary');
-        if (!requires || allFilled) {
+        if ((!requires || allFilled) && !hasMissingBaseAmount) {
             btn.classList.add('btn-success');
         } else if (hasAny) {
             btn.classList.add('btn-warning');
@@ -1602,6 +1622,7 @@ window.addEventListener('load', function() {
     var currentIgnoreDetectedRates = false;
     var currentClassificationModelName = '';
     var classificationModels = [];
+    var currentDocumentFieldValues = {};
     var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
     var classificationModelSelect = document.getElementById('classificationModelSelect');
@@ -1638,6 +1659,7 @@ window.addEventListener('load', function() {
         '23': '23%'
     };
     var defaultRates = Object.keys(defaultRateLabels);
+    var qrFieldMatchPriority = ['FIELD_O', 'FIELD_N', 'FIELD_I8', 'FIELD_I7', 'FIELD_I6', 'FIELD_I5', 'FIELD_I4', 'FIELD_I3', 'FIELD_R', 'FIELD_Q', 'FIELD_I1'];
 
     function clampCostCenterDistributionDialogPosition(left, top) {
         if (!costCenterDistributionModalEl || !costCenterDistributionDialogEl) {
@@ -1997,6 +2019,53 @@ window.addEventListener('load', function() {
         }
         if (context.database) {
             params.set('db', String(context.database));
+            params.set('bd', String(context.database));
+        }
+        if (erpBaseCompany) {
+            params.set('EMP', erpBaseCompany);
+        }
+        return endpoint + '?' + params.toString();
+    }
+
+    function buildPlanContasLookupUrl(context, accountCode) {
+        var normalizedCode = String(accountCode || '').trim();
+        if (!normalizedCode || erpWebserviceUrl === '') {
+            return '';
+        }
+        var base = erpWebserviceUrl.replace(/\/+$/, '');
+        var endpoint = base + '/contabilidade/planocontas';
+        var params = new URLSearchParams();
+        params.set('limit', '10');
+        params.set('offset', '0');
+        params.set('strCodExercicio', String(context.exercise || new Date().getFullYear()));
+        params.set('strConta', normalizedCode);
+        if (context.database) {
+            params.set('db', String(context.database));
+            params.set('bd', String(context.database));
+        }
+        if (erpBaseCompany) {
+            params.set('EMP', erpBaseCompany);
+        }
+        return endpoint + '?' + params.toString();
+    }
+
+    function buildPlanContasSearchUrl(context, queryText, limit) {
+        var normalizedQuery = String(queryText || '').trim();
+        if (!normalizedQuery || erpWebserviceUrl === '') {
+            return '';
+        }
+        var base = erpWebserviceUrl.replace(/\/+$/, '');
+        var endpoint = base + '/contabilidade/planocontas';
+        var params = new URLSearchParams();
+        params.set('limit', String(limit && limit > 0 ? limit : 20));
+        params.set('offset', '0');
+        params.set('strCodExercicio', String(context.exercise || new Date().getFullYear()));
+        params.set('q', normalizedQuery);
+        params.set('srchType', 'startswith');
+        params.set('searchField', 'strConta');
+        if (context.database) {
+            params.set('db', String(context.database));
+            params.set('bd', String(context.database));
         }
         if (erpBaseCompany) {
             params.set('EMP', erpBaseCompany);
@@ -2033,6 +2102,120 @@ window.addEventListener('load', function() {
                 var rows = extractErpRowsFromPayloadClient(payload);
                 return normalizePlanEntries(rows);
             });
+        });
+    }
+
+    function fetchPlanEntryByCodeRemote(code) {
+        var normalizedCode = String(code || '').trim();
+        if (!normalizedCode) {
+            return Promise.resolve(null);
+        }
+        var url = buildPlanContasLookupUrl(currentPlanContext, normalizedCode);
+        if (url === '' || erpWebserviceToken === '') {
+            return Promise.resolve(null);
+        }
+        return fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-API-KEY': erpWebserviceToken
+            },
+            credentials: 'omit'
+        }).then(function(res) {
+            return res.text().then(function(text) {
+                if (!res.ok || !text || !text.trim()) {
+                    return null;
+                }
+                var payload = {};
+                try {
+                    payload = JSON.parse(text);
+                } catch (err) {
+                    return null;
+                }
+                var rows = extractErpRowsFromPayloadClient(payload);
+                var entries = normalizePlanEntries(rows);
+                for (var i = 0; i < entries.length; i += 1) {
+                    if (String(entries[i].code || '').trim() === normalizedCode) {
+                        var alreadyExists = !!findPlanEntryByCode(normalizedCode);
+                        if (!alreadyExists) {
+                            currentPlanContext.entries.push(entries[i]);
+                            currentPlanContext.cacheKey = buildPlanCacheKey(currentPlanContext);
+                            if (currentPlanContext.cacheKey) {
+                                planAccountsCache[currentPlanContext.cacheKey] = currentPlanContext.entries.slice();
+                            }
+                        }
+                        return entries[i];
+                    }
+                }
+                return null;
+            });
+        }).catch(function() {
+            return null;
+        });
+    }
+
+    function mergePlanEntriesIntoContext(entries) {
+        if (!Array.isArray(entries) || !entries.length) {
+            return;
+        }
+        var existingByCode = {};
+        (currentPlanContext.entries || []).forEach(function(entry) {
+            if (!entry || !entry.code) {
+                return;
+            }
+            existingByCode[String(entry.code).trim()] = true;
+        });
+        entries.forEach(function(entry) {
+            if (!entry || !entry.code) {
+                return;
+            }
+            var code = String(entry.code).trim();
+            if (!code || existingByCode[code]) {
+                return;
+            }
+            existingByCode[code] = true;
+            currentPlanContext.entries.push(entry);
+        });
+        currentPlanContext.cacheKey = buildPlanCacheKey(currentPlanContext);
+        if (currentPlanContext.cacheKey) {
+            planAccountsCache[currentPlanContext.cacheKey] = currentPlanContext.entries.slice();
+        }
+    }
+
+    function searchPlanEntriesRemote(queryText, limit) {
+        var normalizedQuery = String(queryText || '').trim();
+        if (!normalizedQuery) {
+            return Promise.resolve([]);
+        }
+        var url = buildPlanContasSearchUrl(currentPlanContext, normalizedQuery, limit || 20);
+        if (url === '' || erpWebserviceToken === '') {
+            return Promise.resolve([]);
+        }
+        return fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'X-API-KEY': erpWebserviceToken
+            },
+            credentials: 'omit'
+        }).then(function(res) {
+            return res.text().then(function(text) {
+                if (!res.ok || !text || !text.trim()) {
+                    return [];
+                }
+                var payload = {};
+                try {
+                    payload = JSON.parse(text);
+                } catch (err) {
+                    return [];
+                }
+                var rows = extractErpRowsFromPayloadClient(payload);
+                var entries = normalizePlanEntries(rows);
+                mergePlanEntriesIntoContext(entries);
+                return entries;
+            });
+        }).catch(function() {
+            return [];
         });
     }
 
@@ -2201,6 +2384,121 @@ window.addEventListener('load', function() {
         return null;
     }
 
+    function clearPlanValidationState() {
+        Object.keys(rateInputs).forEach(function(rate) {
+            var info = rateInputs[rate] || {};
+            [info.generalAccount, info.ivaAccount].forEach(function(input) {
+                if (!input) {
+                    return;
+                }
+                input.classList.remove('input-error');
+                if (input.dataset && Object.prototype.hasOwnProperty.call(input.dataset, 'planValidationTitle')) {
+                    input.setAttribute('title', input.dataset.planValidationTitle || '');
+                    delete input.dataset.planValidationTitle;
+                    if (input.getAttribute('title') === '') {
+                        input.removeAttribute('title');
+                    }
+                }
+            });
+        });
+        if (totalAccountInput) {
+            totalAccountInput.classList.remove('input-error');
+            if (totalAccountInput.dataset && Object.prototype.hasOwnProperty.call(totalAccountInput.dataset, 'planValidationTitle')) {
+                totalAccountInput.setAttribute('title', totalAccountInput.dataset.planValidationTitle || '');
+                delete totalAccountInput.dataset.planValidationTitle;
+                if (totalAccountInput.getAttribute('title') === '') {
+                    totalAccountInput.removeAttribute('title');
+                }
+            }
+        }
+    }
+
+    function markInvalidPlanInput(input, message) {
+        if (!input) {
+            return;
+        }
+        var currentTitle = input.getAttribute('title') || '';
+        if (input.dataset && !Object.prototype.hasOwnProperty.call(input.dataset, 'planValidationTitle')) {
+            input.dataset.planValidationTitle = currentTitle;
+        }
+        input.classList.add('input-error');
+        input.setAttribute('title', String(message || '').trim());
+    }
+
+    function validateAccountsAgainstCurrentPlan(ratesPayload, totalAccountValue) {
+        clearPlanValidationState();
+        return ensurePlanContextLoaded().then(function(entries) {
+            var planEntries = Array.isArray(entries) ? entries : [];
+            if (!planEntries.length) {
+                if (currentPlanContext.lastError) {
+                    return {
+                        ok: false,
+                        error: currentPlanContext.lastError
+                    };
+                }
+                return { ok: true, invalid: [] };
+            }
+
+            var accountsToCheck = [];
+            Object.keys(ratesPayload || {}).forEach(function(rate) {
+                var payload = ratesPayload[rate] || {};
+                var info = rateInputs[rate] || {};
+                var generalAccount = String(payload.general_account || '').trim();
+                var ivaAccount = String(payload.iva_account || '').trim();
+                if (generalAccount) {
+                    accountsToCheck.push({
+                        code: generalAccount,
+                        label: 'Conta geral ' + generalAccount + ' (' + getRateLabel(rate) + ')',
+                        input: info.generalAccount || null
+                    });
+                }
+                if (ivaAccount) {
+                    accountsToCheck.push({
+                        code: ivaAccount,
+                        label: 'Conta IVA ' + ivaAccount + ' (' + getRateLabel(rate) + ')',
+                        input: info.ivaAccount || null
+                    });
+                }
+            });
+            if (totalAccountValue) {
+                accountsToCheck.push({
+                    code: totalAccountValue,
+                    label: 'Conta total ' + totalAccountValue,
+                    input: totalAccountInput || null
+                });
+            }
+
+            var invalid = [];
+            var lookupPromises = accountsToCheck.map(function(item) {
+                var existing = findPlanEntryByCode(item.code);
+                if (existing) {
+                    return Promise.resolve(true);
+                }
+                return fetchPlanEntryByCodeRemote(item.code).then(function(found) {
+                    return !!found;
+                }).then(function(found) {
+                    if (!found) {
+                        invalid.push(item);
+                    }
+                    return found;
+                });
+            });
+
+            return Promise.all(lookupPromises).then(function() {
+                if (invalid.length) {
+                    invalid.forEach(function(item) {
+                        markInvalidPlanInput(item.input, 'Conta não encontrada no plano da base ERP atual.');
+                    });
+                }
+
+                return {
+                    ok: invalid.length === 0,
+                    invalid: invalid
+                };
+            });
+        });
+    }
+
     function updatePlanInputTitle(input) {
         if (!input) {
             return;
@@ -2241,7 +2539,17 @@ window.addEventListener('load', function() {
         }
         input.__planAutocompleteTimer = window.setTimeout(function() {
             ensurePlanContextLoaded().then(function(entries) {
-                var filtered = filterPlanEntries(entries, input.value || '', 20);
+                var query = String(input.value || '').trim();
+                if (query !== '') {
+                    searchPlanEntriesRemote(query, 20).then(function(remoteEntries) {
+                        var mergedEntries = Array.isArray(remoteEntries) && remoteEntries.length
+                            ? remoteEntries
+                            : filterPlanEntries(entries, query, 20);
+                        renderPlanAutocompleteOptions(input, mergedEntries);
+                    });
+                    return;
+                }
+                var filtered = filterPlanEntries(entries, query, 20);
                 renderPlanAutocompleteOptions(input, filtered);
             });
         }, 180);
@@ -2312,9 +2620,39 @@ window.addEventListener('load', function() {
         }
         return models.map(function(model) {
             var item = model && typeof model === 'object' ? model : {};
+            var normalizedRates = item.rates && typeof item.rates === 'object' ? cloneJsonValue(item.rates, {}) : {};
+            var hasExplicitBaseSource = false;
+            Object.keys(normalizedRates).forEach(function(rate) {
+                if (!normalizedRates[rate] || typeof normalizedRates[rate] !== 'object') {
+                    normalizedRates[rate] = {};
+                }
+                normalizedRates[rate].base = '';
+                normalizedRates[rate].base_value = '';
+                normalizedRates[rate].iva = '';
+                normalizedRates[rate].iva_value = '';
+                normalizedRates[rate].base_source_field = String(normalizedRates[rate].base_source_field || '').trim();
+                if (normalizedRates[rate].base_source_field !== '') {
+                    hasExplicitBaseSource = true;
+                }
+            });
+            if (!hasExplicitBaseSource) {
+                var zeroRate = normalizedRates['0'] && typeof normalizedRates['0'] === 'object' ? normalizedRates['0'] : null;
+                var hasOnlyZeroRateConfigured = Object.keys(normalizedRates).every(function(rate) {
+                    var entry = normalizedRates[rate] || {};
+                    var hasAccount = String(entry.general_account || '').trim() !== '' || String(entry.iva_account || '').trim() !== '';
+                    return rate === '0' || !hasAccount;
+                });
+                if (zeroRate && hasOnlyZeroRateConfigured) {
+                    var zeroHasConfiguration = String(zeroRate.general_account || '').trim() !== ''
+                        || String(zeroRate.iva_account || '').trim() !== '';
+                    if (zeroHasConfiguration) {
+                        zeroRate.base_source_field = 'field_O';
+                    }
+                }
+            }
             return {
                 name: String(item.name || '').trim(),
-                rates: item.rates && typeof item.rates === 'object' ? cloneJsonValue(item.rates, {}) : {},
+                rates: normalizedRates,
                 cost_centers: item.cost_centers && typeof item.cost_centers === 'object' ? cloneJsonValue(item.cost_centers, {}) : {},
                 cost_center_breakdowns: item.cost_center_breakdowns && typeof item.cost_center_breakdowns === 'object' ? cloneJsonValue(item.cost_center_breakdowns, {}) : {},
                 total_account: String(item.total_account || '').trim()
@@ -2324,6 +2662,85 @@ window.addEventListener('load', function() {
         }).sort(function(a, b) {
             return a.name.localeCompare(b.name, 'pt', { sensitivity: 'base' });
         });
+    }
+
+    function getCurrentDocumentFieldValue(fieldName) {
+        var key = String(fieldName || '').trim().toUpperCase();
+        if (!key) {
+            return null;
+        }
+        if (!currentDocumentFieldValues || typeof currentDocumentFieldValues !== 'object') {
+            return null;
+        }
+        if (!Object.prototype.hasOwnProperty.call(currentDocumentFieldValues, key)) {
+            return null;
+        }
+        return normalizeAmountValue(currentDocumentFieldValues[key]);
+    }
+
+    function normalizeDocumentFieldMap(source) {
+        var result = {};
+        if (!source || typeof source !== 'object') {
+            return result;
+        }
+        Object.keys(source).forEach(function(fieldName) {
+            var normalizedKey = String(fieldName || '').trim().toUpperCase();
+            if (!normalizedKey) {
+                return;
+            }
+            result[normalizedKey] = source[fieldName];
+        });
+        return result;
+    }
+
+    function resolveBaseSourceForRate(rate, rateData) {
+        if (!rateData || typeof rateData !== 'object') {
+            return null;
+        }
+        var baseSourceField = String(rateData.base_source_field || '').trim().toUpperCase();
+        if (!baseSourceField) {
+            return null;
+        }
+        var resolvedBase = getCurrentDocumentFieldValue(baseSourceField);
+        if (resolvedBase === null) {
+            return null;
+        }
+        return {
+            base: resolvedBase,
+            iva: String(rate) === '0' ? '0.00' : null
+        };
+    }
+
+    function inferBaseSourceFieldForRate(rate, baseValue) {
+        var normalizedBase = normalizeAmountValue(baseValue);
+        if (normalizedBase === null) {
+            return '';
+        }
+        var candidateFields = [];
+        Object.keys(currentDocumentFieldValues || {}).forEach(function(fieldName) {
+            var resolvedValue = getCurrentDocumentFieldValue(fieldName);
+            if (resolvedValue !== null && resolvedValue === normalizedBase) {
+                candidateFields.push(String(fieldName || '').trim().toUpperCase());
+            }
+        });
+        if (!candidateFields.length) {
+            return '';
+        }
+        candidateFields.sort(function(a, b) {
+            var indexA = qrFieldMatchPriority.indexOf(a);
+            var indexB = qrFieldMatchPriority.indexOf(b);
+            if (indexA === -1) {
+                indexA = 999;
+            }
+            if (indexB === -1) {
+                indexB = 999;
+            }
+            if (indexA !== indexB) {
+                return indexA - indexB;
+            }
+            return a.localeCompare(b);
+        });
+        return candidateFields[0].toLowerCase();
     }
 
     function renderClassificationModelOptions(selectedName) {
@@ -2345,6 +2762,46 @@ window.addEventListener('load', function() {
                 option.selected = true;
             }
             classificationModelSelect.appendChild(option);
+        });
+    }
+
+    function findClassificationModelByName(modelName) {
+        var name = String(modelName || '').trim();
+        if (!name) {
+            return null;
+        }
+        for (var i = 0; i < classificationModels.length; i += 1) {
+            var model = classificationModels[i];
+            if (model && model.name === name) {
+                return model;
+            }
+        }
+        return null;
+    }
+
+    function inheritBaseSourceFieldsFromModel(targetRates, modelName) {
+        if (!targetRates || typeof targetRates !== 'object') {
+            return;
+        }
+        var selectedModel = findClassificationModelByName(modelName);
+        if (!selectedModel || !selectedModel.rates || typeof selectedModel.rates !== 'object') {
+            return;
+        }
+        Object.keys(selectedModel.rates).forEach(function(rate) {
+            var modelRate = selectedModel.rates[rate];
+            if (!modelRate || typeof modelRate !== 'object') {
+                return;
+            }
+            var modelBaseSourceField = String(modelRate.base_source_field || '').trim();
+            if (!modelBaseSourceField) {
+                return;
+            }
+            if (!targetRates[rate] || typeof targetRates[rate] !== 'object') {
+                targetRates[rate] = {};
+            }
+            if (!String(targetRates[rate].base_source_field || '').trim()) {
+                targetRates[rate].base_source_field = modelBaseSourceField;
+            }
         });
     }
 
@@ -2390,6 +2847,15 @@ window.addEventListener('load', function() {
 
         Object.keys(currentRateData).forEach(function(rate) {
             var data = ensureRateData(rate);
+            var resolvedSourceAmounts = resolveBaseSourceForRate(rate, data);
+            if (resolvedSourceAmounts) {
+                data.base = resolvedSourceAmounts.base;
+                data.base_value = resolvedSourceAmounts.base;
+                if (resolvedSourceAmounts.iva !== null) {
+                    data.iva = resolvedSourceAmounts.iva;
+                    data.iva_value = resolvedSourceAmounts.iva;
+                }
+            }
             if (!data.label) {
                 data.label = getDefaultRateLabel(rate);
             }
@@ -2410,8 +2876,26 @@ window.addEventListener('load', function() {
         captureOriginalRateValues({ initialize: true, refresh: false, allowCreate: false });
         renderClassificationModelOptions(currentClassificationModelName);
         if (currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
             updateButtonClass(currentBtn);
         }
+    }
+
+    function hasValidBaseAmountForRate(rate) {
+        var info = rateInputs[rate] || null;
+        var rateData = ensureRateData(rate);
+        var resolvedSourceAmounts = resolveBaseSourceForRate(rate, rateData);
+        var baseCandidate = resolvedSourceAmounts ? resolvedSourceAmounts.base : null;
+        if (baseCandidate === null && info && info.base) {
+            baseCandidate = normalizeAmountValue(info.base.value);
+        }
+        if (baseCandidate === null) {
+            baseCandidate = getEntryAmount(rateData, 'base');
+        }
+        if (baseCandidate === null) {
+            return false;
+        }
+        return Math.abs(parseFloat(baseCandidate)) >= 0.00001;
     }
 
     function parsePercentageValue(value) {
@@ -4184,7 +4668,10 @@ window.addEventListener('load', function() {
         var baseData = ensureRateData(rate);
         var rowData = storedRowRates[rate] || {};
         var defaultData = storedDefaultRates[rate] || {};
-        var resolvedBase = getEntryAmount(baseData, 'base');
+        var resolvedSourceAmounts = resolveBaseSourceForRate(rate, baseData)
+            || resolveBaseSourceForRate(rate, rowData)
+            || resolveBaseSourceForRate(rate, defaultData);
+        var resolvedBase = resolvedSourceAmounts ? resolvedSourceAmounts.base : getEntryAmount(baseData, 'base');
         if (resolvedBase === null) {
             resolvedBase = getEntryAmount(rowData, 'base');
         }
@@ -4194,7 +4681,9 @@ window.addEventListener('load', function() {
         if (info.base) {
             info.base.value = resolvedBase !== null ? String(resolvedBase) : '';
         }
-        var resolvedIva = getEntryAmount(baseData, 'iva');
+        var resolvedIva = resolvedSourceAmounts && resolvedSourceAmounts.iva !== null
+            ? resolvedSourceAmounts.iva
+            : getEntryAmount(baseData, 'iva');
         if (resolvedIva === null) {
             resolvedIva = getEntryAmount(rowData, 'iva');
         }
@@ -4429,6 +4918,7 @@ window.addEventListener('load', function() {
                 A: currentBtn.getAttribute('data-emitter') || '',
                 B: currentBtn.getAttribute('data-acquirer') || '',
                 D: currentBtn.getAttribute('data-doctype') || '',
+                tenant_key: currentBtn.getAttribute('data-acquirer-db') || '',
                 model_name: modelName,
                 csrf_token: csrfInput ? csrfInput.value : ''
             });
@@ -4901,6 +5391,7 @@ window.addEventListener('load', function() {
         currentIgnoreDetectedRates = false;
         currentClassificationModelName = '';
         classificationModels = [];
+        currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
             updatePlanInputTitle(totalAccountInput);
@@ -4974,6 +5465,7 @@ window.addEventListener('load', function() {
             A: emitterRaw,
             B: acquirer,
             D: docType,
+            tenant_key: documentDb,
             csrf_token: csrfInput.value
         });
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
@@ -5004,6 +5496,9 @@ window.addEventListener('load', function() {
                 currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
                 currentClassificationModelName = String(res.classification_model_name || '').trim();
                 classificationModels = normalizeClassificationModelList(res.classification_models);
+                inheritBaseSourceFieldsFromModel(storedRowRates, currentClassificationModelName);
+                inheritBaseSourceFieldsFromModel(storedDefaultRates, currentClassificationModelName);
+                inheritBaseSourceFieldsFromModel(currentRateData, currentClassificationModelName);
                 renderClassificationModelOptions(currentClassificationModelName);
 
                 Object.keys(storedRowRates).forEach(function(rate) {
@@ -5020,6 +5515,9 @@ window.addEventListener('load', function() {
                         }
                         if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
+                        }
+                        if (rowData.base_source_field) {
+                            currentRateData[rate].base_source_field = rowData.base_source_field;
                         }
                         var rowBase = getEntryAmount(rowData, 'base');
                         if (rowBase !== null && rowBase !== undefined) {
@@ -5074,6 +5572,9 @@ window.addEventListener('load', function() {
                 getRateKeys().forEach(function(rate) {
                     populateRateRow(rate);
                 });
+                if (currentBtn) {
+                    currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+                }
                 captureOriginalRateValues({ initialize: true });
                 currentCostCenters = getCostCenterValues();
                 refreshCostCenterFieldModes();
@@ -5125,6 +5626,14 @@ window.addEventListener('load', function() {
                     iva: ivaValue,
                     base_value: baseValue,
                     iva_value: ivaValue,
+                    base_source_field: (function() {
+                        var rateDataSource = ensureRateData(rate);
+                        var existingSource = String(rateDataSource.base_source_field || '').trim();
+                        if (existingSource) {
+                            return existingSource;
+                        }
+                        return inferBaseSourceFieldForRate(rate, baseValue);
+                    })(),
                     cost_center_required: costCenterRequired ? '1' : '0'
                 };
             });
@@ -5159,26 +5668,40 @@ window.addEventListener('load', function() {
                     return;
                 }
             }
-            var body = new URLSearchParams({
-                id: currentBtn.getAttribute('data-id') || '',
-                A: currentBtn.getAttribute('data-emitter') || '',
-                B: currentBtn.getAttribute('data-acquirer') || '',
-                D: currentBtn.getAttribute('data-doctype') || '',
-                rates: JSON.stringify(ratesPayload),
-                removed_rates: JSON.stringify(removedPayload),
-                original_rates: JSON.stringify(originalRateValues),
-                cost_centers: JSON.stringify(costCentersPayload),
-                cost_center_breakdowns: JSON.stringify(costCenterBreakdownsPayload),
-                total_account: totalAccountValue,
-                ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
-                classification_model_name: currentClassificationModelName,
-                save_model_name: saveModelName,
-                csrf_token: csrfInput.value
-            });
-            fetchJson('contabilidade/save-analysis.php?action=save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: body.toString()
+            validateAccountsAgainstCurrentPlan(ratesPayload, totalAccountValue)
+            .then(function(validation) {
+                if (!validation || validation.ok === false) {
+                    if (validation && validation.error) {
+                        throw new Error('Não foi possível validar as contas no plano ERP: ' + validation.error);
+                    }
+                    var invalidLabels = (validation && Array.isArray(validation.invalid) ? validation.invalid : []).map(function(item) {
+                        return item.label;
+                    });
+                    throw new Error('Existem contas que não pertencem ao plano de contas da base ERP atual: ' + invalidLabels.join('; '));
+                }
+
+                var body = new URLSearchParams({
+                    id: currentBtn.getAttribute('data-id') || '',
+                    A: currentBtn.getAttribute('data-emitter') || '',
+                    B: currentBtn.getAttribute('data-acquirer') || '',
+                    D: currentBtn.getAttribute('data-doctype') || '',
+                    tenant_key: currentBtn.getAttribute('data-acquirer-db') || '',
+                    rates: JSON.stringify(ratesPayload),
+                    removed_rates: JSON.stringify(removedPayload),
+                    original_rates: JSON.stringify(originalRateValues),
+                    cost_centers: JSON.stringify(costCentersPayload),
+                    cost_center_breakdowns: JSON.stringify(costCenterBreakdownsPayload),
+                    total_account: totalAccountValue,
+                    ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
+                    classification_model_name: currentClassificationModelName,
+                    save_model_name: saveModelName,
+                    csrf_token: csrfInput.value
+                });
+                return fetchJson('contabilidade/save-analysis.php?action=save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                });
             })
             .then(function(res) {
             if (res.csrf_token) {
@@ -5243,6 +5766,9 @@ window.addEventListener('load', function() {
                         if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
+                        if (rowData.base_source_field) {
+                            currentRateData[rate].base_source_field = rowData.base_source_field;
+                        }
                         var savedBase = getEntryAmount(rowData, 'base');
                         if (savedBase !== null && savedBase !== undefined) {
                             currentRateData[rate].base = String(savedBase);
@@ -5272,6 +5798,7 @@ window.addEventListener('load', function() {
                         currentRateData[rate].iva_value = currentRateData[rate].iva;
                         currentRateData[rate].iva_account = ratesPayload[rate] ? ratesPayload[rate].iva_account : '';
                         currentRateData[rate].general_account = ratesPayload[rate] ? ratesPayload[rate].general_account : '';
+                        currentRateData[rate].base_source_field = ratesPayload[rate] ? ratesPayload[rate].base_source_field : '';
                         currentRateData[rate].label = getRateLabel(rate);
                     });
                 }

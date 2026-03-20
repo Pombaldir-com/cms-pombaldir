@@ -171,14 +171,67 @@ function sanitizeClassificationModelName($value): string {
     return substr($name, 0, 120);
 }
 
-function buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType): string {
+function normalizeClassificationModelTenantKey($value): string {
+    $tenantKey = trim((string) ($value ?? ''));
+    if ($tenantKey === '') {
+        return '';
+    }
+    if (function_exists('mb_substr')) {
+        return mb_substr($tenantKey, 0, 120, 'UTF-8');
+    }
+    return substr($tenantKey, 0, 120);
+}
+
+function buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType): string {
     $parts = [
-        trim((string) ($companySlug ?? '')),
+        normalizeClassificationModelTenantKey($tenantKey),
+        normalizeSupplierPartyValue($acquirer),
+        normalizeDocTypeValue($docType),
+    ];
+    return implode('|', $parts);
+}
+
+function buildLegacyClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType): string {
+    $parts = [
+        normalizeClassificationModelTenantKey($tenantKey),
         normalizeSupplierPartyValue($emitter),
         normalizeSupplierPartyValue($acquirer),
         normalizeDocTypeValue($docType),
     ];
     return implode('|', $parts);
+}
+
+function resolveClassificationModelTenantKey(PDO $pdo, array $context = []): string {
+    $explicitTenantKey = normalizeClassificationModelTenantKey(
+        $context['tenant_key']
+        ?? $context['model_tenant_key']
+        ?? $context['acquirer_database']
+        ?? $context['database']
+        ?? ''
+    );
+    if ($explicitTenantKey !== '') {
+        return $explicitTenantKey;
+    }
+
+    $acquirerNif = extractVatNumber((string) ($context['acquirer'] ?? ''));
+    if ($acquirerNif !== '') {
+        $entity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+        $entityTenantKey = normalizeClassificationModelTenantKey($entity['erp_database'] ?? '');
+        if ($entityTenantKey !== '') {
+            return $entityTenantKey;
+        }
+    }
+
+    $emitterNif = extractVatNumber((string) ($context['emitter'] ?? ''));
+    if ($emitterNif !== '') {
+        $entity = findAccountingEntityByType($pdo, $emitterNif, 'emitter');
+        $entityTenantKey = normalizeClassificationModelTenantKey($entity['erp_database'] ?? '');
+        if ($entityTenantKey !== '') {
+            return $entityTenantKey;
+        }
+    }
+
+    return normalizeClassificationModelTenantKey((string) (getCompanySlug() ?? ''));
 }
 
 function loadAllSharedClassificationModels(): array {
@@ -208,6 +261,7 @@ function loadAllSharedClassificationModels(): array {
             continue;
         }
         $companySlug = trim((string) ($model['company_slug'] ?? ''));
+        $tenantKey = normalizeClassificationModelTenantKey($model['tenant_key'] ?? $companySlug);
         $name = sanitizeClassificationModelName($model['name'] ?? '');
         $emitter = normalizeSupplierPartyValue($model['emitter'] ?? '');
         $acquirer = normalizeSupplierPartyValue($model['acquirer'] ?? '');
@@ -216,7 +270,7 @@ function loadAllSharedClassificationModels(): array {
             continue;
         }
 
-        $rates = sanitizeAccountInput(is_array($model['rates'] ?? null) ? $model['rates'] : []);
+        $rates = stripAccountingAmounts(is_array($model['rates'] ?? null) ? $model['rates'] : []);
         $costCenters = sanitizeCostCenterValues($model['cost_centers'] ?? []);
         $costCenterBreakdowns = sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []);
         $metadata = sanitizeAccountingMetadata([
@@ -227,11 +281,12 @@ function loadAllSharedClassificationModels(): array {
 
         $result[] = [
             'company_slug' => $companySlug,
+            'tenant_key' => $tenantKey,
             'name' => $name,
             'emitter' => $emitter,
             'acquirer' => $acquirer,
             'doc_type' => $docType,
-            'scope_key' => buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
+            'scope_key' => buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType),
             'rates' => $rates,
             'cost_centers' => $costCenters,
             'cost_center_breakdowns' => $costCenterBreakdowns,
@@ -248,21 +303,52 @@ function loadAllSharedClassificationModels(): array {
     return $result;
 }
 
-function loadSharedClassificationModels($emitter, $acquirer, $docType): array {
-    $companySlug = (string) (getCompanySlug() ?? '');
-    $scopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
-    if ($scopeKey === '|||') {
+function loadSharedClassificationModels(PDO $pdo, $emitter, $acquirer, $docType, string $tenantKey = ''): array {
+    $resolvedTenantKey = $tenantKey !== ''
+        ? normalizeClassificationModelTenantKey($tenantKey)
+        : resolveClassificationModelTenantKey($pdo, [
+            'emitter' => $emitter,
+            'acquirer' => $acquirer,
+        ]);
+    $companySlug = normalizeClassificationModelTenantKey((string) (getCompanySlug() ?? ''));
+    $candidateScopeKeys = array_values(array_unique(array_filter([
+        buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType),
+        buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
+        buildLegacyClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType),
+        buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
+    ], static function ($value): bool {
+        return $value !== '||';
+    })));
+    if (empty($candidateScopeKeys)) {
         return [];
     }
 
     $models = loadAllSharedClassificationModels();
+    $preferredScopeKey = buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
     $filtered = [];
     foreach ($models as $model) {
-        if (($model['scope_key'] ?? '') !== $scopeKey) {
+        $modelScopeKey = (string) ($model['scope_key'] ?? '');
+        if (!in_array($modelScopeKey, $candidateScopeKeys, true)) {
             continue;
         }
-        $filtered[] = $model;
+        $nameKey = function_exists('mb_strtolower')
+            ? mb_strtolower((string) ($model['name'] ?? ''), 'UTF-8')
+            : strtolower((string) ($model['name'] ?? ''));
+        $priority = $modelScopeKey === $preferredScopeKey ? 2 : 1;
+        if (!isset($filtered[$nameKey]) || $priority > (int) ($filtered[$nameKey]['_priority'] ?? 0)) {
+            $model['_priority'] = $priority;
+            $filtered[$nameKey] = $model;
+        }
     }
+
+    $filtered = array_values($filtered);
+    foreach ($filtered as $index => $model) {
+        unset($filtered[$index]['_priority']);
+    }
+
+    usort($filtered, static function (array $a, array $b): int {
+        return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+    });
 
     return $filtered;
 }
@@ -289,8 +375,15 @@ function saveSharedClassificationModels(array $models): void {
     }
 }
 
-function upsertSharedClassificationModel(array $model): array {
+function upsertSharedClassificationModel(PDO $pdo, array $model): array {
     $companySlug = (string) (getCompanySlug() ?? '');
+    $tenantKey = resolveClassificationModelTenantKey($pdo, [
+        'tenant_key' => $model['tenant_key'] ?? '',
+        'acquirer_database' => $model['acquirer_database'] ?? '',
+        'database' => $model['database'] ?? '',
+        'emitter' => $model['emitter'] ?? '',
+        'acquirer' => $model['acquirer'] ?? '',
+    ]);
     $name = sanitizeClassificationModelName($model['name'] ?? '');
     $emitter = normalizeSupplierPartyValue($model['emitter'] ?? '');
     $acquirer = normalizeSupplierPartyValue($model['acquirer'] ?? '');
@@ -298,19 +391,20 @@ function upsertSharedClassificationModel(array $model): array {
     if ($name === '') {
         throw new RuntimeException('Indique um nome para o modelo.');
     }
-    if ($emitter === '' || $acquirer === '') {
-        throw new RuntimeException('Modelo sem emitente/adquirente válido.');
+    if ($acquirer === '') {
+        throw new RuntimeException('Modelo sem adquirente válido.');
     }
 
     $models = loadAllSharedClassificationModels();
     $normalized = [
         'company_slug' => $companySlug,
+        'tenant_key' => $tenantKey,
         'name' => $name,
         'emitter' => $emitter,
         'acquirer' => $acquirer,
         'doc_type' => $docType,
-        'scope_key' => buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
-        'rates' => sanitizeAccountInput(is_array($model['rates'] ?? null) ? $model['rates'] : []),
+        'scope_key' => buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType),
+        'rates' => stripAccountingAmounts(is_array($model['rates'] ?? null) ? $model['rates'] : []),
         'cost_centers' => sanitizeCostCenterValues($model['cost_centers'] ?? []),
         'cost_center_breakdowns' => sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []),
         'total_account' => trim((string) ($model['total_account'] ?? '')),
@@ -318,11 +412,22 @@ function upsertSharedClassificationModel(array $model): array {
         'updated_at' => date('c'),
     ];
 
+    $legacyScopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+    $legacyEmitterScopeKey = buildLegacyClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType);
+    $legacyCompanyEmitterScopeKey = buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
     $updated = false;
     foreach ($models as $index => $existing) {
         if (
             strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
-            && (string) ($existing['scope_key'] ?? '') === $normalized['scope_key']
+            && normalizeSupplierPartyValue($existing['acquirer'] ?? '') === $acquirer
+            && normalizeDocTypeValue($existing['doc_type'] ?? '') === $docType
+            && (
+                normalizeClassificationModelTenantKey($existing['tenant_key'] ?? '') === $tenantKey
+                || (string) ($existing['scope_key'] ?? '') === $normalized['scope_key']
+                || (string) ($existing['scope_key'] ?? '') === $legacyScopeKey
+                || (string) ($existing['scope_key'] ?? '') === $legacyEmitterScopeKey
+                || (string) ($existing['scope_key'] ?? '') === $legacyCompanyEmitterScopeKey
+            )
         ) {
             $models[$index] = $normalized;
             $updated = true;
@@ -342,11 +447,20 @@ function upsertSharedClassificationModel(array $model): array {
     return $normalized;
 }
 
-function deleteSharedClassificationModel($emitter, $acquirer, $docType, $name): bool {
-    $companySlug = (string) (getCompanySlug() ?? '');
-    $scopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType, $name, string $tenantKey = ''): bool {
+    $companySlug = normalizeClassificationModelTenantKey((string) (getCompanySlug() ?? ''));
+    $resolvedTenantKey = $tenantKey !== ''
+        ? normalizeClassificationModelTenantKey($tenantKey)
+        : resolveClassificationModelTenantKey($pdo, [
+            'emitter' => $emitter,
+            'acquirer' => $acquirer,
+        ]);
+    $scopeKey = buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
+    $legacyScopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+    $legacyEmitterScopeKey = buildLegacyClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
+    $legacyCompanyEmitterScopeKey = buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
     $modelName = sanitizeClassificationModelName($name);
-    if ($scopeKey === '|||' || $modelName === '') {
+    if (($scopeKey === '||' && $legacyScopeKey === '||') || $modelName === '') {
         return false;
     }
 
@@ -355,7 +469,7 @@ function deleteSharedClassificationModel($emitter, $acquirer, $docType, $name): 
     $deleted = false;
 
     foreach ($models as $model) {
-        $sameScope = (string) ($model['scope_key'] ?? '') === $scopeKey;
+        $sameScope = in_array((string) ($model['scope_key'] ?? ''), [$scopeKey, $legacyScopeKey, $legacyEmitterScopeKey, $legacyCompanyEmitterScopeKey], true);
         $sameName = strcasecmp((string) ($model['name'] ?? ''), $modelName) === 0;
         if ($sameScope && $sameName) {
             $deleted = true;
@@ -624,6 +738,7 @@ if ($action === 'get') {
     $b = $_GET['B'] ?? '';
     $d = $_GET['D'] ?? '';
     $id = $_GET['id'] ?? '';
+    $tenantKey = $_GET['tenant_key'] ?? ($_GET['acquirer_database'] ?? '');
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -699,7 +814,7 @@ if ($action === 'get') {
         'row_total_account' => $rowMetadata['total_account'] ?? '',
         'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
-        'classification_models' => loadSharedClassificationModels($a, $b, $d),
+        'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
         'original_rates' => $originalSnapshot,
         'csrf_token' => generateCsrfToken()
     ]);
@@ -716,6 +831,7 @@ if ($action === 'get') {
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
     $name = $_POST['model_name'] ?? '';
+    $tenantKey = $_POST['tenant_key'] ?? ($_POST['acquirer_database'] ?? '');
 
     try {
         $pdo = getPDO();
@@ -728,11 +844,11 @@ if ($action === 'get') {
     $idValue = isset($_POST['id']) && is_numeric($_POST['id']) ? (int) $_POST['id'] : 0;
     requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
 
-    if (!deleteSharedClassificationModel($a, $b, $d, $name)) {
+    if (!deleteSharedClassificationModel($pdo, $a, $b, $d, $name, (string) $tenantKey)) {
         http_response_code(404);
         echo json_encode([
             'error' => 'Modelo não encontrado.',
-            'classification_models' => loadSharedClassificationModels($a, $b, $d),
+            'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
             'csrf_token' => generateCsrfToken(true)
         ]);
         exit;
@@ -740,7 +856,7 @@ if ($action === 'get') {
 
     echo json_encode([
         'success' => true,
-        'classification_models' => loadSharedClassificationModels($a, $b, $d),
+        'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
         'csrf_token' => generateCsrfToken(true)
     ]);
     exit;
@@ -755,6 +871,7 @@ if ($action === 'get') {
     $a = $_POST['A'] ?? '';
     $b = $_POST['B'] ?? '';
     $d = $_POST['D'] ?? '';
+    $tenantKey = $_POST['tenant_key'] ?? ($_POST['acquirer_database'] ?? '');
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -870,7 +987,7 @@ if ($action === 'get') {
         $existingRowWasReady = determineClassificationButtonClass($existingRequirements, $existingPayload, $existingRowMetadata, $existingRowCostCenters) === 'btn-success';
 
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
-        $classAccounts = mergeAccountingAccounts($existingClass, $submittedRates);
+        $classAccounts = stripAccountingAmounts(mergeAccountingAccounts($existingClass, $submittedRates));
 
         foreach ($removedRates as $rate) {
             unset($rowAccounts[$rate], $classAccounts[$rate], $costCentersData[$rate]);
@@ -972,12 +1089,14 @@ if ($action === 'get') {
 
         $savedModel = null;
         if ($saveModelName !== '') {
-            $savedModel = upsertSharedClassificationModel([
+            $savedModel = upsertSharedClassificationModel($pdo, [
                 'name' => $saveModelName,
                 'emitter' => $a,
                 'acquirer' => $b,
                 'doc_type' => $d,
-                'rates' => $rowAccounts,
+                'tenant_key' => $tenantKey,
+                'acquirer_database' => $tenantKey,
+                'rates' => stripAccountingAmounts($rowAccounts),
                 'cost_centers' => $costCentersData,
                 'cost_center_breakdowns' => $costCenterBreakdownsData,
                 'total_account' => $submittedMetadata['total_account'] ?? '',
@@ -1008,7 +1127,7 @@ if ($action === 'get') {
             'manual_review_required' => $submittedMetadata['manual_review_required'] ?? '0',
             'ignore_detected_rates' => $submittedMetadata['ignore_detected_rates'] ?? '0',
             'classification_model_name' => $submittedMetadata['classification_model_name'] ?? '',
-            'classification_models' => loadSharedClassificationModels($a, $b, $d),
+            'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
             'saved_model_name' => $savedModel['name'] ?? ''
         ]);
     } catch (Exception $e) {

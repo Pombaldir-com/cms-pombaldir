@@ -85,15 +85,15 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
     }
 
     .classify-modal-vat-table .col-general-account {
-        width: 22%;
+        width: 21%;
     }
 
     .classify-modal-vat-table .col-cost-center {
-        width: 12%;
+        width: 11%;
     }
 
     .classify-modal-vat-table .col-actions {
-        width: 8%;
+        width: 10%;
         white-space: nowrap;
     }
 
@@ -115,6 +115,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
+        flex-wrap: nowrap;
     }
 
     .classify-modal-vat-table .actions-cell .restore-base-btn.d-none {
@@ -256,7 +257,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                                 <i class="fa fa-trash"></i> Eliminar
                                             </button>
                                         </div>
-                                        <small class="text-muted">Modelos específicos da empresa atual e do mesmo emitente/adquirente para reaproveitar classificações manuais.</small>
+                                        <small class="text-muted">Modelos específicos do tenant do documento, adquirente e tipo documental, para reaproveitar classificações manuais entre emitentes.</small>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-check form-switch mb-2">
@@ -270,10 +271,11 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                             placeholder="Nome do modelo, ex.: Restaurante"
                                             maxlength="120"
                                         >
-                                        <small class="text-muted d-block mt-1">Ao guardar um modelo, a classificação passa a poder ignorar as taxas detetadas pelo QR.</small>
+                                        <small class="text-muted d-block mt-1">O modelo guarda apenas linhas, contas e centros de custo. A base e o IVA mostrados vêm sempre do QR Code/documento atual.</small>
                                     </div>
                                 </div>
                             </div>
+                            <small class="text-muted d-block mb-2">Os valores apresentados na grelha correspondem ao que foi lido e extraído do QR Code do documento.</small>
                             <div class="table-responsive">
                                 <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
                                     <thead>

@@ -4,9 +4,15 @@ require_once __DIR__ . '/functions.php';
 
 startSession();
 requireLogin();
-requireRole(2);
 $currentUser = currentUser();
 $isSuperAdmin = ((int) ($currentUser['role'] ?? 3)) === 1;
+$canAccessLancamentos = $isSuperAdmin || userHasDepartmentPermission('ctb_lancamentos_aceder');
+$canDeleteLocalImports = $isSuperAdmin || userHasDepartmentPermission('ctb_lancamentos_remover_local');
+
+if (!$canAccessLancamentos) {
+    http_response_code(403);
+    exit('Sem permissao para aceder a Lancamentos.');
+}
 
 if (!isModuleActive('contabilidade')) {
     http_response_code(404);
@@ -220,7 +226,7 @@ if (($_GET['action'] ?? '') === 'data') {
 if (($_GET['action'] ?? '') === 'delete_local_import' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
-    if (!$isSuperAdmin) {
+    if (!$canDeleteLocalImports) {
         http_response_code(403);
         echo json_encode([
             'success' => false,
@@ -2375,7 +2381,7 @@ $pageScripts = <<<'JS'
 JS;
 $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.erpLancamentosToken = " . json_encode((string) getSetting('erp_token', ''), JSON_UNESCAPED_UNICODE) . ";\n"
-    . "window.lancamentosCanDelete = " . json_encode($isSuperAdmin, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosCanDelete = " . json_encode($canDeleteLocalImports, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosDeleteLocalUrl = " . json_encode((string) (BASE_URL . 'contabilidade/lancamentos?action=delete_local_import'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosCsrfToken = " . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ";\n"
     . $pageScripts;

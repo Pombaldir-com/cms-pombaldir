@@ -139,9 +139,9 @@ foreach ($sidebarTypes as $sidebarType):
 <?php if (userHasDepartmentPermission('ctb_importar_docs')): ?>
     <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1&type=import">Importação</a></li>
 <?php endif; ?>
-
+<?php if (userHasDepartmentPermission('ctb_lancamentos_aceder')): ?>
 <li><a href="<?= BASE_URL ?>contabilidade/lancamentos">Lançamentos</a></li>
-
+<?php endif; ?>
 
 <?php endif; ?>
 <?php if (isModuleActive('compras')): ?>
