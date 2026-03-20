@@ -29,6 +29,11 @@ $useSelect2    = $useSelect2 ?? false;
 $useSwitchery  = $useSwitchery ?? false;
 $aiEnabled = getSetting('ai_enabled', '0') === '1';
 $aiChatFloating = !empty($user['ai_chat_floating'] ?? 0);
+$migrationFlash = ((int) ($user['role'] ?? 3) === 1) ? pullSessionFlash('migration_runner') : null;
+$migrationSummary = ((int) ($user['role'] ?? 3) === 1) ? getPendingMigrationsSummary() : ['has_pending' => false, 'companies' => [], 'pending_total' => 0, 'errors' => []];
+$showMigrationAlert = ((int) ($user['role'] ?? 3) === 1)
+    && (!empty($migrationSummary['has_pending']) || !empty($migrationSummary['errors']) || is_array($migrationFlash));
+$efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -61,6 +66,71 @@ $aiChatFloating = !empty($user['ai_chat_floating'] ?? 0);
     <!-- Custom styles for the CMS (optional) -->
     <style>
         /* You can put additional custom styles here */
+<?php if ($showMigrationAlert): ?>
+        .migration-alert-fixed {
+            position: fixed;
+            top: 66px;
+            right: 18px;
+            z-index: 1060;
+            width: min(420px, calc(100vw - 36px));
+        }
+        .migration-alert-fixed .alert {
+            margin-bottom: 10px;
+            box-shadow: 0 14px 34px rgba(32, 45, 64, 0.18);
+            border: 1px solid #d9e3ec;
+        }
+        .migration-alert-fixed .migration-output {
+            max-height: 140px;
+            overflow: auto;
+            background: #f7f9fb;
+            border: 1px solid #e3eaf2;
+            border-radius: 4px;
+            padding: 10px;
+            font-size: 12px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        .migration-alert-fixed .migration-company-list {
+            margin: 8px 0 0;
+            padding-left: 18px;
+        }
+<?php endif; ?>
+        .topbar-efatura-selector {
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+            margin-bottom: 0;
+            max-width: 380px;
+        }
+        .topbar-efatura-selector .form-control {
+            width: 300px;
+            min-width: 300px;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .topbar-nav {
+            flex-wrap: nowrap;
+        }
+        .topbar-nav .nav-item {
+            flex: 0 0 auto;
+        }
+        .topbar-nav .nav-item.dropdown {
+            margin-left: 12px;
+            display: flex;
+            align-items: center;
+        }
+        .topbar-nav .user-profile {
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            padding-top: 0;
+            padding-bottom: 0;
+            min-height: 40px;
+        }
+        .topbar-nav .user-name {
+            white-space: nowrap;
+        }
     </style>
     <script>
       (function () {
@@ -150,6 +220,16 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
+<?php if (isModuleActive('efatura') && userHasDepartmentPermission('ctb_efatura_aceder')): ?>
+                            <li>
+                                <a><i class="fa fa-file-text-o"></i> E-fatura <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/efatura/empresas">Empresas</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/efatura/documentos">Documentos</a></li>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/efatura/sincronizacoes">Sincronizações</a></li>
+                                </ul>
+                            </li>
+<?php endif; ?>
 <?php if (isModuleActive('contabilidade') && ($user['role'] ?? 3) <= 2): ?>
                             <li>
                                 <a><i class="fa fa-building"></i> Entidades <span class="fa fa-chevron-down"></span></a>
@@ -185,8 +265,23 @@ foreach ($sidebarTypes as $sidebarType):
         <a id="menu_toggle"><i class="fa fa-bars"></i></a>
       </div>
 
-      <ul class="navbar-nav ms-auto d-flex align-items-center">
-
+      <div class="ms-auto d-flex align-items-center">
+<?php if (!empty($efaturaTopbarSelector['enabled']) && !empty($efaturaTopbarSelector['entities'])): ?>
+      <div class="me-3 d-flex align-items-center">
+          <form method="get" action="<?= htmlspecialchars((string) ($efaturaTopbarSelector['action'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" class="topbar-efatura-selector">
+            <label for="efatura-top-empresa" class="me-2 text-muted small" style="margin-bottom:0;">Empresa</label>
+            <select id="efatura-top-empresa" name="empresa" class="form-control input-sm" onchange="this.form.submit()">
+<?php foreach (($efaturaTopbarSelector['entities'] ?? []) as $topEntity): ?>
+<?php $topEntityValue = (string) ($topEntity['value'] ?? ($topEntity['id'] ?? '')); ?>
+              <option value="<?= htmlspecialchars($topEntityValue, ENT_QUOTES, 'UTF-8'); ?>" <?= (string) ($efaturaTopbarSelector['selected_entity_id'] ?? '') === $topEntityValue ? 'selected' : ''; ?>>
+                <?= htmlspecialchars((string) (($topEntity['label'] ?? ($topEntity['name'] ?? ''))), ENT_QUOTES, 'UTF-8'); ?>
+              </option>
+<?php endforeach; ?>
+            </select>
+          </form>
+      </div>
+<?php endif; ?>
+      <ul class="navbar-nav d-flex align-items-center topbar-nav">
         <li class="nav-item dropdown ms-3">
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
              id="navbarDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -212,10 +307,51 @@ foreach ($sidebarTypes as $sidebarType):
           </div>
         </li>
       </ul>
+      </div>
     </nav>
   </div>
 </div>
 <!-- /Top navigation -->
+
+<?php if ($showMigrationAlert): ?>
+<div class="migration-alert-fixed">
+    <?php if ($migrationFlash): ?>
+        <div class="alert <?= ($migrationFlash['type'] ?? '') === 'success' ? 'alert-success' : 'alert-danger'; ?>" role="alert">
+            <strong><?= htmlspecialchars((string) ($migrationFlash['message'] ?? '')); ?></strong>
+            <?php if (!empty($migrationFlash['output']) && is_array($migrationFlash['output'])): ?>
+                <div class="migration-output"><?= htmlspecialchars(implode("\n", $migrationFlash['output'])); ?></div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($migrationSummary['has_pending']) || !empty($migrationSummary['errors'])): ?>
+        <div class="alert alert-warning" role="alert">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                    <strong>Migrate necessário</strong><br>
+                    <span>Existem migrações pendentes nas bases configuradas.</span>
+                </div>
+                <form method="post" action="<?= BASE_URL ?>system/run-migrations" style="margin:0;">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
+                    <button type="submit" class="btn btn-sm btn-warning">
+                        <i class="fa fa-refresh"></i> Correr migrate
+                    </button>
+                </form>
+            </div>
+            <?php if (!empty($migrationSummary['companies'])): ?>
+                <ul class="migration-company-list">
+                    <?php foreach (array_slice($migrationSummary['companies'], 0, 5) as $migrationCompany): ?>
+                        <li><?= htmlspecialchars((string) $migrationCompany['label']); ?>: <?= (int) $migrationCompany['count']; ?> pendente(s)</li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            <?php if (!empty($migrationSummary['errors'])): ?>
+                <div class="migration-output"><?php foreach (array_slice($migrationSummary['errors'], 0, 5) as $migrationError): ?><?= htmlspecialchars((string) ($migrationError['label'] ?? 'base')); ?>: <?= htmlspecialchars((string) ($migrationError['error'] ?? '')); ?><?="\n"?><?php endforeach; ?></div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
 
 

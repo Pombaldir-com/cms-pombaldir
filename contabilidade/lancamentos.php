@@ -36,6 +36,40 @@ try {
     $companyDatabases = [];
 }
 
+$selectedDatabase = '';
+$lancamentosSelectionSessionKey = 'lancamentos_selected_database';
+if (array_key_exists('empresa', $_GET)) {
+    $selectedDatabase = trim((string) $_GET['empresa']);
+    $_SESSION[$lancamentosSelectionSessionKey] = $selectedDatabase;
+} elseif (isset($_SESSION[$lancamentosSelectionSessionKey])) {
+    $selectedDatabase = trim((string) $_SESSION[$lancamentosSelectionSessionKey]);
+} else {
+    $selectedDatabase = trim((string) getSetting('erp_database', ''));
+}
+
+$efaturaTopbarSelector = [
+    'enabled' => !empty($companyDatabases),
+    'action' => BASE_URL . 'contabilidade/lancamentos',
+    'selected_entity_id' => $selectedDatabase,
+    'entities' => array_map(static function (array $dbRow): array {
+        $dbValue = trim((string) ($dbRow['erp_database'] ?? ''));
+        $companyName = trim((string) ($dbRow['company_name'] ?? ''));
+        $companyCode = preg_replace('/^emp_/i', '', $dbValue);
+        if ($companyCode === null || $companyCode === '') {
+            $companyCode = $dbValue;
+        }
+        $label = $companyCode;
+        if ($companyName !== '') {
+            $label .= ' - ' . $companyName;
+        }
+        return [
+            'value' => $dbValue,
+            'label' => $label,
+            'name' => $companyName,
+        ];
+    }, $companyDatabases),
+];
+
 if (($_GET['action'] ?? '') === 'data') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -48,7 +82,7 @@ if (($_GET['action'] ?? '') === 'data') {
 
     $database = trim((string) ($_GET['db'] ?? ''));
     if ($database === '') {
-        $database = trim((string) getSetting('erp_database', ''));
+        $database = $selectedDatabase !== '' ? $selectedDatabase : trim((string) getSetting('erp_database', ''));
     }
     $year = trim((string) ($_GET['strCodExercicio'] ?? ''));
     if ($year === '') {
@@ -309,24 +343,7 @@ $csrfToken = generateCsrfToken();
         </div>
         <div class="x_content">
             <div id="lancamentos-top-filters" class="d-none d-flex align-items-center">
-                <select class="form-select dt-filter me-2" style="min-width: 520px; height: 38px;" data-field="db" data-default="<?= htmlspecialchars((string) getSetting('erp_database', '')); ?>">
-                    <option value="">Empresa</option>
-                    <?php foreach ($companyDatabases as $dbRow): ?>
-                        <?php
-                            $dbValue = trim((string) ($dbRow['erp_database'] ?? ''));
-                            $companyName = trim((string) ($dbRow['company_name'] ?? ''));
-                            $companyCode = preg_replace('/^emp_/i', '', $dbValue);
-                            if ($companyCode === null || $companyCode === '') {
-                                $companyCode = $dbValue;
-                            }
-                            $optionLabel = $companyCode;
-                            if ($companyName !== '') {
-                                $optionLabel .= ' - ' . $companyName;
-                            }
-                        ?>
-                        <option value="<?= htmlspecialchars($dbValue); ?>"><?= htmlspecialchars($optionLabel); ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <input type="hidden" class="dt-filter" data-field="db" data-default="<?= htmlspecialchars($selectedDatabase); ?>" value="<?= htmlspecialchars($selectedDatabase); ?>">
                 <select class="form-select dt-filter" style="min-width: 95px; height: 38px;" data-field="strCodExercicio" data-default="<?= htmlspecialchars((string) $currentYear); ?>">
                     <?php foreach ($yearOptions as $year): ?>
                         <option value="<?= htmlspecialchars((string) $year); ?>"><?= htmlspecialchars((string) $year); ?></option>
@@ -1710,6 +1727,13 @@ $pageScripts = <<<'JS'
     var localDeleteUrl = window.lancamentosDeleteLocalUrl || '';
     var localCsrfToken = window.lancamentosCsrfToken || '';
     var unavailablePdfRows = {};
+    if (window.lancamentosSelectedDatabase) {
+        $filters.each(function() {
+            if (this.getAttribute('data-field') === 'db') {
+                this.value = window.lancamentosSelectedDatabase;
+            }
+        });
+    }
 
     function getErpHeaders() {
         return erpToken
@@ -2381,6 +2405,7 @@ $pageScripts = <<<'JS'
 JS;
 $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetting('erp_webservice_url', ''), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.erpLancamentosToken = " . json_encode((string) getSetting('erp_token', ''), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosSelectedDatabase = " . json_encode((string) $selectedDatabase, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosCanDelete = " . json_encode($canDeleteLocalImports, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosDeleteLocalUrl = " . json_encode((string) (BASE_URL . 'contabilidade/lancamentos?action=delete_local_import'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosCsrfToken = " . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ";\n"

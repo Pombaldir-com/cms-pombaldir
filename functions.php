@@ -9,6 +9,8 @@
 
 require_once __DIR__ . '/data/db.php';
 
+loadProjectEnvFile(__DIR__ . '/.env');
+
 // Determine the base URL for the application (e.g., "/cms/") so links
 // can be generated correctly regardless of the installation directory.
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
@@ -23,6 +25,72 @@ if ($scriptName !== '' && str_ends_with($scriptName, '.php')) {
 }
 if (!defined('BASE_URL')) {
     define('BASE_URL', ($baseDir === '' ? '/' : $baseDir . '/'));
+}
+
+function loadProjectEnvFile(string $filePath): void {
+    static $loaded = [];
+    if (isset($loaded[$filePath])) {
+        return;
+    }
+    $loaded[$filePath] = true;
+
+    if (!is_file($filePath) || !is_readable($filePath)) {
+        return;
+    }
+
+    $lines = @file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (!is_array($lines)) {
+        return;
+    }
+
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || strpos($line, '#') === 0) {
+            continue;
+        }
+
+        $separatorPos = strpos($line, '=');
+        if ($separatorPos === false) {
+            continue;
+        }
+
+        $name = trim(substr($line, 0, $separatorPos));
+        $value = trim(substr($line, $separatorPos + 1));
+        if ($name === '') {
+            continue;
+        }
+
+        if (
+            (substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
+            (substr($value, 0, 1) === "'" && substr($value, -1) === "'")
+        ) {
+            $value = substr($value, 1, -1);
+        }
+
+        if (getenv($name) === false) {
+            putenv($name . '=' . $value);
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
+        }
+    }
+}
+
+function setSessionFlash(string $key, array $payload): void {
+    startSession();
+    if (!isset($_SESSION['flash_messages']) || !is_array($_SESSION['flash_messages'])) {
+        $_SESSION['flash_messages'] = [];
+    }
+    $_SESSION['flash_messages'][$key] = $payload;
+}
+
+function pullSessionFlash(string $key): ?array {
+    startSession();
+    if (!isset($_SESSION['flash_messages'][$key]) || !is_array($_SESSION['flash_messages'][$key])) {
+        return null;
+    }
+    $payload = $_SESSION['flash_messages'][$key];
+    unset($_SESSION['flash_messages'][$key]);
+    return $payload;
 }
 
 function hasTable(string $table): bool {
@@ -464,6 +532,119 @@ function currentUser(): ?array {
     return $user;
 }
 
+function getMigrationFilesList(): array {
+    $dir = __DIR__ . '/migrations';
+    if (!is_dir($dir)) {
+        return [];
+    }
+    $files = glob($dir . '/*.sql');
+    if (!$files) {
+        return [];
+    }
+    sort($files, SORT_STRING);
+    return array_map('basename', $files);
+}
+
+function buildMigrationDsn(array $cfg): string {
+    $host = $cfg['db_host'] ?? 'localhost';
+    $port = isset($cfg['db_port']) && $cfg['db_port'] !== '' ? ';port=' . $cfg['db_port'] : '';
+    $db = $cfg['db_name'] ?? '';
+    $socket = isset($cfg['db_socket']) && $cfg['db_socket'] !== '' ? ';unix_socket=' . $cfg['db_socket'] : '';
+    return "mysql:host={$host}{$port}{$socket};dbname={$db};charset=utf8mb4";
+}
+
+function getPendingMigrationsSummary(bool $forceRefresh = false): array {
+    startSession();
+    $cacheKey = 'pending_migrations_summary';
+    $cacheTtl = 60;
+    if (
+        !$forceRefresh
+        && isset($_SESSION[$cacheKey]['generated_at'], $_SESSION[$cacheKey]['data'])
+        && (time() - (int) $_SESSION[$cacheKey]['generated_at']) < $cacheTtl
+        && is_array($_SESSION[$cacheKey]['data'])
+    ) {
+        return $_SESSION[$cacheKey]['data'];
+    }
+
+    $summary = [
+        'has_pending' => false,
+        'pending_total' => 0,
+        'companies' => [],
+        'errors' => [],
+    ];
+    $files = getMigrationFilesList();
+    if (!$files) {
+        $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
+        return $summary;
+    }
+
+    $companiesFile = __DIR__ . '/data/companies.php';
+    $companies = is_file($companiesFile) ? (require $companiesFile) : [];
+    if (!is_array($companies)) {
+        $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
+        return $summary;
+    }
+
+    foreach ($companies as $nif => $cfg) {
+        if (!is_array($cfg) || !empty($cfg['skip_migrations'])) {
+            continue;
+        }
+        $label = $cfg['slug'] ?? (string) $nif;
+        try {
+            $pdo = new PDO(buildMigrationDsn($cfg), $cfg['db_user'], $cfg['db_pass'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ]);
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS migrations (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    filename VARCHAR(255) NOT NULL UNIQUE,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )"
+            );
+            $rows = $pdo->query('SELECT filename FROM migrations')->fetchAll(PDO::FETCH_COLUMN);
+            $applied = array_fill_keys(array_map('strval', $rows ?: []), true);
+            $pending = array_values(array_filter($files, static function ($file) use ($applied): bool {
+                return !isset($applied[$file]);
+            }));
+            if ($pending) {
+                $summary['has_pending'] = true;
+                $summary['pending_total'] += count($pending);
+                $summary['companies'][] = [
+                    'label' => $label,
+                    'pending' => $pending,
+                    'count' => count($pending),
+                ];
+            }
+        } catch (Throwable $e) {
+            $summary['errors'][] = [
+                'label' => $label,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
+    return $summary;
+}
+
+function runProjectMigrationsFromUi(): array {
+    $phpBinary = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $script = __DIR__ . '/scripts/migrate.php';
+    if (!is_file($script)) {
+        return ['ok' => false, 'output' => ['Script de migracoes nao encontrado.']];
+    }
+    $cmd = escapeshellarg($phpBinary) . ' ' . escapeshellarg($script) . ' 2>&1';
+    $output = [];
+    $exitCode = 1;
+    exec($cmd, $output, $exitCode);
+    unset($_SESSION['pending_migrations_summary']);
+    return [
+        'ok' => $exitCode === 0,
+        'exit_code' => $exitCode,
+        'output' => $output,
+    ];
+}
+
 /**
  * Update the basic profile information for a user.
  *
@@ -757,6 +938,9 @@ function getBaseDepartmentPermissionOptions(): array {
         'ctb_importar_docs' => 'CTB Importar Docs',
         'ctb_lancamentos_aceder' => 'CTB Lancamentos - Aceder',
         'ctb_lancamentos_remover_local' => 'CTB Lancamentos - Remover locais',
+        'ctb_efatura_aceder' => 'CTB E-fatura - Aceder',
+        'ctb_efatura_sincronizar' => 'CTB E-fatura - Sincronizar',
+        'ctb_efatura_credenciais' => 'CTB E-fatura - Gerir credenciais',
         'ai_assistant' => 'Assistente AI - Acesso',
         'ai_create_tasks' => 'Assistente AI - Criar tarefas',
         'ai_open_lancamentos' => 'Assistente AI - Abrir lancamentos',

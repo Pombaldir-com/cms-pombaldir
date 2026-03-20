@@ -57,6 +57,7 @@ $canCreateTasks = userHasDepartmentPermission('ai_create_tasks');
 $canOpenLancamentos = userHasDepartmentPermission('ai_open_lancamentos');
 $canApproveDocs = userHasDepartmentPermission('ai_approve_docs');
 $canSuggestVat = $hasSuggestAccountsAccess;
+$canAccessEfatura = isModuleActive('efatura') && userHasDepartmentPermission('ctb_efatura_aceder');
 
 if ($action === '') {
     $memoryCommand = parseAssistantMemoryCommand($message);
@@ -621,6 +622,27 @@ $tools = [
     [
         'type' => 'function',
         'function' => [
+            'name' => 'efatura_search',
+            'description' => 'Pesquisar documentos E-fatura. Primeiro procura nos documentos sincronizados localmente e, se refresh_if_missing=1 ou sem resultados, tenta consulta remota com as credenciais guardadas da empresa.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'company' => ['type' => 'string'],
+                    'date_from' => ['type' => 'string'],
+                    'date_to' => ['type' => 'string'],
+                    'issuer' => ['type' => 'string'],
+                    'invoice_no' => ['type' => 'string'],
+                    'limit' => ['type' => 'integer'],
+                    'refresh_if_missing' => ['type' => 'boolean'],
+                ],
+                'required' => ['company'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
             'name' => 'set_document_approval',
             'description' => 'Aprovar ou rejeitar documentos de contabilidade.',
             'parameters' => [
@@ -713,7 +735,8 @@ $messagesForModel = array_merge(
                 . "\nPermissoes: criar_tarefas=" . ($canCreateTasks ? 'sim' : 'nao')
                 . ", abrir_lancamentos=" . ($canOpenLancamentos ? 'sim' : 'nao')
                 . ", aprovar_docs=" . ($canApproveDocs ? 'sim' : 'nao')
-                . ", sugerir_contas=" . ($canSuggestVat ? 'sim' : 'nao'),
+                . ", sugerir_contas=" . ($canSuggestVat ? 'sim' : 'nao')
+                . ", efatura=" . ($canAccessEfatura ? 'sim' : 'nao'),
         ],
     ],
     count($messages) <= 1 ? getPersistentChatContext($userId, 6) : [],
@@ -4030,6 +4053,349 @@ function callErpWebservice(string $endpoint, string $token): array {
     return ['ok' => true, 'data' => $decoded];
 }
 
+function efaturaTablesAvailable(): bool {
+    return hasTable('efatura_company_credentials') && hasTable('efatura_sync_jobs') && hasTable('efatura_documents');
+}
+
+function resolveEfaturaEntity(PDO $pdo, string $company): ?array {
+    $company = trim($company);
+    if ($company === '') {
+        return null;
+    }
+    if (ctype_digit($company)) {
+        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
+        $stmt->execute([(int) $company]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return $row;
+        }
+    }
+    $nif = preg_replace('/\D+/', '', $company);
+    if (strlen($nif) === 9) {
+        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE nif = ? AND entity_type = 'acquirer' LIMIT 1");
+        $stmt->execute([$nif]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            return $row;
+        }
+    }
+    $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE entity_type = 'acquirer' AND name LIKE ? ORDER BY name ASC LIMIT 1");
+    $stmt->execute(['%' . $company . '%']);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+function assistantEfaturaSearchLocal(PDO $pdo, array $entity, array $args): array {
+    $limit = isset($args['limit']) ? (int) $args['limit'] : 20;
+    if ($limit <= 0 || $limit > 100) {
+        $limit = 20;
+    }
+    $sql = "SELECT d.id, d.invoice_date, d.issuer_name, d.issuer_vat, d.invoice_no, d.invoice_type, d.net_total, d.tax_payable, d.gross_total
+            FROM efatura_documents d
+            WHERE d.entity_id = ?";
+    $params = [(int) $entity['id']];
+    $dateFrom = trim((string) ($args['date_from'] ?? ''));
+    $dateTo = trim((string) ($args['date_to'] ?? ''));
+    $issuer = trim((string) ($args['issuer'] ?? ''));
+    $invoiceNo = trim((string) ($args['invoice_no'] ?? ''));
+    if ($dateFrom !== '') {
+        $sql .= " AND d.invoice_date >= ?";
+        $params[] = $dateFrom;
+    }
+    if ($dateTo !== '') {
+        $sql .= " AND d.invoice_date <= ?";
+        $params[] = $dateTo;
+    }
+    if ($issuer !== '') {
+        $sql .= " AND (d.issuer_name LIKE ? OR d.issuer_vat LIKE ?)";
+        $params[] = '%' . $issuer . '%';
+        $params[] = '%' . preg_replace('/\D+/', '', $issuer) . '%';
+    }
+    if ($invoiceNo !== '') {
+        $sql .= " AND d.invoice_no LIKE ?";
+        $params[] = '%' . $invoiceNo . '%';
+    }
+    $sql .= " ORDER BY d.invoice_date DESC, d.id DESC LIMIT " . $limit;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function assistantEfaturaDecryptSecret(string $ciphertext): string {
+    $key = trim((string) getenv('EFATURA_SECRET_KEY'));
+    if ($key === '') {
+        return '';
+    }
+    $binary = base64_decode($ciphertext, true);
+    if ($binary === false || strlen($binary) <= 16) {
+        return '';
+    }
+    $iv = substr($binary, 0, 16);
+    $payload = substr($binary, 16);
+    $plaintext = openssl_decrypt($payload, 'AES-256-CBC', hash('sha256', $key, true), OPENSSL_RAW_DATA, $iv);
+    return $plaintext === false ? '' : $plaintext;
+}
+
+function assistantEfaturaRunRemoteSync(PDO $pdo, array $entity, array $args): array {
+    $credentialStmt = $pdo->prepare('SELECT * FROM efatura_company_credentials WHERE entity_id = ? AND is_active = 1 LIMIT 1');
+    $credentialStmt->execute([(int) $entity['id']]);
+    $credential = $credentialStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$credential) {
+        return ['ok' => false, 'error' => 'Sem credenciais E-fatura ativas para esta empresa.'];
+    }
+    $password = assistantEfaturaDecryptSecret((string) ($credential['portal_password_encrypted'] ?? ''));
+    if ($password === '') {
+        return ['ok' => false, 'error' => 'Nao foi possivel ler a password E-fatura guardada.'];
+    }
+    $python = trim((string) @shell_exec('command -v python3 2>/dev/null'));
+    if ($python === '') {
+        return ['ok' => false, 'error' => 'python3 nao encontrado no servidor.'];
+    }
+    $script = __DIR__ . '/contabilidade/efatura_worker.py';
+    if (!is_file($script)) {
+        return ['ok' => false, 'error' => 'Worker E-fatura nao encontrado.'];
+    }
+    $artifactDir = __DIR__ . '/data/efatura_ai';
+    if (!is_dir($artifactDir) && !mkdir($artifactDir, 0775, true) && !is_dir($artifactDir)) {
+        return ['ok' => false, 'error' => 'Nao foi possivel criar a pasta temporaria E-fatura AI.'];
+    }
+    $jobId = 900000 + random_int(1, 99999);
+    $artifact = $artifactDir . '/assistant_' . $jobId . '.json';
+    $dateFrom = trim((string) ($args['date_from'] ?? ''));
+    $dateTo = trim((string) ($args['date_to'] ?? ''));
+    if ($dateFrom === '') {
+        $dateFrom = date('Y-m-01');
+    }
+    if ($dateTo === '') {
+        $dateTo = date('Y-m-t');
+    }
+    $cmd = 'EFATURA_PORTAL_PASSWORD=' . escapeshellarg($password) . ' '
+        . escapeshellarg($python)
+        . ' ' . escapeshellarg($script)
+        . ' --job-id ' . escapeshellarg((string) $jobId)
+        . ' --artifact ' . escapeshellarg($artifact)
+        . ' --company-name ' . escapeshellarg((string) ($entity['name'] ?? ''))
+        . ' --company-vat ' . escapeshellarg((string) ($entity['nif'] ?? ''))
+        . ' --portal-username ' . escapeshellarg((string) ($credential['portal_username'] ?? ''))
+        . ' --period-start ' . escapeshellarg($dateFrom)
+        . ' --period-end ' . escapeshellarg($dateTo)
+        . ' 2>&1';
+    @exec($cmd, $output, $exitCode);
+    if (!is_file($artifact)) {
+        return ['ok' => false, 'error' => 'O worker E-fatura nao gerou artifact.', 'output' => $output];
+    }
+    $decoded = json_decode((string) @file_get_contents($artifact), true);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'error' => 'Artifact invalido devolvido pelo worker E-fatura.', 'output' => $output];
+    }
+    if (($decoded['status'] ?? '') !== 'done') {
+        return ['ok' => false, 'error' => (string) ($decoded['error_message'] ?? 'Falha na consulta remota E-fatura.'), 'artifact' => $decoded];
+    }
+    return ['ok' => true, 'artifact' => $decoded];
+}
+
+function assistantNormalizeEfaturaDate(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    $timestamp = strtotime($value);
+    if ($timestamp === false) {
+        return '';
+    }
+    return date('Y-m-d', $timestamp);
+}
+
+function assistantNormalizeEfaturaNullableDate(string $value): ?string {
+    $normalized = assistantNormalizeEfaturaDate($value);
+    return $normalized !== '' ? $normalized : null;
+}
+
+function assistantNormalizeEfaturaDecimal($value): string {
+    if (is_string($value)) {
+        $value = str_replace([' ', "\xc2\xa0"], '', $value);
+        $hasComma = strpos($value, ',') !== false;
+        $hasDot = strpos($value, '.') !== false;
+        if ($hasComma && $hasDot) {
+            $value = str_replace('.', '', $value);
+            $value = str_replace(',', '.', $value);
+        } elseif ($hasComma) {
+            $value = str_replace(',', '.', $value);
+        }
+        $value = preg_replace('/[^0-9.\-]/', '', (string) $value) ?? '0';
+    }
+    if (!is_numeric($value)) {
+        $value = 0;
+    }
+    return number_format((float) $value, 2, '.', '');
+}
+
+function assistantPersistEfaturaDocuments(PDO $pdo, int $entityId, array $documents): int {
+    if ($entityId <= 0 || !$documents) {
+        return 0;
+    }
+
+    $insertDocument = $pdo->prepare(
+        'INSERT INTO efatura_documents
+        (entity_id, sync_job_id, issuer_vat, issuer_name, customer_vat, invoice_no, atcud, invoice_date, invoice_type, document_status, sector, tax_payable, net_total, gross_total, source_hash, raw_payload_json)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            issuer_name = VALUES(issuer_name),
+            customer_vat = VALUES(customer_vat),
+            atcud = VALUES(atcud),
+            invoice_type = VALUES(invoice_type),
+            document_status = VALUES(document_status),
+            sector = VALUES(sector),
+            tax_payable = VALUES(tax_payable),
+            net_total = VALUES(net_total),
+            gross_total = VALUES(gross_total),
+            raw_payload_json = VALUES(raw_payload_json),
+            updated_at = CURRENT_TIMESTAMP'
+    );
+    $selectDocument = $pdo->prepare('SELECT id FROM efatura_documents WHERE entity_id = ? AND source_hash = ? LIMIT 1');
+    $deleteLines = $pdo->prepare('DELETE FROM efatura_document_lines WHERE document_id = ?');
+    $insertLine = $pdo->prepare(
+        'INSERT INTO efatura_document_lines
+        (document_id, tax_point_date, debit_credit_indicator, tax_amount, net_amount, gross_amount, total_tax_base, tax_type, tax_country_region, tax_code, tax_percentage, total_tax_amount, tax_exemption_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    $saved = 0;
+    foreach ($documents as $document) {
+        if (!is_array($document)) {
+            continue;
+        }
+        $invoiceNo = trim((string) ($document['invoice_no'] ?? ''));
+        $invoiceDate = assistantNormalizeEfaturaDate((string) ($document['invoice_date'] ?? ''));
+        $sourceHash = trim((string) ($document['source_hash'] ?? ''));
+        if ($invoiceNo === '' || $invoiceDate === '' || $sourceHash === '') {
+            continue;
+        }
+        $invoiceNo = assistantLimitEfaturaText($invoiceNo, 60);
+
+        $insertDocument->execute([
+            $entityId,
+            assistantLimitEfaturaText(trim((string) ($document['issuer_vat'] ?? '')), 30),
+            assistantLimitEfaturaText(trim((string) ($document['issuer_name'] ?? '')), 255),
+            assistantLimitEfaturaText(trim((string) ($document['customer_vat'] ?? '')), 30),
+            $invoiceNo,
+            assistantLimitEfaturaText(trim((string) ($document['atcud'] ?? '')), 100),
+            $invoiceDate,
+            assistantLimitEfaturaText(trim((string) ($document['invoice_type'] ?? '')), 10),
+            assistantLimitEfaturaText(trim((string) ($document['document_status'] ?? '')), 10),
+            assistantLimitEfaturaText(trim((string) ($document['sector'] ?? '')), 10),
+            assistantNormalizeEfaturaDecimal($document['tax_payable'] ?? 0),
+            assistantNormalizeEfaturaDecimal($document['net_total'] ?? 0),
+            assistantNormalizeEfaturaDecimal($document['gross_total'] ?? 0),
+            assistantLimitEfaturaText($sourceHash, 64),
+            json_encode($document, JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $selectDocument->execute([$entityId, $sourceHash]);
+        $documentId = (int) $selectDocument->fetchColumn();
+        if ($documentId <= 0) {
+            continue;
+        }
+
+        $deleteLines->execute([$documentId]);
+        foreach (($document['lines'] ?? []) as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $insertLine->execute([
+                $documentId,
+                assistantNormalizeEfaturaNullableDate((string) ($line['tax_point_date'] ?? '')),
+                assistantLimitEfaturaText(trim((string) ($line['debit_credit_indicator'] ?? '')), 2),
+                assistantNormalizeEfaturaDecimal($line['tax_amount'] ?? 0),
+                assistantNormalizeEfaturaDecimal($line['net_amount'] ?? 0),
+                assistantNormalizeEfaturaDecimal($line['gross_amount'] ?? 0),
+                assistantNormalizeEfaturaDecimal($line['total_tax_base'] ?? 0),
+                assistantLimitEfaturaText(trim((string) ($line['tax_type'] ?? '')), 10),
+                assistantLimitEfaturaText(trim((string) ($line['tax_country_region'] ?? '')), 10),
+                assistantLimitEfaturaText(trim((string) ($line['tax_code'] ?? '')), 20),
+                assistantNormalizeEfaturaDecimal($line['tax_percentage'] ?? 0),
+                assistantNormalizeEfaturaDecimal($line['total_tax_amount'] ?? 0),
+                assistantLimitEfaturaText(trim((string) ($line['tax_exemption_code'] ?? '')), 20),
+            ]);
+        }
+        $saved++;
+    }
+
+    return $saved;
+}
+
+function runAssistantEfaturaSearch(array $args, bool $canAccessEfatura): array {
+    if (!$canAccessEfatura) {
+        return ['ok' => false, 'error' => 'Sem permissao para consultar E-fatura.'];
+    }
+    if (!efaturaTablesAvailable()) {
+        return ['ok' => false, 'error' => 'Modulo E-fatura ainda nao esta instalado nesta base de dados.'];
+    }
+    $pdo = getPDO();
+    $company = trim((string) ($args['company'] ?? ''));
+    $entity = resolveEfaturaEntity($pdo, $company);
+    if (!$entity) {
+        return ['ok' => false, 'error' => 'Empresa E-fatura nao encontrada.'];
+    }
+
+    $localRows = assistantEfaturaSearchLocal($pdo, $entity, $args);
+    $refreshIfMissing = !empty($args['refresh_if_missing']);
+    $remote = null;
+
+    if ($refreshIfMissing || !$localRows) {
+        $remote = assistantEfaturaRunRemoteSync($pdo, $entity, $args);
+        if (!empty($remote['ok']) && !empty($remote['artifact']['documents']) && is_array($remote['artifact']['documents'])) {
+            $persistedCount = assistantPersistEfaturaDocuments($pdo, (int) $entity['id'], $remote['artifact']['documents']);
+            $documents = $remote['artifact']['documents'];
+            if (!empty($args['issuer'])) {
+                $needle = mb_strtolower((string) $args['issuer'], 'UTF-8');
+                $documents = array_values(array_filter($documents, static function ($doc) use ($needle) {
+                    $name = mb_strtolower((string) ($doc['issuer_name'] ?? ''), 'UTF-8');
+                    $vat = (string) ($doc['issuer_vat'] ?? '');
+                    return strpos($name, $needle) !== false || strpos($vat, preg_replace('/\D+/', '', $needle)) !== false;
+                }));
+            }
+            if (!empty($args['invoice_no'])) {
+                $needleInvoice = (string) $args['invoice_no'];
+                $documents = array_values(array_filter($documents, static function ($doc) use ($needleInvoice) {
+                    return stripos((string) ($doc['invoice_no'] ?? ''), $needleInvoice) !== false;
+                }));
+            }
+            return [
+                'ok' => true,
+                'source' => 'remote',
+                'company' => $entity,
+                'count' => count($documents),
+                'documents' => array_slice($documents, 0, (int) ($args['limit'] ?? 20)),
+                'remote_status' => $remote['artifact']['status'] ?? 'done',
+                'persisted' => $persistedCount,
+            ];
+        }
+    }
+
+    return [
+        'ok' => true,
+        'source' => 'local',
+        'company' => $entity,
+        'count' => count($localRows),
+        'documents' => $localRows,
+        'remote' => $remote,
+    ];
+}
+
+function assistantLimitEfaturaText(string $value, int $maxLength): string {
+    $value = trim($value);
+    if ($maxLength <= 0 || $value === '') {
+        return $maxLength <= 0 ? '' : $value;
+    }
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        if (mb_strlen($value, 'UTF-8') <= $maxLength) {
+            return $value;
+        }
+        return mb_substr($value, 0, $maxLength, 'UTF-8');
+    }
+    return strlen($value) <= $maxLength ? $value : substr($value, 0, $maxLength);
+}
+
 $actions = [];
 $lastSuggestedAccounts = [];
 $finalMessage = '';
@@ -4636,6 +5002,18 @@ do {
                 }
                 $toolResult = ['ok' => true, 'endpoint' => $endpoint, 'data' => $erpResponse['data']];
                 $actions[] = ['type' => 'erp_api_get', 'path' => $path];
+                break;
+
+            case 'efatura_search':
+                $toolResult = runAssistantEfaturaSearch($args, $canAccessEfatura);
+                if (!empty($toolResult['ok'])) {
+                    $actions[] = [
+                        'type' => 'efatura_search',
+                        'source' => (string) ($toolResult['source'] ?? 'local'),
+                        'company' => (string) (($toolResult['company']['name'] ?? '') ?: ($args['company'] ?? '')),
+                        'count' => (int) ($toolResult['count'] ?? 0),
+                    ];
+                }
                 break;
 
             default:

@@ -13,6 +13,7 @@ $contentTypes = getContentTypes();
 $availableModules = [
     'contabilidade' => 'Contabilidade',
     'compras' => 'Compras',
+    'efatura' => 'E-fatura',
 ];
 
 $generalSaved = false;
@@ -234,6 +235,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting('compras_document_type', $comprasDocumentType);
         }
 
+        $efaturaRetentionDays = (int) ($_POST['efatura_artifact_retention_days'] ?? 15);
+        if ($efaturaRetentionDays <= 0) {
+            $efaturaRetentionDays = 15;
+        }
+        if ($efaturaRetentionDays > 3650) {
+            $efaturaRetentionDays = 3650;
+        }
+        setSetting('efatura_artifact_retention_days', (string) $efaturaRetentionDays);
+
         $modulesSaved = true;
     }
     if (isset($_POST['permissions_save']) && ($user['role'] ?? 3) <= 2) {
@@ -306,6 +316,10 @@ $currentModules = getActiveModules();
 $currentComprasSection = getSetting('compras_section', '');
 $currentComprasWarehouse = getSetting('compras_warehouse', '');
 $currentComprasDocumentType = getSetting('compras_document_type', '');
+$currentEfaturaArtifactRetentionDays = (int) getSetting('efatura_artifact_retention_days', '15');
+if ($currentEfaturaArtifactRetentionDays <= 0) {
+    $currentEfaturaArtifactRetentionDays = 15;
+}
 $currentDepartmentPermissions = getDepartmentPermissions();
 $permissionOptions = getDepartmentPermissionOptions();
 $departmentsList = getDepartmentTerms();
@@ -728,6 +742,37 @@ require_once __DIR__ . '/header.php';
                             </div>
                         </div>
                     </div>
+                    <?php $efaturaActive = in_array('efatura', $currentModules, true); ?>
+                    <div class="col-12 col-lg-6">
+                        <div class="x_panel module-card">
+                            <div class="x_title">
+                                <h2><i class="fa fa-file-text-o"></i> E-fatura</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <div class="module-toggle">
+                                    <div>
+                                        <p class="text-muted mb-1">Sincronização e consulta de documentos do portal E-fatura.</p>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="module_efatura" name="modules[efatura]" value="1" <?= $efaturaActive ? 'checked' : ''; ?>>
+                                        <label class="form-check-label" for="module_efatura">Ativo</label>
+                                    </div>
+                                </div>
+                                <div id="efatura-settings" class="module-settings mt-3" style="<?= $efaturaActive ? '' : 'display:none;'; ?>">
+                                    <div class="row g-2 module-settings-row">
+                                        <div class="col-12 col-sm-6">
+                                            <label for="efatura_artifact_retention_days" class="form-label">Retenção dos logs</label>
+                                            <div class="input-group">
+                                                <input type="number" min="1" max="3650" class="form-control input-compact" id="efatura_artifact_retention_days" name="efatura_artifact_retention_days" value="<?= (int) $currentEfaturaArtifactRetentionDays; ?>" <?= $efaturaActive ? '' : 'disabled'; ?>>
+                                                <span class="input-group-addon">dias</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar módulos</button>
                     </div>
@@ -783,6 +828,31 @@ require_once __DIR__ . '/header.php';
 
                     toggleComprasSettings();
                     comprasCheckbox.addEventListener('change', toggleComprasSettings);
+                }
+
+                var efaturaCheckbox = document.getElementById('module_efatura');
+                var efaturaSettings = document.getElementById('efatura-settings');
+                if (efaturaCheckbox && efaturaSettings) {
+                    var efaturaInputs = efaturaSettings.querySelectorAll('input, select, textarea');
+
+                    function setEfaturaInputsDisabled(disabled) {
+                        for (var i = 0; i < efaturaInputs.length; i++) {
+                            efaturaInputs[i].disabled = disabled;
+                        }
+                    }
+
+                    function toggleEfaturaSettings() {
+                        if (efaturaCheckbox.checked) {
+                            efaturaSettings.style.display = '';
+                            setEfaturaInputsDisabled(false);
+                        } else {
+                            efaturaSettings.style.display = 'none';
+                            setEfaturaInputsDisabled(true);
+                        }
+                    }
+
+                    toggleEfaturaSettings();
+                    efaturaCheckbox.addEventListener('change', toggleEfaturaSettings);
                 }
             });
             </script>

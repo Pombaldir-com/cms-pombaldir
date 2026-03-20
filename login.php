@@ -71,7 +71,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         min-height: 100vh;
         background:
           linear-gradient(rgba(245, 247, 251, 0.9), rgba(234, 245, 241, 0.82)),
-          url('<?php echo htmlspecialchars(BASE_URL . 'assets/images/demo-access-background.svg'); ?>') center/cover no-repeat,
           radial-gradient(circle at 12% 18%, rgba(52, 152, 219, 0.18), transparent 35%),
           radial-gradient(circle at 88% 82%, rgba(26, 188, 156, 0.16), transparent 38%),
           linear-gradient(135deg, #f5f7fb 0%, #ecf3f8 50%, #eaf5f1 100%);

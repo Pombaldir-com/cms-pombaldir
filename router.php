@@ -40,6 +40,9 @@ switch (true) {
     case $path === 'definicoes':
         require __DIR__ . '/definicoes.php';
         break;
+    case $path === 'system/run-migrations':
+        require __DIR__ . '/system-run-migrations.php';
+        break;
     case preg_match('#^api/([A-Za-z0-9_-]+)$#', $path, $m):
         $_GET['taxonomy_slug'] = $m[1];
         require __DIR__ . '/api.php';
@@ -213,6 +216,28 @@ switch (true) {
         break;
     case $path === 'contabilidade/lancamentos':
         require __DIR__ . '/contabilidade/lancamentos.php';
+        break;
+    case $path === 'contabilidade/efatura':
+        $_GET['view'] = 'empresas';
+        require __DIR__ . '/contabilidade/efatura.php';
+        break;
+    case preg_match('#^contabilidade/efatura/(empresas|documentos|sincronizacoes)$#', $path, $m):
+        $_GET['view'] = $m[1];
+        require __DIR__ . '/contabilidade/efatura.php';
+        break;
+    case in_array($path, [
+        'contabilidade/efatura/sync',
+        'contabilidade/efatura-sync.php'
+    ], true):
+        $_GET['action'] = 'sync';
+        require __DIR__ . '/contabilidade/efatura.php';
+        break;
+    case in_array($path, [
+        'contabilidade/efatura/sync-status',
+        'contabilidade/efatura-sync-status.php'
+    ], true):
+        $_GET['action'] = 'sync_status';
+        require __DIR__ . '/contabilidade/efatura.php';
         break;
     case $path === 'contabilidade/ai-tarefas':
         require __DIR__ . '/contabilidade/ai-tarefas.php';

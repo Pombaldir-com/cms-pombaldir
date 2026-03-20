@@ -68,7 +68,7 @@ foreach ($companies as $nif => $cfg) {
                 try {
                     $pdo->exec($statement);
                 } catch (Throwable $e) {
-                    if (shouldIgnoreStatementError($e)) {
+                    if (shouldIgnoreStatementError($e, $statement)) {
                         fwrite(STDERR, "[{$label}] Ignored statement in {$filename}: {$e->getMessage()}\n");
                         continue;
                     }
@@ -149,10 +149,24 @@ function splitSqlStatements(string $sql): array {
     return $statements;
 }
 
-function shouldIgnoreStatementError(Throwable $e): bool {
+function shouldIgnoreStatementError(Throwable $e, string $statement = ''): bool {
     if (!$e instanceof PDOException) {
         return false;
     }
     $code = $e->errorInfo[1] ?? null;
-    return in_array($code, [1050, 1060, 1091], true);
+    if (in_array($code, [1050, 1060, 1091], true)) {
+        return true;
+    }
+
+    // Some company databases do not include optional module tables.
+    // Skip ALTER TABLE statements for missing tables so migrations do not
+    // block unrelated databases.
+    if ($code === 1146) {
+        $normalized = ltrim($statement);
+        if (preg_match('/^ALTER\s+TABLE\s+/i', $normalized)) {
+            return true;
+        }
+    }
+
+    return false;
 }
