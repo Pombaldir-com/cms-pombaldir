@@ -892,6 +892,7 @@ if ($embed) {
         <script>
         window.internalChatGlobalConfig = {
             enabled: true,
+            embedded: true,
             userId: <?= (int) $userId; ?>,
             summaryUrl: <?= json_encode(BASE_URL . 'chat-interno-handler?action=summary', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
             heartbeatUrl: <?= json_encode(BASE_URL . 'chat-interno-handler', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,

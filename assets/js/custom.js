@@ -704,6 +704,7 @@ $(document).ready(function() {
     var lastActivityAt = Date.now();
     var serviceWorkerRegistration = null;
     var summaryInitialized = false;
+    var isEmbeddedContext = !!config.embedded;
     var storageKey = 'internal_chat_last_message_id:' + String(config.userId);
     var unreadStorageKey = 'internal_chat_unread_count:' + String(config.userId);
     var unreadTypeStorageKey = 'internal_chat_unread_type:' + String(config.userId);
@@ -776,6 +777,10 @@ $(document).ready(function() {
             // Ignore storage errors.
         }
         updateChatIndicator(normalized, normalized > 0 ? (meta || getUnreadMeta()) : { type: '', label: '' });
+    }
+
+    function syncIndicatorFromStorage() {
+        updateChatIndicator(getUnreadCount(), getUnreadMeta());
     }
 
     function updateChatIndicator(count, meta) {
@@ -890,6 +895,9 @@ $(document).ready(function() {
     }
 
     function sendHeartbeat(forceActivityTouch) {
+        if (isEmbeddedContext) {
+            return;
+        }
         var body = new URLSearchParams();
         body.set('action', 'heartbeat');
         body.set('csrf_token', String(config.csrfToken || ''));
@@ -910,6 +918,9 @@ $(document).ready(function() {
     }
 
     function pollSummary() {
+        if (isEmbeddedContext) {
+            return;
+        }
         var lastMessageId = getLastMessageId();
         var url = config.summaryUrl + '&after_message_id=' + encodeURIComponent(String(lastMessageId));
 
@@ -921,17 +932,31 @@ $(document).ready(function() {
             })
             .then(function (payload) {
                 var latestMessage;
+                var unreadCount;
                 if (!payload || !payload.ok) {
                     return;
                 }
 
                 latestMessage = payload.latest_message || null;
+                unreadCount = Math.max(0, Number(payload.unread_count || 0));
                 if (!latestMessage || !latestMessage.id) {
                     summaryInitialized = true;
+                    if (isChatEngaged()) {
+                        setUnreadCount(0);
+                    }
                     return;
                 }
 
                 if (!summaryInitialized) {
+                    if (isChatEngaged()) {
+                        setUnreadCount(0);
+                    } else if (unreadCount > 0) {
+                        setUnreadCount(Math.max(getUnreadCount(), unreadCount), {
+                            type: String(latestMessage.channel_type || 'public'),
+                            label: String(latestMessage.channel_name || '')
+                        });
+                    }
+
                     setLastMessageId(latestMessage.id);
                     summaryInitialized = true;
                     return;
@@ -944,12 +969,14 @@ $(document).ready(function() {
                         return;
                     }
 
-                    if (Number(latestMessage.user_id || 0) !== Number(config.userId || 0)) {
-                        setUnreadCount(getUnreadCount() + Number(payload.unread_count || 1), {
+                    if (unreadCount > 0) {
+                        setUnreadCount(getUnreadCount() + unreadCount, {
                             type: String(latestMessage.channel_type || 'public'),
                             label: String(latestMessage.channel_name || '')
                         });
-                        showMessageNotification(latestMessage);
+                        if (Number(latestMessage.user_id || 0) !== Number(config.userId || 0)) {
+                            showMessageNotification(latestMessage);
+                        }
                     }
                 }
             })
@@ -963,13 +990,39 @@ $(document).ready(function() {
     });
 
     document.addEventListener('visibilitychange', function () {
+        if (isEmbeddedContext) {
+            return;
+        }
         if (!document.hidden) {
             updateLastActivity();
             if (isChatEngaged()) {
                 setUnreadCount(0);
+            } else {
+                syncIndicatorFromStorage();
             }
         }
         sendHeartbeat(!document.hidden);
+    });
+
+    window.addEventListener('pageshow', function () {
+        syncIndicatorFromStorage();
+    });
+
+    window.addEventListener('focus', function () {
+        if (!isChatEngaged()) {
+            syncIndicatorFromStorage();
+        }
+    });
+
+    window.addEventListener('storage', function (event) {
+        if (!event || !event.key) {
+            return;
+        }
+        if (event.key === unreadStorageKey
+            || event.key === unreadTypeStorageKey
+            || event.key === unreadLabelStorageKey) {
+            syncIndicatorFromStorage();
+        }
     });
 
     if (chatModalElement) {
@@ -988,13 +1041,15 @@ $(document).ready(function() {
     };
 
     function startInternalChatLoops() {
-        updateChatIndicator(getUnreadCount(), getUnreadMeta());
-        sendHeartbeat(true);
-        pollSummary();
-        window.setInterval(function () {
-            sendHeartbeat(false);
-        }, heartbeatIntervalMs);
-        window.setInterval(pollSummary, summaryIntervalMs);
+        syncIndicatorFromStorage();
+        if (!isEmbeddedContext) {
+            sendHeartbeat(true);
+            pollSummary();
+            window.setInterval(function () {
+                sendHeartbeat(false);
+            }, heartbeatIntervalMs);
+            window.setInterval(pollSummary, summaryIntervalMs);
+        }
     }
 
     registerServiceWorker().then(startInternalChatLoops, startInternalChatLoops);

@@ -314,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 window.internalChatGlobalConfig = {
     enabled: true,
+    embedded: false,
     userId: <?= (int) (($user['id'] ?? 0)); ?>,
     summaryUrl: <?= json_encode(BASE_URL . 'chat-interno-handler?action=summary', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
     heartbeatUrl: <?= json_encode(BASE_URL . 'chat-interno-handler', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
