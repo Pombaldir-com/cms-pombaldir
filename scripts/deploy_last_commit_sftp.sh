@@ -35,6 +35,11 @@ while IFS= read -r line; do
   ALL_FILES+=("$line")
 done < <(git show --name-only --pretty=format: HEAD | sed '/^$/d')
 
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  ALL_FILES+=("$line")
+done < <(find migrations -type f -name '*.sql' 2>/dev/null | sort)
+
 if [[ "${#ALL_FILES[@]}" -eq 0 ]]; then
   echo "No files found in HEAD commit."
   exit 0
@@ -55,10 +60,15 @@ should_skip() {
 }
 
 FILES=()
+declare -A seen_files=()
 for f in "${ALL_FILES[@]}"; do
   if should_skip "$f"; then
     continue
   fi
+  if [[ -n "${seen_files[$f]:-}" ]]; then
+    continue
+  fi
+  seen_files["$f"]=1
   FILES+=("$f")
 done
 

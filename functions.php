@@ -1745,9 +1745,31 @@ function getInternalChatLatestVisibleMessage(int $userId, int $afterMessageId = 
     return $message;
 }
 
+function countInternalChatUnreadMessages(int $userId, int $afterMessageId = 0): int {
+    if ($userId <= 0 || !hasInternalChatTables()) {
+        return 0;
+    }
+
+    $afterMessageId = max(0, $afterMessageId);
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM internal_chat_messages m
+         INNER JOIN internal_chat_channels c ON c.id = m.channel_id
+         LEFT JOIN internal_chat_channel_members cm
+           ON cm.channel_id = c.id AND cm.user_id = ?
+         WHERE (c.channel_type = ? OR cm.user_id IS NOT NULL)
+           AND m.id > ?
+           AND COALESCE(m.user_id, 0) <> ?'
+    );
+    $stmt->execute([$userId, 'public', $afterMessageId, $userId]);
+    return (int) $stmt->fetchColumn();
+}
+
 function getInternalChatSummary(int $userId, int $afterMessageId = 0): array {
     return [
         'latest_message' => getInternalChatLatestVisibleMessage($userId, $afterMessageId),
+        'unread_count' => countInternalChatUnreadMessages($userId, $afterMessageId),
         'presence_counts' => getInternalChatPresenceCounts(),
     ];
 }

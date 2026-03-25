@@ -705,6 +705,12 @@ $(document).ready(function() {
     var serviceWorkerRegistration = null;
     var summaryInitialized = false;
     var storageKey = 'internal_chat_last_message_id:' + String(config.userId);
+    var unreadStorageKey = 'internal_chat_unread_count:' + String(config.userId);
+    var unreadTypeStorageKey = 'internal_chat_unread_type:' + String(config.userId);
+    var unreadLabelStorageKey = 'internal_chat_unread_label:' + String(config.userId);
+    var topbarLink = document.getElementById('internalChatTopbarLink');
+    var unreadBadge = document.getElementById('internalChatUnreadBadge');
+    var chatModalElement = document.getElementById('internalChatModal');
 
     function updateLastActivity() {
         lastActivityAt = Date.now();
@@ -736,9 +742,83 @@ $(document).ready(function() {
         }
     }
 
+    function getUnreadCount() {
+        try {
+            return Number(window.localStorage.getItem(unreadStorageKey) || 0);
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    function getUnreadMeta() {
+        try {
+            return {
+                type: String(window.localStorage.getItem(unreadTypeStorageKey) || ''),
+                label: String(window.localStorage.getItem(unreadLabelStorageKey) || '')
+            };
+        } catch (error) {
+            return { type: '', label: '' };
+        }
+    }
+
+    function setUnreadCount(count, meta) {
+        var normalized = Math.max(0, Number(count || 0));
+        try {
+            window.localStorage.setItem(unreadStorageKey, String(normalized));
+            if (normalized > 0 && meta) {
+                window.localStorage.setItem(unreadTypeStorageKey, String(meta.type || ''));
+                window.localStorage.setItem(unreadLabelStorageKey, String(meta.label || ''));
+            } else if (normalized === 0) {
+                window.localStorage.removeItem(unreadTypeStorageKey);
+                window.localStorage.removeItem(unreadLabelStorageKey);
+            }
+        } catch (error) {
+            // Ignore storage errors.
+        }
+        updateChatIndicator(normalized, normalized > 0 ? (meta || getUnreadMeta()) : { type: '', label: '' });
+    }
+
+    function updateChatIndicator(count, meta) {
+        var normalized = Math.max(0, Number(count || 0));
+        var unreadMeta = meta || getUnreadMeta();
+        var unreadType = unreadMeta.type === 'group' ? 'group' : (unreadMeta.type === 'public' ? 'public' : '');
+        var tooltip = '';
+
+        if (normalized > 0) {
+            if (unreadType === 'group') {
+                tooltip = normalized + ' mensagem(ns) nova(s) em grupo';
+            } else {
+                tooltip = normalized + ' mensagem(ns) nova(s) em canal publico';
+            }
+            if (unreadMeta.label) {
+                tooltip += ' (' + unreadMeta.label + ')';
+            }
+        }
+
+        if (topbarLink) {
+            topbarLink.classList.toggle('has-unread', normalized > 0);
+            topbarLink.setAttribute('title', tooltip || 'Chat');
+        }
+        if (unreadBadge) {
+            unreadBadge.textContent = normalized > 99 ? '99+' : String(normalized);
+            unreadBadge.classList.toggle('is-visible', normalized > 0);
+            unreadBadge.classList.toggle('is-public', normalized > 0 && unreadType === 'public');
+            unreadBadge.classList.toggle('is-group', normalized > 0 && unreadType === 'group');
+            unreadBadge.setAttribute('title', tooltip || '');
+        }
+    }
+
+    function isChatModalOpen() {
+        return !!(chatModalElement && chatModalElement.classList.contains('show'));
+    }
+
+    function isChatEngaged() {
+        return (window.location.pathname.indexOf('/chat-interno') !== -1 && document.visibilityState === 'visible')
+            || isChatModalOpen();
+    }
+
     function shouldSuppressNotification() {
-        return window.location.pathname.indexOf('/chat-interno') !== -1
-            && document.visibilityState === 'visible';
+        return isChatEngaged();
     }
 
     function registerServiceWorker() {
@@ -859,7 +939,16 @@ $(document).ready(function() {
 
                 if (Number(latestMessage.id) > lastMessageId) {
                     setLastMessageId(latestMessage.id);
+                    if (isChatEngaged()) {
+                        setUnreadCount(0);
+                        return;
+                    }
+
                     if (Number(latestMessage.user_id || 0) !== Number(config.userId || 0)) {
+                        setUnreadCount(getUnreadCount() + Number(payload.unread_count || 1), {
+                            type: String(latestMessage.channel_type || 'public'),
+                            label: String(latestMessage.channel_name || '')
+                        });
                         showMessageNotification(latestMessage);
                     }
                 }
@@ -876,9 +965,18 @@ $(document).ready(function() {
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
             updateLastActivity();
+            if (isChatEngaged()) {
+                setUnreadCount(0);
+            }
         }
         sendHeartbeat(!document.hidden);
     });
+
+    if (chatModalElement) {
+        chatModalElement.addEventListener('shown.bs.modal', function () {
+            setUnreadCount(0);
+        });
+    }
 
     window.internalChatAlerts = {
         requestPermission: function () {
@@ -890,6 +988,7 @@ $(document).ready(function() {
     };
 
     function startInternalChatLoops() {
+        updateChatIndicator(getUnreadCount(), getUnreadMeta());
         sendHeartbeat(true);
         pollSummary();
         window.setInterval(function () {

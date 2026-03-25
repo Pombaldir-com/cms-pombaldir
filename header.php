@@ -158,6 +158,31 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
         .topbar-chat-link .chat-link-label {
             white-space: nowrap;
         }
+        .topbar-chat-link.has-unread {
+            color: #1f78d1;
+        }
+        .topbar-chat-unread {
+            display: none;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: #1f78d1;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 18px;
+            text-align: center;
+        }
+        .topbar-chat-unread.is-public {
+            background: #1f78d1;
+        }
+        .topbar-chat-unread.is-group {
+            background: #26b99a;
+        }
+        .topbar-chat-unread.is-visible {
+            display: inline-block;
+        }
     </style>
     <script>
       (function () {
@@ -313,8 +338,9 @@ foreach ($sidebarTypes as $sidebarType):
 <?php endif; ?>
 <?php if ($showInternalChatFloating): ?>
       <div class="d-flex align-items-center me-2">
-        <a href="#" class="topbar-chat-link" data-bs-toggle="modal" data-bs-target="#internalChatModal">
+        <a href="#" class="topbar-chat-link" id="internalChatTopbarLink" data-bs-toggle="modal" data-bs-target="#internalChatModal">
           <i class="fa fa-comments-o"></i> <span class="chat-link-label">Chat</span>
+          <span class="topbar-chat-unread" id="internalChatUnreadBadge">0</span>
         </a>
       </div>
 <?php endif; ?>
