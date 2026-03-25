@@ -28,9 +28,16 @@ $useDropzone   = $useDropzone ?? false;
 $useSelect2    = $useSelect2 ?? false;
 $useSwitchery  = $useSwitchery ?? false;
 $aiEnabled = getSetting('ai_enabled', '0') === '1';
+$internalChatEnabled = isInternalChatEnabled();
+$showInternalChatFloating = $internalChatEnabled
+    && function_exists('hasInternalChatTables')
+    && hasInternalChatTables()
+    && !($disableInternalChatFloating ?? false);
 $aiChatFloating = !empty($user['ai_chat_floating'] ?? 0);
 $migrationFlash = ((int) ($user['role'] ?? 3) === 1) ? pullSessionFlash('migration_runner') : null;
-$migrationSummary = ((int) ($user['role'] ?? 3) === 1) ? getPendingMigrationsSummary() : ['has_pending' => false, 'companies' => [], 'pending_total' => 0, 'errors' => []];
+$migrationSummary = ((int) ($user['role'] ?? 3) === 1)
+    ? getPendingMigrationsSummary(is_array($migrationFlash))
+    : ['has_pending' => false, 'companies' => [], 'pending_total' => 0, 'errors' => []];
 $showMigrationAlert = ((int) ($user['role'] ?? 3) === 1)
     && (!empty($migrationSummary['has_pending']) || !empty($migrationSummary['errors']) || is_array($migrationFlash));
 $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
@@ -82,11 +89,13 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
         .migration-alert-fixed .migration-output {
             max-height: 140px;
             overflow: auto;
-            background: #f7f9fb;
-            border: 1px solid #e3eaf2;
+            background: #ffffff;
+            color: #2f3b52;
+            border: 1px solid #d6dee8;
             border-radius: 4px;
             padding: 10px;
             font-size: 12px;
+            line-height: 1.5;
             margin-top: 10px;
             white-space: pre-wrap;
         }
@@ -131,6 +140,24 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
         .topbar-nav .user-name {
             white-space: nowrap;
         }
+        .topbar-chat-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 40px;
+            padding: 0 10px;
+            color: #4f6278;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .topbar-chat-link:hover,
+        .topbar-chat-link:focus {
+            color: #2a3f54;
+            text-decoration: none;
+        }
+        .topbar-chat-link .chat-link-label {
+            white-space: nowrap;
+        }
     </style>
     <script>
       (function () {
@@ -169,6 +196,9 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
                     <div class="menu_section">
                         <ul class="nav side-menu">
                             <li><a href="<?= BASE_URL ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
+<?php if ($internalChatEnabled && !$showInternalChatFloating): ?>
+                            <li><a href="<?= BASE_URL ?>chat-interno"><i class="fa fa-comments-o"></i> Chat Interno</a></li>
+<?php endif; ?>
 <?php if ($aiEnabled && userHasDepartmentPermission('ai_assistant')): ?>
                             <li><a href="<?= BASE_URL ?>assistant"><i class="fa fa-comments"></i> Assistente AI</a></li>
 <?php endif; ?>
@@ -281,6 +311,13 @@ foreach ($sidebarTypes as $sidebarType):
           </form>
       </div>
 <?php endif; ?>
+<?php if ($showInternalChatFloating): ?>
+      <div class="d-flex align-items-center me-2">
+        <a href="#" class="topbar-chat-link" data-bs-toggle="modal" data-bs-target="#internalChatModal">
+          <i class="fa fa-comments-o"></i> <span class="chat-link-label">Chat</span>
+        </a>
+      </div>
+<?php endif; ?>
       <ul class="navbar-nav d-flex align-items-center topbar-nav">
         <li class="nav-item dropdown ms-3">
           <a href="javascript:;" class="user-profile nav-link dropdown-toggle d-flex align-items-center"
@@ -328,13 +365,18 @@ foreach ($sidebarTypes as $sidebarType):
         <div class="alert alert-warning" role="alert">
             <div class="d-flex justify-content-between align-items-start gap-3">
                 <div>
-                    <strong>Migrate necessário</strong><br>
-                    <span>Existem migrações pendentes nas bases configuradas.</span>
+                    <?php if (!empty($migrationSummary['has_pending'])): ?>
+                        <strong>Migracoes pendentes</strong><br>
+                        <span>Existem migracoes pendentes nas bases configuradas. Podes executa-las diretamente pela interface.</span>
+                    <?php else: ?>
+                        <strong>Verificacao de migracoes com alertas</strong><br>
+                        <span>As migracoes conhecidas ja estao aplicadas, mas houve erros ao verificar algumas bases configuradas.</span>
+                    <?php endif; ?>
                 </div>
                 <form method="post" action="<?= BASE_URL ?>system/run-migrations" style="margin:0;">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
                     <button type="submit" class="btn btn-sm btn-warning">
-                        <i class="fa fa-refresh"></i> Correr migrate
+                        <i class="fa fa-refresh"></i> Executar migracoes
                     </button>
                 </form>
             </div>

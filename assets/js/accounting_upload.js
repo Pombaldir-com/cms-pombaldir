@@ -11,6 +11,7 @@ window.addEventListener('load', function() {
     var importComprasBtn = document.getElementById('import-compras-btn');
     var previewUrl = window.accountingUploadPreviewUrl || 'contabilidade/upload.php?action=preview-page';
     var manualQrUrl = window.accountingUploadManualQrUrl || 'contabilidade/upload.php?action=manual-qr';
+    var efaturaSearchUrl = window.accountingUploadEfaturaSearchUrl || 'contabilidade/upload.php?action=efatura-search';
     var deleteUrl = window.accountingUploadDeleteUrl || 'contabilidade/upload.php?action=delete';
     var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
     var debugEnabled = window.accountingUploadDebug === true;
@@ -53,6 +54,12 @@ window.addEventListener('load', function() {
     var manualError = document.getElementById('manualQrError');
     var manualLoading = document.getElementById('manualQrLoading');
     var manualOpenFileBtn = document.getElementById('manualQrOpenFileBtn');
+    var manualEfaturaSelect = document.getElementById('manualQrEfaturaSelect');
+    var manualEfaturaApplyBtn = document.getElementById('manualQrApplyEfaturaBtn');
+    var manualEfaturaInfo = document.getElementById('manualQrEfaturaInfo');
+    var manualEfaturaError = document.getElementById('manualQrEfaturaError');
+    var manualSelectedEfaturaDocument = null;
+    var qrKeys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
 
     var manualQueue = [];
     var manualActive = null;
@@ -247,6 +254,54 @@ window.addEventListener('load', function() {
         }
         manualError.textContent = message || '';
         manualError.classList.toggle('d-none', !message);
+    }
+
+    function setManualEfaturaError(message) {
+        if (!manualEfaturaError) {
+            if (message) {
+                showAlert(message);
+            }
+            return;
+        }
+        manualEfaturaError.textContent = message || '';
+        manualEfaturaError.classList.toggle('d-none', !message);
+    }
+
+    function renderManualEfaturaInfo(doc) {
+        if (!manualEfaturaInfo) {
+            return;
+        }
+        if (!doc) {
+            manualEfaturaInfo.textContent = '';
+            manualEfaturaInfo.classList.add('d-none');
+            return;
+        }
+        var parts = [];
+        if (doc.issuer_vat || doc.issuer_name) {
+            parts.push((doc.issuer_vat || '') + (doc.issuer_name ? ' - ' + doc.issuer_name : ''));
+        }
+        if (doc.invoice_no) {
+            parts.push('Doc ' + doc.invoice_no);
+        }
+        if (doc.invoice_date) {
+            parts.push('Data ' + doc.invoice_date);
+        }
+        if (doc.gross_total) {
+            parts.push('Total ' + doc.gross_total);
+        }
+        manualEfaturaInfo.textContent = parts.join(' | ');
+        manualEfaturaInfo.classList.toggle('d-none', parts.length === 0);
+    }
+
+    function resetManualEfaturaSelection() {
+        manualSelectedEfaturaDocument = null;
+        setManualEfaturaError('');
+        renderManualEfaturaInfo(null);
+        if (window.jQuery && manualEfaturaSelect) {
+            jQuery(manualEfaturaSelect).val(null).trigger('change');
+        } else if (manualEfaturaSelect) {
+            manualEfaturaSelect.value = '';
+        }
     }
 
     function setManualLoading(loading) {
@@ -518,26 +573,57 @@ window.addEventListener('load', function() {
         return obj;
     }
 
-    function addRowsFromQrTexts(qrTexts, filePath) {
-        var keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
+    function extractVatFromPartyValue(value) {
+        var digits = String(value || '').match(/\d{9}/);
+        return digits ? digits[0] : String(value || '').trim();
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function buildEmitterCellHtml(value) {
+        var rawValue = String(value || '').trim();
+        var nifValue = extractVatFromPartyValue(rawValue);
+        return '<span class="emitter-cell" data-raw="' + escapeHtml(rawValue) + '">' + escapeHtml(nifValue) + '</span>';
+    }
+
+    function decodeTableCellRawValue(cellHtml) {
+        var html = String(cellHtml || '');
+        var match = html.match(/data-raw="([^"]*)"/i);
+        if (!match) {
+            return html.replace(/<[^>]+>/g, '').trim();
+        }
+        var textarea = document.createElement('textarea');
+        textarea.innerHTML = match[1];
+        return textarea.value;
+    }
+
+    function addStructuredRows(rows, filePath) {
         var added = 0;
         var rowsToAdd = [];
-        (qrTexts || []).forEach(function(qrText) {
-            var trimmed = (qrText || '').trim();
-            if (!trimmed) {
+        (rows || []).forEach(function(qrData) {
+            if (!qrData || typeof qrData !== 'object') {
                 return;
             }
-            var qrData = extractQR(trimmed);
-            var hasContent = keys.some(function(key) {
+            var hasContent = qrKeys.some(function(key) {
                 return (qrData[key] || '').toString().trim() !== '';
             });
             if (!hasContent) {
                 return;
             }
-            var row = keys.map(function(key) {
+            var row = qrKeys.map(function(key) {
                 var value = qrData[key] || '';
                 if (key === 'F') {
                     value = formatDate(value);
+                }
+                if (key === 'A') {
+                    return buildEmitterCellHtml(value);
                 }
                 return value;
             });
@@ -554,6 +640,18 @@ window.addEventListener('load', function() {
 
         refreshUploadActionState();
         return added;
+    }
+
+    function addRowsFromQrTexts(qrTexts, filePath) {
+        var rows = [];
+        (qrTexts || []).forEach(function(qrText) {
+            var trimmed = (qrText || '').trim();
+            if (!trimmed) {
+                return;
+            }
+            rows.push(extractQR(trimmed));
+        });
+        return addStructuredRows(rows, filePath);
     }
 
     function removeUploadedFile(filePath, callback) {
@@ -756,6 +854,7 @@ window.addEventListener('load', function() {
         manualPage = page;
         resetManualSelection();
         setManualError('');
+        resetManualEfaturaSelection();
         setManualLoading(true);
         if (manualPreviewImage) {
             manualPreviewImage.removeAttribute('src');
@@ -840,6 +939,7 @@ window.addEventListener('load', function() {
         applyManualZoom(1);
         resetManualSelection();
         setManualError('');
+        resetManualEfaturaSelection();
         if (manualPreviewImage) {
             manualPreviewImage.onload = null;
             manualPreviewImage.onerror = null;
@@ -995,6 +1095,73 @@ window.addEventListener('load', function() {
             .finally(function() {
                 setManualLoading(false);
             });
+        });
+    }
+
+    if (window.jQuery && jQuery.fn.select2 && manualEfaturaSelect) {
+        jQuery(manualEfaturaSelect).select2({
+            width: '100%',
+            dropdownParent: manualModalEl ? jQuery(manualModalEl) : null,
+            placeholder: 'Pesquisar por NIF, nome, ATCUD ou numero do documento',
+            minimumInputLength: 0,
+            allowClear: true,
+            ajax: {
+                url: efaturaSearchUrl,
+                dataType: 'json',
+                delay: 250,
+                data: function(params) {
+                    return { q: params.term || '' };
+                },
+                processResults: function(data) {
+                    return { results: (data && data.results) ? data.results : [] };
+                }
+            }
+        });
+
+        jQuery(manualEfaturaSelect).on('select2:select', function(ev) {
+            manualSelectedEfaturaDocument = ev && ev.params && ev.params.data ? ev.params.data : null;
+            setManualEfaturaError('');
+            renderManualEfaturaInfo(manualSelectedEfaturaDocument);
+        });
+
+        jQuery(manualEfaturaSelect).on('select2:clear', function() {
+            manualSelectedEfaturaDocument = null;
+            setManualEfaturaError('');
+            renderManualEfaturaInfo(null);
+        });
+    }
+
+    if (manualEfaturaApplyBtn) {
+        manualEfaturaApplyBtn.addEventListener('click', function() {
+            if (!manualActive) {
+                return;
+            }
+            if (!manualSelectedEfaturaDocument || !manualSelectedEfaturaDocument.mapped_row) {
+                setManualEfaturaError('Selecione primeiro um documento importado do E-fatura.');
+                return;
+            }
+            var added = addStructuredRows([manualSelectedEfaturaDocument.mapped_row], manualActive.file);
+            if (!added) {
+                setManualEfaturaError('Nao foi possivel associar o documento E-fatura selecionado.');
+                return;
+            }
+            if (manualActive.dropzoneFile) {
+                setDropzoneQrState(manualActive.dropzoneFile, 'auto');
+                if (debugEnabled) {
+                    var manualEfaturaItem = ensureDebugFile(manualActive.dropzoneFile);
+                    manualEfaturaItem.finishedAt = performance.now();
+                    manualEfaturaItem.ms = Math.max(0, Math.round(manualEfaturaItem.finishedAt - manualEfaturaItem.startedAt));
+                    manualEfaturaItem.frontendMs = Math.max(0, manualEfaturaItem.ms - (manualEfaturaItem.backendMs || 0));
+                    manualEfaturaItem.state = 'manual_success';
+                    debugStats.manualSuccess += 1;
+                }
+            }
+            notifySuccess('Documento associado a partir do E-fatura com sucesso.');
+            if (manualModal) {
+                manualModal.hide();
+            } else {
+                finishManualQueueItem();
+            }
         });
     }
 
@@ -1169,12 +1336,11 @@ window.addEventListener('load', function() {
             showAlert('Não há dados para importar');
             return;
         }
-        var keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
         var payload = nodes.map(function(node) {
             var data = table.row(node).data() || [];
             var obj = {};
-            for (var i = 0; i < keys.length; i += 1) {
-                obj[keys[i]] = data[i] || '';
+            for (var i = 0; i < qrKeys.length; i += 1) {
+                obj[qrKeys[i]] = (qrKeys[i] === 'A') ? decodeTableCellRawValue(data[i] || '') : (data[i] || '');
             }
             obj.filename = $(node).find('.delete-row').data('file') || '';
             return obj;

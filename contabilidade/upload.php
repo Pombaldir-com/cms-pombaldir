@@ -443,6 +443,197 @@ function resolveAccountingUploadPath(string $relativeFile): array {
     ];
 }
 
+function normalizeUploadMoneyValue($value): string {
+    if ($value === null || $value === '') {
+        return '';
+    }
+    if (is_string($value)) {
+        $value = str_replace(',', '.', trim($value));
+    }
+    if (!is_numeric($value)) {
+        return '';
+    }
+    return number_format((float) $value, 2, '.', '');
+}
+
+function summarizeEfaturaRatesForUpload(array $payload): array {
+    $buckets = [
+        '6' => ['base' => 0.0, 'tax' => 0.0],
+        '13' => ['base' => 0.0, 'tax' => 0.0],
+        '23' => ['base' => 0.0, 'tax' => 0.0],
+    ];
+    $lines = $payload['lines'] ?? [];
+    if (!is_array($lines)) {
+        $lines = [];
+    }
+
+    foreach ($lines as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $rate = isset($line['tax_percentage']) ? (float) str_replace(',', '.', (string) $line['tax_percentage']) : null;
+        $bucket = null;
+        if ($rate !== null) {
+            if (abs($rate - 6.0) < 0.2) {
+                $bucket = '6';
+            } elseif (abs($rate - 13.0) < 0.2) {
+                $bucket = '13';
+            } elseif (abs($rate - 23.0) < 0.2) {
+                $bucket = '23';
+            }
+        }
+        if ($bucket === null) {
+            continue;
+        }
+
+        $base = isset($line['net_amount']) ? (float) str_replace(',', '.', (string) $line['net_amount']) : 0.0;
+        $tax = 0.0;
+        if (isset($line['tax_amount'])) {
+            $tax = (float) str_replace(',', '.', (string) $line['tax_amount']);
+        } elseif (isset($line['total_tax_amount'])) {
+            $tax = (float) str_replace(',', '.', (string) $line['total_tax_amount']);
+        }
+        $buckets[$bucket]['base'] += $base;
+        $buckets[$bucket]['tax'] += $tax;
+    }
+
+    $hasDetailedLines = false;
+    foreach ($buckets as $bucketData) {
+        if (abs((float) $bucketData['base']) > 0.00001 || abs((float) $bucketData['tax']) > 0.00001) {
+            $hasDetailedLines = true;
+            break;
+        }
+    }
+
+    if (!$hasDetailedLines) {
+        $netTotal = isset($payload['net_total']) ? (float) str_replace(',', '.', (string) $payload['net_total']) : 0.0;
+        $taxPayable = isset($payload['tax_payable']) ? (float) str_replace(',', '.', (string) $payload['tax_payable']) : 0.0;
+        if (abs($netTotal) > 0.00001) {
+            $inferredBucket = null;
+            if (abs($taxPayable) < 0.00001) {
+                $inferredBucket = null;
+            } else {
+                $ratio = ($taxPayable / $netTotal) * 100;
+                if (abs($ratio - 6.0) < 0.3) {
+                    $inferredBucket = '6';
+                } elseif (abs($ratio - 13.0) < 0.3) {
+                    $inferredBucket = '13';
+                } elseif (abs($ratio - 23.0) < 0.3) {
+                    $inferredBucket = '23';
+                }
+            }
+
+            if ($inferredBucket !== null) {
+                $buckets[$inferredBucket]['base'] = $netTotal;
+                $buckets[$inferredBucket]['tax'] = $taxPayable;
+            }
+        }
+    }
+
+    return [
+        'I3' => normalizeUploadMoneyValue($buckets['6']['base']),
+        'I4' => normalizeUploadMoneyValue($buckets['6']['tax']),
+        'I5' => normalizeUploadMoneyValue($buckets['13']['base']),
+        'I6' => normalizeUploadMoneyValue($buckets['13']['tax']),
+        'I7' => normalizeUploadMoneyValue($buckets['23']['base']),
+        'I8' => normalizeUploadMoneyValue($buckets['23']['tax']),
+    ];
+}
+
+function buildUploadRowFromEfaturaDocument(array $document): array {
+    $payload = [];
+    if (!empty($document['raw_payload_json']) && is_string($document['raw_payload_json'])) {
+        $decoded = json_decode($document['raw_payload_json'], true);
+        if (is_array($decoded)) {
+            $payload = $decoded;
+        }
+    }
+
+    $rawRow = is_array($payload['raw_row'] ?? null) ? $payload['raw_row'] : [];
+    $issuerVat = trim((string) ($payload['issuer_vat'] ?? $document['issuer_vat'] ?? ''));
+    $issuerName = trim((string) ($payload['issuer_name'] ?? $document['issuer_name'] ?? ''));
+    $customerVat = trim((string) ($payload['customer_vat'] ?? $document['customer_vat'] ?? ''));
+    $country = trim((string) ($rawRow['paisAdquirente'] ?? $payload['customer_country'] ?? ''));
+    $invoiceType = trim((string) ($payload['invoice_type'] ?? $document['invoice_type'] ?? ''));
+    $documentStatus = trim((string) ($payload['document_status'] ?? $document['document_status'] ?? ''));
+    $invoiceDate = trim((string) ($payload['invoice_date'] ?? $document['invoice_date'] ?? ''));
+    $invoiceNo = trim((string) ($payload['invoice_no'] ?? $document['invoice_no'] ?? ''));
+    $atcud = trim((string) ($payload['atcud'] ?? $document['atcud'] ?? ''));
+    $sourceHash = trim((string) ($payload['source_hash'] ?? $document['source_hash'] ?? ''));
+    $taxPayable = normalizeUploadMoneyValue($payload['tax_payable'] ?? $document['tax_payable'] ?? '');
+    $grossTotal = normalizeUploadMoneyValue($payload['gross_total'] ?? $document['gross_total'] ?? '');
+
+    $issuerField = $issuerVat;
+    if ($issuerVat !== '' && $issuerName !== '') {
+        $issuerField .= ' - ' . $issuerName;
+    } elseif ($issuerField === '') {
+        $issuerField = $issuerName;
+    }
+
+    $rateSummary = summarizeEfaturaRatesForUpload($payload);
+
+    return [
+        'A' => $issuerField,
+        'B' => $customerVat,
+        'C' => '',
+        'D' => $invoiceType,
+        'E' => $documentStatus,
+        'F' => $invoiceDate,
+        'G' => $invoiceNo,
+        'H' => $atcud,
+        'I1' => $country,
+        'I3' => $rateSummary['I3'],
+        'I4' => $rateSummary['I4'],
+        'I5' => $rateSummary['I5'],
+        'I6' => $rateSummary['I6'],
+        'I7' => $rateSummary['I7'],
+        'I8' => $rateSummary['I8'],
+        'N' => $taxPayable,
+        'O' => $grossTotal,
+        'Q' => $sourceHash,
+        'R' => $sourceHash !== '' ? $sourceHash : $atcud,
+    ];
+}
+
+function searchEfaturaDocumentsForUpload(PDO $pdo, string $term, int $limit = 20): array {
+    $limit = max(1, min(50, $limit));
+    $normalizedDigits = preg_replace('/\D+/', '', $term) ?? '';
+    $searchTerm = trim($term);
+
+    if (!hasTable('efatura_documents')) {
+        return [];
+    }
+
+    $sql = 'SELECT id, issuer_vat, issuer_name, customer_vat, invoice_no, atcud, invoice_date, invoice_type, document_status, tax_payable, net_total, gross_total, source_hash, raw_payload_json
+            FROM efatura_documents';
+    $where = [];
+    $params = [];
+    if ($normalizedDigits !== '') {
+        $where[] = 'REPLACE(REPLACE(REPLACE(TRIM(issuer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
+        $where[] = 'REPLACE(REPLACE(REPLACE(TRIM(customer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
+    }
+    if ($searchTerm !== '') {
+        $where[] = 'issuer_name LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'invoice_no LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'atcud LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'source_hash LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+    }
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' OR ', $where);
+    }
+    $sql .= ' ORDER BY invoice_date DESC, id DESC LIMIT ' . (int) $limit;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
 function runQrToolCommand(array $arguments): array {
     $script = __DIR__ . '/detectar_qr.py';
     $popplerPath = getenv('POPPLER_PATH');
@@ -605,6 +796,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'document-file') {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'efatura-search') {
+    header('Content-Type: application/json');
+
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    $term = trim((string) ($_GET['q'] ?? ''));
+    $pdo = getPDO();
+    $documents = searchEfaturaDocumentsForUpload($pdo, $term, 30);
+    $results = [];
+    foreach ($documents as $document) {
+        $issuerVat = trim((string) ($document['issuer_vat'] ?? ''));
+        $issuerName = trim((string) ($document['issuer_name'] ?? ''));
+        $invoiceNo = trim((string) ($document['invoice_no'] ?? ''));
+        $invoiceDate = trim((string) ($document['invoice_date'] ?? ''));
+        $grossTotal = normalizeUploadMoneyValue($document['gross_total'] ?? '');
+        $labelParts = [trim($issuerVat . ' - ' . $issuerName)];
+        if ($invoiceNo !== '') {
+            $labelParts[] = $invoiceNo;
+        }
+        if ($invoiceDate !== '') {
+            $labelParts[] = $invoiceDate;
+        }
+        if ($grossTotal !== '') {
+            $labelParts[] = $grossTotal;
+        }
+        $results[] = [
+            'id' => (int) ($document['id'] ?? 0),
+            'text' => implode(' | ', array_values(array_filter($labelParts, static function ($value): bool {
+                return trim((string) $value) !== '';
+            }))),
+            'issuer_vat' => $issuerVat,
+            'issuer_name' => $issuerName,
+            'customer_vat' => trim((string) ($document['customer_vat'] ?? '')),
+            'invoice_no' => $invoiceNo,
+            'invoice_date' => $invoiceDate,
+            'invoice_type' => trim((string) ($document['invoice_type'] ?? '')),
+            'gross_total' => $grossTotal,
+            'mapped_row' => buildUploadRowFromEfaturaDocument($document),
+        ];
+    }
+
+    echo json_encode(['results' => $results], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'preview-page') {
     header('Content-Type: application/json');
 
@@ -672,11 +912,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $requiresAcquirerDatabase = false;
         if ($acquirerNif !== '') {
             $acquirerEntity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
-            if ($acquirerEntity && !empty($acquirerEntity['erp_database'])) {
+            if ($acquirerEntity === null) {
+                $acquirerEntity = findAccountingEntity($pdo, $acquirerNif);
+            }
+            $acquirerDatabase = is_array($acquirerEntity) ? resolveAccountingEntityDatabase($acquirerEntity) : '';
+            if ($acquirerDatabase !== '') {
                 if ($database === '') {
-                    $database = trim((string) $acquirerEntity['erp_database']);
+                    $database = $acquirerDatabase;
                 }
-            } else {
+            } elseif ($acquirerEntity === null) {
                 $requiresAcquirerDatabase = true;
             }
         }
@@ -712,7 +956,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'acquirer' => $acquirerNif !== '' ? [
                 'nif' => $acquirerNif,
                 'name' => trim((string) (($acquirerEntity['name'] ?? '') ?: deriveEntityNameFromField((string) $acquirerValue, $acquirerNif))),
-                'erp_database' => trim((string) ($acquirerEntity['erp_database'] ?? '')),
+                'erp_database' => is_array($acquirerEntity) ? resolveAccountingEntityDatabase($acquirerEntity) : '',
             ] : null,
             'csrf_token' => $newToken,
         ]);
@@ -741,6 +985,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $existing = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+        if ($existing === null) {
+            $existing = findAccountingEntity($pdo, $acquirerNif);
+        }
         $name = trim((string) ($companyValidation['name'] ?? ''));
         if ($name === '') {
             $name = trim((string) ($existing['name'] ?? ''));
@@ -801,15 +1048,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
         $entityCache = [];
         foreach ($rows as &$row) {
-            $a = $row['A'] ?? '';
+            $rawEmitterValue = trim((string) ($row['A'] ?? ''));
+            $normalizedEmitterNif = extractVatNumber($rawEmitterValue);
+            $a = $normalizedEmitterNif !== '' ? $normalizedEmitterNif : $rawEmitterValue;
             $b = $row['B'] ?? '';
             $d = $row['D'] ?? '';
-            if ($a !== '') {
-                $nif = extractVatNumber((string) $a);
+            if ($rawEmitterValue !== '') {
+                $nif = $normalizedEmitterNif;
                 if ($nif !== '' && !array_key_exists($nif, $entityCache)) {
-                    $entityCache[$nif] = ensureAccountingEntity($pdo, (string) $a);
+                    $entityCache[$nif] = ensureAccountingEntity($pdo, $rawEmitterValue);
                 }
             }
+            $row['A'] = $a;
             $stmt->execute([$a, $b, $d]);
             $row['account'] = $stmt->fetchColumn() ?: '';
         }
@@ -886,6 +1136,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['filename'] ?? '',
                 $importType
             ]);
+
+            $insertedId = (int) $pdo->lastInsertId();
+            if ($insertedId > 0) {
+                $storedRow = [
+                    'field_A' => $fieldA,
+                    'field_B' => $fieldB,
+                    'field_C' => $row['C'] ?? '',
+                    'field_F' => $fieldF,
+                    'field_G' => $fieldG,
+                    'field_H' => $fieldH,
+                    'field_R' => $fieldR,
+                ];
+                reconcileAccountingImportWithEfaturaDocument($pdo, $insertedId, $storedRow);
+            }
         }
 
         echo json_encode(['success' => true, 'csrf_token' => $newToken]);
@@ -962,6 +1226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $useDropzone = true;
 $useDataTables = true;
+$useSelect2 = true;
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 $erpDatabase = trim((string) getSetting('erp_database', ''));
@@ -1099,6 +1364,31 @@ if ($qrParallelUploads > 6) {
                     </div>
                 </div>
                 <div id="manualQrError" class="alert alert-danger d-none"></div>
+                <div class="x_panel manual-efatura-panel">
+                    <div class="x_title">
+                        <h2><i class="fa fa-search"></i> Sugestao por E-fatura</h2>
+                        <div class="clearfix"></div>
+                    </div>
+                    <div class="x_content">
+                        <p class="text-muted">
+                            Se o QR nao for detetado, pesquise pelo NIF ou nome do emitente e associe um documento importado do E-fatura a este ficheiro.
+                        </p>
+                        <div class="row">
+                            <div class="col-md-8 col-sm-12">
+                                <label for="manualQrEfaturaSelect" class="form-label">Documento E-fatura</label>
+                                <select id="manualQrEfaturaSelect" class="form-control"></select>
+                            </div>
+                            <div class="col-md-4 col-sm-12">
+                                <label class="form-label d-block">&nbsp;</label>
+                                <button type="button" class="btn btn-primary" id="manualQrApplyEfaturaBtn">
+                                    <i class="fa fa-link"></i> Associar documento
+                                </button>
+                            </div>
+                        </div>
+                        <div id="manualQrEfaturaInfo" class="alert alert-info d-none mt-3"></div>
+                        <div id="manualQrEfaturaError" class="alert alert-danger d-none mt-3"></div>
+                    </div>
+                </div>
                 <div id="manualQrLoading" class="dataTables_processing panel panel-default d-none" style="display: block;">
                     <span><i class="fa fa-spinner fa-spin"></i> A gerar pré-visualização...</span>
                 </div>
@@ -1161,12 +1451,16 @@ if ($qrParallelUploads > 6) {
     background: #fff4df;
     box-shadow: 0 0 0 3px rgba(240, 173, 78, 0.18);
 }
+.manual-efatura-panel {
+    margin-bottom: 15px;
+}
 </style>
 
 <?php
 $pageScripts = "window.erpDatabase = " . json_encode($erpDatabase, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ";\n"
     . "window.accountingUploadPreviewUrl = " . json_encode((string) (BASE_URL . 'upload?action=preview-page'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadManualQrUrl = " . json_encode((string) (BASE_URL . 'upload?action=manual-qr'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadEfaturaSearchUrl = " . json_encode((string) (BASE_URL . 'upload?action=efatura-search'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDeleteUrl = " . json_encode((string) (BASE_URL . 'upload?action=delete'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadParallelUploads = " . json_encode($qrParallelUploads, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDebug = " . json_encode(getSetting('debug_mode', '0') === '1', JSON_UNESCAPED_UNICODE) . ";\n";

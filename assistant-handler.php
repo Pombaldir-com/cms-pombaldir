@@ -2602,11 +2602,22 @@ function getErpDatabaseForNif(string $nif): ?string {
         return null;
     }
     $pdo = getPDO();
-    $stmt = $pdo->prepare('SELECT erp_database FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT erp_database, entity_type, erp_client_code FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
-    $db = $stmt->fetchColumn();
-    if (is_string($db) && trim($db) !== '') {
-        return trim($db);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (is_array($row)) {
+        $entityType = trim((string) ($row['entity_type'] ?? ''));
+        $erpDatabase = trim((string) ($row['erp_database'] ?? ''));
+        $erpClientCode = trim((string) ($row['erp_client_code'] ?? ''));
+        if ($entityType === 'acquirer' && $erpClientCode !== '') {
+            return $erpClientCode;
+        }
+        if ($erpDatabase !== '') {
+            return $erpDatabase;
+        }
+        if ($erpClientCode !== '') {
+            return $erpClientCode;
+        }
     }
     return null;
 }
@@ -2615,6 +2626,14 @@ function getErpDefaultEmp(): string {
     $company = trim((string) getSetting('accounting_base_company', ''));
     if ($company !== '') {
         return $company;
+    }
+    return '';
+}
+
+function getErpDefaultDb(): string {
+    $database = trim((string) getSetting('erp_database', ''));
+    if ($database !== '') {
+        return $database;
     }
     return '';
 }
@@ -3091,16 +3110,49 @@ function normalizeErpLigacaoDocType(string $docType): string {
     return $value;
 }
 
+function resolveLigacaoRateKeyFromRow(array $row): string {
+    $rateValue = trim((string) ($row['fltTaxaValor'] ?? ''));
+    if ($rateValue !== '' && $rateValue !== '.000000' && $rateValue !== '0.000000' && $rateValue !== '0') {
+        return normalizeRateKey($rateValue);
+    }
+
+    // In LigacaoCteTipoDoc, fltTaxaValor/fallback numeric fields often come as 0.
+    // The reliable discriminator is usually PC_Descricao:
+    // TAXA REDUZIDA => 6, TAXA INTERMEDIA => 13, TAXA NORMAL => 23.
+    $descriptionCandidates = [
+        trim((string) ($row['PC_Descricao'] ?? '')),
+        trim((string) ($row['Rub_Descricao'] ?? '')),
+        trim((string) ($row['Rub_Codigo'] ?? '')),
+    ];
+    foreach ($descriptionCandidates as $description) {
+        $normalized = strtolower($description);
+        if ($normalized === '') {
+            continue;
+        }
+        if (strpos($normalized, 'taxa normal') !== false || strpos($normalized, 'normal') !== false) {
+            return '23';
+        }
+        if (strpos($normalized, 'interm') !== false) {
+            return '13';
+        }
+        if (strpos($normalized, 'reduz') !== false) {
+            return '6';
+        }
+    }
+
+    return '';
+}
+
 function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate): array {
     if ($baseUrl === '' || $token === '' || $db === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $docTypeValue = normalizeErpLigacaoDocType($docType);
     $acquirerNif = extractVatLikeValue($acquirerNif);
     $isoDocDate = normalizeErpLigacaoDocDate($docDate);
     if ($docTypeValue === '' || $acquirerNif === '' || $isoDocDate === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/LigacaoCteTipoDoc', [
@@ -3142,13 +3194,14 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'first_row' => $firstRow,
     ]);
     if (empty($rows)) {
-        return ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $generalCounts = [];
     $ivaCounts = [];
     $totalCreditCounts = [];
     $totalEntityCounts = [];
+    $perRate = [];
     $requiredCostCenterAccounts = [];
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -3168,11 +3221,21 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         if ($tipo !== '' && $tipo !== 'D') {
             continue;
         }
+        $rateKey = resolveLigacaoRateKeyFromRow($row);
+        if ($rateKey !== '' && !isset($perRate[$rateKey])) {
+            $perRate[$rateKey] = ['general' => [], 'iva' => []];
+        }
         if ($general !== '') {
             $generalCounts[$general] = ($generalCounts[$general] ?? 0) + 1;
+            if ($rateKey !== '') {
+                $perRate[$rateKey]['general'][$general] = ($perRate[$rateKey]['general'][$general] ?? 0) + 1;
+            }
         }
         if ($iva !== '') {
             $ivaCounts[$iva] = ($ivaCounts[$iva] ?? 0) + 1;
+            if ($rateKey !== '') {
+                $perRate[$rateKey]['iva'][$iva] = ($perRate[$rateKey]['iva'][$iva] ?? 0) + 1;
+            }
         }
         if ($codFichRepart === '?' && $general !== '') {
             $requiredCostCenterAccounts[$general] = true;
@@ -3183,12 +3246,21 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
     arsort($ivaCounts);
     arsort($totalCreditCounts);
     arsort($totalEntityCounts);
+    foreach ($perRate as $rateKey => $entry) {
+        arsort($entry['general']);
+        arsort($entry['iva']);
+        $perRate[$rateKey] = [
+            'general' => array_slice(array_keys($entry['general']), 0, 8),
+            'iva' => array_slice(array_keys($entry['iva']), 0, 8),
+        ];
+    }
     $totalCounts = !empty($totalCreditCounts) ? $totalCreditCounts : $totalEntityCounts;
 
     return [
         'general' => array_slice(array_keys($generalCounts), 0, 8),
         'iva' => array_slice(array_keys($ivaCounts), 0, 8),
         'total' => array_slice(array_keys($totalCounts), 0, 8),
+        'per_rate' => $perRate,
         'required_cost_center_accounts' => array_values(array_keys($requiredCostCenterAccounts)),
         'count' => is_array($rows) ? count($rows) : 0,
     ];
@@ -3379,6 +3451,102 @@ function pickGeneralAccountByIvaAccount(array $planAccounts, string $ivaAccount)
     return '';
 }
 
+function findPlanAccountByCode(array $planAccounts, string $accountCode, string $field = 'account'): ?array {
+    $target = trim($accountCode);
+    if ($target === '' || !$planAccounts) {
+        return null;
+    }
+    foreach ($planAccounts as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $candidate = trim((string) ($row[$field] ?? ''));
+        if ($candidate !== '' && $candidate === $target) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+function resolveTargetRateValue(array $rateInfo): ?float {
+    $label = $rateInfo['label'] ?? '';
+    $rateKey = $rateInfo['key'] ?? '';
+    $normalized = trim(str_replace('%', '', $label ?: $rateKey));
+    if ($normalized === '') {
+        $normalized = trim(str_replace('%', '', $rateKey));
+    }
+    if ($normalized === '') {
+        return null;
+    }
+    $target = (float) str_replace(',', '.', $normalized);
+    if ($target > 0 && $target < 1) {
+        $target = $target * 100;
+    }
+    return $target > 0 ? $target : null;
+}
+
+function accountMatchesRateInfo(array $planAccounts, string $accountCode, array $rateInfo, string $field = 'account'): bool {
+    $targetRate = resolveTargetRateValue($rateInfo);
+    if ($targetRate === null) {
+        return true;
+    }
+    $row = findPlanAccountByCode($planAccounts, $accountCode, $field);
+    if ($row === null) {
+        return false;
+    }
+    $vatRate = trim((string) ($row['tax_rate'] ?? ''));
+    if ($vatRate !== '') {
+        $value = (float) str_replace(',', '.', $vatRate);
+        return abs($value - $targetRate) < 0.001;
+    }
+    $description = strtolower(trim((string) ($row['description'] ?? '')));
+    if ($description !== '') {
+        if ($targetRate === 6.0) {
+            return strpos($description, 'reduz') !== false;
+        }
+        if ($targetRate === 13.0) {
+            return strpos($description, 'interm') !== false;
+        }
+        if ($targetRate === 23.0) {
+            return strpos($description, 'normal') !== false;
+        }
+    }
+    return false;
+}
+
+function pickMatchingAccountForRate(array $candidates, array $planAccounts, array $rateInfo, string $field = 'account'): string {
+    if (!$planAccounts) {
+        foreach ($candidates as $candidate) {
+            $account = trim((string) $candidate);
+            if ($account !== '') {
+                return $account;
+            }
+        }
+        return '';
+    }
+    $firstCandidate = '';
+    $foundInPlan = false;
+    foreach ($candidates as $candidate) {
+        $account = trim((string) $candidate);
+        if ($account === '') {
+            continue;
+        }
+        if ($firstCandidate === '') {
+            $firstCandidate = $account;
+        }
+        if (findPlanAccountByCode($planAccounts, $account, $field) !== null) {
+            $foundInPlan = true;
+        }
+        if (accountMatchesRateInfo($planAccounts, $account, $rateInfo, $field)) {
+            return $account;
+        }
+    }
+    if (!$foundInPlan) {
+        return $firstCandidate;
+    }
+    return '';
+}
+
 function pickFallbackGeneralByRateKey(string $rateKey): string {
     $rateKey = normalizeRateKey($rateKey);
     if ($rateKey === '6') {
@@ -3389,6 +3557,28 @@ function pickFallbackGeneralByRateKey(string $rateKey): string {
     }
     if ($rateKey === '23') {
         return '622111';
+    }
+    return '';
+}
+
+function pickTotalAccountFromPlan(array $planAccounts): string {
+    if (!$planAccounts) {
+        return '';
+    }
+    $preferredPrefixes = ['12', '22', '21'];
+    foreach ($preferredPrefixes as $prefix) {
+        foreach ($planAccounts as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $account = trim((string) ($row['account'] ?? ''));
+            if ($account === '') {
+                continue;
+            }
+            if (strpos($account, $prefix) === 0) {
+                return $account;
+            }
+        }
     }
     return '';
 }
@@ -3502,38 +3692,49 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     $movementHints = ['general' => [], 'iva' => [], 'count' => 0];
     $ligacaoNifUsed = '';
     if ($erpBaseUrl !== '' && $erpToken !== '') {
-        $resolvedByLigacaoNif = '';
+        $primaryLigacaoNif = '';
+        $ligacaoNifCandidates = array_values(array_unique(array_filter([
+            $emitterNif,
+            extractVatLikeValue($emitterRaw),
+            extractVatLikeValue($emitter),
+            $acquirerNif,
+            extractVatLikeValue($acquirerRaw),
+        ], static function ($value): bool {
+            return is_string($value) && trim($value) !== '';
+        })));
+        if (!empty($ligacaoNifCandidates)) {
+            $primaryLigacaoNif = (string) $ligacaoNifCandidates[0];
+        }
+        $resolvedByLigacaoNif = $primaryLigacaoNif !== '' ? (getErpDatabaseForNif($primaryLigacaoNif) ?? '') : '';
         $resolvedByAcquirer = getErpDatabaseForNif($acquirerNif) ?? '';
+        $defaultDb = getErpDefaultDb();
         if ($requestedDb !== '') {
             $planDb = $requestedDb;
         } elseif ($resolvedByLigacaoNif !== '') {
             $planDb = $resolvedByLigacaoNif;
+        } elseif ($defaultDb !== '') {
+            $planDb = $defaultDb;
         } else {
             $planDb = $resolvedByAcquirer;
         }
         if ($planDb !== '') {
-            $ligacaoNifCandidates = array_values(array_unique(array_filter([
-                $emitterNif,
-                extractVatLikeValue($emitterRaw),
-                extractVatLikeValue($emitter),
-                $acquirerNif,
-                extractVatLikeValue($acquirerRaw),
-            ], static function ($value): bool {
-                return is_string($value) && trim($value) !== '';
-            })));
-            if (!empty($ligacaoNifCandidates)) {
-                $resolvedByLigacaoNif = getErpDatabaseForNif((string) $ligacaoNifCandidates[0]) ?? '';
-            }
             $dbCandidates = array_values(array_unique(array_filter([
                 $planDb,
                 $resolvedByLigacaoNif,
                 $resolvedByAcquirer,
+                $defaultDb,
             ], static function ($value): bool {
                 return is_string($value) && trim($value) !== '';
             })));
 
             foreach ($dbCandidates as $dbCandidate) {
-                foreach ($ligacaoNifCandidates as $nifCandidate) {
+                $nifCandidatesForDb = $ligacaoNifCandidates;
+                if ($primaryLigacaoNif !== '') {
+                    $nifCandidatesForDb = array_values(array_unique(array_filter(array_merge([$primaryLigacaoNif], $ligacaoNifCandidates), static function ($value): bool {
+                        return is_string($value) && trim($value) !== '';
+                    })));
+                }
+                foreach ($nifCandidatesForDb as $nifCandidate) {
                     $candidateHints = fetchErpLigacaoAccountHints($erpBaseUrl, $erpToken, $dbCandidate, $docType, $nifCandidate, $docDate);
                     if (!empty($candidateHints['count'])) {
                         $ligacaoHints = $candidateHints;
@@ -3545,7 +3746,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
 
             if ($ligacaoNifUsed === '' && !empty($ligacaoNifCandidates)) {
-                $ligacaoNifUsed = (string) $ligacaoNifCandidates[0];
+                $ligacaoNifUsed = $primaryLigacaoNif !== '' ? $primaryLigacaoNif : (string) $ligacaoNifCandidates[0];
             }
 
             logAiDebug([
@@ -3651,6 +3852,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     if (!empty($ligacaoHints['general']) || !empty($ligacaoHints['iva'])) {
         $ligacaoGeneral = is_array($ligacaoHints['general']) ? $ligacaoHints['general'] : [];
         $ligacaoIva = is_array($ligacaoHints['iva']) ? $ligacaoHints['iva'] : [];
+        $ligacaoPerRate = is_array($ligacaoHints['per_rate'] ?? null) ? $ligacaoHints['per_rate'] : [];
         foreach ($rateItems as $rateInfo) {
             $rateKey = (string) ($rateInfo['key'] ?? '');
             if ($rateKey === '') {
@@ -3659,11 +3861,38 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             if (!isset($finalSuggested[$rateKey])) {
                 $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
             }
-            if (!empty($ligacaoGeneral)) {
-                $finalSuggested[$rateKey]['general_account'] = (string) $ligacaoGeneral[0];
+            $normalizedRateKey = normalizeRateKey($rateKey);
+            $perRateEntry = $ligacaoPerRate[$normalizedRateKey] ?? $ligacaoPerRate[$rateKey] ?? [];
+            $perRateGeneral = is_array($perRateEntry['general'] ?? null) ? $perRateEntry['general'] : [];
+            $perRateIva = is_array($perRateEntry['iva'] ?? null) ? $perRateEntry['iva'] : [];
+            $generalCandidates = !empty($perRateGeneral) ? $perRateGeneral : $ligacaoGeneral;
+            $ivaCandidates = !empty($perRateIva) ? $perRateIva : $ligacaoIva;
+            if (!empty($generalCandidates)) {
+                $matchedGeneral = pickMatchingAccountForRate($generalCandidates, $planAccounts, $rateInfo, 'account');
+                if ($matchedGeneral !== '') {
+                    $finalSuggested[$rateKey]['general_account'] = $matchedGeneral;
+                }
             }
-            if (!empty($ligacaoIva)) {
-                $finalSuggested[$rateKey]['iva_account'] = (string) $ligacaoIva[0];
+            if (!empty($ivaCandidates)) {
+                $matchedIva = pickMatchingAccountForRate($ivaCandidates, $planAccounts, $rateInfo, 'iva_account');
+                if ($matchedIva !== '') {
+                    $finalSuggested[$rateKey]['iva_account'] = $matchedIva;
+                }
+            }
+            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && $planAccounts) {
+                $generalForRate = trim((string) ($finalSuggested[$rateKey]['general_account'] ?? ''));
+                if ($generalForRate !== '') {
+                    $fallbackIva = findIvaAccountForGeneral($planAccounts, $generalForRate);
+                    if ($fallbackIva !== '' && accountMatchesRateInfo($planAccounts, $fallbackIva, $rateInfo, 'iva_account')) {
+                        $finalSuggested[$rateKey]['iva_account'] = $fallbackIva;
+                    }
+                }
+                if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
+                    $fallbackIva = findIvaAccountForRate($planAccounts, $rateInfo);
+                    if ($fallbackIva !== '') {
+                        $finalSuggested[$rateKey]['iva_account'] = $fallbackIva;
+                    }
+                }
             }
         }
     }
@@ -3797,6 +4026,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     }
     if ($ligacaoTotalAccount !== '') {
         $expectedLines['total_account'] = $ligacaoTotalAccount;
+    }
+    if (trim((string) ($expectedLines['total_account'] ?? '')) === '' && $planAccounts) {
+        $planTotalAccount = pickTotalAccountFromPlan($planAccounts);
+        if ($planTotalAccount !== '') {
+            $expectedLines['total_account'] = $planTotalAccount;
+        }
     }
     $costCenterRequiredRates = buildCostCenterRequiredRates(
         $rateItems,

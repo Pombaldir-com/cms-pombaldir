@@ -139,6 +139,7 @@ def sync_documents(args):
         "EFATURA_LOGIN_URL",
         "https://www.acesso.gov.pt/jsp/loginRedirectForm.jsp?path=consultarDocumentosAdquirente.action&partID=EFPF",
     )
+    home_url = env_value("EFATURA_HOME_URL", "https://faturas.portaldasfinancas.gov.pt/home.action")
     portal_url = env_value("EFATURA_PORTAL_URL", "https://faturas.portaldasfinancas.gov.pt/painelAdquirente.action")
     consulta_url = env_value("EFATURA_CONSULTA_URL", "https://faturas.portaldasfinancas.gov.pt/consultarDocumentosAdquirente.action")
     consulta_json_url = env_value("EFATURA_CONSULTA_JSON_URL", "https://faturas.portaldasfinancas.gov.pt/json/obterDocumentosAdquirente.action")
@@ -181,6 +182,7 @@ def sync_documents(args):
 
     return sync_documents_via_browser(
         login_url,
+        home_url,
         portal_url,
         consulta_url,
         consulta_json_url,
@@ -277,7 +279,7 @@ def sync_documents_via_http(login_url, portal_url, consulta_url, consulta_json_u
     return {"state": "done", "documents": documents}
 
 
-def sync_documents_via_browser(login_url, portal_url, consulta_url, consulta_json_url, args, password, selectors, debug, allow_html_fallback):
+def sync_documents_via_browser(login_url, home_url, portal_url, consulta_url, consulta_json_url, args, password, selectors, debug, allow_html_fallback):
     try:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
         from playwright.sync_api import sync_playwright
@@ -304,18 +306,36 @@ def sync_documents_via_browser(login_url, portal_url, consulta_url, consulta_jso
             wait_after_login(page, debug)
 
             maybe_dismiss_prompts(page, debug)
+            submit_browser_relay_if_present(page, debug)
+            ensure_efatura_session(page, home_url, portal_url, debug)
+            record_session_diagnostics(context, page, debug, "pre_consulta")
 
             if consulta_url:
                 step(debug, f"A abrir consulta configurada: {consulta_url}")
                 page.goto(consulta_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(2000)
+                log_page_state(page, debug, "apos_consulta")
+                record_session_diagnostics(context, page, debug, "apos_consulta")
             else:
                 step(debug, "A abrir painel adquirente")
                 page.goto(portal_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(2000)
                 open_efatura_area(page, debug)
+                log_page_state(page, debug, "apos_painel")
+                record_session_diagnostics(context, page, debug, "apos_painel")
 
-            documents = fetch_documents_via_json(page, consulta_json_url, args.period_start, args.period_end, args.company_vat, debug)
+            documents = fetch_documents_via_json(
+                context,
+                page,
+                home_url,
+                portal_url,
+                consulta_url,
+                consulta_json_url,
+                args.period_start,
+                args.period_end,
+                args.company_vat,
+                debug,
+            )
             if not documents and allow_html_fallback:
                 step(debug, "JSON browser sem documentos utilizaveis; a tentar fallback HTML")
                 apply_period_filters(page, args.period_start, args.period_end, selectors, debug, PlaywrightTimeoutError)
@@ -406,6 +426,9 @@ def wait_after_login(page, debug):
         pass
     page.wait_for_timeout(3500)
     step(debug, "Login submetido")
+    log_page_state(page, debug, "apos_login")
+    capture_post_login_diagnostics(page, debug, "apos_login")
+    detect_login_blockers(page, debug, "apos_login")
 
 
 def maybe_dismiss_prompts(page, debug):
@@ -429,6 +452,185 @@ def open_efatura_area(page, debug):
             except Exception:
                 continue
     step(debug, "Nenhum atalho automatico de e-fatura encontrado; segue na pagina atual")
+
+
+def submit_browser_relay_if_present(page, debug):
+    try:
+        relay_info = page.evaluate(
+            """() => {
+                const forms = Array.from(document.querySelectorAll('form'));
+                for (const form of forms) {
+                    const hiddenNames = Array.from(form.querySelectorAll('input[type="hidden"]'))
+                        .map((input) => (input.getAttribute('name') || '').trim())
+                        .filter(Boolean);
+                    const hasRelayFields = ['sign', 'sessionID', 'userID'].every((name) => hiddenNames.includes(name));
+                    if (!hasRelayFields) {
+                        continue;
+                    }
+                    return {
+                        action: form.getAttribute('action') || '',
+                        method: form.getAttribute('method') || 'get',
+                        hidden_names: hiddenNames
+                    };
+                }
+                return null;
+            }"""
+        )
+    except Exception as exc:
+        step(debug, f"Falha a detetar relay browser: {exc}")
+        return
+
+    if not relay_info:
+        return
+
+    debug["browser_relay_form"] = relay_info
+    try:
+        submitted = page.evaluate(
+            """() => {
+                const forms = Array.from(document.querySelectorAll('form'));
+                for (const form of forms) {
+                    const hiddenNames = Array.from(form.querySelectorAll('input[type="hidden"]'))
+                        .map((input) => (input.getAttribute('name') || '').trim())
+                        .filter(Boolean);
+                    const hasRelayFields = ['sign', 'sessionID', 'userID'].every((name) => hiddenNames.includes(name));
+                    if (!hasRelayFields) {
+                        continue;
+                    }
+                    if (typeof form.requestSubmit === 'function') {
+                        form.requestSubmit();
+                    } else {
+                        form.submit();
+                    }
+                    return true;
+                }
+                return false;
+            }"""
+        )
+        if submitted:
+            step(debug, "Formulario relay submetido no browser")
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            page.wait_for_timeout(2000)
+            log_page_state(page, debug, "apos_browser_relay")
+            capture_post_login_diagnostics(page, debug, "apos_browser_relay")
+    except Exception as exc:
+        step(debug, f"Falha a submeter relay browser: {exc}")
+
+
+def ensure_efatura_session(page, home_url, portal_url, debug):
+    targets = [home_url, portal_url]
+    for idx, target in enumerate([item for item in targets if item]):
+        try:
+            step(debug, f"A inicializar sessao E-fatura: {target}")
+            page.goto(target, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
+            maybe_dismiss_prompts(page, debug)
+            log_page_state(page, debug, f"session_init_{idx + 1}")
+            if is_efatura_authenticated_page(page):
+                return
+        except Exception as exc:
+            step(debug, f"Falha ao abrir {target}: {exc}")
+
+
+def is_efatura_authenticated_page(page):
+    current_url = (page.url or "").lower()
+    if "acesso.gov.pt" in current_url:
+        return False
+    if "faturas.portaldasfinancas.gov.pt" in current_url:
+        return True
+    return False
+
+
+def log_page_state(page, debug, key_prefix):
+    debug[f"{key_prefix}_url"] = page.url
+    try:
+        debug[f"{key_prefix}_title"] = page.title()
+    except Exception:
+        pass
+
+
+def record_session_diagnostics(context, page, debug, key_prefix):
+    log_page_state(page, debug, key_prefix)
+    try:
+        cookies = context.cookies()
+    except Exception as exc:
+        debug[f"{key_prefix}_cookies_error"] = str(exc)
+        return
+
+    domains = {}
+    for cookie in cookies:
+        domain = clean_text(cookie.get("domain")).lstrip(".") or "(sem-dominio)"
+        domains.setdefault(domain, []).append({
+            "name": clean_text(cookie.get("name")),
+            "path": clean_text(cookie.get("path")) or "/",
+            "secure": bool(cookie.get("secure")),
+            "http_only": bool(cookie.get("httpOnly")),
+            "same_site": clean_text(cookie.get("sameSite")) or "",
+        })
+
+    for domain in domains.values():
+        domain.sort(key=lambda item: (item["name"], item["path"]))
+
+    debug[f"{key_prefix}_cookie_domains"] = sorted(domains.keys())
+    debug[f"{key_prefix}_cookies_by_domain"] = domains
+
+
+def summarize_session_diagnostics(debug, key_prefix):
+    current_url = clean_text(debug.get(f"{key_prefix}_url"))
+    domains = debug.get(f"{key_prefix}_cookie_domains") or []
+    if not current_url and not domains:
+        return ""
+    return f"url={current_url or '-'} | cookies={','.join(domains) if domains else '-'}"
+
+
+def capture_post_login_diagnostics(page, debug, key_prefix):
+    log_page_state(page, debug, key_prefix)
+    try:
+        hidden_inputs = page.locator('input[type="hidden"]').evaluate_all(
+            """(nodes) => nodes.map((node) => ({
+                name: node.getAttribute('name') || '',
+                id: node.getAttribute('id') || '',
+                value_length: (node.value || '').length
+            }))"""
+        )
+        debug[f"{key_prefix}_hidden_inputs"] = hidden_inputs[:80]
+    except Exception as exc:
+        debug[f"{key_prefix}_hidden_inputs_error"] = str(exc)
+
+    try:
+        forms = page.locator("form").evaluate_all(
+            """(nodes) => nodes.map((node) => ({
+                action: node.getAttribute('action') || '',
+                method: node.getAttribute('method') || '',
+                hidden_count: node.querySelectorAll('input[type="hidden"]').length
+            }))"""
+        )
+        debug[f"{key_prefix}_forms"] = forms[:20]
+    except Exception as exc:
+        debug[f"{key_prefix}_forms_error"] = str(exc)
+
+    try:
+        body_text = extract_page_text_payload(page)
+        debug[f"{key_prefix}_text_sample"] = clean_text(body_text)[:2000]
+    except Exception as exc:
+        debug[f"{key_prefix}_text_sample_error"] = str(exc)
+
+
+def detect_login_blockers(page, debug, key_prefix):
+    current_url = clean_text(page.url).lower()
+    text_sample = clean_text(debug.get(f"{key_prefix}_text_sample"))
+    normalized_text = html.unescape(text_sample).lower()
+
+    if "numero de tentativas de login excedido" in normalized_text and "credencial temporariamente suspensa" in normalized_text:
+        raise RuntimeError("Credencial E-fatura temporariamente suspensa por excesso de tentativas de login.")
+
+    if "credencial temporariamente suspensa" in normalized_text:
+        raise RuntimeError("Credencial E-fatura temporariamente suspensa.")
+
+    if "submissaoformulariologin" in current_url and "autenticar" in normalized_text and "erro" in normalized_text:
+        step(debug, "Login permaneceu na pagina de autenticacao apos submissao")
 
 
 def apply_period_filters(page, period_start, period_end, selectors, debug, playwright_timeout):
@@ -470,7 +672,7 @@ def apply_period_filters(page, period_start, period_end, selectors, debug, playw
         step(debug, "Filtros de periodo nao encontrados; a tentar extrair a vista atual")
 
 
-def fetch_documents_via_json(page, endpoint, period_start, period_end, company_vat, debug):
+def fetch_documents_via_json(context, page, home_url, portal_url, consulta_url, endpoint, period_start, period_end, company_vat, debug):
     query = {
         "dataInicioFilter": period_start,
         "dataFimFilter": period_end,
@@ -478,55 +680,138 @@ def fetch_documents_via_json(page, endpoint, period_start, period_end, company_v
     }
     target = endpoint + ("&" if "?" in endpoint else "?") + urlencode(query)
     step(debug, f"A consultar JSON autenticado: {target}")
+    for attempt in range(2):
+        if attempt > 0:
+            step(debug, "Sessao JSON expirada; a reabrir a area E-fatura antes de repetir")
+            ensure_efatura_session(page, home_url, portal_url, debug)
+            record_session_diagnostics(context, page, debug, f"json_retry_{attempt}_session")
+            if consulta_url:
+                try:
+                    page.goto(consulta_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(2000)
+                    log_page_state(page, debug, f"json_retry_{attempt}_consulta")
+                    record_session_diagnostics(context, page, debug, f"json_retry_{attempt}_consulta")
+                except Exception as exc:
+                    step(debug, f"Falha ao reabrir consulta antes do retry JSON: {exc}")
+
+        json_payload, raw_body = fetch_json_payload_via_browser_page(context, target, page.url, debug)
+        if json_payload is None:
+            json_payload, raw_body = fetch_json_payload_via_request(context, target, page.url, debug)
+        if json_payload is None:
+            return []
+        if isinstance(json_payload, dict):
+            debug["json_fetch_keys"] = list(json_payload.keys())[:20]
+        if not isinstance(json_payload, dict):
+            debug["json_raw_sample"] = raw_body[:1000]
+            return []
+
+        if json_payload.get("expiredSession") is True:
+            debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
+            record_session_diagnostics(context, page, debug, f"json_expired_attempt_{attempt + 1}")
+            session_summary = summarize_session_diagnostics(debug, f"json_expired_attempt_{attempt + 1}")
+            if session_summary:
+                step(debug, f"Diagnostico de sessao #{attempt + 1}: {session_summary}")
+            if attempt == 0:
+                continue
+            raise RuntimeError("Sessao E-fatura expirada logo apos o login.")
+        if json_payload.get("success") is False:
+            debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
+            return []
+
+        rows = extract_rows_from_json_payload(json_payload)
+        step(debug, f"JSON devolveu {len(rows)} linha(s) candidata(s)")
+        if not rows:
+            debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
+            return []
+
+        documents = []
+        for row in rows:
+            document = normalize_json_row(row, company_vat)
+            if document:
+                documents.append(document)
+        if not documents:
+            debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
+        return documents
+
+    return []
+
+
+def fetch_json_payload_via_browser_page(context, target, referer_url, debug):
+    json_page = None
     try:
-        payload = page.evaluate(
-            """async (url) => {
-                const response = await fetch(url, { credentials: 'include' });
-                const text = await response.text();
-                try {
-                    return { ok: response.ok, status: response.status, json: JSON.parse(text), raw: text };
-                } catch (error) {
-                    return { ok: response.ok, status: response.status, raw: text, parse_error: String(error) };
-                }
-            }""",
+        json_page = context.new_page()
+        json_page.set_default_timeout(20000)
+        json_page.set_default_navigation_timeout(30000)
+        response = json_page.goto(target, wait_until="domcontentloaded", timeout=30000, referer=referer_url or None)
+        debug["json_browser_url"] = json_page.url
+        try:
+            debug["json_browser_title"] = json_page.title()
+        except Exception:
+            pass
+        if response is not None:
+            debug["json_fetch_status"] = response.status
+            if not response.ok:
+                step(debug, f"JSON browser devolveu status HTTP {response.status}")
+                return None, ""
+        raw_body = extract_page_text_payload(json_page)
+        return parse_json_payload(raw_body, debug, "json_browser"), raw_body
+    except Exception as exc:
+        step(debug, f"Falha no browser JSON autenticado: {exc}")
+        return None, ""
+    finally:
+        if json_page is not None:
+            try:
+                json_page.close()
+            except Exception:
+                pass
+
+
+def fetch_json_payload_via_request(context, target, referer_url, debug):
+    try:
+        response = context.request.get(
             target,
+            headers={
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Referer": referer_url,
+                "X-Requested-With": "XMLHttpRequest",
+            },
         )
     except Exception as exc:
-        step(debug, f"Falha no fetch JSON: {exc}")
-        return []
+        step(debug, f"Falha no request JSON autenticado: {exc}")
+        return None, ""
 
-    debug["json_fetch_status"] = payload.get("status")
-    if payload.get("json"):
-        debug["json_fetch_keys"] = list(payload["json"].keys())[:20] if isinstance(payload["json"], dict) else []
-    if not payload.get("ok"):
-        step(debug, f"JSON devolveu status HTTP {payload.get('status')}")
-        return []
+    debug["json_request_url"] = target
+    debug["json_request_page_url"] = referer_url
+    debug["json_request_status"] = response.status
+    if not response.ok:
+        step(debug, f"JSON request devolveu status HTTP {response.status}")
+        return None, ""
 
-    json_payload = payload.get("json")
-    if not isinstance(json_payload, dict):
-        debug["json_raw_sample"] = (payload.get("raw") or "")[:1000]
-        return []
+    raw_body = response.text()
+    return parse_json_payload(raw_body, debug, "json_request"), raw_body
 
-    if json_payload.get("expiredSession") is True:
-        raise RuntimeError("Sessao E-fatura expirada logo apos o login.")
-    if json_payload.get("success") is False:
-        debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
-        return []
 
-    rows = extract_rows_from_json_payload(json_payload)
-    step(debug, f"JSON devolveu {len(rows)} linha(s) candidata(s)")
-    if not rows:
-        debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
-        return []
+def parse_json_payload(raw_body, debug, key_prefix):
+    try:
+        return json.loads(raw_body)
+    except Exception as exc:
+        debug[f"{key_prefix}_parse_error"] = str(exc)
+        debug["json_raw_sample"] = (raw_body or "")[:1000]
+        return None
 
-    documents = []
-    for row in rows:
-        document = normalize_json_row(row, company_vat)
-        if document:
-            documents.append(document)
-    if not documents:
-        debug["json_raw_sample"] = json.dumps(json_payload, ensure_ascii=False)[:2000]
-    return documents
+
+def extract_page_text_payload(page):
+    try:
+        body_text = page.locator("body").inner_text(timeout=5000)
+    except Exception:
+        body_text = ""
+    if body_text.strip():
+        return body_text.strip()
+    html_content = page.content()
+    pre_match = re.search(r"<pre[^>]*>(.*?)</pre>", html_content, re.S | re.I)
+    if pre_match:
+        return html.unescape(pre_match.group(1)).strip()
+    return html_content.strip()
 
 
 def extract_hidden_input(html, name):
@@ -641,7 +926,7 @@ def normalize_json_row(row, company_vat):
     if not invoice_date:
         invoice_date = datetime.now().strftime("%Y-%m-%d")
 
-    return {
+    document = {
         "issuer_vat": issuer_vat,
         "issuer_name": issuer_name,
         "customer_vat": company_vat or "",
@@ -659,6 +944,7 @@ def normalize_json_row(row, company_vat):
         "raw_row": row,
         "raw_headers": list(mapped.keys()),
     }
+    return document if is_plausible_efatura_document(document) else None
 
 
 def extract_documents(page, company_vat, debug, row_selectors):
@@ -725,7 +1011,7 @@ def normalize_row(headers, row, company_vat):
         invoice_date = datetime.now().strftime("%Y-%m-%d")
 
     source_basis = "|".join([company_vat or "", issuer_vat or "", invoice_no, invoice_date, gross_total])
-    return {
+    document = {
         "issuer_vat": issuer_vat,
         "issuer_name": issuer_name,
         "customer_vat": company_vat or "",
@@ -743,6 +1029,38 @@ def normalize_row(headers, row, company_vat):
         "raw_row": values,
         "raw_headers": headers,
     }
+    return document if is_plausible_efatura_document(document) else None
+
+
+def is_plausible_efatura_document(document):
+    if not isinstance(document, dict):
+        return False
+
+    invoice_no = clean_text(document.get("invoice_no"))
+    invoice_date = clean_text(document.get("invoice_date"))
+    issuer_name = clean_text(document.get("issuer_name"))
+    issuer_vat = extract_nif(clean_text(document.get("issuer_vat")))
+    invoice_type = clean_text(document.get("invoice_type")).upper()
+    net_total = extract_amount(document.get("net_total"))
+    tax_payable = extract_amount(document.get("tax_payable"))
+    gross_total = extract_amount(document.get("gross_total"))
+
+    allowed_types = {"FT", "FR", "FS", "NC", "ND", "RC", "FA", "VD", "TV", "DC", "DU"}
+    has_valid_date = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", invoice_date))
+    has_number_shape = bool(re.search(r"\d", invoice_no)) and "ROW-" not in invoice_no
+    has_known_type = invoice_type in allowed_types
+    has_nonzero_amount = any(value != "0.00" for value in [net_total, tax_payable, gross_total])
+    has_valid_issuer = issuer_vat != "" or issuer_name not in {"", "Geral", "A AT", "O Seu Espaço"}
+
+    if not has_valid_date:
+        return False
+    if not has_valid_issuer:
+        return False
+    if not (has_number_shape or has_known_type):
+        return False
+    if not (has_nonzero_amount or issuer_vat or has_number_shape):
+        return False
+    return True
 
 
 def pick_field(mapped, values, name_parts, fallback_index=None):

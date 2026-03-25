@@ -68,11 +68,16 @@ O assistente AI guarda memória e contexto entre sessões na tabela `ai_assistan
 - No endpoint ERP `contabilidade/LigacaoCteTipoDoc`, o mapeamento usado pela sugestão IA é:
   - `strConta` -> conta geral
   - `strConta_Iva` -> conta IVA
-  - `strContaEntidade` -> conta de valor total (`total_account`)
+  - linha `strTipo = C` / conta da entidade -> conta de valor total (`total_account`)
+- Neste endpoint, a associação da linha ERP à taxa de IVA do documento deve ser feita prioritariamente por `PC_Descricao`:
+  - `TAXA REDUZIDA` = `6%`
+  - `TAXA INTERMEDIA` / `TAXA INTERMÉDIA` = `13%`
+  - `TAXA NORMAL` = `23%`
+- Os campos numéricos `fltVatRate`, `fltTaxaValor` e semelhantes podem vir a `0`/`.000000`, por isso não devem ser a fonte principal para descobrir a taxa.
 - A chamada para `LigacaoCteTipoDoc` deve ser dinâmica por documento (dados do QR):
   - `datadoc` (data do documento do QR, formato `YYYY-MM-DD`)
   - `strTpDoc` (tipo documental do QR, ex.: `FT`)
-  - O processamento/regra final de seleção das contas é feito do lado do webservice.
+  - A seleção final da linha correta por taxa e o cruzamento com o QR/documento são feitos na aplicação, usando `PC_Descricao` quando o webservice não devolve a taxa explícita de forma fiável.
 - `planocontas` deve ser usado como fallback (última opção), apenas quando histórico/regras/ligação/movimentos não forem suficientes.
 - Se o utilizador indicar correção/remoção (ex.: `esquece`, `errado`, `incorreto`, `ignora`), essa informação não deve ser consolidada como memória válida.
 - Comandos disponíveis no chat:

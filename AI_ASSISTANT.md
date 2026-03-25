@@ -254,8 +254,13 @@ Se não houver histórico suficiente:
 - Mapeamento obrigatório dessa fonte:
   - `strConta` => `general_account`
   - `strConta_Iva` => `iva_account`
-  - `strContaEntidade` => `total_account`
-- O processamento final desta ligação é do lado do webservice; enviar sempre os parâmetros dinâmicos do documento.
+  - linha `strTipo = C` / conta da entidade => `total_account`
+- Regra obrigatória para associar linhas ERP à taxa do documento:
+  - `PC_Descricao = TAXA REDUZIDA` => `6%`
+  - `PC_Descricao = TAXA INTERMEDIA` / `TAXA INTERMÉDIA` => `13%`
+  - `PC_Descricao = TAXA NORMAL` => `23%`
+- `fltVatRate`, `fltTaxaValor` e campos numéricos equivalentes podem vir a `0`/`.000000`; não confiar neles como fonte principal da taxa.
+- O webservice devolve as linhas candidatas, mas a seleção final da linha correta por taxa é feita localmente com base em `PC_Descricao` e nos dados do documento/QR.
 - Se ainda faltar informação, usa:
 - Usa:
   - `erp_movimentos_search(db, strCodExercicio, intCodDiario, intMes, strAbrevTpDoc, limit, offset)`.

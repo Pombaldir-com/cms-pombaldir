@@ -15,6 +15,21 @@ $availableModules = [
     'compras' => 'Compras',
     'efatura' => 'E-fatura',
 ];
+$permissionHelpTexts = [
+    'compras_upload' => 'Permite aceder ao Multi Upload de Compras e SAF-T para enviar documentos para processamento.',
+    'ctb_classificar_docs' => 'Permite abrir a vista de Classificacao de documentos de contabilidade.',
+    'ctb_importar_docs' => 'Permite aceder a Importacao e importar para contabilidade as linhas classificadas.',
+    'ctb_lancamentos_aceder' => 'Permite consultar a pagina de Lancamentos de contabilidade.',
+    'ctb_lancamentos_remover_local' => 'Permite remover lancamentos ou documentos locais na area de Lancamentos.',
+    'ctb_efatura_aceder' => 'Permite aceder ao modulo E-fatura e consultar empresas, documentos e sincronizacoes.',
+    'ctb_efatura_sincronizar' => 'Permite criar sincronizacoes e atualizar documentos a partir do E-fatura.',
+    'ctb_efatura_credenciais' => 'Permite gerir as credenciais das empresas no modulo E-fatura.',
+    'ai_assistant' => 'Permite aceder ao Assistente AI no menu e abrir o chat.',
+    'ai_create_tasks' => 'Permite ao Assistente AI criar tarefas no sistema quando essa acao estiver disponivel.',
+    'ai_open_lancamentos' => 'Permite ao Assistente AI abrir ou encaminhar para a area de lancamentos.',
+    'ai_suggest_vat' => 'Permite usar sugestoes automaticas do Assistente AI para contas de IVA.',
+    'ai_approve_docs' => 'Permite ao Assistente AI apoiar fluxos de aprovacao ou rejeicao de documentos.',
+];
 
 $generalSaved = false;
 $generalErrors = [];
@@ -35,6 +50,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $debugMode = isset($_POST['debug_mode']) ? '1' : '0';
         setSetting('debug_mode', $debugMode);
+
+        $internalChatEnabled = isset($_POST['internal_chat_enabled']) ? '1' : '0';
+        setSetting('internal_chat_enabled', $internalChatEnabled);
 
         $apiEnabled = isset($_POST['api_enabled']) ? '1' : '0';
         setSetting('api_enabled', $apiEnabled);
@@ -279,6 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $currentAppName = getSetting('app_name', '');
 $currentAppLogo = getSetting('app_logo', '');
 $currentDebugMode = (int)getSetting('debug_mode', '0');
+$currentInternalChatEnabled = (int)getSetting('internal_chat_enabled', '0');
 $currentQrDpi = (int)getSetting('qr_dpi', '150');
 $currentQrRetryDpi = (int)getSetting('qr_retry_dpi', (string) max(300, $currentQrDpi * 2));
 $currentQrAutoMaxPages = (int)getSetting('qr_auto_max_pages', '1');
@@ -322,6 +341,14 @@ if ($currentEfaturaArtifactRetentionDays <= 0) {
 }
 $currentDepartmentPermissions = getDepartmentPermissions();
 $permissionOptions = getDepartmentPermissionOptions();
+$permissionHelpItems = [];
+foreach ($permissionOptions as $permissionKey => $permissionLabel) {
+    $permissionHelpItems[] = [
+        'key' => $permissionKey,
+        'label' => $permissionLabel,
+        'description' => $permissionHelpTexts[$permissionKey] ?? 'Permissao personalizada ou legada. Validar no fluxo correspondente antes de atribuir.',
+    ];
+}
 $departmentsList = getDepartmentTerms();
 $useSelect2 = true;
 require_once __DIR__ . '/header.php';
@@ -400,6 +427,11 @@ require_once __DIR__ . '/header.php';
                                     <input class="form-check-input" type="checkbox" id="debug_mode" name="debug_mode" value="1" <?= $currentDebugMode ? 'checked' : ''; ?>>
                                     <label class="form-check-label" for="debug_mode">Modo debug</label>
                                     <div class="text-muted small">Ativa diagnósticos extra para suporte.</div>
+                                </div>
+                                <div class="form-check form-switch setting-switch mt-3">
+                                    <input class="form-check-input" type="checkbox" id="internal_chat_enabled" name="internal_chat_enabled" value="1" <?= $currentInternalChatEnabled ? 'checked' : ''; ?>>
+                                    <label class="form-check-label" for="internal_chat_enabled">Chat interno</label>
+                                    <div class="text-muted small">Ativa o chat entre colaboradores com canal publico e grupos.</div>
                                 </div>
                             </div>
                         </div>
@@ -868,7 +900,12 @@ require_once __DIR__ . '/header.php';
                     <div class="col-12">
                         <div class="x_panel">
                             <div class="x_title">
-                                <h2><i class="fa fa-lock"></i> Permissoes por departamento</h2>
+                                <h2>
+                                    <i class="fa fa-lock"></i> Permissoes por departamento
+                                    <a href="#" class="settings-help-link" data-bs-toggle="modal" data-bs-target="#permissionsHelpModal" title="Ajuda sobre permissoes" aria-label="Ajuda sobre permissoes">
+                                        <i class="fa fa-question-circle"></i>
+                                    </a>
+                                </h2>
                                 <div class="clearfix"></div>
                             </div>
                             <div class="x_content">
@@ -912,6 +949,42 @@ require_once __DIR__ . '/header.php';
                     </div>
                 </div>
             </form>
+        </div>
+        <div class="modal fade" id="permissionsHelpModal" tabindex="-1" aria-labelledby="permissionsHelpModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h4 class="modal-title" id="permissionsHelpModalLabel"><i class="fa fa-question-circle"></i> Ajuda das permissoes</h4>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted">Cada permissao controla o acesso a uma area ou acao especifica. Atribua apenas o minimo necessario a cada departamento.</p>
+                        <div class="table-responsive">
+                            <table class="table table-striped table-help-permissions">
+                                <thead>
+                                    <tr>
+                                        <th>Permissao</th>
+                                        <th>Codigo</th>
+                                        <th>O que permite</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($permissionHelpItems as $permissionHelpItem): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars((string) $permissionHelpItem['label']); ?></td>
+                                        <td><code><?= htmlspecialchars((string) $permissionHelpItem['key']); ?></code></td>
+                                        <td><?= htmlspecialchars((string) $permissionHelpItem['description']); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <?php endif; ?>
     </div>
@@ -1002,6 +1075,23 @@ document.addEventListener('DOMContentLoaded', function () {
 .permissions-table th:last-child,
 .permissions-table td:last-child {
     width: 65%;
+}
+.settings-help-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.45rem;
+    color: #5e738b;
+}
+.settings-help-link:hover,
+.settings-help-link:focus {
+    color: #1f8f7a;
+    text-decoration: none;
+}
+.table-help-permissions code {
+    font-size: 12px;
+    color: #2a3f54;
+    background: #eef3f7;
 }
 @media (max-width: 575.98px) {
     .module-settings-row .input-compact {

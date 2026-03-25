@@ -691,3 +691,212 @@ $(document).ready(function() {
         }
     });
 });
+
+(function () {
+    var config = window.internalChatGlobalConfig || null;
+    if (!config || !config.enabled || !config.userId) {
+        return;
+    }
+
+    var heartbeatIntervalMs = 30000;
+    var summaryIntervalMs = 20000;
+    var awayThresholdMs = 5 * 60 * 1000;
+    var lastActivityAt = Date.now();
+    var serviceWorkerRegistration = null;
+    var summaryInitialized = false;
+    var storageKey = 'internal_chat_last_message_id:' + String(config.userId);
+
+    function updateLastActivity() {
+        lastActivityAt = Date.now();
+    }
+
+    function getPresenceState() {
+        if (document.hidden) {
+            return 'away';
+        }
+        if ((Date.now() - lastActivityAt) > awayThresholdMs) {
+            return 'away';
+        }
+        return 'online';
+    }
+
+    function getLastMessageId() {
+        try {
+            return Number(window.localStorage.getItem(storageKey) || 0);
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    function setLastMessageId(messageId) {
+        try {
+            window.localStorage.setItem(storageKey, String(Number(messageId || 0)));
+        } catch (error) {
+            // Ignore storage errors.
+        }
+    }
+
+    function shouldSuppressNotification() {
+        return window.location.pathname.indexOf('/chat-interno') !== -1
+            && document.visibilityState === 'visible';
+    }
+
+    function registerServiceWorker() {
+        if (!('serviceWorker' in navigator) || !config.serviceWorkerUrl) {
+            return Promise.resolve(null);
+        }
+
+        return navigator.serviceWorker.register(config.serviceWorkerUrl)
+            .then(function (registration) {
+                serviceWorkerRegistration = registration;
+                return registration;
+            })
+            .catch(function () {
+                return null;
+            });
+    }
+
+    function requestNotificationPermission() {
+        if (!('Notification' in window)) {
+            return Promise.resolve('unsupported');
+        }
+        if (Notification.permission === 'granted') {
+            return Promise.resolve('granted');
+        }
+        if (Notification.permission === 'denied') {
+            return Promise.resolve('denied');
+        }
+        return Notification.requestPermission();
+    }
+
+    function showMessageNotification(message) {
+        if (!message || !('Notification' in window) || Notification.permission !== 'granted') {
+            return;
+        }
+        if (shouldSuppressNotification()) {
+            return;
+        }
+
+        var title = (message.display_name || 'Nova mensagem') + ' em ' + (message.channel_name || 'Chat Interno');
+        var body = String(message.message || '');
+        if (body.length > 160) {
+            body = body.substring(0, 157) + '...';
+        }
+
+        var options = {
+            body: body,
+            tag: 'internal-chat-message-' + String(message.channel_id || '0'),
+            renotify: true,
+            data: {
+                url: String(config.chatUrl || '/chat-interno') + '?channel=' + String(message.channel_id || '')
+            }
+        };
+
+        if (serviceWorkerRegistration && serviceWorkerRegistration.active) {
+            serviceWorkerRegistration.active.postMessage({
+                type: 'SHOW_NOTIFICATION',
+                title: title,
+                options: options
+            });
+            return;
+        }
+
+        if (serviceWorkerRegistration && typeof serviceWorkerRegistration.showNotification === 'function') {
+            serviceWorkerRegistration.showNotification(title, options);
+            return;
+        }
+
+        new Notification(title, options);
+    }
+
+    function sendHeartbeat(forceActivityTouch) {
+        var body = new URLSearchParams();
+        body.set('action', 'heartbeat');
+        body.set('csrf_token', String(config.csrfToken || ''));
+        body.set('state', getPresenceState());
+        body.set('page', window.location.pathname || '/');
+        body.set('touch_activity', forceActivityTouch ? '1' : '0');
+
+        fetch(config.heartbeatUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            },
+            body: body.toString()
+        }).catch(function () {
+            // Ignore heartbeat errors.
+        });
+    }
+
+    function pollSummary() {
+        var lastMessageId = getLastMessageId();
+        var url = config.summaryUrl + '&after_message_id=' + encodeURIComponent(String(lastMessageId));
+
+        fetch(url, {
+            credentials: 'same-origin'
+        })
+            .then(function (response) {
+                return response.ok ? response.json() : null;
+            })
+            .then(function (payload) {
+                var latestMessage;
+                if (!payload || !payload.ok) {
+                    return;
+                }
+
+                latestMessage = payload.latest_message || null;
+                if (!latestMessage || !latestMessage.id) {
+                    summaryInitialized = true;
+                    return;
+                }
+
+                if (!summaryInitialized) {
+                    setLastMessageId(latestMessage.id);
+                    summaryInitialized = true;
+                    return;
+                }
+
+                if (Number(latestMessage.id) > lastMessageId) {
+                    setLastMessageId(latestMessage.id);
+                    if (Number(latestMessage.user_id || 0) !== Number(config.userId || 0)) {
+                        showMessageNotification(latestMessage);
+                    }
+                }
+            })
+            .catch(function () {
+                // Ignore summary errors.
+            });
+    }
+
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (eventName) {
+        window.addEventListener(eventName, updateLastActivity, { passive: true });
+    });
+
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) {
+            updateLastActivity();
+        }
+        sendHeartbeat(!document.hidden);
+    });
+
+    window.internalChatAlerts = {
+        requestPermission: function () {
+            return requestNotificationPermission();
+        },
+        getPermission: function () {
+            return ('Notification' in window) ? Notification.permission : 'unsupported';
+        }
+    };
+
+    function startInternalChatLoops() {
+        sendHeartbeat(true);
+        pollSummary();
+        window.setInterval(function () {
+            sendHeartbeat(false);
+        }, heartbeatIntervalMs);
+        window.setInterval(pollSummary, summaryIntervalMs);
+    }
+
+    registerServiceWorker().then(startInternalChatLoops, startInternalChatLoops);
+})();

@@ -73,6 +73,12 @@ switch (true) {
     case $path === 'assistant':
         require __DIR__ . '/assistant.php';
         break;
+    case $path === 'chat-interno':
+        require __DIR__ . '/internal-chat.php';
+        break;
+    case $path === 'chat-interno-handler':
+        require __DIR__ . '/internal-chat-handler.php';
+        break;
     case $path === 'content-types':
         $_GET['manage_types'] = 1;
         require __DIR__ . '/content.php';

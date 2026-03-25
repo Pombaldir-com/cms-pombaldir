@@ -55,6 +55,374 @@ function extractVatNumber(string $value): string {
     return substr($digits, 0, 30);
 }
 
+function normalizeAccountingMatchVat(string $value): string {
+    $vat = extractVatNumber($value);
+    if ($vat !== '') {
+        return $vat;
+    }
+    return preg_replace('/\D+/', '', strtoupper(trim($value)));
+}
+
+function normalizeAccountingMatchToken(string $value): string {
+    $value = strtoupper(trim($value));
+    if ($value === '') {
+        return '';
+    }
+    return preg_replace('/\s+/', '', $value);
+}
+
+function normalizeAccountingDocumentNumber(string $value): string {
+    $value = normalizeAccountingMatchToken($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = preg_replace('/^([A-Z]{1,4})\1(?=[A-Z0-9\/-])/', '$1', $value);
+    $value = preg_replace('/^([A-Z]{1,4})([A-Z]{1,4})\//', '$2/', $value);
+    return $value;
+}
+
+function normalizeAccountingMatchDate(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    $patterns = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d'];
+    foreach ($patterns as $pattern) {
+        $date = DateTime::createFromFormat($pattern, $value);
+        if ($date instanceof DateTime) {
+            return $date->format('Y-m-d');
+        }
+    }
+    $timestamp = strtotime($value);
+    if ($timestamp !== false) {
+        return date('Y-m-d', $timestamp);
+    }
+    return '';
+}
+
+function normalizeAccountingMatchAmount($value): ?float {
+    $amount = resolveAccountingLineAmount($value);
+    if ($amount === null) {
+        return null;
+    }
+    return round(abs($amount), 2);
+}
+
+function accountingAmountsMatch(?float $left, ?float $right, float $tolerance = 0.02): bool {
+    if ($left === null || $right === null) {
+        return false;
+    }
+    return abs($left - $right) <= $tolerance;
+}
+
+function accountingImportsEfaturaLinkReady(): bool {
+    return hasTable('accounting_imports')
+        && hasTable('efatura_documents')
+        && hasColumn('accounting_imports', 'efatura_document_id');
+}
+
+function buildAccountingMatchSqlExpression(string $column, bool $stripNumericPunctuation = false): string {
+    $expression = 'REPLACE(UPPER(TRIM(' . $column . ')), \' \', \'\')';
+    if ($stripNumericPunctuation) {
+        $expression = 'REPLACE(REPLACE(' . $expression . ', \'-\', \'\'), \'.\', \'\')';
+    }
+    return $expression;
+}
+
+function extractAccountingImportAcquirerVat(array $row): string {
+    $candidates = [
+        (string) ($row['field_C'] ?? ''),
+        (string) ($row['field_B'] ?? ''),
+        (string) ($row['B'] ?? ''),
+        (string) ($row['C'] ?? ''),
+    ];
+    foreach ($candidates as $candidate) {
+        $vat = extractVatNumber($candidate);
+        if ($vat !== '') {
+            return $vat;
+        }
+    }
+    return '';
+}
+
+function findMatchingEfaturaDocumentForImportRow(PDO $pdo, array $importRow): ?array {
+    if (!accountingImportsEfaturaLinkReady()) {
+        return null;
+    }
+
+    $issuerVat = normalizeAccountingMatchVat((string) ($importRow['field_A'] ?? $importRow['A'] ?? ''));
+    $acquirerVat = extractAccountingImportAcquirerVat($importRow);
+    $invoiceDate = normalizeAccountingMatchDate((string) ($importRow['field_F'] ?? $importRow['F'] ?? ''));
+    $invoiceNo = normalizeAccountingDocumentNumber((string) ($importRow['field_G'] ?? $importRow['G'] ?? ''));
+    $atcud = normalizeAccountingMatchToken((string) ($importRow['field_H'] ?? $importRow['H'] ?? ''));
+    $sourceHash = normalizeAccountingMatchToken((string) ($importRow['field_R'] ?? $importRow['R'] ?? ''));
+
+    if ($sourceHash !== '') {
+        $stmt = $pdo->prepare(
+            'SELECT id, "source_hash" AS match_method
+             FROM efatura_documents
+             WHERE ' . buildAccountingMatchSqlExpression('source_hash') . ' = ?
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$sourceHash]);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+    }
+
+    if ($issuerVat !== '' && $atcud !== '') {
+        $sql = 'SELECT id, "atcud" AS match_method
+                FROM efatura_documents
+                WHERE ' . buildAccountingMatchSqlExpression('issuer_vat', true) . ' = ?
+                  AND ' . buildAccountingMatchSqlExpression('atcud') . ' = ?';
+        $params = [$issuerVat, $atcud];
+        if ($invoiceDate !== '') {
+            $sql .= ' AND invoice_date = ?';
+            $params[] = $invoiceDate;
+        }
+        if ($acquirerVat !== '') {
+            $sql .= ' AND ' . buildAccountingMatchSqlExpression('customer_vat', true) . ' = ?';
+            $params[] = $acquirerVat;
+        }
+        $sql .= ' ORDER BY id DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+    }
+
+    if ($issuerVat !== '' && $invoiceNo !== '' && $invoiceDate !== '') {
+        $sql = 'SELECT id, "document" AS match_method
+                FROM efatura_documents
+                WHERE ' . buildAccountingMatchSqlExpression('issuer_vat', true) . ' = ?
+                  AND ' . buildAccountingMatchSqlExpression('invoice_no') . ' = ?
+                  AND invoice_date = ?';
+        $params = [$issuerVat, $invoiceNo, $invoiceDate];
+        if ($acquirerVat !== '') {
+            $sql .= ' AND ' . buildAccountingMatchSqlExpression('customer_vat', true) . ' = ?';
+            $params[] = $acquirerVat;
+        }
+        $sql .= ' ORDER BY id DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+    }
+
+    return null;
+}
+
+function findMatchingAccountingImportForEfaturaDocument(PDO $pdo, array $documentRow): ?array {
+    if (!accountingImportsEfaturaLinkReady()) {
+        return null;
+    }
+
+    $documentId = (int) ($documentRow['id'] ?? 0);
+    if ($documentId <= 0) {
+        return null;
+    }
+
+    $sourceHash = normalizeAccountingMatchToken((string) ($documentRow['source_hash'] ?? ''));
+    $issuerVat = normalizeAccountingMatchVat((string) ($documentRow['issuer_vat'] ?? ''));
+    $customerVat = normalizeAccountingMatchVat((string) ($documentRow['customer_vat'] ?? ''));
+    $invoiceDate = normalizeAccountingMatchDate((string) ($documentRow['invoice_date'] ?? ''));
+    $invoiceNo = normalizeAccountingDocumentNumber((string) ($documentRow['invoice_no'] ?? ''));
+    $atcud = normalizeAccountingMatchToken((string) ($documentRow['atcud'] ?? ''));
+    $grossTotal = normalizeAccountingMatchAmount($documentRow['gross_total'] ?? null);
+    $taxPayable = normalizeAccountingMatchAmount($documentRow['tax_payable'] ?? null);
+
+    $linkedStmt = $pdo->prepare('SELECT id, "linked" AS match_method FROM accounting_imports WHERE efatura_document_id = ? LIMIT 1');
+    $linkedStmt->execute([$documentId]);
+    $linked = $linkedStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($linked) {
+        return $linked;
+    }
+
+    if ($sourceHash !== '') {
+        $stmt = $pdo->prepare(
+            'SELECT id, "source_hash" AS match_method
+             FROM accounting_imports
+             WHERE import_type = 1
+               AND (efatura_document_id IS NULL OR efatura_document_id = ?)
+               AND ' . buildAccountingMatchSqlExpression('field_R') . ' = ?
+             ORDER BY id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$documentId, $sourceHash]);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+    }
+
+    if ($issuerVat !== '' && $atcud !== '') {
+        $sql = 'SELECT id, "atcud" AS match_method
+                FROM accounting_imports
+                WHERE import_type = 1
+                  AND (efatura_document_id IS NULL OR efatura_document_id = ?)
+                  AND ' . buildAccountingMatchSqlExpression('field_A', true) . ' = ?
+                  AND ' . buildAccountingMatchSqlExpression('field_H') . ' = ?';
+        $params = [$documentId, $issuerVat, $atcud];
+        if ($invoiceDate !== '') {
+            $sql .= ' AND field_F = ?';
+            $params[] = $invoiceDate;
+        }
+        if ($customerVat !== '') {
+            $sql .= ' AND ((' . buildAccountingMatchSqlExpression('field_B', true) . ' = \'\' AND ' . buildAccountingMatchSqlExpression('field_C', true) . ' = \'\')'
+                . ' OR ' . buildAccountingMatchSqlExpression('field_B', true) . ' = ?'
+                . ' OR ' . buildAccountingMatchSqlExpression('field_C', true) . ' = ?)';
+            $params[] = $customerVat;
+            $params[] = $customerVat;
+        }
+        $sql .= ' ORDER BY id DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+    }
+
+    if ($issuerVat !== '' && $invoiceNo !== '' && $invoiceDate !== '') {
+        $sql = 'SELECT id, "document" AS match_method
+                FROM accounting_imports
+                WHERE import_type = 1
+                  AND (efatura_document_id IS NULL OR efatura_document_id = ?)
+                  AND ' . buildAccountingMatchSqlExpression('field_A', true) . ' = ?
+                  AND ' . buildAccountingMatchSqlExpression('field_G') . ' = ?
+                  AND field_F = ?';
+        $params = [$documentId, $issuerVat, $invoiceNo, $invoiceDate];
+        if ($customerVat !== '') {
+            $sql .= ' AND ((' . buildAccountingMatchSqlExpression('field_B', true) . ' = \'\' AND ' . buildAccountingMatchSqlExpression('field_C', true) . ' = \'\')'
+                . ' OR ' . buildAccountingMatchSqlExpression('field_B', true) . ' = ?'
+                . ' OR ' . buildAccountingMatchSqlExpression('field_C', true) . ' = ?)';
+            $params[] = $customerVat;
+            $params[] = $customerVat;
+        }
+        $sql .= ' ORDER BY id DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($match) {
+            return $match;
+        }
+
+        $fallbackStmt = $pdo->prepare(
+            'SELECT id, field_G
+             FROM accounting_imports
+             WHERE import_type = 1
+               AND (efatura_document_id IS NULL OR efatura_document_id = ?)
+               AND ' . buildAccountingMatchSqlExpression('field_A', true) . ' = ?
+               AND field_F = ?
+             ORDER BY id DESC'
+        );
+        $fallbackStmt->execute([$documentId, $issuerVat, $invoiceDate]);
+        foreach ($fallbackStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $candidate) {
+            if (normalizeAccountingDocumentNumber((string) ($candidate['field_G'] ?? '')) === $invoiceNo) {
+                return [
+                    'id' => (int) ($candidate['id'] ?? 0),
+                    'match_method' => 'document_normalized',
+                ];
+            }
+        }
+    }
+
+    if ($issuerVat !== '' && $invoiceDate !== '' && $grossTotal !== null) {
+        $amountStmt = $pdo->prepare(
+            'SELECT id, field_G, field_N, field_O
+             FROM accounting_imports
+             WHERE import_type = 1
+               AND (efatura_document_id IS NULL OR efatura_document_id = ?)
+               AND ' . buildAccountingMatchSqlExpression('field_A', true) . ' = ?
+               AND field_F = ?
+             ORDER BY id DESC'
+        );
+        $amountStmt->execute([$documentId, $issuerVat, $invoiceDate]);
+        foreach ($amountStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $candidate) {
+            $candidateGross = normalizeAccountingMatchAmount(computeDocumentTotalAmount($candidate));
+            $candidateTax = normalizeAccountingMatchAmount($candidate['field_N'] ?? null);
+            if (!accountingAmountsMatch($grossTotal, $candidateGross)) {
+                continue;
+            }
+            if ($taxPayable !== null && $candidateTax !== null && !accountingAmountsMatch($taxPayable, $candidateTax)) {
+                continue;
+            }
+            return [
+                'id' => (int) ($candidate['id'] ?? 0),
+                'match_method' => 'document_amount',
+            ];
+        }
+    }
+
+    return null;
+}
+
+function linkAccountingImportToEfaturaDocument(PDO $pdo, int $importId, int $documentId, string $matchMethod = ''): void {
+    if (!accountingImportsEfaturaLinkReady() || $importId <= 0 || $documentId <= 0) {
+        return;
+    }
+
+    $fields = ['efatura_document_id = ?'];
+    $params = [$documentId];
+    if (hasColumn('accounting_imports', 'efatura_match_method')) {
+        $fields[] = 'efatura_match_method = ?';
+        $params[] = trim($matchMethod);
+    }
+    if (hasColumn('accounting_imports', 'efatura_matched_at')) {
+        $fields[] = 'efatura_matched_at = NOW()';
+    }
+    $params[] = $importId;
+
+    $sql = 'UPDATE accounting_imports SET ' . implode(', ', $fields) . ' WHERE id = ?';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+}
+
+function reconcileAccountingImportWithEfaturaDocument(PDO $pdo, int $importId, ?array $importRow = null): ?array {
+    if (!accountingImportsEfaturaLinkReady() || $importId <= 0) {
+        return null;
+    }
+    if ($importRow === null) {
+        $stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmt->execute([$importId]);
+        $importRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if (!is_array($importRow)) {
+        return null;
+    }
+    $match = findMatchingEfaturaDocumentForImportRow($pdo, $importRow);
+    if ($match && !empty($match['id'])) {
+        linkAccountingImportToEfaturaDocument($pdo, $importId, (int) $match['id'], (string) ($match['match_method'] ?? ''));
+    }
+    return $match;
+}
+
+function reconcileEfaturaDocumentWithAccountingImport(PDO $pdo, int $documentId, ?array $documentRow = null): ?array {
+    if (!accountingImportsEfaturaLinkReady() || $documentId <= 0) {
+        return null;
+    }
+    if ($documentRow === null) {
+        $stmt = $pdo->prepare('SELECT * FROM efatura_documents WHERE id = ? LIMIT 1');
+        $stmt->execute([$documentId]);
+        $documentRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if (!is_array($documentRow)) {
+        return null;
+    }
+    $match = findMatchingAccountingImportForEfaturaDocument($pdo, $documentRow);
+    if ($match && !empty($match['id'])) {
+        linkAccountingImportToEfaturaDocument($pdo, (int) $match['id'], $documentId, (string) ($match['match_method'] ?? ''));
+    }
+    return $match;
+}
+
 /**
  * Resolve ERP company identifier configured in settings.
  *
@@ -827,6 +1195,23 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     return $row !== false ? $row : null;
 }
 
+function resolveAccountingEntityDatabase(array $entity): string {
+    $entityType = trim((string) ($entity['entity_type'] ?? ''));
+    $erpDatabase = trim((string) ($entity['erp_database'] ?? ''));
+    $erpClientCode = trim((string) ($entity['erp_client_code'] ?? ''));
+
+    if ($entityType === 'acquirer' && $erpClientCode !== '') {
+        return $erpClientCode;
+    }
+    if ($erpDatabase !== '') {
+        return $erpDatabase;
+    }
+    if ($erpClientCode !== '') {
+        return $erpClientCode;
+    }
+    return '';
+}
+
 /**
  * Persist accounting entity information locally.
  *
@@ -871,6 +1256,25 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
         'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code) VALUES (?, ?, ?, ?, ?)'
     );
     $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode]);
+}
+
+function findAccountingEntityNameFromEfatura(PDO $pdo, string $nif): string {
+    $normalizedNif = preg_replace('/\D+/', '', trim($nif)) ?? '';
+    if ($normalizedNif === '' || !hasTable('efatura_documents')) {
+        return '';
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT issuer_name
+         FROM efatura_documents
+         WHERE REPLACE(REPLACE(REPLACE(TRIM(issuer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') = ?
+           AND TRIM(COALESCE(issuer_name, \'\')) <> \'\'
+         ORDER BY invoice_date DESC, id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$normalizedNif]);
+    $name = $stmt->fetchColumn();
+    return is_string($name) ? trim($name) : '';
 }
 
 /**
@@ -980,6 +1384,9 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
     }
 
     $name = trim((string) ($remote['name'] ?? ''));
+    if ($name === '') {
+        $name = findAccountingEntityNameFromEfatura($pdo, $nif);
+    }
     if ($name === '') {
         $name = deriveEntityNameFromField($entityFieldValue, $nif);
     }

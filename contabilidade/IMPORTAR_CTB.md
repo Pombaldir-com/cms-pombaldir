@@ -72,7 +72,15 @@ No caso de `contabilidade/LigacaoCteTipoDoc`, o mapeamento usado é:
 
 - `strConta` -> conta geral;
 - `strConta_Iva` -> conta IVA;
-- `strContaEntidade` -> conta de valor total.
+- linha `strTipo = C` / conta da entidade -> conta de valor total.
+
+Para escolher a linha correta por taxa de IVA, a regra principal deve ser:
+
+- `PC_Descricao = TAXA REDUZIDA` -> `6%`;
+- `PC_Descricao = TAXA INTERMEDIA` / `TAXA INTERMÉDIA` -> `13%`;
+- `PC_Descricao = TAXA NORMAL` -> `23%`.
+
+Os campos `fltVatRate`, `fltTaxaValor` e equivalentes podem vir preenchidos a `0`/`.000000`, por isso nao devem ser usados como fonte principal para descobrir a taxa.
 
 Parâmetros recomendados para esta chamada (dinâmicos por documento):
 
@@ -86,7 +94,7 @@ Exemplo:
 
 `GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=513364790&db=emp_306&strTpDoc=FT`
 
-O processamento final da regra de contas é feito no webservice.
+O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 

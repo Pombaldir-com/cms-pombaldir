@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/functions.php';
 
 startSession();
 requireLogin();
@@ -46,6 +47,7 @@ if ($action === 'documents_data') {
 $tablesReady = efaturaTablesReady();
 $canManageCredentials = userHasDepartmentPermission('ctb_efatura_credenciais');
 $canSync = userHasDepartmentPermission('ctb_efatura_sincronizar');
+$canRunMigrations = ((int) ($user['role'] ?? 3) === 1);
 $flash = ['type' => '', 'message' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -57,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $postAction = trim((string) ($_POST['action'] ?? ''));
     if (!$tablesReady) {
-        $flash = ['type' => 'error', 'message' => 'As tabelas do modulo E-fatura ainda nao existem. Executa as migracoes primeiro.'];
+        $flash = ['type' => 'error', 'message' => 'As tabelas do modulo E-fatura ainda nao existem nesta base de dados.'];
     } elseif ($postAction === 'save_credentials') {
         if (!$canManageCredentials) {
             http_response_code(403);
@@ -78,8 +80,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit('Sem permissoes para sincronizar.');
         }
         try {
+            $selectedEntity = (int) ($_POST['entity_id'] ?? 0);
+            $_SESSION[$efaturaSelectionSessionKey] = $selectedEntity;
             $jobId = createEfaturaSyncJob($pdo, $user);
-            header('Location: ' . BASE_URL . 'contabilidade/efatura/sincronizacoes?status=success&msg=' . rawurlencode('Sincronizacao criada. Job #' . $jobId . '.'));
+            header('Location: ' . BASE_URL . 'contabilidade/efatura/sincronizacoes?empresa=' . $selectedEntity . '&status=success&msg=' . rawurlencode('Sincronizacao criada. Job #' . $jobId . '.'));
             exit;
         } catch (Throwable $e) {
             $flash = ['type' => 'error', 'message' => $e->getMessage()];
@@ -175,7 +179,24 @@ require_once __DIR__ . '/../header.php';
             <div class="x_panel">
                 <div class="x_content">
                     <div class="alert alert-warning" role="alert" style="margin-bottom:0;">
-                        As tabelas do modulo E-fatura ainda nao existem nesta base de dados. Executa <code>php scripts/migrate.php</code> para ativar o modulo.
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <strong>Modulo E-fatura por ativar</strong><br>
+                                <span>As tabelas do modulo E-fatura ainda nao existem nesta base de dados.</span>
+                                <?php if (!$canRunMigrations): ?>
+                                    <br>
+                                    <span>Um superadmin deve executar as migracoes pela interface para ativar o modulo.</span>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($canRunMigrations): ?>
+                                <form method="post" action="<?= BASE_URL ?>system/run-migrations" style="margin:0;">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                    <button type="submit" class="btn btn-warning btn-sm">
+                                        <i class="fa fa-refresh"></i> Executar migracoes
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -440,6 +461,9 @@ require_once __DIR__ . '/../header.php';
                                 <th>Líquido</th>
                                 <th>IVA</th>
                                 <th>Total</th>
+                                <th>Upload</th>
+                                <th>Classificação</th>
+                                <th>Contabilidade</th>
                             </tr>
                             </thead>
                             <tbody></tbody>
@@ -462,7 +486,7 @@ require_once __DIR__ . '/../header.php';
                             <tbody>
                             <?php foreach ($jobs as $job): ?>
                                 <tr data-job-id="<?= (int) $job['id']; ?>">
-                                    <td>#<?= (int) $job['id']; ?></td>
+                                    <td data-order="<?= (int) $job['id']; ?>">#<?= (int) $job['id']; ?></td>
                                     <td><?= htmlspecialchars((string) $job['period_start']); ?> a <?= htmlspecialchars((string) $job['period_end']); ?></td>
                                     <td><span class="badge efatura-job-status badge-<?= htmlspecialchars(efaturaStatusBadge((string) $job['status'])); ?>"><?= htmlspecialchars((string) $job['status']); ?></span></td>
                                     <td><?= (int) $job['documents_saved']; ?>/<?= (int) $job['documents_found']; ?></td>
@@ -500,7 +524,7 @@ require_once __DIR__ . '/../header.php';
                             <tbody>
                             <?php foreach (array_slice($jobs, 0, 10) as $job): ?>
                                 <tr data-job-id="<?= (int) $job['id']; ?>">
-                                    <td>#<?= (int) $job['id']; ?></td>
+                                    <td data-order="<?= (int) $job['id']; ?>">#<?= (int) $job['id']; ?></td>
                                     <td><?= htmlspecialchars((string) $job['entity_name']); ?></td>
                                     <td><span class="badge efatura-job-status badge-<?= htmlspecialchars(efaturaStatusBadge((string) $job['status'])); ?>"><?= htmlspecialchars((string) $job['status']); ?></span></td>
                                     <td><?= htmlspecialchars((string) $job['period_start']); ?> a <?= htmlspecialchars((string) $job['period_end']); ?></td>
@@ -534,7 +558,7 @@ require_once __DIR__ . '/../header.php';
 </div>
 <?php
 $pageScripts = 'var efaturaStyle = document.createElement("style");
-efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter{width:100%;}.efatura-documents-status-filter .form-control{width:100%;min-width:0;}}";
+efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter{width:100%;}.efatura-documents-status-filter .form-control{width:100%;min-width:0;}}";
 document.head.appendChild(efaturaStyle);
 window.efaturaSyncStatusUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/sync-status', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=documents_data', JSON_UNESCAPED_UNICODE) . ';
@@ -595,11 +619,28 @@ var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
         { data: "invoice_type" },
         { data: "net_total" },
         { data: "tax_payable" },
-        { data: "gross_total" }
+        { data: "gross_total" },
+        { data: "upload_status", orderable: false, searchable: false },
+        { data: "classification_status", orderable: false, searchable: false },
+        { data: "ctb_status", orderable: false, searchable: false }
     ]
 });
-initEfaturaTable("#efatura-jobs-table", { order: [[0, "desc"]], columnDefs: [{ orderable: false, targets: [3, 4, 6] }] });
-initEfaturaTable("#efatura-jobs-mini-table", { order: [[0, "desc"]], columnDefs: [{ orderable: false, targets: [4, 5] }] });
+initEfaturaTable("#efatura-jobs-table", {
+    order: [[0, "desc"]],
+    stateSave: false,
+    columnDefs: [
+        { type: "num", targets: 0 },
+        { orderable: false, targets: [3, 4, 6] }
+    ]
+});
+initEfaturaTable("#efatura-jobs-mini-table", {
+    order: [[0, "desc"]],
+    stateSave: false,
+    columnDefs: [
+        { type: "num", targets: 0 },
+        { orderable: false, targets: [4, 5] }
+    ]
+});
 
 function refreshEfaturaJobs() {
     var rows = document.querySelectorAll("[data-job-id]");
@@ -754,11 +795,36 @@ function efaturaBuildJobLogText(array $job): string {
                     $parts[] = '- ' . trim((string) ($step['at'] ?? '')) . ' ' . trim((string) ($step['message'] ?? ''));
                 }
             }
-            foreach (['http_json_sample', 'json_raw_sample', 'http_login_sample', 'html_snapshot', 'screenshot'] as $key) {
+            foreach ([
+                'http_json_sample',
+                'json_raw_sample',
+                'http_login_sample',
+                'browser_relay_form',
+                'apos_login_url',
+                'apos_login_title',
+                'apos_login_hidden_inputs',
+                'apos_login_forms',
+                'apos_login_text_sample',
+                'json_expired_attempt_1_cookie_domains',
+                'json_expired_attempt_1_cookies_by_domain',
+                'json_expired_attempt_2_cookie_domains',
+                'json_expired_attempt_2_cookies_by_domain',
+                'html_snapshot',
+                'screenshot',
+            ] as $key) {
                 if (!empty($decoded['debug'][$key])) {
                     $parts[] = '';
                     $parts[] = strtoupper($key) . ':';
-                    $parts[] = (string) $decoded['debug'][$key];
+                    $value = $decoded['debug'][$key];
+                    $parts[] = is_string($value) ? $value : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+                }
+            }
+            if (!empty($decoded['runner_log']) && is_file((string) $decoded['runner_log'])) {
+                $runnerLog = @file_get_contents((string) $decoded['runner_log']);
+                if (is_string($runnerLog) && trim($runnerLog) !== '') {
+                    $parts[] = '';
+                    $parts[] = 'RUNNER LOG:';
+                    $parts[] = trim($runnerLog);
                 }
             }
         }
@@ -900,7 +966,28 @@ function createEfaturaSyncJob(PDO $pdo, array $user): int {
 }
 
 function launchEfaturaWorker(int $jobId, string $artifactPath, ?array $company, array $credential, string $periodStart, string $periodEnd): void {
-    $python = trim((string) @shell_exec('command -v python3 2>/dev/null'));
+    $pythonCandidates = [
+        __DIR__ . '/../.venv/bin/python',
+        __DIR__ . '/../.venv/bin/python3',
+        trim((string) @shell_exec('command -v python3 2>/dev/null')),
+        trim((string) @shell_exec('command -v python 2>/dev/null')),
+    ];
+    $python = '';
+    foreach ($pythonCandidates as $candidate) {
+        $candidate = trim((string) $candidate);
+        if ($candidate === '') {
+            continue;
+        }
+        if (strpos($candidate, DIRECTORY_SEPARATOR) !== false) {
+            if (is_file($candidate) && is_executable($candidate)) {
+                $python = $candidate;
+                break;
+            }
+            continue;
+        }
+        $python = $candidate;
+        break;
+    }
     if ($python === '') {
         throw new RuntimeException('python3 nao encontrado no servidor.');
     }
@@ -909,6 +996,20 @@ function launchEfaturaWorker(int $jobId, string $artifactPath, ?array $company, 
         throw new RuntimeException('Worker E-fatura nao encontrado.');
     }
     $portalPassword = decryptEfaturaSecret((string) ($credential['portal_password_encrypted'] ?? ''));
+    $runnerLogPath = preg_replace('/\.[^.]+$/', '', $artifactPath) . '.runner.log';
+    @file_put_contents($artifactPath, json_encode([
+        'job_id' => $jobId,
+        'status' => 'running',
+        'started_at' => date('c'),
+        'last_step' => 'A lancar worker Python.',
+        'runner_log' => $runnerLogPath,
+        'debug' => [
+            'steps' => [[
+                'at' => date('c'),
+                'message' => 'Preparado comando de arranque do worker.',
+            ]],
+        ],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     $envPrefix = 'EFATURA_PORTAL_PASSWORD=' . escapeshellarg($portalPassword) . ' ';
     $cmd = escapeshellarg($python)
         . ' ' . escapeshellarg($script)
@@ -919,7 +1020,7 @@ function launchEfaturaWorker(int $jobId, string $artifactPath, ?array $company, 
         . ' --portal-username ' . escapeshellarg((string) ($credential['portal_username'] ?? ''))
         . ' --period-start ' . escapeshellarg($periodStart)
         . ' --period-end ' . escapeshellarg($periodEnd)
-        . ' > /dev/null 2>&1 &';
+        . ' >> ' . escapeshellarg($runnerLogPath) . ' 2>&1 &';
     @exec($envPrefix . $cmd);
 }
 
@@ -963,9 +1064,28 @@ function efaturaFetchCredential(PDO $pdo, int $entityId): ?array {
 }
 
 function efaturaFetchDocuments(PDO $pdo, int $entityId = 0): array {
-    $sql = "SELECT d.*, ae.name AS entity_name
+    $linkSelect = '';
+    $linkJoin = '';
+    if (accountingImportsEfaturaLinkReady()) {
+        $linkSelect = ',
+            COALESCE(ai.has_upload, 0) AS has_upload,
+            COALESCE(ai.has_classification, 0) AS has_classification,
+            COALESCE(ai.has_ctb_import, 0) AS has_ctb_import';
+        $linkJoin = "
+            LEFT JOIN (
+                SELECT
+                    efatura_document_id,
+                    1 AS has_upload,
+                    MAX(CASE WHEN TRIM(COALESCE(account, '')) <> '' THEN 1 ELSE 0 END) AS has_classification,
+                    MAX(CASE WHEN TRIM(COALESCE(cab_id, '')) <> '' THEN 1 ELSE 0 END) AS has_ctb_import
+                FROM accounting_imports
+                WHERE efatura_document_id IS NOT NULL
+                GROUP BY efatura_document_id
+            ) ai ON ai.efatura_document_id = d.id";
+    }
+    $sql = "SELECT d.*, ae.name AS entity_name{$linkSelect}
             FROM efatura_documents d
-            JOIN accounting_entities ae ON ae.id = d.entity_id";
+            JOIN accounting_entities ae ON ae.id = d.entity_id{$linkJoin}";
     $params = [];
     if ($entityId > 0) {
         $sql .= " WHERE d.entity_id = ?";
@@ -1004,10 +1124,31 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         5 => 'd.net_total',
         6 => 'd.tax_payable',
         7 => 'd.gross_total',
+        8 => 'has_upload',
+        9 => 'has_classification',
+        10 => 'has_ctb_import',
     ];
     $orderBy = $orderableColumns[$orderColumn] ?? 'd.invoice_date';
 
-    $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id ';
+    $linkSelect = '';
+    $linkJoin = '';
+    if (accountingImportsEfaturaLinkReady()) {
+        $linkSelect = ',
+            COALESCE(ai.has_upload, 0) AS has_upload,
+            COALESCE(ai.has_classification, 0) AS has_classification,
+            COALESCE(ai.has_ctb_import, 0) AS has_ctb_import';
+        $linkJoin = ' LEFT JOIN (
+                SELECT
+                    efatura_document_id,
+                    1 AS has_upload,
+                    MAX(CASE WHEN TRIM(COALESCE(account, \'\')) <> \'\' THEN 1 ELSE 0 END) AS has_classification,
+                    MAX(CASE WHEN TRIM(COALESCE(cab_id, \'\')) <> \'\' THEN 1 ELSE 0 END) AS has_ctb_import
+                FROM accounting_imports
+                WHERE efatura_document_id IS NOT NULL
+                GROUP BY efatura_document_id
+            ) ai ON ai.efatura_document_id = d.id';
+    }
+    $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id ' . $linkJoin;
     $where = [];
     $params = [];
 
@@ -1039,7 +1180,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $filteredStmt->execute($params);
     $recordsFiltered = (int) $filteredStmt->fetchColumn();
 
-    $dataSql = 'SELECT d.*, ae.name AS entity_name'
+    $dataSql = 'SELECT d.*, ae.name AS entity_name' . $linkSelect
         . $baseFrom
         . $whereSql
         . ' ORDER BY ' . $orderBy . ' ' . $orderDir . ', d.id ' . $orderDir
@@ -1047,10 +1188,29 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $dataStmt = $pdo->prepare($dataSql);
     $dataStmt->execute($params);
     $rows = $dataStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $importStatusStmt = null;
+    if (accountingImportsEfaturaLinkReady()) {
+        $importStatusStmt = $pdo->prepare('SELECT account, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
+    }
 
     $data = [];
     foreach ($rows as $row) {
         $status = strtoupper(trim((string) ($row['document_status'] ?? '')));
+        $hasUpload = (int) ($row['has_upload'] ?? 0) === 1;
+        $hasClassification = (int) ($row['has_classification'] ?? 0) === 1;
+        $hasCtbImport = (int) ($row['has_ctb_import'] ?? 0) === 1;
+        if (!$hasUpload && $importStatusStmt instanceof PDOStatement) {
+            $match = reconcileEfaturaDocumentWithAccountingImport($pdo, (int) ($row['id'] ?? 0), $row);
+            if ($match && !empty($match['id'])) {
+                $hasUpload = true;
+                $importStatusStmt->execute([(int) $match['id']]);
+                $importRow = $importStatusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $hasClassification = trim((string) ($importRow['account'] ?? '')) !== '';
+                $hasCtbImport = trim((string) ($importRow['cab_id'] ?? '')) !== '';
+            }
+        }
+        $statusBadgeClass = $hasCtbImport ? 'badge-success' : ($hasClassification ? 'badge-info' : ($hasUpload ? 'badge-warning' : 'badge-secondary'));
+        $statusBadgeLabel = $hasCtbImport ? 'Importado CTB' : ($hasClassification ? 'Classificado' : ($hasUpload ? 'Por classificar' : 'Em falta'));
         $data[] = [
             'invoice_date' => (string) ($row['invoice_date'] ?? ''),
             'issuer_name' => (string) ($row['issuer_name'] ?? ''),
@@ -1060,8 +1220,11 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
             'net_total' => number_format((float) ($row['net_total'] ?? 0), 2, ',', ' '),
             'tax_payable' => number_format((float) ($row['tax_payable'] ?? 0), 2, ',', ' '),
             'gross_total' => number_format((float) ($row['gross_total'] ?? 0), 2, ',', ' '),
-            'DT_RowClass' => $status === 'A' ? 'efatura-document-row-cancelled' : '',
-            'DT_RowAttr' => ['data-status' => $status],
+            'upload_status' => '<span class="badge ' . ($hasUpload ? 'badge-success' : 'badge-secondary') . '">' . ($hasUpload ? 'Upload' : 'Sem upload') . '</span>',
+            'classification_status' => '<span class="badge ' . ($hasClassification ? 'badge-info' : 'badge-secondary') . '">' . ($hasClassification ? 'Classificado' : 'Por classificar') . '</span>',
+            'ctb_status' => '<span class="badge ' . $statusBadgeClass . '">' . $statusBadgeLabel . '</span>',
+            'DT_RowClass' => trim(($status === 'A' ? 'efatura-document-row-cancelled ' : '') . (!$hasUpload ? 'efatura-document-row-missing' : '')),
+            'DT_RowAttr' => ['data-status' => $status, 'data-uploaded' => $hasUpload ? '1' : '0'],
         ];
     }
 
@@ -1098,6 +1261,57 @@ function efaturaFetchJob(PDO $pdo, int $jobId): ?array {
     $stmt = $pdo->prepare('SELECT * FROM efatura_sync_jobs WHERE id = ? LIMIT 1');
     $stmt->execute([$jobId]);
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+function efaturaNormalizeDbText(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = strtr($value, [
+        "\r\n" => "\n",
+        "\r" => "\n",
+        '╔' => '+',
+        '╗' => '+',
+        '╚' => '+',
+        '╝' => '+',
+        '╠' => '+',
+        '╣' => '+',
+        '╦' => '+',
+        '╩' => '+',
+        '╬' => '+',
+        '═' => '=',
+        '║' => '|',
+        '─' => '-',
+        '│' => '|',
+        '┌' => '+',
+        '┐' => '+',
+        '└' => '+',
+        '┘' => '+',
+        '├' => '+',
+        '┤' => '+',
+        '┬' => '+',
+        '┴' => '+',
+        '┼' => '+',
+    ]);
+
+    if (function_exists('iconv')) {
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $normalized);
+        if (is_string($ascii) && $ascii !== '') {
+            $normalized = $ascii;
+        }
+    }
+
+    $normalized = preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '', $normalized);
+    return trim((string) $normalized);
+}
+
+function efaturaShouldRetryWithNormalizedDbText(Throwable $e): bool {
+    if (!$e instanceof PDOException) {
+        return false;
+    }
+    return (int) ($e->errorInfo[1] ?? 0) === 1366;
 }
 
 function efaturaRefreshJobFromArtifact(PDO $pdo, array $job): array {
@@ -1137,7 +1351,17 @@ function efaturaRefreshJobFromArtifact(PDO $pdo, array $job): array {
          SET status = ?, documents_found = ?, documents_saved = ?, error_message = ?, finished_at = CASE WHEN ? IN ("done", "failed", "partial") THEN NOW() ELSE finished_at END, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?'
     );
-    $stmt->execute([$status, $documentsFound, $documentsSaved, $errorMessage !== '' ? $errorMessage : null, $status, (int) $job['id']]);
+    $errorMessageForDb = $errorMessage !== '' ? $errorMessage : null;
+    try {
+        $stmt->execute([$status, $documentsFound, $documentsSaved, $errorMessageForDb, $status, (int) $job['id']]);
+    } catch (Throwable $e) {
+        if (!$errorMessageForDb || !efaturaShouldRetryWithNormalizedDbText($e)) {
+            throw $e;
+        }
+        $errorMessageForDb = efaturaNormalizeDbText($errorMessage);
+        $stmt->execute([$status, $documentsFound, $documentsSaved, $errorMessageForDb !== '' ? $errorMessageForDb : null, $status, (int) $job['id']]);
+        $errorMessage = $errorMessageForDb;
+    }
     $job['status'] = $status;
     $job['documents_found'] = $documentsFound;
     $job['documents_saved'] = $documentsSaved;
@@ -1270,6 +1494,16 @@ function efaturaPersistDocumentsFromArtifact(PDO $pdo, int $entityId, int $jobId
         if ($documentId <= 0) {
             continue;
         }
+
+        reconcileEfaturaDocumentWithAccountingImport($pdo, $documentId, [
+            'id' => $documentId,
+            'source_hash' => $sourceHash,
+            'issuer_vat' => trim((string) ($document['issuer_vat'] ?? '')),
+            'customer_vat' => trim((string) ($document['customer_vat'] ?? '')),
+            'invoice_no' => $invoiceNo,
+            'invoice_date' => $invoiceDate,
+            'atcud' => trim((string) ($document['atcud'] ?? '')),
+        ]);
 
         $deleteLines->execute([$documentId]);
         foreach (($document['lines'] ?? []) as $line) {

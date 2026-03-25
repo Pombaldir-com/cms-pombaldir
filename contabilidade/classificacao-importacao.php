@@ -463,7 +463,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         if ($fallbackNif !== '') {
             $entity = findAccountingEntity($pdo, $fallbackNif);
             if (is_array($entity)) {
-                $candidateDb = trim((string) ($entity['erp_database'] ?? ''));
+                $candidateDb = resolveAccountingEntityDatabase($entity);
                 if ($candidateDb !== '') {
                     $targetCompany = $candidateDb;
                 }
@@ -843,7 +843,7 @@ function prepareImportRow(array $row): array {
                 try {
                     $entity = findAccountingEntity($pdo, $acquirerNif);
                     if (is_array($entity)) {
-                        $dbValue = trim((string) ($entity['erp_database'] ?? ''));
+                        $dbValue = resolveAccountingEntityDatabase($entity);
                     }
                 } catch (Throwable $throwable) {
                     $dbValue = '';
@@ -852,6 +852,9 @@ function prepareImportRow(array $row): array {
             $acquirerDatabaseCache[$acquirerNif] = $dbValue;
         }
         $row['acquirer_erp_database'] = (string) ($acquirerDatabaseCache[$acquirerNif] ?? '');
+    }
+    if ($row['acquirer_erp_database'] === '') {
+        $row['acquirer_erp_database'] = trim((string) getSetting('erp_database', ''));
     }
 
     $lines = json_decode($row['line_items'] ?? '', true);
@@ -1613,14 +1616,14 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         if ($emitterNif !== '') {
             $entity = findAccountingEntity($pdo, $emitterNif);
             if (is_array($entity)) {
-                $database = trim((string) ($entity['erp_database'] ?? ''));
+                $database = resolveAccountingEntityDatabase($entity);
             }
         }
     }
     if ($database === '') {
         $entity = findAccountingEntity($pdo, $acquirerNif);
         if (is_array($entity)) {
-            $database = trim((string) ($entity['erp_database'] ?? ''));
+            $database = resolveAccountingEntityDatabase($entity);
         }
     }
     if ($database === '') {
@@ -2052,17 +2055,18 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $entity = $entities[0];
+    $entityDatabase = resolveAccountingEntityDatabase($entity);
     $entityResponse = [
         'nif' => $entity['nif'],
         'name' => $entity['name'],
         'display_name' => $entity['display_name'],
-        'erp_database' => $entity['erp_database'],
+        'erp_database' => $entityDatabase,
     ];
 
     if ($mode === 'check') {
         $response['success'] = true;
         $response['entity'] = $entityResponse;
-        $response['requires_selection'] = trim((string)$entity['erp_database']) === '';
+        $response['requires_selection'] = $entityDatabase === '';
         if ($response['requires_selection']) {
             $response['message'] = 'Selecione a base de dados do adquirente antes de importar.';
         }
@@ -2122,7 +2126,7 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (is_array($stored)) {
             $entityResponse['name'] = trim((string)($stored['name'] ?? $entityName)) ?: $entityName;
             $entityResponse['display_name'] = $entityResponse['name'];
-            $entityResponse['erp_database'] = trim((string)($stored['erp_database'] ?? $selectedDatabase)) ?: $selectedDatabase;
+            $entityResponse['erp_database'] = resolveAccountingEntityDatabase($stored) ?: $selectedDatabase;
         } else {
             $entityResponse['name'] = $entityName;
             $entityResponse['display_name'] = $entityName;
@@ -2200,7 +2204,7 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
             if (!empty($entities)) {
                 foreach ($entities as $entity) {
-                    $candidateDatabase = trim((string)($entity['erp_database'] ?? ''));
+                    $candidateDatabase = resolveAccountingEntityDatabase($entity);
                     if ($candidateDatabase !== '') {
                         $targetDatabase = $candidateDatabase;
                         break;
@@ -2739,6 +2743,10 @@ require __DIR__ . '/partials/classify-modal.php';
     ); ?>;
     window.erpBaseCompany = <?= json_encode(
         trim((string) getSetting('accounting_base_company', '')),
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+    ); ?>;
+    window.erpDefaultDatabase = <?= json_encode(
+        trim((string) getSetting('erp_database', '')),
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
 </script>

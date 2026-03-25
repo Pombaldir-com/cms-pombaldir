@@ -553,6 +553,132 @@ function buildMigrationDsn(array $cfg): string {
     return "mysql:host={$host}{$port}{$socket};dbname={$db};charset=utf8mb4";
 }
 
+function splitMigrationSqlStatements(string $sql): array {
+    $sql = preg_replace('/\/\*.*?\*\//s', '', $sql);
+    $lines = explode("\n", $sql);
+    $clean = [];
+    foreach ($lines as $line) {
+        $trimmed = ltrim($line);
+        if (strpos($trimmed, '--') === 0 || strpos($trimmed, '#') === 0) {
+            continue;
+        }
+        $clean[] = $line;
+    }
+    $sql = implode("\n", $clean);
+    $parts = array_map('trim', explode(';', $sql));
+    $statements = [];
+    foreach ($parts as $part) {
+        if ($part !== '') {
+            $statements[] = $part;
+        }
+    }
+    return $statements;
+}
+
+function shouldIgnoreMigrationStatementError(Throwable $e, string $statement = ''): bool {
+    if (!$e instanceof PDOException) {
+        return false;
+    }
+    $code = $e->errorInfo[1] ?? null;
+    if (in_array($code, [1050, 1060, 1091], true)) {
+        return true;
+    }
+    if ($code === 1146) {
+        $normalized = ltrim($statement);
+        if (preg_match('/^ALTER\s+TABLE\s+/i', $normalized)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function ensureMigrationsTableExists(PDO $pdo): void {
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS migrations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            filename VARCHAR(255) NOT NULL UNIQUE,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )"
+    );
+}
+
+function markMigrationAsApplied(PDO $pdo, string $filename): void {
+    $stmt = $pdo->prepare('INSERT INTO migrations (filename) VALUES (?) ON DUPLICATE KEY UPDATE filename = VALUES(filename)');
+    $stmt->execute([$filename]);
+}
+
+function repairCurrentCompanySchemaFromMigrations(): array {
+    startSession();
+    if (empty($_SESSION['company']) || !is_array($_SESSION['company'])) {
+        return ['ok' => true, 'output' => []];
+    }
+
+    $dir = __DIR__ . '/migrations';
+    $files = glob($dir . '/*.sql');
+    if (!$files) {
+        return ['ok' => true, 'output' => []];
+    }
+    sort($files, SORT_STRING);
+
+    $cfg = $_SESSION['company'];
+    $label = $cfg['slug'] ?? ($cfg['db_name'] ?? 'current');
+    $output = [];
+
+    try {
+        $pdo = new PDO(buildMigrationDsn($cfg), $cfg['db_user'], $cfg['db_pass'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        ]);
+        ensureMigrationsTableExists($pdo);
+
+        foreach ($files as $file) {
+            $filename = basename($file);
+            $sql = file_get_contents($file);
+            if ($sql === false) {
+                continue;
+            }
+            $statements = splitMigrationSqlStatements($sql);
+            if (!$statements) {
+                markMigrationAsApplied($pdo, $filename);
+                continue;
+            }
+
+            $startedTransaction = $pdo->beginTransaction();
+            try {
+                foreach ($statements as $statement) {
+                    try {
+                        $pdo->exec($statement);
+                    } catch (Throwable $e) {
+                        if (shouldIgnoreMigrationStatementError($e, $statement)) {
+                            continue;
+                        }
+                        throw $e;
+                    }
+                }
+                markMigrationAsApplied($pdo, $filename);
+                if ($startedTransaction && $pdo->inTransaction()) {
+                    $pdo->commit();
+                }
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                return [
+                    'ok' => false,
+                    'output' => ["[{$label}] Reparacao falhou em {$filename}: " . $e->getMessage()],
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+        return [
+            'ok' => false,
+            'output' => ["[{$label}] Reparacao da base ativa falhou: " . $e->getMessage()],
+        ];
+    }
+
+    $output[] = "[{$label}] Base ativa validada/reparada";
+    return ['ok' => true, 'output' => $output];
+}
+
 function getPendingMigrationsSummary(bool $forceRefresh = false): array {
     startSession();
     $cacheKey = 'pending_migrations_summary';
@@ -627,16 +753,59 @@ function getPendingMigrationsSummary(bool $forceRefresh = false): array {
     return $summary;
 }
 
+function resolvePhpCliBinary(): ?string {
+    $candidates = [];
+
+    if (defined('PHP_BINARY') && PHP_BINARY !== '') {
+        $candidates[] = PHP_BINARY;
+    }
+
+    $candidates = array_merge($candidates, [
+        'php',
+        '/usr/bin/php',
+        '/usr/local/bin/php',
+    ]);
+
+    $seen = [];
+    foreach ($candidates as $candidate) {
+        $candidate = trim((string) $candidate);
+        if ($candidate === '' || isset($seen[$candidate])) {
+            continue;
+        }
+        $seen[$candidate] = true;
+
+        $probeCommand = escapeshellarg($candidate) . ' -r ' . escapeshellarg('echo PHP_SAPI;') . ' 2>/dev/null';
+        $probeOutput = [];
+        $probeExitCode = 1;
+        exec($probeCommand, $probeOutput, $probeExitCode);
+        if ($probeExitCode === 0 && trim(implode("\n", $probeOutput)) === 'cli') {
+            return $candidate;
+        }
+    }
+
+    return null;
+}
+
 function runProjectMigrationsFromUi(): array {
-    $phpBinary = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $phpBinary = resolvePhpCliBinary();
     $script = __DIR__ . '/scripts/migrate.php';
     if (!is_file($script)) {
         return ['ok' => false, 'output' => ['Script de migracoes nao encontrado.']];
+    }
+    if ($phpBinary === null) {
+        return ['ok' => false, 'output' => ['Nao foi encontrado um binario PHP CLI valido no servidor.']];
     }
     $cmd = escapeshellarg($phpBinary) . ' ' . escapeshellarg($script) . ' 2>&1';
     $output = [];
     $exitCode = 1;
     exec($cmd, $output, $exitCode);
+    $repairResult = repairCurrentCompanySchemaFromMigrations();
+    if (!empty($repairResult['output']) && is_array($repairResult['output'])) {
+        $output = array_merge($output, $repairResult['output']);
+    }
+    if (!$repairResult['ok']) {
+        $exitCode = 1;
+    }
     unset($_SESSION['pending_migrations_summary']);
     return [
         'ok' => $exitCode === 0,
@@ -1111,6 +1280,476 @@ function userHasDepartmentPermission(string $permission): bool {
     }
 
     return false;
+}
+
+function isInternalChatEnabled(): bool {
+    return getSetting('internal_chat_enabled', '0') === '1';
+}
+
+function hasInternalChatTables(): bool {
+    static $hasTables = null;
+    if ($hasTables !== null) {
+        return $hasTables;
+    }
+
+    $hasTables = hasTable('internal_chat_channels')
+        && hasTable('internal_chat_channel_members')
+        && hasTable('internal_chat_messages');
+
+    return $hasTables;
+}
+
+function ensureInternalChatPublicChannel(): ?int {
+    if (!hasInternalChatTables()) {
+        return null;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id FROM internal_chat_channels WHERE slug = ? LIMIT 1');
+    $stmt->execute(['public']);
+    $channelId = (int) ($stmt->fetchColumn() ?: 0);
+    if ($channelId > 0) {
+        return $channelId;
+    }
+
+    try {
+        $insert = $pdo->prepare(
+            'INSERT INTO internal_chat_channels (slug, name, channel_type, created_by) VALUES (?, ?, ?, NULL)'
+        );
+        $insert->execute(['public', 'Canal Publico', 'public']);
+        return (int) $pdo->lastInsertId();
+    } catch (Throwable $e) {
+        $stmt->execute(['public']);
+        $channelId = (int) ($stmt->fetchColumn() ?: 0);
+        return $channelId > 0 ? $channelId : null;
+    }
+}
+
+function userCanAccessInternalChatChannel(int $userId, int $channelId): bool {
+    if ($userId <= 0 || $channelId <= 0 || !hasInternalChatTables()) {
+        return false;
+    }
+
+    ensureInternalChatPublicChannel();
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT c.id
+         FROM internal_chat_channels c
+         LEFT JOIN internal_chat_channel_members m
+           ON m.channel_id = c.id AND m.user_id = ?
+         WHERE c.id = ?
+           AND (c.channel_type = ? OR m.user_id IS NOT NULL)
+         LIMIT 1'
+    );
+    $stmt->execute([$userId, $channelId, 'public']);
+    return (bool) $stmt->fetchColumn();
+}
+
+function getInternalChatChannelsForUser(int $userId): array {
+    if ($userId <= 0 || !hasInternalChatTables()) {
+        return [];
+    }
+
+    ensureInternalChatPublicChannel();
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT
+            c.id,
+            c.slug,
+            c.name,
+            c.channel_type,
+            c.updated_at,
+            (
+                SELECT message
+                FROM internal_chat_messages lm
+                WHERE lm.channel_id = c.id
+                ORDER BY lm.id DESC
+                LIMIT 1
+            ) AS last_message,
+            (
+                SELECT created_at
+                FROM internal_chat_messages lm
+                WHERE lm.channel_id = c.id
+                ORDER BY lm.id DESC
+                LIMIT 1
+            ) AS last_message_at,
+            (
+                SELECT COUNT(*)
+                FROM internal_chat_channel_members cm
+                WHERE cm.channel_id = c.id
+            ) AS member_count
+         FROM internal_chat_channels c
+         LEFT JOIN internal_chat_channel_members m
+           ON m.channel_id = c.id AND m.user_id = ?
+         WHERE c.channel_type = ? OR m.user_id IS NOT NULL
+         ORDER BY
+            CASE WHEN c.slug = ? THEN 0 ELSE 1 END,
+            COALESCE(
+                (
+                    SELECT created_at
+                    FROM internal_chat_messages lm
+                    WHERE lm.channel_id = c.id
+                    ORDER BY lm.id DESC
+                    LIMIT 1
+                ),
+                c.updated_at,
+                c.created_at
+            ) DESC,
+            c.name ASC'
+    );
+    $stmt->execute([$userId, 'public', 'public']);
+    $channels = $stmt->fetchAll();
+
+    foreach ($channels as &$channel) {
+        $channel['id'] = (int) ($channel['id'] ?? 0);
+        $channel['member_count'] = (int) ($channel['member_count'] ?? 0);
+        $channel['is_public'] = ($channel['channel_type'] ?? '') === 'public';
+    }
+    unset($channel);
+
+    return $channels;
+}
+
+function getInternalChatMessages(int $userId, int $channelId, int $limit = 80): array {
+    if (!userCanAccessInternalChatChannel($userId, $channelId)) {
+        return [];
+    }
+
+    $limit = max(1, min(200, $limit));
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT *
+         FROM (
+            SELECT
+                m.id,
+                m.channel_id,
+                m.user_id,
+                m.message,
+                m.created_at,
+                u.username,
+                u.name,
+                u.photo
+            FROM internal_chat_messages m
+            LEFT JOIN users u ON u.id = m.user_id
+            WHERE m.channel_id = ?
+            ORDER BY m.id DESC
+            LIMIT ' . $limit . '
+         ) recent
+         ORDER BY recent.id ASC'
+    );
+    $stmt->execute([$channelId]);
+    $messages = $stmt->fetchAll();
+
+    foreach ($messages as &$message) {
+        $message['id'] = (int) ($message['id'] ?? 0);
+        $message['channel_id'] = (int) ($message['channel_id'] ?? 0);
+        $message['user_id'] = isset($message['user_id']) ? (int) $message['user_id'] : null;
+        $message['display_name'] = trim((string) ($message['name'] ?? '')) !== ''
+            ? (string) $message['name']
+            : (trim((string) ($message['username'] ?? '')) !== '' ? (string) $message['username'] : 'Utilizador removido');
+    }
+    unset($message);
+
+    return $messages;
+}
+
+function getInternalChatAvailableUsers(): array {
+    if (!hasTable('users')) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->query('SELECT id, username, name, photo, role FROM users ORDER BY COALESCE(NULLIF(name, \'\'), username) ASC, id ASC');
+    $users = $stmt->fetchAll();
+
+    foreach ($users as &$user) {
+        $user['id'] = (int) ($user['id'] ?? 0);
+        $user['display_name'] = trim((string) ($user['name'] ?? '')) !== ''
+            ? (string) $user['name']
+            : (string) ($user['username'] ?? '');
+    }
+    unset($user);
+
+    return $users;
+}
+
+function createInternalChatGroup(string $name, array $memberIds, int $createdBy): int {
+    if ($createdBy <= 0 || !hasInternalChatTables()) {
+        throw new RuntimeException('Chat interno indisponivel.');
+    }
+
+    $name = trim($name);
+    if ($name === '') {
+        throw new InvalidArgumentException('Indique o nome do grupo.');
+    }
+    if (strlen($name) > 150) {
+        $name = substr($name, 0, 150);
+    }
+
+    $cleanMemberIds = [];
+    foreach ($memberIds as $memberId) {
+        $memberId = (int) $memberId;
+        if ($memberId > 0) {
+            $cleanMemberIds[] = $memberId;
+        }
+    }
+    $cleanMemberIds[] = $createdBy;
+    $cleanMemberIds = array_values(array_unique($cleanMemberIds));
+
+    $availableUsers = array_column(getInternalChatAvailableUsers(), 'id');
+    $allowedUserIds = array_flip($availableUsers);
+    $cleanMemberIds = array_values(array_filter(
+        $cleanMemberIds,
+        static fn (int $memberId): bool => isset($allowedUserIds[$memberId])
+    ));
+
+    if (!$cleanMemberIds) {
+        throw new InvalidArgumentException('Selecione pelo menos um membro valido.');
+    }
+
+    $pdo = getPDO();
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO internal_chat_channels (slug, name, channel_type, created_by) VALUES (NULL, ?, ?, ?)'
+        );
+        $stmt->execute([$name, 'group', $createdBy]);
+        $channelId = (int) $pdo->lastInsertId();
+
+        $memberStmt = $pdo->prepare(
+            'INSERT INTO internal_chat_channel_members (channel_id, user_id, added_by) VALUES (?, ?, ?)'
+        );
+        foreach ($cleanMemberIds as $memberId) {
+            $memberStmt->execute([$channelId, $memberId, $createdBy]);
+        }
+
+        $pdo->commit();
+        logAuditAction('internal_chat_group_create', 'internal_chat_channels', $channelId, ['name' => $name]);
+
+        return $channelId;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function createInternalChatMessage(int $channelId, int $userId, string $message): int {
+    if (!userCanAccessInternalChatChannel($userId, $channelId)) {
+        throw new RuntimeException('Sem acesso ao canal selecionado.');
+    }
+
+    $message = trim($message);
+    if ($message === '') {
+        throw new InvalidArgumentException('A mensagem nao pode estar vazia.');
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('INSERT INTO internal_chat_messages (channel_id, user_id, message) VALUES (?, ?, ?)');
+    $stmt->execute([$channelId, $userId, $message]);
+
+    $touch = $pdo->prepare('UPDATE internal_chat_channels SET updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+    $touch->execute([$channelId]);
+
+    $messageId = (int) $pdo->lastInsertId();
+    logAuditAction('internal_chat_message_create', 'internal_chat_messages', $messageId, ['channel_id' => $channelId]);
+
+    return $messageId;
+}
+
+function hasInternalChatPresenceTable(): bool {
+    static $hasTablePresence = null;
+    if ($hasTablePresence !== null) {
+        return $hasTablePresence;
+    }
+
+    $hasTablePresence = hasTable('internal_chat_user_presence');
+    return $hasTablePresence;
+}
+
+function upsertInternalChatPresence(int $userId, string $state = 'online', ?string $page = null, bool $touchActivity = true): void {
+    if ($userId <= 0 || !hasInternalChatTables() || !hasInternalChatPresenceTable()) {
+        return;
+    }
+
+    $state = strtolower(trim($state));
+    if (!in_array($state, ['online', 'away'], true)) {
+        $state = 'online';
+    }
+
+    $page = $page !== null ? trim($page) : null;
+    if ($page !== null && $page !== '' && strlen($page) > 255) {
+        $page = substr($page, 0, 255);
+    }
+    if ($page === '') {
+        $page = null;
+    }
+
+    $pdo = getPDO();
+    if ($touchActivity) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO internal_chat_user_presence (user_id, state, last_seen, last_activity, last_page)
+             VALUES (?, ?, NOW(), NOW(), ?)
+             ON DUPLICATE KEY UPDATE
+                state = VALUES(state),
+                last_seen = NOW(),
+                last_activity = NOW(),
+                last_page = VALUES(last_page)'
+        );
+        $stmt->execute([$userId, $state, $page]);
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO internal_chat_user_presence (user_id, state, last_seen, last_activity, last_page)
+         VALUES (?, ?, NOW(), NOW(), ?)
+         ON DUPLICATE KEY UPDATE
+            state = VALUES(state),
+            last_seen = NOW(),
+            last_page = VALUES(last_page)'
+    );
+    $stmt->execute([$userId, $state, $page]);
+}
+
+function getInternalChatPresenceUsers(): array {
+    if (!hasTable('users')) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $hasPresence = hasInternalChatPresenceTable();
+    if ($hasPresence) {
+        $stmt = $pdo->query(
+            'SELECT
+                u.id,
+                u.username,
+                u.name,
+                u.photo,
+                p.state AS raw_state,
+                p.last_seen,
+                p.last_activity,
+                p.last_page,
+                CASE
+                    WHEN p.last_seen IS NULL THEN "offline"
+                    WHEN p.last_seen < (NOW() - INTERVAL 2 MINUTE) THEN "offline"
+                    WHEN p.state = "away" THEN "away"
+                    WHEN p.last_activity < (NOW() - INTERVAL 5 MINUTE) THEN "away"
+                    ELSE "online"
+                END AS presence_state
+             FROM users u
+             LEFT JOIN internal_chat_user_presence p ON p.user_id = u.id
+             ORDER BY
+                CASE
+                    WHEN p.last_seen IS NULL THEN 2
+                    WHEN p.last_seen < (NOW() - INTERVAL 2 MINUTE) THEN 2
+                    WHEN p.state = "away" OR p.last_activity < (NOW() - INTERVAL 5 MINUTE) THEN 1
+                    ELSE 0
+                END ASC,
+                COALESCE(NULLIF(u.name, ""), u.username) ASC,
+                u.id ASC'
+        );
+    } else {
+        $stmt = $pdo->query(
+            'SELECT
+                u.id,
+                u.username,
+                u.name,
+                u.photo,
+                NULL AS raw_state,
+                NULL AS last_seen,
+                NULL AS last_activity,
+                NULL AS last_page,
+                "offline" AS presence_state
+             FROM users u
+             ORDER BY COALESCE(NULLIF(u.name, ""), u.username) ASC, u.id ASC'
+        );
+    }
+
+    $users = $stmt->fetchAll();
+    foreach ($users as &$presenceUser) {
+        $presenceUser['id'] = (int) ($presenceUser['id'] ?? 0);
+        $presenceUser['display_name'] = trim((string) ($presenceUser['name'] ?? '')) !== ''
+            ? (string) $presenceUser['name']
+            : (string) ($presenceUser['username'] ?? '');
+        $presenceUser['presence_state'] = (string) ($presenceUser['presence_state'] ?? 'offline');
+    }
+    unset($presenceUser);
+
+    return $users;
+}
+
+function getInternalChatPresenceCounts(): array {
+    $users = getInternalChatPresenceUsers();
+    $counts = [
+        'online' => 0,
+        'away' => 0,
+        'offline' => 0,
+    ];
+
+    foreach ($users as $presenceUser) {
+        $state = (string) ($presenceUser['presence_state'] ?? 'offline');
+        if (!isset($counts[$state])) {
+            $state = 'offline';
+        }
+        $counts[$state] += 1;
+    }
+
+    return $counts;
+}
+
+function getInternalChatLatestVisibleMessage(int $userId, int $afterMessageId = 0): ?array {
+    if ($userId <= 0 || !hasInternalChatTables()) {
+        return null;
+    }
+
+    $afterMessageId = max(0, $afterMessageId);
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT
+            m.id,
+            m.channel_id,
+            m.user_id,
+            m.message,
+            m.created_at,
+            c.name AS channel_name,
+            c.channel_type,
+            u.username,
+            u.name,
+            u.photo
+         FROM internal_chat_messages m
+         INNER JOIN internal_chat_channels c ON c.id = m.channel_id
+         LEFT JOIN internal_chat_channel_members cm
+           ON cm.channel_id = c.id AND cm.user_id = ?
+         LEFT JOIN users u ON u.id = m.user_id
+         WHERE (c.channel_type = ? OR cm.user_id IS NOT NULL)
+           AND m.id > ?
+         ORDER BY m.id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$userId, 'public', $afterMessageId]);
+    $message = $stmt->fetch() ?: null;
+
+    if ($message === null) {
+        return null;
+    }
+
+    $message['id'] = (int) ($message['id'] ?? 0);
+    $message['channel_id'] = (int) ($message['channel_id'] ?? 0);
+    $message['user_id'] = isset($message['user_id']) ? (int) $message['user_id'] : null;
+    $message['display_name'] = trim((string) ($message['name'] ?? '')) !== ''
+        ? (string) $message['name']
+        : (trim((string) ($message['username'] ?? '')) !== '' ? (string) $message['username'] : 'Utilizador removido');
+
+    return $message;
+}
+
+function getInternalChatSummary(int $userId, int $afterMessageId = 0): array {
+    return [
+        'latest_message' => getInternalChatLatestVisibleMessage($userId, $afterMessageId),
+        'presence_counts' => getInternalChatPresenceCounts(),
+    ];
 }
 
 /**
