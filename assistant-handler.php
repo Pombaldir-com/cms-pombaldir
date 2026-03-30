@@ -2652,6 +2652,7 @@ function applyErpCompanyParams(array $query, string $dbHint = ''): array {
 
     if ($db !== '') {
         $query['db'] = $db;
+        $query['bd'] = $db;
     }
     if ($emp !== '') {
         $query['EMP'] = $emp;
@@ -3095,8 +3096,10 @@ function normalizeErpLigacaoDocType(string $docType): string {
     if (in_array($value, ['FATURA', 'FACTURA', 'INVOICE'], true)) {
         return 'FT';
     }
+    // In LigacaoCteTipoDoc the ERP may return a different parametrization for FR,
+    // but for accounting suggestions FR/FTR should reuse the FT mapping.
     if (in_array($value, ['FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO', 'FR', 'FTR'], true)) {
-        return 'FR';
+        return 'FT';
     }
     if (in_array($value, ['NOTA CREDITO', 'NOTA DE CREDITO', 'NC'], true)) {
         return 'NC';
@@ -3108,6 +3111,32 @@ function normalizeErpLigacaoDocType(string $docType): string {
         return 'RC';
     }
     return $value;
+}
+
+function buildErpLigacaoDocTypeCandidates(string $docType): array {
+    $normalized = normalizeErpLigacaoDocType($docType);
+    if ($normalized === '') {
+        return [];
+    }
+
+    return array_values(array_unique(array_filter([$normalized], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+}
+
+function buildErpLigacaoExerciseCandidates(string $isoDocDate): array {
+    $candidates = [''];
+    if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $isoDocDate)) {
+        return $candidates;
+    }
+
+    $docYear = (int) substr($isoDocDate, 0, 4);
+    if ($docYear > 0) {
+        $candidates[] = (string) $docYear;
+        $candidates[] = (string) ($docYear - 1);
+    }
+
+    return array_values(array_unique($candidates));
 }
 
 function resolveLigacaoRateKeyFromRow(array $row): string {
@@ -3143,39 +3172,104 @@ function resolveLigacaoRateKeyFromRow(array $row): string {
     return '';
 }
 
+function scoreErpLigacaoRows(array $rows): int {
+    if (empty($rows)) {
+        return 0;
+    }
+
+    $hasDebitLine = false;
+    $hasRateScopedLine = false;
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
+        if ($tipo !== '' && $tipo !== 'D') {
+            continue;
+        }
+        $general = trim((string) ($row['strConta'] ?? ''));
+        $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+        if ($general === '' && $iva === '') {
+            continue;
+        }
+        $hasDebitLine = true;
+        if (resolveLigacaoRateKeyFromRow($row) !== '') {
+            $hasRateScopedLine = true;
+            break;
+        }
+    }
+
+    if ($hasRateScopedLine) {
+        return 3;
+    }
+    if ($hasDebitLine) {
+        return 2;
+    }
+    return 1;
+}
+
 function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate): array {
     if ($baseUrl === '' || $token === '' || $db === '') {
         return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
-    $docTypeValue = normalizeErpLigacaoDocType($docType);
+    $docTypeCandidates = buildErpLigacaoDocTypeCandidates($docType);
     $acquirerNif = extractVatLikeValue($acquirerNif);
     $isoDocDate = normalizeErpLigacaoDocDate($docDate);
-    if ($docTypeValue === '' || $acquirerNif === '' || $isoDocDate === '') {
+    if (empty($docTypeCandidates) || $acquirerNif === '' || $isoDocDate === '') {
         return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
-    $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/LigacaoCteTipoDoc', [
-        'datadoc' => $isoDocDate,
-        'strNIF' => $acquirerNif,
-        'strTpDoc' => $docTypeValue,
-    ], $db);
+    $exerciseCandidates = buildErpLigacaoExerciseCandidates($isoDocDate);
     $rows = [];
-    $response = callErpWebservice($endpoint, $token);
-    logAiDebug([
-        'type' => 'erp_ligacao_cte_tipo_doc_attempt',
-        'attempt_kind' => 'query',
-        'db' => $db,
-        'doc_date' => $isoDocDate,
-        'doc_type' => $docTypeValue,
-        'acquirer_nif' => $acquirerNif,
-        'endpoint' => $endpoint,
-        'ok' => (bool) ($response['ok'] ?? false),
-        'status' => (int) ($response['status'] ?? 0),
-        'error' => (string) ($response['error'] ?? ''),
-    ]);
-    if ($response['ok']) {
-        $rows = extractErpRows($response['data']);
+    $selectedDocType = '';
+    $selectedExercise = '';
+    $selectedEndpoint = '';
+    $bestScore = 0;
+    foreach ($docTypeCandidates as $docTypeValue) {
+        foreach ($exerciseCandidates as $exerciseValue) {
+            $query = [
+                'datadoc' => $isoDocDate,
+                'strNIF' => $acquirerNif,
+                'strTpDoc' => $docTypeValue,
+            ];
+            if ($exerciseValue !== '') {
+                $query['strCodExercicio'] = $exerciseValue;
+            }
+
+            $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/LigacaoCteTipoDoc', $query, $db);
+            $response = callErpWebservice($endpoint, $token);
+            $candidateRows = [];
+            if ($response['ok']) {
+                $candidateRows = extractErpRows($response['data']);
+            }
+            $candidateScore = scoreErpLigacaoRows($candidateRows);
+            logAiDebug([
+                'type' => 'erp_ligacao_cte_tipo_doc_attempt',
+                'attempt_kind' => 'query',
+                'db' => $db,
+                'doc_date' => $isoDocDate,
+                'doc_type' => $docTypeValue,
+                'strCodExercicio' => $exerciseValue,
+                'acquirer_nif' => $acquirerNif,
+                'endpoint' => $endpoint,
+                'ok' => (bool) ($response['ok'] ?? false),
+                'status' => (int) ($response['status'] ?? 0),
+                'error' => (string) ($response['error'] ?? ''),
+                'rows_count' => count($candidateRows),
+                'score' => $candidateScore,
+            ]);
+            if ($candidateScore > $bestScore) {
+                $rows = $candidateRows;
+                $bestScore = $candidateScore;
+                $selectedDocType = $docTypeValue;
+                $selectedExercise = $exerciseValue;
+                $selectedEndpoint = $endpoint;
+            }
+            if ($bestScore >= 3) {
+                break 2;
+            }
+        }
     }
     $firstRow = [];
     if (!empty($rows) && is_array($rows[0] ?? null)) {
@@ -3190,7 +3284,11 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'type' => 'erp_ligacao_cte_tipo_doc_response',
         'attempt_kind' => 'query',
         'db' => $db,
+        'selected_doc_type' => $selectedDocType,
+        'selected_strCodExercicio' => $selectedExercise,
+        'selected_endpoint' => $selectedEndpoint,
         'rows_count' => count($rows),
+        'score' => $bestScore,
         'first_row' => $firstRow,
     ]);
     if (empty($rows)) {
@@ -3547,6 +3645,16 @@ function pickMatchingAccountForRate(array $candidates, array $planAccounts, arra
     return '';
 }
 
+function pickFirstAccountCandidate(array $candidates): string {
+    foreach ($candidates as $candidate) {
+        $account = trim((string) $candidate);
+        if ($account !== '') {
+            return $account;
+        }
+    }
+    return '';
+}
+
 function pickFallbackGeneralByRateKey(string $rateKey): string {
     $rateKey = normalizeRateKey($rateKey);
     if ($rateKey === '6') {
@@ -3867,14 +3975,28 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             $perRateIva = is_array($perRateEntry['iva'] ?? null) ? $perRateEntry['iva'] : [];
             $generalCandidates = !empty($perRateGeneral) ? $perRateGeneral : $ligacaoGeneral;
             $ivaCandidates = !empty($perRateIva) ? $perRateIva : $ligacaoIva;
+            $trustUnscopedLigacaoCandidates = count($rateItems) === 1 && empty($perRateGeneral) && empty($perRateIva);
             if (!empty($generalCandidates)) {
-                $matchedGeneral = pickMatchingAccountForRate($generalCandidates, $planAccounts, $rateInfo, 'account');
+                // LigacaoCteTipoDoc candidates are already split by VAT rate using PC_Descricao.
+                // Re-filtering them against generic plan metadata can discard valid accounts whose
+                // tax fields come back as 0 in the ERP plan response.
+                $matchedGeneral = (!empty($perRateGeneral) || $trustUnscopedLigacaoCandidates)
+                    ? pickFirstAccountCandidate($perRateGeneral)
+                    : pickMatchingAccountForRate($generalCandidates, $planAccounts, $rateInfo, 'account');
+                if ($matchedGeneral === '' && $trustUnscopedLigacaoCandidates) {
+                    $matchedGeneral = pickFirstAccountCandidate($generalCandidates);
+                }
                 if ($matchedGeneral !== '') {
                     $finalSuggested[$rateKey]['general_account'] = $matchedGeneral;
                 }
             }
             if (!empty($ivaCandidates)) {
-                $matchedIva = pickMatchingAccountForRate($ivaCandidates, $planAccounts, $rateInfo, 'iva_account');
+                $matchedIva = (!empty($perRateIva) || $trustUnscopedLigacaoCandidates)
+                    ? pickFirstAccountCandidate($perRateIva)
+                    : pickMatchingAccountForRate($ivaCandidates, $planAccounts, $rateInfo, 'iva_account');
+                if ($matchedIva === '' && $trustUnscopedLigacaoCandidates) {
+                    $matchedIva = pickFirstAccountCandidate($ivaCandidates);
+                }
                 if ($matchedIva !== '') {
                     $finalSuggested[$rateKey]['iva_account'] = $matchedIva;
                 }

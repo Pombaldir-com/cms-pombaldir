@@ -33,3 +33,4 @@ contabilidade/__pycache__/
 scripts/deploy_last_commit_sftp.sh
 scripts/deploy_last_commit_sftp.sh
 scripts/deploy_last_commit_sftp.sh
+contabilidade/debug_ai.txt

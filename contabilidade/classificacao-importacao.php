@@ -771,6 +771,9 @@ function prepareImportRow(array $row): array {
     $rawEmitterNif = (string)($row['field_C'] ?? '');
     $normalizedEmitterNif = preg_replace('/\D+/', '', $rawEmitterNif);
     $emitterRawValue = trim($rawEmitter);
+    if ($normalizedEmitterNif === '') {
+        $normalizedEmitterNif = extractVatNumber($emitterRawValue);
+    }
     $emitterName = $emitterRawValue;
 
     if ($normalizedEmitterNif !== '') {
@@ -1047,6 +1050,60 @@ function normalizeSuggestionDocDate(string $value): string {
     $timestamp = strtotime($value);
     if ($timestamp !== false) {
         return date('Y-m-d', $timestamp);
+    }
+
+    return '';
+}
+
+function normalizeSuggestionLigacaoDocType(string $docType): string {
+    $value = strtoupper(trim($docType));
+    if ($value === '') {
+        return '';
+    }
+    if (in_array($value, ['FATURA', 'FACTURA', 'INVOICE'], true)) {
+        return 'FT';
+    }
+    // For account suggestions, FR/FTR should reuse the FT mapping in LigacaoCteTipoDoc.
+    if (in_array($value, ['FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO', 'FR', 'FTR'], true)) {
+        return 'FT';
+    }
+    if (in_array($value, ['NOTA CREDITO', 'NOTA DE CREDITO', 'NC'], true)) {
+        return 'NC';
+    }
+    if (in_array($value, ['NOTA DEBITO', 'NOTA DE DÉBITO', 'ND'], true)) {
+        return 'ND';
+    }
+    if (in_array($value, ['RECIBO', 'RC'], true)) {
+        return 'RC';
+    }
+    return $value;
+}
+
+function resolveSuggestionLigacaoRateKeyFromRow(array $row): string {
+    $rateValue = trim((string) ($row['fltTaxaValor'] ?? ''));
+    if ($rateValue !== '' && $rateValue !== '.000000' && $rateValue !== '0.000000' && $rateValue !== '0') {
+        return normalizeSuggestionRateKey($rateValue);
+    }
+
+    $descriptionCandidates = [
+        trim((string) ($row['PC_Descricao'] ?? '')),
+        trim((string) ($row['Rub_Descricao'] ?? '')),
+        trim((string) ($row['Rub_Codigo'] ?? '')),
+    ];
+    foreach ($descriptionCandidates as $description) {
+        $normalized = strtolower($description);
+        if ($normalized === '') {
+            continue;
+        }
+        if (strpos($normalized, 'taxa normal') !== false || strpos($normalized, 'normal') !== false) {
+            return '23';
+        }
+        if (strpos($normalized, 'interm') !== false) {
+            return '13';
+        }
+        if (strpos($normalized, 'reduz') !== false) {
+            return '6';
+        }
     }
 
     return '';
@@ -1594,6 +1651,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $docDate = normalizeSuggestionDocDate((string) ($args['doc_date'] ?? ''));
     $emitter = trim((string) ($args['emitter'] ?? ''));
     $emitterNif = extractVatNumber((string) ($args['emitter_nif'] ?? ''));
+    if ($emitterNif === '' && $emitter !== '') {
+        $emitterNif = extractVatNumber($emitter);
+    }
     $acquirerRaw = trim((string) ($args['acquirer_raw'] ?? ''));
     $acquirerNif = extractVatNumber((string) ($args['acquirer_nif'] ?? ''));
     if ($acquirerNif === '' && $acquirerRaw !== '') {
@@ -1610,35 +1670,75 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
 
     $database = trim((string) ($args['db'] ?? $args['database'] ?? ''));
-    $ligacaoNif = $emitterNif !== '' ? $emitterNif : $acquirerNif;
-
-    if ($database === '') {
-        if ($emitterNif !== '') {
-            $entity = findAccountingEntity($pdo, $emitterNif);
-            if (is_array($entity)) {
-                $database = resolveAccountingEntityDatabase($entity);
-            }
+    $emitterDatabase = '';
+    if ($emitterNif !== '') {
+        $entity = findAccountingEntity($pdo, $emitterNif);
+        if (is_array($entity)) {
+            $emitterDatabase = resolveAccountingEntityDatabase($entity);
         }
     }
-    if ($database === '') {
+    $acquirerDatabase = '';
+    if ($acquirerNif !== '') {
         $entity = findAccountingEntity($pdo, $acquirerNif);
         if (is_array($entity)) {
-            $database = resolveAccountingEntityDatabase($entity);
+            $acquirerDatabase = resolveAccountingEntityDatabase($entity);
         }
+    }
+
+    if ($database === '') {
+        $database = $emitterDatabase;
+    }
+    if ($database === '') {
+        $database = $acquirerDatabase;
     }
     if ($database === '') {
         $database = resolveErpDatabaseIdentifier('');
     }
 
     $ligacaoRows = [];
-    if ($docType !== '' && $docDate !== '' && $ligacaoNif !== '') {
-        $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', [
+    $ligacaoPerRate = [];
+    $ligacaoDocType = normalizeSuggestionLigacaoDocType($docType);
+    $ligacaoNifCandidates = array_values(array_unique(array_filter([
+        $emitterNif,
+        extractVatNumber($emitter),
+        $acquirerNif,
+        extractVatNumber($acquirerRaw),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    $databaseCandidates = array_values(array_unique(array_filter([
+        $database,
+        $emitterDatabase,
+        $acquirerDatabase,
+        resolveErpDatabaseIdentifier(''),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    if ($ligacaoDocType !== '' && $docDate !== '' && !empty($ligacaoNifCandidates) && !empty($databaseCandidates)) {
+        $ligacaoQueryBase = [
             'datadoc' => $docDate,
-            'strNIF' => $ligacaoNif,
-            'strTpDoc' => $docType,
-        ], $database);
-        if (!empty($ligacaoPayload)) {
-            $ligacaoRows = extractErpRowsFromPayload($ligacaoPayload);
+            'strTpDoc' => $ligacaoDocType,
+        ];
+        $docYear = substr($docDate, 0, 4);
+        if (preg_match('/^\d{4}$/', $docYear)) {
+            $ligacaoQueryBase['strCodExercicio'] = $docYear;
+        }
+        foreach ($databaseCandidates as $databaseCandidate) {
+            foreach ($ligacaoNifCandidates as $ligacaoNifCandidate) {
+                $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', $ligacaoQueryBase + [
+                    'strNIF' => $ligacaoNifCandidate,
+                ], $databaseCandidate);
+                if (empty($ligacaoPayload)) {
+                    continue;
+                }
+                $candidateRows = extractErpRowsFromPayload($ligacaoPayload);
+                if (empty($candidateRows)) {
+                    continue;
+                }
+                $ligacaoRows = $candidateRows;
+                $database = $databaseCandidate;
+                break 2;
+            }
         }
     }
 
@@ -1663,17 +1763,32 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         if ($tipo !== '' && $tipo !== 'D') {
             continue;
         }
+        $rateKey = resolveSuggestionLigacaoRateKeyFromRow($row);
+        if ($rateKey !== '' && !isset($ligacaoPerRate[$rateKey])) {
+            $ligacaoPerRate[$rateKey] = ['general' => [], 'iva' => []];
+        }
         if ($general !== '') {
             $ligacaoGeneralAccounts[$general] = ($ligacaoGeneralAccounts[$general] ?? 0) + 1;
+            if ($rateKey !== '') {
+                $ligacaoPerRate[$rateKey]['general'][$general] = ($ligacaoPerRate[$rateKey]['general'][$general] ?? 0) + 1;
+            }
         }
         if ($iva !== '') {
             $ligacaoIvaAccounts[$iva] = ($ligacaoIvaAccounts[$iva] ?? 0) + 1;
+            if ($rateKey !== '') {
+                $ligacaoPerRate[$rateKey]['iva'][$iva] = ($ligacaoPerRate[$rateKey]['iva'][$iva] ?? 0) + 1;
+            }
         }
     }
     arsort($ligacaoGeneralAccounts);
     arsort($ligacaoIvaAccounts);
     arsort($ligacaoTotalCreditAccounts);
     arsort($ligacaoTotalEntityAccounts);
+    foreach ($ligacaoPerRate as $rateKey => $entry) {
+        arsort($entry['general']);
+        arsort($entry['iva']);
+        $ligacaoPerRate[$rateKey] = $entry;
+    }
     $ligacaoTotalAccounts = !empty($ligacaoTotalCreditAccounts)
         ? $ligacaoTotalCreditAccounts
         : $ligacaoTotalEntityAccounts;
@@ -1744,6 +1859,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
 
         $historyRate = $historyTally['rates'][$rateKey] ?? ['general' => [], 'iva' => []];
         $rulesRate = $ruleTally['rates'][$rateKey] ?? ['general' => [], 'iva' => []];
+        $ligacaoRate = $ligacaoPerRate[$rateKey] ?? ['general' => [], 'iva' => []];
+        $ligacaoRateGeneral = is_array($ligacaoRate['general'] ?? null) ? $ligacaoRate['general'] : [];
+        $ligacaoRateIva = is_array($ligacaoRate['iva'] ?? null) ? $ligacaoRate['iva'] : [];
 
         $topHistoryGeneral = (string) (array_key_first($historyRate['general']) ?? '');
         $topHistoryIva = (string) (array_key_first($historyRate['iva']) ?? '');
@@ -1783,15 +1901,24 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
 
         if (!empty($ligacaoRows)) {
             $ligacaoHits = [];
+            $useRateScopedLigacao = !empty($ligacaoRateGeneral) || !empty($ligacaoRateIva);
             if ($suggestedGeneral !== '') {
-                $ligacaoHits[] = 'geral ' . $suggestedGeneral . ': ' . (int) ($ligacaoGeneralAccounts[$suggestedGeneral] ?? 0) . ' ocorrências';
+                $ligacaoHits[] = 'geral ' . $suggestedGeneral . ': ' . (int) (
+                    $useRateScopedLigacao
+                        ? ($ligacaoRateGeneral[$suggestedGeneral] ?? 0)
+                        : ($ligacaoGeneralAccounts[$suggestedGeneral] ?? 0)
+                ) . ' ocorrências';
             }
             if ($suggestedIva !== '') {
-                $ligacaoHits[] = 'IVA ' . $suggestedIva . ': ' . (int) ($ligacaoIvaAccounts[$suggestedIva] ?? 0) . ' ocorrências';
+                $ligacaoHits[] = 'IVA ' . $suggestedIva . ': ' . (int) (
+                    $useRateScopedLigacao
+                        ? ($ligacaoRateIva[$suggestedIva] ?? 0)
+                        : ($ligacaoIvaAccounts[$suggestedIva] ?? 0)
+                ) . ' ocorrências';
             }
             if (empty($ligacaoHits)) {
-                $topGeneral = (string) (array_key_first($ligacaoGeneralAccounts) ?? '');
-                $topIva = (string) (array_key_first($ligacaoIvaAccounts) ?? '');
+                $topGeneral = (string) (array_key_first($useRateScopedLigacao ? $ligacaoRateGeneral : $ligacaoGeneralAccounts) ?? '');
+                $topIva = (string) (array_key_first($useRateScopedLigacao ? $ligacaoRateIva : $ligacaoIvaAccounts) ?? '');
                 if ($topGeneral !== '') {
                     $ligacaoHits[] = 'top geral ' . $topGeneral;
                 }
@@ -1799,7 +1926,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
                     $ligacaoHits[] = 'top IVA ' . $topIva;
                 }
             }
-            $reasons[] = 'Ligação Cte Tipo Doc ERP analisada (' . count($ligacaoRows) . ' linhas)' . (!empty($ligacaoHits) ? ' - ' . implode(', ', $ligacaoHits) . '.' : '.');
+            $reasons[] = 'Ligação Cte Tipo Doc ERP analisada (' . count($ligacaoRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . ')'
+                . ($useRateScopedLigacao ? ' - taxa mapeada por PC_Descricao' : '')
+                . (!empty($ligacaoHits) ? ' - ' . implode(', ', $ligacaoHits) . '.' : '.');
         }
 
         if (!empty($planRows)) {
@@ -2522,7 +2651,7 @@ if ($action === 'data') {
             $actions = implode(' ', $actionsParts);
             $pdfLink = '<a href="' . htmlspecialchars($row['filename'] ?? '') . '" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a>';
             $data[] = [
-                $emitterDisplayEscaped,
+                htmlspecialchars($emitterNifValue, ENT_QUOTES, 'UTF-8'),
                 htmlspecialchars($row['field_B'] ?? ''),
                 htmlspecialchars($row['field_C'] ?? ''),
                 htmlspecialchars($row['field_D'] ?? ''),
@@ -2639,7 +2768,7 @@ require_once __DIR__ . '/../header.php';
         <table id="classify-table" class="table table-striped">
             <thead>
                 <tr>
-                    <th class="text-start">Emitente</th>
+                    <th class="text-start">NIF Emitente</th>
                     <th class="text-start">Adquirente</th>
                     <th></th>
                     <th width="5%" class="text-middle">TP</th>
@@ -2677,7 +2806,7 @@ require_once __DIR__ . '/../header.php';
                     $emitterNifValue = (string)($row['emitter_nif_normalized'] ?? ($row['field_C'] ?? ''));
                 ?>
                 <tr>
-                    <td class="text-start"><?= htmlspecialchars($emitterDisplay); ?></td>
+                    <td class="text-start"><?= htmlspecialchars($emitterNifValue); ?></td>
                     <td class="text-start"><?= htmlspecialchars($row['field_B'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_C'] ?? ''); ?></td>
                     <td class="text-middle"><?= htmlspecialchars($row['field_D'] ?? ''); ?></td>
