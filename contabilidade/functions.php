@@ -1582,6 +1582,33 @@ function buildVatRateLabel(string $rate): string {
 }
 
 /**
+ * Normalize a VAT rate key into a canonical string representation.
+ */
+function normalizeAccountingRateKey(string $value): string {
+    $clean = trim(str_replace('%', '', $value));
+    if ($clean === '') {
+        return '';
+    }
+
+    $clean = str_replace(',', '.', $clean);
+    if (!is_numeric($clean)) {
+        return $clean;
+    }
+
+    $num = (float) $clean;
+    if ($num > 0 && $num <= 1) {
+        $num *= 100;
+    }
+    $num = round($num, 2);
+
+    if (abs($num - round($num)) < 0.001) {
+        return (string) (int) round($num);
+    }
+
+    return rtrim(rtrim(number_format($num, 2, '.', ''), '0'), '.');
+}
+
+/**
  * Attempt to extract a trimmed string value from a mixed data structure.
  *
  * Some legacy accounting configurations store account identifiers inside
@@ -1664,12 +1691,21 @@ function looksLikeAccountReference($value): bool {
 /**
  * Return the default metadata structure used alongside VAT rate mappings.
  */
+function normalizeAccountingMetadataFlag($value): string {
+    $flag = trim((string) $value);
+    return ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+}
+
+/**
+ * Return the default metadata structure used alongside VAT rate mappings.
+ */
 function defaultAccountingMetadata(): array {
     return [
         'total_account' => '',
         'manual_review_required' => '0',
         'ignore_detected_rates' => '0',
         'classification_model_name' => '',
+        'has_receipt_companion' => '0',
     ];
 }
 
@@ -1706,18 +1742,19 @@ function normalizeAccountingMetadata(?string $json): array {
             }
         }
         if (array_key_exists('manual_review_required', $candidate)) {
-            $flag = trim((string) $candidate['manual_review_required']);
-            $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+            $result['manual_review_required'] = normalizeAccountingMetadataFlag($candidate['manual_review_required']);
         }
         if (array_key_exists('ignore_detected_rates', $candidate)) {
-            $flag = trim((string) $candidate['ignore_detected_rates']);
-            $result['ignore_detected_rates'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+            $result['ignore_detected_rates'] = normalizeAccountingMetadataFlag($candidate['ignore_detected_rates']);
         }
         if (array_key_exists('classification_model_name', $candidate)) {
             $value = extractStringValue($candidate['classification_model_name'], ['value', 'name', 'label']);
             if ($value !== null) {
                 $result['classification_model_name'] = $value;
             }
+        }
+        if (array_key_exists('has_receipt_companion', $candidate)) {
+            $result['has_receipt_companion'] = normalizeAccountingMetadataFlag($candidate['has_receipt_companion']);
         }
     }
 
@@ -1751,13 +1788,11 @@ function sanitizeAccountingMetadata($input): array {
     }
 
     if (is_array($source) && array_key_exists('manual_review_required', $source)) {
-        $flag = trim((string) $source['manual_review_required']);
-        $result['manual_review_required'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+        $result['manual_review_required'] = normalizeAccountingMetadataFlag($source['manual_review_required']);
     }
 
     if (is_array($source) && array_key_exists('ignore_detected_rates', $source)) {
-        $flag = trim((string) $source['ignore_detected_rates']);
-        $result['ignore_detected_rates'] = ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+        $result['ignore_detected_rates'] = normalizeAccountingMetadataFlag($source['ignore_detected_rates']);
     }
 
     if (is_array($source) && array_key_exists('classification_model_name', $source)) {
@@ -1765,6 +1800,10 @@ function sanitizeAccountingMetadata($input): array {
         if ($candidate !== null) {
             $result['classification_model_name'] = $candidate;
         }
+    }
+
+    if (is_array($source) && array_key_exists('has_receipt_companion', $source)) {
+        $result['has_receipt_companion'] = normalizeAccountingMetadataFlag($source['has_receipt_companion']);
     }
 
     return $result;
@@ -2902,18 +2941,24 @@ function buildRatePayload(array $summaries, array $accounts): array {
             }
         }
 
+        $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
+        $ivaAccount = $accountInfo['iva_account'] ?? '';
+        if ($normalizedRateKey === '0') {
+            $ivaAccount = '';
+        }
+
         $payload[$rate] = [
             'label' => $label,
             'base' => $baseDisplay,
             'iva' => $ivaDisplay,
             'base_value' => $baseDisplay,
             'iva_value' => $ivaDisplay,
-            'iva_account' => $accountInfo['iva_account'] ?? '',
+            'iva_account' => $ivaAccount,
             'general_account' => $accountInfo['general_account'] ?? '',
         ];
         $requirements[$rate] = [
             'general' => !empty($info['require_general']),
-            'iva' => !empty($info['require_iva']),
+            'iva' => ($normalizedRateKey !== '0' && !empty($info['require_iva'])),
             'cost_center' => (trim((string) ($accountInfo['cost_center_required'] ?? '')) === '1'),
         ];
     }
@@ -2941,6 +2986,11 @@ function buildManualClassificationRequirements(array $payload): array {
         $base = trim((string) ($data['base'] ?? $data['base_value'] ?? ''));
         $ivaValue = trim((string) ($data['iva'] ?? $data['iva_value'] ?? ''));
         $costCenterRequired = trim((string) ($data['cost_center_required'] ?? '')) === '1';
+        $normalizedRateKey = normalizeAccountingRateKey($rateKey);
+
+        if ($normalizedRateKey === '0') {
+            $iva = '';
+        }
 
         if ($general === '' && $iva === '' && $base === '' && $ivaValue === '') {
             continue;
@@ -2948,7 +2998,7 @@ function buildManualClassificationRequirements(array $payload): array {
 
         $requirements[$rateKey] = [
             'general' => true,
-            'iva' => ($rateKey !== '0'),
+            'iva' => ($normalizedRateKey !== '0'),
             'cost_center' => $costCenterRequired,
         ];
     }
@@ -2994,6 +3044,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
 
     foreach ($requirements as $rate => $req) {
         $data = $payload[$rate] ?? [];
+        $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
         $hasRelevantConfiguration = false;
         if (!empty($req['general'])) {
             $requires = true;
@@ -3005,7 +3056,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
                 $hasAny = true;
             }
         }
-        if (!empty($req['iva'])) {
+        if ($normalizedRateKey !== '0' && !empty($req['iva'])) {
             $requires = true;
             $hasRelevantConfiguration = true;
             $iva = trim((string) ($data['iva_account'] ?? ''));
@@ -3027,7 +3078,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
         }
         if (!$hasRelevantConfiguration) {
             $general = trim((string) ($data['general_account'] ?? ''));
-            $iva = trim((string) ($data['iva_account'] ?? ''));
+            $iva = $normalizedRateKey === '0' ? '' : trim((string) ($data['iva_account'] ?? ''));
             $costCenterValue = trim((string) ($costCenters[$rate] ?? ''));
             $hasRelevantConfiguration = ($general !== '' || $iva !== '' || $costCenterValue !== '');
         }

@@ -1500,6 +1500,8 @@ window.addEventListener('load', function() {
         Object.keys(requirements).forEach(function(rate) {
             var req = requirements[rate] || {};
             var data = rateData[rate] || {};
+            var normalizedRate = normalizeRateToken(rate);
+            var isZeroRate = normalizedRate !== null && Math.abs(normalizedRate) < 0.00001;
             var hasRelevantConfiguration = false;
             if (req.general) {
                 requires = true;
@@ -1511,7 +1513,7 @@ window.addEventListener('load', function() {
                     hasAny = true;
                 }
             }
-            if (req.iva) {
+            if (req.iva && !isZeroRate) {
                 requires = true;
                 hasRelevantConfiguration = true;
                 var iva = (data.iva_account || '').trim();
@@ -1533,7 +1535,7 @@ window.addEventListener('load', function() {
             }
             if (!hasRelevantConfiguration) {
                 hasRelevantConfiguration = String(data.general_account || '').trim() !== ''
-                    || String(data.iva_account || '').trim() !== ''
+                    || (!isZeroRate && String(data.iva_account || '').trim() !== '')
                     || String(costCenters[rate] || '').trim() !== '';
             }
             if (hasRelevantConfiguration) {
@@ -1653,9 +1655,11 @@ window.addEventListener('load', function() {
             if (!hasValues) {
                 return;
             }
+            var normalizedRate = normalizeRateToken(rate);
+            var isZeroRate = normalizedRate !== null && Math.abs(normalizedRate) < 0.00001;
             requirements[rate] = {
                 general: true,
-                iva: String(rate) !== '0',
+                iva: !isZeroRate,
                 cost_center: String(entry.cost_center_required || '').trim() === '1'
             };
         });
@@ -3708,6 +3712,7 @@ window.addEventListener('load', function() {
         var acquirerNif = currentBtn.getAttribute('data-acquirer') || '';
         var docType = currentBtn.getAttribute('data-doctype') || '';
         var docNumber = currentBtn.getAttribute('data-doc-number') || '';
+        var hasReceiptCompanion = (currentBtn.getAttribute('data-has-receipt-companion') || '') === '1';
         var rateLines = buildRateLines();
 
         return [
@@ -3725,6 +3730,7 @@ window.addEventListener('load', function() {
                 '- NIF adquirente: ' + acquirerNif,
                 '- tipo: ' + docType,
                 '- numero: ' + docNumber,
+                '- digitalizacao conjunta com recibo RC: ' + (hasReceiptCompanion ? 'sim' : 'nao'),
                 '',
             'Taxas:',
             JSON.stringify(rateLines)
@@ -3906,6 +3912,10 @@ window.addEventListener('load', function() {
             var generalAccount = resolveSuggestionValue(suggestion, ['general_account', 'generalAccount', 'conta_geral', 'contaGeral', 'account']);
             ivaAccount = sanitizeAccountCodeForRate(ivaAccount, resolvedKey);
             generalAccount = sanitizeAccountCodeForRate(generalAccount, resolvedKey);
+            var normalizedResolvedRate = normalizeRateToken(resolvedKey);
+            if (normalizedResolvedRate !== null && Math.abs(normalizedResolvedRate) < 0.00001) {
+                ivaAccount = '';
+            }
             var updated = false;
             if (ivaAccount) {
                 if (info.ivaAccount) {
@@ -4906,6 +4916,10 @@ window.addEventListener('load', function() {
         var generalAccount = rowData.general_account || baseData.general_account || defaultData.general_account || '';
         ivaAccount = sanitizeAccountCodeForRate(ivaAccount, rate);
         generalAccount = sanitizeAccountCodeForRate(generalAccount, rate);
+        var normalizedRateValue = normalizeRateToken(rate);
+        if (normalizedRateValue !== null && Math.abs(normalizedRateValue) < 0.00001) {
+            ivaAccount = '';
+        }
         if (baseData.iva_account && ivaAccount === '') {
             baseData.iva_account = '';
         }
@@ -5189,6 +5203,7 @@ window.addEventListener('load', function() {
                         db: currentBtn.getAttribute('data-acquirer-db') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
                         doc_date: currentBtn.getAttribute('data-docdate') || '',
+                        has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                         rates: rateLines
                     },
                     message: prompt,
@@ -5287,6 +5302,11 @@ window.addEventListener('load', function() {
         var html = '';
         if (response.summary && typeof response.summary === 'object') {
             var summary = response.summary;
+            if (String(summary.supplier_not_found || '0') === '1') {
+                html += '<div class="alert alert-warning mb-3">'
+                    + escapeHtml(String(summary.supplier_lookup_message || 'Fornecedor não encontrado no ERP para a ligação do documento.'))
+                    + '</div>';
+            }
             html += '<div class="mb-2"><small class="text-muted">'
                 + 'Histórico: ' + escapeHtml(String(summary.history_samples || 0))
                 + ' | Regras: ' + escapeHtml(String(summary.rule_samples || 0))
@@ -5436,6 +5456,7 @@ window.addEventListener('load', function() {
                         db: currentBtn.getAttribute('data-acquirer-db') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
                         doc_date: currentBtn.getAttribute('data-docdate') || '',
+                        has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                         total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
                         rates: rates
                     }
@@ -5715,6 +5736,9 @@ window.addEventListener('load', function() {
                 var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
                 var effectiveTotalAccount = (rowTotalAccount || classificationTotalAccount || buttonTotalAccount || '').trim();
                 currentTotalAccount = effectiveTotalAccount || '';
+                if (Object.prototype.hasOwnProperty.call(res, 'has_receipt_companion') && currentBtn) {
+                    currentBtn.setAttribute('data-has-receipt-companion', String(res.has_receipt_companion || '').trim() === '1' ? '1' : '0');
+                }
                 if (totalAccountInput) {
                     totalAccountInput.value = currentTotalAccount;
                     updatePlanInputTitle(totalAccountInput);
@@ -5957,6 +5981,9 @@ window.addEventListener('load', function() {
                 }
                 responseTotalAccount = (responseTotalAccount || totalAccountValue || '').trim();
                 currentTotalAccount = responseTotalAccount;
+                if (Object.prototype.hasOwnProperty.call(res, 'has_receipt_companion') && currentBtn) {
+                    currentBtn.setAttribute('data-has-receipt-companion', String(res.has_receipt_companion || '').trim() === '1' ? '1' : '0');
+                }
                 if (totalAccountInput) {
                     totalAccountInput.value = currentTotalAccount;
                     updatePlanInputTitle(totalAccountInput);

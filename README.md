@@ -119,10 +119,17 @@ O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar d
      - Opera sobre as linhas verdes.
      - Permite processar/importar diretamente a partir desta vista.
    - No modal de classificação, existe o botão `Explicação da sugestão` para justificar por taxa as contas sugeridas (histórico/regras/ERP ligação+movimentos/plano).
+   - A coluna visível do emitente mostra apenas o NIF do emitente.
 2. **Importação**: `contabilidade/classificacao-importacao?import_type=1&type=import`
    - Mostra apenas linhas verdes (prontas).
    - Botão global `Importar Ctb` para enviar as linhas selecionadas ao ERP.
    - O acesso no menu lateral fica visível apenas com `ctb_importar_docs`.
+
+#### Regras de leitura por ficheiro PDF
+- O mesmo PDF pode conter multiplas faturas; o sistema preserva todas as `FT`/`FR` encontradas no ficheiro.
+- Se o mesmo ficheiro contiver `FT`/`FR` e `RC`, os recibos `RC` sao ignorados e apenas as faturas seguem para classificacao/importacao.
+- Quando uma fatura vem no mesmo PDF com um `RC`, esse contexto e guardado para a sugestao de contas, sobretudo para a conta de `Valor Total`.
+- Na ligacao ERP `LigacaoCteTipoDoc`, documentos `FR`/`FTR` sao tratados como `FT` para obter a parametrizacao contabilistica correta.
 
 #### Resumo prático
 - Utilizador com `ctb_classificar_docs` e sem `ctb_importar_docs`:

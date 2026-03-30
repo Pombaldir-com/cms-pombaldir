@@ -150,6 +150,7 @@ Atalho:
 - Vista de Classificação:
   - `contabilidade/classificacao-importacao?import_type=1`
   - Mostra documentos pendentes.
+  - A coluna visível do emitente mostra apenas o NIF do emitente.
   - Botão por linha:
     - `Classificar` quando incompleto.
     - `Classificado` (verde) quando pronto.
@@ -161,6 +162,12 @@ Atalho:
   - `contabilidade/classificacao-importacao?import_type=1&type=import`
   - Mostra apenas linhas verdes/prontas.
   - Botão global `Importar Ctb`.
+
+### 8.1.1 Regras de leitura por ficheiro PDF
+- Se o mesmo ficheiro contiver faturas `FT`/`FR` e recibos `RC`, os `RC` devem ser ignorados.
+- A leitura de multiplas faturas no mesmo ficheiro deve ser preservada.
+- Quando uma fatura vem no mesmo PDF com um `RC`, esse contexto deve ser considerado na sugestao da conta de `Valor Total`.
+- Em `LigacaoCteTipoDoc`, documentos `FR`/`FTR` devem usar a parametrizacao `FT`.
 
 ### 8.2 Regras de permissões (obrigatório)
 - `ctb_classificar_docs`:

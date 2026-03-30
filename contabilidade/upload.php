@@ -443,6 +443,127 @@ function resolveAccountingUploadPath(string $relativeFile): array {
     ];
 }
 
+function normalizeUploadImportDocType(string $value): string {
+    $normalized = strtoupper(trim($value));
+    if ($normalized === '') {
+        return '';
+    }
+    if (in_array($normalized, ['FTR', 'FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO'], true)) {
+        return 'FR';
+    }
+    if (in_array($normalized, ['FATURA', 'FACTURA'], true)) {
+        return 'FT';
+    }
+    if ($normalized === 'RECIBO') {
+        return 'RC';
+    }
+    return $normalized;
+}
+
+function uploadImportDocTypeIsInvoice(string $value): bool {
+    $normalized = normalizeUploadImportDocType($value);
+    return $normalized === 'FT' || $normalized === 'FR';
+}
+
+function uploadImportDocTypeIsReceipt(string $value): bool {
+    return normalizeUploadImportDocType($value) === 'RC';
+}
+
+function normalizeUploadBooleanFlag($value): string {
+    $flag = trim((string) $value);
+    return ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+}
+
+function annotateUploadRowsWithReceiptCompanion(array $rows): array {
+    if (empty($rows)) {
+        return [];
+    }
+
+    $fileFlags = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $file = trim((string) ($row['filename'] ?? ''));
+        if ($file === '') {
+            continue;
+        }
+        if (!isset($fileFlags[$file])) {
+            $fileFlags[$file] = ['has_invoice' => false, 'has_receipt' => false];
+        }
+        $docType = (string) ($row['D'] ?? '');
+        if (uploadImportDocTypeIsInvoice($docType)) {
+            $fileFlags[$file]['has_invoice'] = true;
+        } elseif (uploadImportDocTypeIsReceipt($docType)) {
+            $fileFlags[$file]['has_receipt'] = true;
+        }
+    }
+
+    $annotated = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $file = trim((string) ($row['filename'] ?? ''));
+        $hasReceiptCompanion = normalizeUploadBooleanFlag($row['has_receipt_companion'] ?? '0') === '1';
+        if (
+            !$hasReceiptCompanion
+            && $file !== ''
+            && !empty($fileFlags[$file]['has_invoice'])
+            && !empty($fileFlags[$file]['has_receipt'])
+            && uploadImportDocTypeIsInvoice((string) ($row['D'] ?? ''))
+        ) {
+            $hasReceiptCompanion = true;
+        }
+        $row['has_receipt_companion'] = $hasReceiptCompanion ? '1' : '0';
+        $annotated[] = $row;
+    }
+
+    return $annotated;
+}
+
+function filterUploadRowsPreferInvoicesByFile(array $rows): array {
+    if (empty($rows)) {
+        return [];
+    }
+
+    $fileFlags = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $file = trim((string) ($row['filename'] ?? ''));
+        if ($file === '') {
+            continue;
+        }
+        if (!isset($fileFlags[$file])) {
+            $fileFlags[$file] = ['has_invoice' => false, 'has_receipt' => false];
+        }
+        $docType = (string) ($row['D'] ?? '');
+        if (uploadImportDocTypeIsInvoice($docType)) {
+            $fileFlags[$file]['has_invoice'] = true;
+        } elseif (uploadImportDocTypeIsReceipt($docType)) {
+            $fileFlags[$file]['has_receipt'] = true;
+        }
+    }
+
+    $filtered = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $file = trim((string) ($row['filename'] ?? ''));
+        if ($file !== '' && !empty($fileFlags[$file]['has_invoice']) && !empty($fileFlags[$file]['has_receipt'])) {
+            if (uploadImportDocTypeIsReceipt((string) ($row['D'] ?? ''))) {
+                continue;
+            }
+        }
+        $filtered[] = $row;
+    }
+
+    return $filtered;
+}
+
 function normalizeUploadMoneyValue($value): string {
     if ($value === null || $value === '') {
         return '';
@@ -1039,6 +1160,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['error' => 'Dados inválidos', 'csrf_token' => $newToken]);
             exit;
         }
+        $rows = annotateUploadRowsWithReceiptCompanion($rows);
+        $rows = filterUploadRowsPreferInvoicesByFile($rows);
 
         $importType = isset($data['import_type']) ? (int)$data['import_type'] : 1;
 
@@ -1061,7 +1184,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $row['A'] = $a;
             $stmt->execute([$a, $b, $d]);
-            $row['account'] = $stmt->fetchColumn() ?: '';
+            $existingAccount = (string) ($stmt->fetchColumn() ?: '');
+            $hasReceiptCompanion = normalizeUploadBooleanFlag($row['has_receipt_companion'] ?? '0');
+            if ($existingAccount !== '' || $hasReceiptCompanion === '1') {
+                $row['account'] = serializeAccountingAccounts(
+                    normalizeAccountingAccounts($existingAccount),
+                    ['has_receipt_companion' => $hasReceiptCompanion],
+                    normalizeAccountingMetadata($existingAccount)
+                );
+            } else {
+                $row['account'] = '';
+            }
         }
         unset($row);
 

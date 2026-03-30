@@ -812,6 +812,7 @@ if ($action === 'get') {
         'suggested_cost_centers' => $suggestedCostCenters,
         'total_account' => $classificationMetadata['total_account'] ?? '',
         'row_total_account' => $rowMetadata['total_account'] ?? '',
+        'has_receipt_companion' => $rowMetadata['has_receipt_companion'] ?? '0',
         'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
         'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
@@ -972,6 +973,8 @@ if ($action === 'get') {
         $existingRow = normalizeAccountingAccounts($importRow['account'] ?? '');
         $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $existingRowMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
+        $existingRowMetadata['has_receipt_companion'] = (($existingRowMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
+        $submittedMetadata['has_receipt_companion'] = $existingRowMetadata['has_receipt_companion'];
 
         $existingOriginalRaw = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -1080,6 +1083,10 @@ if ($action === 'get') {
         $serializedRow = serializeAccountingAccounts($rowAccounts, $submittedMetadata, $existingRowMetadata);
         $classMetadata = $submittedMetadata;
         $classMetadata['manual_review_required'] = '0';
+        if (($submittedMetadata['has_receipt_companion'] ?? '0') === '1') {
+            $classMetadata['total_account'] = $existingClassMetadata['total_account'] ?? '';
+        }
+        $classMetadata['has_receipt_companion'] = '0';
         $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
         $serializedCostCenters = serializeCostCenters($costCentersData, $costCenterBreakdownsData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
@@ -1124,6 +1131,7 @@ if ($action === 'get') {
             'original_rates' => $existingOriginal,
             'total_account' => $submittedMetadata['total_account'] ?? '',
             'row_total_account' => $submittedMetadata['total_account'] ?? '',
+            'has_receipt_companion' => $submittedMetadata['has_receipt_companion'] ?? '0',
             'manual_review_required' => $submittedMetadata['manual_review_required'] ?? '0',
             'ignore_detected_rates' => $submittedMetadata['ignore_detected_rates'] ?? '0',
             'classification_model_name' => $submittedMetadata['classification_model_name'] ?? '',

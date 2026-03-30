@@ -40,6 +40,16 @@ URL: `contabilidade/classificacao-importacao?import_type=1&type=import`
    - Na própria vista de Classificação, através do botão global `Classificado`; ou
    - Na vista **Importação** (`type=import`), através do botão `Importar Ctb` (quando aplicável por permissão).
 
+## Regras de leitura QR por ficheiro
+
+- Um mesmo PDF pode conter vários QR/documentos; o sistema mantém multiplas faturas `FT`/`FR` do mesmo ficheiro.
+- Se o mesmo ficheiro contiver pelo menos uma fatura (`FT` ou `FR`) e tambem um recibo (`RC`), os `RC` sao ignorados.
+- Esta regra e aplicada na grelha de upload e repetida no backend no momento do `import`, para garantir consistencia.
+- Quando uma fatura e mantida mas o mesmo ficheiro tinha tambem um `RC`, a linha fica marcada internamente com contexto de `recibo associado`.
+- Esse contexto nao cria linhas extra; serve para a memoria da sugestao distinguir:
+  - faturas isoladas, em que `Valor Total` tende a apontar para conta do fornecedor;
+  - faturas acompanhadas por recibo no mesmo PDF, em que `Valor Total` pode ser corrigido pelo utilizador para uma conta de bancos.
+
 O payload enviado para o ERP é construído em [`contabilidade/classificacao-importacao.php`](classificacao-importacao.php) e inclui os seguintes campos de formulário:
 
 - `tp = importMovim`
@@ -86,13 +96,20 @@ Parâmetros recomendados para esta chamada (dinâmicos por documento):
 
 - `act=importMovim`
 - `datadoc` (data do documento no formato `YYYY-MM-DD`, vinda do QR)
-- `strNIF` (NIF do adquirente)
+- `strNIF` (privilegiar o NIF do emitente; o sistema pode testar candidatos alternativos quando necessário)
 - `db`
-- `strTpDoc` (tipo documental vindo do QR, ex.: `FT`)
+- `strTpDoc` (tipo documental normalizado para o ERP)
+- `strCodExercicio` (quando disponivel, usar o ano do documento)
+
+Normalizacao documental usada nesta consulta:
+
+- `FT` -> `FT`
+- `FR` / `FTR` -> `FT`
+- `RC` -> `RC`
 
 Exemplo:
 
-`GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=513364790&db=emp_306&strTpDoc=FT`
+`GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=504128582&db=emp_566&strCodExercicio=2026&strTpDoc=FT`
 
 O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
 
@@ -114,5 +131,22 @@ Regras de funcionamento:
 - Na modal, o parâmetro `db` é enviado com a base de dados ERP do adquirente associada à linha/documento selecionado.
 - É enviado `EMP` com o valor de **Módulos > Contabilidade > Empresa base** (`accounting_base_company`).
 - Os resultados do plano são mantidos em cache no cliente por contexto (db + NIF adquirente + exercício), para resposta rápida durante a escrita.
+
+## Memoria da sugestao de contas
+
+A sugestao de contas cruza varias fontes:
+
+- historico em `accounting_imports`;
+- regras em `accounting_classifications`;
+- `LigacaoCteTipoDoc`;
+- movimentos ERP;
+- plano de contas ERP como fallback final.
+
+Para a conta de `Valor Total`, a memoria do historico ja nao trata todos os documentos da mesma forma. O fator de memoria passa tambem a distinguir:
+
+- documentos sem `RC` no mesmo ficheiro;
+- documentos cuja digitalizacao continha tambem um `RC`.
+
+Isto e importante porque, no segundo caso, o utilizador pode trocar a conta do `Valor Total` de fornecedor para uma conta de bancos. Essa decisao passa a ser aprendida e reutilizada apenas para documentos do mesmo contexto, evitando contaminar a sugestao de faturas normais.
 
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).

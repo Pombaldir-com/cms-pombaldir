@@ -2761,12 +2761,39 @@ function extractTotalAccountFromPayload(string $json): string {
     return $candidate;
 }
 
+function normalizeSuggestionReceiptCompanionFlag($value): string {
+    $flag = trim((string) $value);
+    return ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+}
+
+function extractReceiptCompanionFlagFromPayload(string $json): string {
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) {
+        return '0';
+    }
+
+    $candidates = [$decoded];
+    if (isset($decoded['meta']) && is_array($decoded['meta'])) {
+        $candidates[] = $decoded['meta'];
+    }
+
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate) || !array_key_exists('has_receipt_companion', $candidate)) {
+            continue;
+        }
+        return normalizeSuggestionReceiptCompanionFlag($candidate['has_receipt_companion']);
+    }
+
+    return '0';
+}
+
 function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, string $mode = 'strict', array $context = []): array {
     $pdo = getPDO();
     $acquirerNif = extractVatLikeValue($acquirerNif);
     $docType = trim($docType);
     $emitterHint = normalizePartyToken((string) ($context['emitter'] ?? ''));
     $acquirerHint = normalizePartyToken((string) ($context['acquirer_raw'] ?? ''));
+    $receiptCompanionFlag = normalizeSuggestionReceiptCompanionFlag($context['has_receipt_companion'] ?? '0');
 
     $sql = 'SELECT id, field_A, field_B, field_C, field_D, account, line_items FROM accounting_imports WHERE account <> \'\'';
     $params = [];
@@ -2814,6 +2841,7 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
         if ($rowAcquirerNif === '') {
             $rowAcquirerNif = extractVatLikeValue((string) ($row['field_C'] ?? ''));
         }
+        $rowReceiptCompanionFlag = extractReceiptCompanionFlagFromPayload($accountJson);
 
         $score = 0;
         if ($acquirerNif !== '' && $rowAcquirerNif !== '' && $acquirerNif === $rowAcquirerNif) {
@@ -2834,6 +2862,11 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
                 $score += 2;
             }
         }
+        if ($rowReceiptCompanionFlag === $receiptCompanionFlag) {
+            $score += 3;
+        } elseif ($receiptCompanionFlag === '1') {
+            $score -= 2;
+        }
         if (trim((string) ($row['line_items'] ?? '')) !== '') {
             $score += 1;
         }
@@ -2845,6 +2878,8 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
             'rates' => $rates,
             'score' => $score,
             'total_account' => extractTotalAccountFromPayload($accountJson),
+            'has_receipt_companion' => $rowReceiptCompanionFlag,
+            'source' => 'history',
         ];
     }
 
@@ -2859,13 +2894,14 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
     return array_slice($examples, 0, $limit);
 }
 
-function fetchClassificationRuleExamples(string $docType, string $emitter, string $acquirer, int $limit = 20): array {
+function fetchClassificationRuleExamples(string $docType, string $emitter, string $acquirer, int $limit = 20, array $context = []): array {
     if (!hasTable('accounting_classifications')) {
         return [];
     }
     $docType = trim($docType);
     $emitter = trim($emitter);
     $acquirer = trim($acquirer);
+    $receiptCompanionFlag = normalizeSuggestionReceiptCompanionFlag($context['has_receipt_companion'] ?? '0');
 
     $pdo = getPDO();
     $sql = 'SELECT id, emitter, acquirer, doc_type, account FROM accounting_classifications WHERE 1=1';
@@ -2889,6 +2925,7 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
         }
         $rates = extractAccountsFromPayload($accountPayload);
         $totalAccount = extractTotalAccountFromPayload($accountPayload);
+        $rowReceiptCompanionFlag = extractReceiptCompanionFlagFromPayload($accountPayload);
         if (!$rates && $totalAccount === '') {
             continue;
         }
@@ -2905,6 +2942,9 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
         if ($normalizedAcquirer !== '' && $ruleAcquirer !== '' && (strpos($ruleAcquirer, $normalizedAcquirer) !== false || strpos($normalizedAcquirer, $ruleAcquirer) !== false)) {
             $score += 2;
         }
+        if ($rowReceiptCompanionFlag === $receiptCompanionFlag) {
+            $score += 1;
+        }
 
         $examples[] = [
             'id' => (int) ($row['id'] ?? 0),
@@ -2913,6 +2953,8 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
             'rates' => $rates,
             'score' => $score,
             'total_account' => $totalAccount,
+            'has_receipt_companion' => $rowReceiptCompanionFlag,
+            'source' => 'rule',
         ];
     }
 
@@ -2927,9 +2969,10 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
     return array_slice($examples, 0, $limit);
 }
 
-function buildExpectedLinesFromExamples(array $examples): array {
+function buildExpectedLinesFromExamples(array $examples, array $context = []): array {
     $rateTally = [];
     $totalTally = [];
+    $receiptCompanionFlag = normalizeSuggestionReceiptCompanionFlag($context['has_receipt_companion'] ?? '0');
     foreach ($examples as $example) {
         $rates = is_array($example['rates'] ?? null) ? $example['rates'] : [];
         foreach ($rates as $rateKey => $accounts) {
@@ -2970,7 +3013,38 @@ function buildExpectedLinesFromExamples(array $examples): array {
             ];
         }
     }
-    if (!empty($totalTally)) {
+    $totalSelectionStrategies = [
+        ['source' => 'history', 'match_receipt_flag' => true],
+        ['source' => 'history', 'match_receipt_flag' => false],
+        ['source' => '', 'match_receipt_flag' => true],
+        ['source' => '', 'match_receipt_flag' => false],
+    ];
+    foreach ($totalSelectionStrategies as $strategy) {
+        $scopedTally = [];
+        foreach ($examples as $example) {
+            $total = trim((string) ($example['total_account'] ?? ''));
+            if ($total === '') {
+                continue;
+            }
+            $source = trim((string) ($example['source'] ?? ''));
+            if ($strategy['source'] !== '' && $source !== $strategy['source']) {
+                continue;
+            }
+            if (!empty($strategy['match_receipt_flag'])) {
+                $exampleReceiptFlag = normalizeSuggestionReceiptCompanionFlag($example['has_receipt_companion'] ?? '0');
+                if ($exampleReceiptFlag !== $receiptCompanionFlag) {
+                    continue;
+                }
+            }
+            $scopedTally[$total] = ($scopedTally[$total] ?? 0) + 1;
+        }
+        if (!empty($scopedTally)) {
+            arsort($scopedTally);
+            $expected['total_account'] = (string) array_key_first($scopedTally);
+            break;
+        }
+    }
+    if ($expected['total_account'] === '' && !empty($totalTally)) {
         arsort($totalTally);
         $expected['total_account'] = (string) array_key_first($totalTally);
     }
@@ -3436,6 +3510,9 @@ function findIvaAccountForRate(array $planAccounts, array $rateInfo): string {
     if (!$planAccounts) {
         return '';
     }
+    if (normalizeRateKey((string) ($rateInfo['key'] ?? '')) === '0') {
+        return '';
+    }
     $label = $rateInfo['label'] ?? '';
     $rateKey = $rateInfo['key'] ?? '';
     $normalized = trim(str_replace('%', '', $label ?: $rateKey));
@@ -3669,12 +3746,15 @@ function pickFallbackGeneralByRateKey(string $rateKey): string {
     return '';
 }
 
-function pickTotalAccountFromPlan(array $planAccounts): string {
+function pickTotalAccountFromPlan(array $planAccounts, array $preferredPrefixes = ['12', '22', '21']): string {
     if (!$planAccounts) {
         return '';
     }
-    $preferredPrefixes = ['12', '22', '21'];
     foreach ($preferredPrefixes as $prefix) {
+        $prefix = trim((string) $prefix);
+        if ($prefix === '') {
+            continue;
+        }
         foreach ($planAccounts as $row) {
             if (!is_array($row)) {
                 continue;
@@ -3720,6 +3800,9 @@ function buildSuggestionsFromExamples(array $examples, array $rates): array {
             continue;
         }
         $accounts = resolveAccountByRateKey($suggested, $rateKey);
+        if (normalizeRateKey($rateKey) === '0') {
+            $accounts['iva_account'] = '';
+        }
         if (!empty($accounts['iva_account']) || !empty($accounts['general_account'])) {
             $result[$rateKey] = $accounts;
         }
@@ -3748,11 +3831,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'emitter' => $emitter,
         'emitter_nif' => $emitterNif,
         'acquirer_raw' => $acquirerRaw,
+        'has_receipt_companion' => normalizeSuggestionReceiptCompanionFlag($args['has_receipt_companion'] ?? '0'),
     ];
     $limit = 18;
     $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
-    $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12);
-    $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples));
+    $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12, $context);
+    $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples), $context);
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
     if (!empty($ruleExamples)) {
         $ruleSuggested = buildSuggestionsFromExamples($ruleExamples, $rateItems);
@@ -3793,12 +3877,16 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
 
     $finalSuggested = $suggestedFromHistory;
     $planAccounts = [];
+    $globalPlanAccounts = [];
     $planDb = '';
     $planYear = date('Y');
     $preferPlanAsLastOption = false;
     $ligacaoHints = ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     $movementHints = ['general' => [], 'iva' => [], 'count' => 0];
     $ligacaoNifUsed = '';
+    $ligacaoLookupAttempted = false;
+    $missingSupplierInErp = false;
+    $hasReceiptCompanion = normalizeSuggestionReceiptCompanionFlag($context['has_receipt_companion'] ?? '0') === '1';
     if ($erpBaseUrl !== '' && $erpToken !== '') {
         $primaryLigacaoNif = '';
         $ligacaoNifCandidates = array_values(array_unique(array_filter([
@@ -3843,6 +3931,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                     })));
                 }
                 foreach ($nifCandidatesForDb as $nifCandidate) {
+                    $ligacaoLookupAttempted = true;
                     $candidateHints = fetchErpLigacaoAccountHints($erpBaseUrl, $erpToken, $dbCandidate, $docType, $nifCandidate, $docDate);
                     if (!empty($candidateHints['count'])) {
                         $ligacaoHints = $candidateHints;
@@ -3870,6 +3959,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                 'ligacao_rows' => (int) ($ligacaoHints['count'] ?? 0),
             ]);
 
+            $missingSupplierInErp = $ligacaoLookupAttempted && empty($ligacaoHints['count']);
             $movementHints = fetchErpMovementAccountHints($erpBaseUrl, $erpToken, $planDb, $docType, $acquirerNif);
             $planAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, $acquirerNif);
             $hasPriorityEvidence = !empty($examples) || !empty($ruleExamples) || !empty($ligacaoHints['count']) || !empty($movementHints['count']);
@@ -3881,6 +3971,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                     if ($rateKey === '') {
                         continue;
                     }
+                    $normalizedRateKey = normalizeRateKey($rateKey);
                     if (!isset($finalSuggested[$rateKey])) {
                         $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
                     }
@@ -3899,7 +3990,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                             $missingRates[] = $rateInfo;
                         }
                     }
-                    if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
+                    if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
                         $iva = '';
                         $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
                         if ($generalSelected !== '') {
@@ -3914,13 +4005,14 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                     }
                 }
                 if ($missingRates) {
-                    $globalPlan = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
-                    if ($globalPlan) {
+                    $globalPlanAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
+                    if ($globalPlanAccounts) {
                         foreach ($missingRates as $rateInfo) {
                             $rateKey = (string) ($rateInfo['key'] ?? '');
                             if ($rateKey === '') {
                                 continue;
                             }
+                            $normalizedRateKey = normalizeRateKey($rateKey);
                             if (!isset($finalSuggested[$rateKey])) {
                                 $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
                             }
@@ -3928,23 +4020,23 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                                 $ivaForRate = $finalSuggested[$rateKey]['iva_account'] ?? '';
                                 $general = '';
                                 if ($ivaForRate !== '') {
-                                    $general = pickGeneralAccountByIvaAccount($globalPlan, $ivaForRate);
+                                    $general = pickGeneralAccountByIvaAccount($globalPlanAccounts, $ivaForRate);
                                 }
                                 if ($general === '') {
-                                    $general = pickGeneralAccountFromPlan($globalPlan, $rateInfo);
+                                    $general = pickGeneralAccountFromPlan($globalPlanAccounts, $rateInfo);
                                 }
                                 if ($general !== '') {
                                     $finalSuggested[$rateKey]['general_account'] = $general;
                                 }
                             }
-                            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
+                            if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
                                 $iva = '';
                                 $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
                                 if ($generalSelected !== '') {
-                                    $iva = findIvaAccountForGeneral($globalPlan, $generalSelected);
+                                    $iva = findIvaAccountForGeneral($globalPlanAccounts, $generalSelected);
                                 }
                                 if ($iva === '') {
-                                    $iva = findIvaAccountForRate($globalPlan, $rateInfo);
+                                    $iva = findIvaAccountForRate($globalPlanAccounts, $rateInfo);
                                 }
                                 if ($iva !== '') {
                                     $finalSuggested[$rateKey]['iva_account'] = $iva;
@@ -3990,7 +4082,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                     $finalSuggested[$rateKey]['general_account'] = $matchedGeneral;
                 }
             }
-            if (!empty($ivaCandidates)) {
+            if ($normalizedRateKey !== '0' && !empty($ivaCandidates)) {
                 $matchedIva = (!empty($perRateIva) || $trustUnscopedLigacaoCandidates)
                     ? pickFirstAccountCandidate($perRateIva)
                     : pickMatchingAccountForRate($ivaCandidates, $planAccounts, $rateInfo, 'iva_account');
@@ -4001,7 +4093,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                     $finalSuggested[$rateKey]['iva_account'] = $matchedIva;
                 }
             }
-            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && $planAccounts) {
+            if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && $planAccounts) {
                 $generalForRate = trim((string) ($finalSuggested[$rateKey]['general_account'] ?? ''));
                 if ($generalForRate !== '') {
                     $fallbackIva = findIvaAccountForGeneral($planAccounts, $generalForRate);
@@ -4033,7 +4125,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                 if (($finalSuggested[$rateKey]['general_account'] ?? '') === '' && !empty($expected['general_account'])) {
                     $finalSuggested[$rateKey]['general_account'] = (string) $expected['general_account'];
                 }
-                if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($expected['iva_account'])) {
+                if (normalizeRateKey($rateKey) !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($expected['iva_account'])) {
                     $finalSuggested[$rateKey]['iva_account'] = (string) $expected['iva_account'];
                 }
             }
@@ -4048,13 +4140,14 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             if ($rateKey === '') {
                 continue;
             }
+            $normalizedRateKey = normalizeRateKey($rateKey);
             if (!isset($finalSuggested[$rateKey])) {
                 $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
             }
             if (($finalSuggested[$rateKey]['general_account'] ?? '') === '' && !empty($movementGeneral)) {
                 $finalSuggested[$rateKey]['general_account'] = (string) $movementGeneral[0];
             }
-            if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($movementIva)) {
+            if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($movementIva)) {
                 $finalSuggested[$rateKey]['iva_account'] = (string) $movementIva[0];
             }
         }
@@ -4089,6 +4182,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                 }
             }
         }
+        if ($rateKey === '0') {
+            $finalSuggested[$rateKey]['iva_account'] = '';
+            if ($rawKey !== $rateKey && isset($finalSuggested[$rawKey])) {
+                $finalSuggested[$rawKey]['iva_account'] = '';
+            }
+        }
     }
 
     // Plan of accounts is used as fallback when higher-priority evidence exists.
@@ -4117,10 +4216,10 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             if (($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
                 $iva = '';
                 $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
-                if ($generalSelected !== '') {
+                if (normalizeRateKey($rateKey) !== '0' && $generalSelected !== '') {
                     $iva = findIvaAccountForGeneral($planAccounts, $generalSelected);
                 }
-                if ($iva === '') {
+                if (normalizeRateKey($rateKey) !== '0' && $iva === '') {
                     $iva = findIvaAccountForRate($planAccounts, $rateInfo);
                 }
                 if ($iva !== '') {
@@ -4129,10 +4228,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
         }
 
-        if (trim((string) ($expectedLines['total_account'] ?? '')) === '') {
-            $globalPlan = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
-            if ($globalPlan) {
-                foreach ($globalPlan as $row) {
+        if (!empty($ligacaoHints['count']) && trim((string) ($expectedLines['total_account'] ?? '')) === '') {
+            if (!$globalPlanAccounts) {
+                $globalPlanAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
+            }
+            if ($globalPlanAccounts) {
+                foreach ($globalPlanAccounts as $row) {
                     $account = trim((string) ($row['account'] ?? ''));
                     if ($account !== '' && preg_match('/^\d{3,}$/', $account)) {
                         $expectedLines['total_account'] = $account;
@@ -4149,10 +4250,51 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     if ($ligacaoTotalAccount !== '') {
         $expectedLines['total_account'] = $ligacaoTotalAccount;
     }
-    if (trim((string) ($expectedLines['total_account'] ?? '')) === '' && $planAccounts) {
+    if (!empty($ligacaoHints['count']) && trim((string) ($expectedLines['total_account'] ?? '')) === '' && $planAccounts) {
         $planTotalAccount = pickTotalAccountFromPlan($planAccounts);
         if ($planTotalAccount !== '') {
             $expectedLines['total_account'] = $planTotalAccount;
+        }
+    }
+    if ($missingSupplierInErp) {
+        foreach ($rateItems as $rateInfo) {
+            $rawKey = (string) ($rateInfo['key'] ?? '');
+            if ($rawKey === '' && isset($rateInfo['label'])) {
+                $rawKey = (string) $rateInfo['label'];
+            }
+            if ($rawKey === '') {
+                continue;
+            }
+            $rateKey = normalizeRateKey($rawKey);
+            if ($rateKey === '') {
+                $rateKey = $rawKey;
+            }
+            foreach (array_unique([$rawKey, $rateKey]) as $keyVariant) {
+                if ($keyVariant === '') {
+                    continue;
+                }
+                if (!isset($finalSuggested[$keyVariant])) {
+                    $finalSuggested[$keyVariant] = ['iva_account' => '', 'general_account' => ''];
+                }
+                $finalSuggested[$keyVariant]['general_account'] = '';
+                if (isset($expectedLines['rates'][$keyVariant]) && is_array($expectedLines['rates'][$keyVariant])) {
+                    $expectedLines['rates'][$keyVariant]['general_account'] = '';
+                }
+            }
+        }
+
+        $expectedLines['total_account'] = '';
+        if ($hasReceiptCompanion) {
+            $bankTotalAccount = pickTotalAccountFromPlan($planAccounts, ['12']);
+            if ($bankTotalAccount === '' && $planDb !== '') {
+                if (!$globalPlanAccounts) {
+                    $globalPlanAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
+                }
+                $bankTotalAccount = pickTotalAccountFromPlan($globalPlanAccounts, ['12']);
+            }
+            if ($bankTotalAccount !== '') {
+                $expectedLines['total_account'] = $bankTotalAccount;
+            }
         }
     }
     $costCenterRequiredRates = buildCostCenterRequiredRates(

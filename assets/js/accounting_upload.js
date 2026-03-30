@@ -167,14 +167,15 @@ window.addEventListener('load', function() {
         }
     }
 
-    function buildActionsHtml(filePath, imported) {
+    function buildActionsHtml(filePath, imported, hasReceiptCompanion) {
         var safeFile = String(filePath || '');
+        var receiptFlag = hasReceiptCompanion ? '1' : '0';
         var pdfBtnClass = imported ? 'btn-success' : 'btn-secondary';
-        var pdfBtn = '<a href="' + safeFile + '" target="_blank" class="btn btn-xs ' + pdfBtnClass + ' open-file" data-file="' + safeFile + '"><i class="fa fa-file-pdf-o"></i></a>';
+        var pdfBtn = '<a href="' + safeFile + '" target="_blank" class="btn btn-xs ' + pdfBtnClass + ' open-file" data-file="' + safeFile + '" data-has-receipt-companion="' + receiptFlag + '"><i class="fa fa-file-pdf-o"></i></a>';
         if (imported) {
             return pdfBtn;
         }
-        return '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + safeFile + '"><i class="fa fa-trash"></i></button> ' + pdfBtn;
+        return '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + safeFile + '" data-has-receipt-companion="' + receiptFlag + '"><i class="fa fa-trash"></i></button> ' + pdfBtn;
     }
 
     function getRowFilePath(node) {
@@ -189,6 +190,15 @@ window.addEventListener('load', function() {
         return table.rows().nodes().toArray().filter(function(node) {
             return $(node).find('.delete-row').length > 0;
         });
+    }
+
+    function getRowHasReceiptCompanion(node) {
+        var source = $(node).find('.delete-row');
+        if (!source.length) {
+            source = $(node).find('.open-file');
+        }
+        var value = source.attr('data-has-receipt-companion');
+        return String(value || '').trim() === '1';
     }
 
     function hasPendingRows() {
@@ -221,7 +231,7 @@ window.addEventListener('load', function() {
                 return;
             }
             var filePath = getRowFilePath(this.node());
-            data[data.length - 1] = buildActionsHtml(filePath, true);
+            data[data.length - 1] = buildActionsHtml(filePath, true, getRowHasReceiptCompanion(this.node()));
             this.data(data);
         });
         table.draw(false);
@@ -593,6 +603,82 @@ window.addEventListener('load', function() {
         return '<span class="emitter-cell" data-raw="' + escapeHtml(rawValue) + '">' + escapeHtml(nifValue) + '</span>';
     }
 
+    function normalizeUploadDocType(value) {
+        var normalized = String(value || '').trim().toUpperCase();
+        if (!normalized) {
+            return '';
+        }
+        if (normalized === 'FTR' || normalized === 'FATURA-RECIBO' || normalized === 'FATURA RECIBO' || normalized === 'FACTURA-RECIBO') {
+            return 'FR';
+        }
+        if (normalized === 'FATURA' || normalized === 'FACTURA') {
+            return 'FT';
+        }
+        if (normalized === 'RECIBO') {
+            return 'RC';
+        }
+        return normalized;
+    }
+
+    function isInvoiceDocType(value) {
+        var normalized = normalizeUploadDocType(value);
+        return normalized === 'FT' || normalized === 'FR';
+    }
+
+    function isReceiptDocType(value) {
+        return normalizeUploadDocType(value) === 'RC';
+    }
+
+    function filterRowsToPreferInvoices(rows) {
+        var structuredRows = Array.isArray(rows) ? rows.slice() : [];
+        var hasInvoice = structuredRows.some(function(row) {
+            return row && typeof row === 'object' && isInvoiceDocType(row.D || '');
+        });
+        if (!hasInvoice) {
+            return structuredRows;
+        }
+        return structuredRows.filter(function(row) {
+            return !(row && typeof row === 'object' && isReceiptDocType(row.D || ''));
+        });
+    }
+
+    function fileHasPendingInvoiceRow(filePath) {
+        return getPendingRowNodes().some(function(node) {
+            if (getRowFilePath(node) !== filePath) {
+                return false;
+            }
+            var data = table.row(node).data() || [];
+            return isInvoiceDocType(data[3] || '');
+        });
+    }
+
+    function setReceiptCompanionFlagForFile(filePath, hasReceiptCompanion) {
+        var targetFile = String(filePath || '').trim();
+        if (!targetFile) {
+            return;
+        }
+
+        var matchingNodes = table.rows().nodes().toArray().filter(function(node) {
+            return getRowFilePath(node) === targetFile;
+        });
+        if (!matchingNodes.length) {
+            return;
+        }
+
+        matchingNodes.forEach(function(node) {
+            var rowApi = table.row(node);
+            var data = rowApi.data() || [];
+            if (!data.length) {
+                return;
+            }
+            var imported = $(node).find('.delete-row').length === 0;
+            data[data.length - 1] = buildActionsHtml(targetFile, imported, hasReceiptCompanion);
+            rowApi.data(data);
+        });
+
+        table.draw(false);
+    }
+
     function decodeTableCellRawValue(cellHtml) {
         var html = String(cellHtml || '');
         var match = html.match(/data-raw="([^"]*)"/i);
@@ -604,10 +690,51 @@ window.addEventListener('load', function() {
         return textarea.value;
     }
 
+    function pruneReceiptRowsForFile(filePath) {
+        var targetFile = String(filePath || '').trim();
+        if (!targetFile) {
+            return;
+        }
+
+        var matchingNodes = getPendingRowNodes().filter(function(node) {
+            return getRowFilePath(node) === targetFile;
+        });
+        if (!matchingNodes.length) {
+            return;
+        }
+
+        var hasInvoice = matchingNodes.some(function(node) {
+            var data = table.row(node).data() || [];
+            return isInvoiceDocType(data[3] || '');
+        });
+        if (!hasInvoice) {
+            return;
+        }
+
+        var receiptNodes = matchingNodes.filter(function(node) {
+            var data = table.row(node).data() || [];
+            return isReceiptDocType(data[3] || '');
+        });
+        if (!receiptNodes.length) {
+            return;
+        }
+
+        table.rows(receiptNodes).remove().draw(false);
+    }
+
     function addStructuredRows(rows, filePath) {
         var added = 0;
         var rowsToAdd = [];
-        (rows || []).forEach(function(qrData) {
+        var originalRows = Array.isArray(rows) ? rows.slice() : [];
+        var batchHasInvoice = originalRows.some(function(row) {
+            return row && typeof row === 'object' && isInvoiceDocType(row.D || '');
+        });
+        var batchHasReceipt = originalRows.some(function(row) {
+            return row && typeof row === 'object' && isReceiptDocType(row.D || '');
+        });
+        var hasReceiptCompanion = batchHasReceipt && (batchHasInvoice || fileHasPendingInvoiceRow(filePath));
+
+        filterRowsToPreferInvoices(originalRows).forEach(function(qrData) {
             if (!qrData || typeof qrData !== 'object') {
                 return;
             }
@@ -627,7 +754,7 @@ window.addEventListener('load', function() {
                 }
                 return value;
             });
-            var actions = buildActionsHtml(filePath, false);
+            var actions = buildActionsHtml(filePath, false, hasReceiptCompanion);
             row.push(actions);
             rowsToAdd.push(row);
             added += 1;
@@ -637,6 +764,10 @@ window.addEventListener('load', function() {
         if (rowsToAdd.length) {
             table.rows.add(rowsToAdd).draw(false);
         }
+        if (hasReceiptCompanion) {
+            setReceiptCompanionFlagForFile(filePath, true);
+        }
+        pruneReceiptRowsForFile(filePath);
 
         refreshUploadActionState();
         return added;
@@ -1343,6 +1474,7 @@ window.addEventListener('load', function() {
                 obj[qrKeys[i]] = (qrKeys[i] === 'A') ? decodeTableCellRawValue(data[i] || '') : (data[i] || '');
             }
             obj.filename = $(node).find('.delete-row').data('file') || '';
+            obj.has_receipt_companion = getRowHasReceiptCompanion(node) ? '1' : '0';
             return obj;
         });
         fetch('contabilidade/upload.php?action=import', {

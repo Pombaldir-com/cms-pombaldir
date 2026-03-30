@@ -821,6 +821,7 @@ function prepareImportRow(array $row): array {
     $row['cost_center_breakdowns'] = normalizeCostCenterBreakdowns($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
     $row['manual_review_required'] = (($accountMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
+    $row['has_receipt_companion'] = (($accountMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
@@ -1668,6 +1669,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
 
     $historyTally = buildSuggestionTallyFromHistory($pdo, $acquirerNif, $docType, $emitter);
     $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
+    $hasReceiptCompanion = trim((string) ($args['has_receipt_companion'] ?? '0')) === '1';
 
     $database = trim((string) ($args['db'] ?? $args['database'] ?? ''));
     $emitterDatabase = '';
@@ -1818,6 +1820,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     if (!empty($planPayload)) {
         $planRows = extractErpRowsFromPayload($planPayload);
     }
+    $globalPlanRows = [];
 
     $planAccounts = [];
     $planIvaAccounts = [];
@@ -1833,6 +1836,17 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         if ($iva !== '') {
             $planIvaAccounts[$iva] = true;
         }
+    }
+
+    $missingSupplierInErp = empty($ligacaoRows) && $ligacaoDocType !== '' && $docDate !== '' && !empty($ligacaoNifCandidates) && !empty($databaseCandidates);
+    $supplierLookupNif = (string) ($ligacaoNifCandidates[0] ?? '');
+    $supplierNotFoundMessage = '';
+    if ($missingSupplierInErp) {
+        $supplierNotFoundMessage = 'Fornecedor'
+            . ($supplierLookupNif !== '' ? ' ' . $supplierLookupNif : '')
+            . ' não encontrado na Ligação Cte Tipo Doc ERP'
+            . ' (db=' . ($database !== '' ? $database : 'n/d')
+            . ', tipo=' . ($ligacaoDocType !== '' ? $ligacaoDocType : 'n/d') . ').';
     }
 
     $explanations = [];
@@ -1929,6 +1943,8 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             $reasons[] = 'Ligação Cte Tipo Doc ERP analisada (' . count($ligacaoRows) . ' linhas, db=' . ($database !== '' ? $database : 'n/d') . ')'
                 . ($useRateScopedLigacao ? ' - taxa mapeada por PC_Descricao' : '')
                 . (!empty($ligacaoHits) ? ' - ' . implode(', ', $ligacaoHits) . '.' : '.');
+        } elseif ($supplierNotFoundMessage !== '') {
+            $reasons[] = $supplierNotFoundMessage;
         }
 
         if (!empty($planRows)) {
@@ -1965,14 +1981,50 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     }
 
     $suggestedTotalAccount = trim((string) ($args['total_account'] ?? ''));
-    if ($suggestedTotalAccount === '' && !empty($historyTally['totals'])) {
-        $suggestedTotalAccount = (string) array_key_first($historyTally['totals']);
-    }
-    if ($suggestedTotalAccount === '' && !empty($ruleTally['totals'])) {
-        $suggestedTotalAccount = (string) array_key_first($ruleTally['totals']);
-    }
-    if ($suggestedTotalAccount === '' && !empty($ligacaoTotalAccounts)) {
-        $suggestedTotalAccount = (string) array_key_first($ligacaoTotalAccounts);
+    if ($missingSupplierInErp) {
+        $suggestedTotalAccount = '';
+        if ($hasReceiptCompanion) {
+            foreach ($planRows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $account = trim((string) ($row['strConta'] ?? ''));
+                if ($account !== '' && strpos($account, '12') === 0) {
+                    $suggestedTotalAccount = $account;
+                    break;
+                }
+            }
+            if ($suggestedTotalAccount === '' && $database !== '') {
+                $globalPlanPayload = fetchErpJsonForSuggestion('/contabilidade/planocontas', [
+                    'strCodExercicio' => date('Y'),
+                    'limit' => 200,
+                    'offset' => 0,
+                ], $database);
+                if (!empty($globalPlanPayload)) {
+                    $globalPlanRows = extractErpRowsFromPayload($globalPlanPayload);
+                }
+                foreach ($globalPlanRows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $account = trim((string) ($row['strConta'] ?? ''));
+                    if ($account !== '' && strpos($account, '12') === 0) {
+                        $suggestedTotalAccount = $account;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        if ($suggestedTotalAccount === '' && !empty($historyTally['totals'])) {
+            $suggestedTotalAccount = (string) array_key_first($historyTally['totals']);
+        }
+        if ($suggestedTotalAccount === '' && !empty($ruleTally['totals'])) {
+            $suggestedTotalAccount = (string) array_key_first($ruleTally['totals']);
+        }
+        if ($suggestedTotalAccount === '' && !empty($ligacaoTotalAccounts)) {
+            $suggestedTotalAccount = (string) array_key_first($ligacaoTotalAccounts);
+        }
     }
 
     $topHistoryTotal = !empty($historyTally['totals']) ? (string) array_key_first($historyTally['totals']) : '';
@@ -2010,6 +2062,14 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             . ($suggestedTotalAccount !== '' ? $suggestedTotalAccount : 'n/d')
             . ' com ' . $occurrences . ' ocorrências'
             . ($topLigacaoTotal !== '' ? ' (top: ' . $topLigacaoTotal . ').' : '.');
+    } elseif ($ligacaoDocType !== '' && $docDate !== '' && !empty($ligacaoNifCandidates) && !empty($databaseCandidates)) {
+        $line = $supplierNotFoundMessage !== ''
+            ? $supplierNotFoundMessage . ' Sem conta automática de valor total a partir da ligação ERP.'
+            : 'Ligação Cte Tipo Doc ERP sem resultados para o fornecedor/tipo do documento; sem conta automática de valor total a partir da ligação ERP.';
+        if ($hasReceiptCompanion) {
+            $line .= ' Com recibo no mesmo PDF, o fallback fica limitado a conta de banco (12...).';
+        }
+        $totalReasons[] = $line;
     }
     if (!empty($planRows)) {
         $inPlan = $suggestedTotalAccount !== '' && isset($planAccounts[$suggestedTotalAccount]);
@@ -2030,6 +2090,10 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'erp_movement_rows' => count($movementRows),
             'erp_plan_rows' => count($planRows),
             'database' => $database,
+            'supplier_not_found' => $missingSupplierInErp ? 1 : 0,
+            'supplier_lookup_nif' => $supplierLookupNif,
+            'supplier_lookup_doc_type' => $ligacaoDocType,
+            'supplier_lookup_message' => $supplierNotFoundMessage,
         ],
         'total_account' => [
             'suggested' => $suggestedTotalAccount,
@@ -2631,6 +2695,7 @@ if ($action === 'data') {
                     . 'data-docdate="' . htmlspecialchars($row['field_F'] ?? '') . '" '
                     . 'data-qr-fields="' . $qrFieldsAttr . '" '
                     . 'data-file-url="' . htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-has-receipt-companion="' . htmlspecialchars((string) ($row['has_receipt_companion'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
@@ -2861,6 +2926,7 @@ require_once __DIR__ . '/../header.php';
                                 data-docdate="<?= htmlspecialchars($row['field_F'] ?? ''); ?>"
                                 data-qr-fields="<?= $qrFieldsAttr; ?>"
                                 data-file-url="<?= htmlspecialchars($row['filename'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
+                                data-has-receipt-companion="<?= htmlspecialchars((string) ($row['has_receipt_companion'] ?? '0'), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
