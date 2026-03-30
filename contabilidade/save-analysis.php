@@ -156,6 +156,176 @@ function suggestHistoricalCostCenters(PDO $pdo, string $emitter, string $acquire
     return $result;
 }
 
+function suggestHistoricalTotalAccount(PDO $pdo, array $context, int $excludeId = 0): string {
+    $emitter = trim((string) ($context['emitter'] ?? ''));
+    $acquirer = trim((string) ($context['acquirer'] ?? ''));
+    $docType = trim((string) ($context['doc_type'] ?? ''));
+    $emitterNif = extractVatNumber((string) ($context['emitter_nif'] ?? $emitter));
+    $acquirerNif = extractVatNumber((string) ($context['acquirer_nif'] ?? $acquirer));
+    $receiptCompanionFlag = trim((string) ($context['has_receipt_companion'] ?? '0')) === '1' ? '1' : '0';
+
+    if ($docType === '') {
+        return '';
+    }
+
+    $sql = 'SELECT id, field_A, field_B, field_C, field_D, account
+            FROM accounting_imports
+            WHERE field_D = ? AND account IS NOT NULL AND account <> ""';
+    $params = [$docType];
+
+    if ($acquirerNif !== '') {
+        $sql .= ' AND (field_B = ? OR field_B LIKE ? OR field_C = ? OR field_C LIKE ?)';
+        $params[] = $acquirerNif;
+        $params[] = '%' . $acquirerNif . '%';
+        $params[] = $acquirerNif;
+        $params[] = '%' . $acquirerNif . '%';
+    } elseif ($acquirer !== '') {
+        $sql .= ' AND (field_B = ? OR field_C = ?)';
+        $params[] = $acquirer;
+        $params[] = $acquirer;
+    }
+
+    if ($excludeId > 0) {
+        $sql .= ' AND id <> ?';
+        $params[] = $excludeId;
+    }
+
+    $sql .= ' ORDER BY id DESC LIMIT 250';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        return '';
+    }
+
+    $bestAccount = '';
+    $bestScore = PHP_INT_MIN;
+    $bestId = 0;
+
+    foreach ($rows as $row) {
+        $metadata = normalizeAccountingMetadata($row['account'] ?? '');
+        $totalAccount = trim((string) ($metadata['total_account'] ?? ''));
+        if ($totalAccount === '') {
+            continue;
+        }
+
+        $score = 0;
+        $rowEmitter = trim((string) ($row['field_A'] ?? ''));
+        $rowAcquirer = trim((string) ($row['field_B'] ?? ''));
+        $rowEmitterNif = extractVatNumber((string) ($row['field_C'] ?? ''));
+        if ($rowEmitterNif === '') {
+            $rowEmitterNif = extractVatNumber($rowEmitter);
+        }
+        $rowAcquirerNif = extractVatNumber($rowAcquirer);
+        if ($rowAcquirerNif === '') {
+            $rowAcquirerNif = extractVatNumber((string) ($row['field_C'] ?? ''));
+        }
+
+        if ($emitterNif !== '' && $rowEmitterNif !== '' && $emitterNif === $rowEmitterNif) {
+            $score += 8;
+        } elseif ($emitter !== '' && $rowEmitter === $emitter) {
+            $score += 2;
+        }
+
+        if ($acquirerNif !== '' && $rowAcquirerNif !== '' && $acquirerNif === $rowAcquirerNif) {
+            $score += 6;
+        } elseif ($acquirer !== '' && $rowAcquirer === $acquirer) {
+            $score += 2;
+        }
+
+        $rowReceiptCompanionFlag = (($metadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
+        if ($rowReceiptCompanionFlag === $receiptCompanionFlag) {
+            $score += 3;
+        } elseif ($receiptCompanionFlag === '1') {
+            $score -= 2;
+        }
+
+        $rowId = (int) ($row['id'] ?? 0);
+        if ($score > $bestScore || ($score === $bestScore && $rowId > $bestId)) {
+            $bestAccount = $totalAccount;
+            $bestScore = $score;
+            $bestId = $rowId;
+        }
+    }
+
+    return $bestAccount;
+}
+
+function buildClassificationPartyKey($value, $fallbackVat = ''): string {
+    $fallbackVat = trim((string) ($fallbackVat ?? ''));
+    $vat = extractVatNumber($fallbackVat !== '' ? $fallbackVat : (string) $value);
+    if ($vat !== '') {
+        return $vat;
+    }
+    return normalizeSupplierPartyValue($value);
+}
+
+function resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, array $importRow = []): array {
+    $resolvedEmitterSource = array_key_exists('field_A', $importRow) ? $importRow['field_A'] : $emitter;
+    $resolvedEmitterVat = array_key_exists('field_C', $importRow) ? $importRow['field_C'] : '';
+    $resolvedAcquirerSource = array_key_exists('field_B', $importRow) ? $importRow['field_B'] : $acquirer;
+    $resolvedDocType = array_key_exists('field_D', $importRow) ? $importRow['field_D'] : $docType;
+
+    return [
+        buildClassificationPartyKey($resolvedEmitterSource, $resolvedEmitterVat),
+        buildClassificationPartyKey($resolvedAcquirerSource),
+        normalizeDocTypeValue($resolvedDocType),
+    ];
+}
+
+function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docType, array $importRow = []): string {
+    $candidates = [];
+
+    $resolved = resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, $importRow);
+    $candidates[] = $resolved;
+
+    $normalizedLegacy = [
+        normalizeSupplierPartyValue($emitter),
+        normalizeSupplierPartyValue($acquirer),
+        normalizeDocTypeValue($docType),
+    ];
+    $candidates[] = $normalizedLegacy;
+
+    $rawLegacy = [
+        trim((string) ($emitter ?? '')),
+        trim((string) ($acquirer ?? '')),
+        trim((string) ($docType ?? '')),
+    ];
+    $candidates[] = $rawLegacy;
+
+    $seen = [];
+    $stmt = $pdo->prepare(
+        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+    );
+
+    foreach ($candidates as $candidate) {
+        [$candidateEmitter, $candidateAcquirer, $candidateDocType] = $candidate;
+        $signature = $candidateEmitter . '|' . $candidateAcquirer . '|' . $candidateDocType;
+        if ($candidateEmitter === '' || $candidateAcquirer === '' || $candidateDocType === '' || isset($seen[$signature])) {
+            continue;
+        }
+        $seen[$signature] = true;
+        $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
+        $payload = $stmt->fetchColumn();
+        if (is_string($payload) && trim($payload) !== '') {
+            return $payload;
+        }
+    }
+
+    return '';
+}
+
+function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
+    $normalizedFlag = trim($receiptCompanionFlag) === '1' ? '1' : '0';
+    if ($normalizedFlag === '1') {
+        $receiptTotalAccount = trim((string) ($metadata['receipt_total_account'] ?? ''));
+        if ($receiptTotalAccount !== '') {
+            return $receiptTotalAccount;
+        }
+    }
+    return trim((string) ($metadata['total_account'] ?? ''));
+}
+
 function getSharedClassificationModelPath(): string {
     return dirname(__DIR__) . '/data/shared/accounting_classification_models.json';
 }
@@ -748,24 +918,13 @@ if ($action === 'get') {
     }
     $idValue = is_numeric($id) ? (int) $id : 0;
     requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
-    ensureAccountingEntity($pdo, (string) $a);
-    $stmt = $pdo->prepare(
-        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
-    );
-    $stmt->execute([$a, $b, $d]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-    $classificationAccounts = normalizeAccountingAccounts($row['account'] ?? '');
-    $classificationMetadata = normalizeAccountingMetadata($row['account'] ?? '');
-    if (($classificationMetadata['ignore_detected_rates'] ?? '0') === '1') {
-        $classificationAccounts = filterVisibleAccountingRates($classificationAccounts);
-    }
-
     $rowAccounts = normalizeAccountingAccounts(null);
     $rowMetadata = normalizeAccountingMetadata(null);
     $rowCostCenters = buildEmptyCostCenterMap();
     $originalSnapshot = [];
     $summaries = [];
     $rowRequirements = [];
+    $importRow = [];
     if ($id !== '') {
         $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
@@ -790,8 +949,35 @@ if ($action === 'get') {
         $originalSnapshot = mergeOriginalRateSnapshot($decodedOriginal, $summaries);
     }
 
+    ensureAccountingEntity($pdo, (string) ($importRow['field_A'] ?? $a));
+    $classificationPayload = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
+    $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
+    $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
+    if (($classificationMetadata['ignore_detected_rates'] ?? '0') === '1') {
+        $classificationAccounts = filterVisibleAccountingRates($classificationAccounts);
+    }
+
     if (empty($originalSnapshot) && !empty($summaries)) {
         $originalSnapshot = mergeOriginalRateSnapshot([], $summaries);
+    }
+
+    $classificationTotalAccount = resolveClassificationTotalAccountForContext(
+        $classificationMetadata,
+        $rowMetadata['has_receipt_companion'] ?? '0'
+    );
+
+    if ($classificationTotalAccount === '') {
+        $historicalTotalAccount = suggestHistoricalTotalAccount($pdo, [
+            'emitter' => $importRow['field_A'] ?? $a,
+            'emitter_nif' => $importRow['field_C'] ?? '',
+            'acquirer' => $importRow['field_B'] ?? $b,
+            'acquirer_nif' => $importRow['field_B'] ?? $b,
+            'doc_type' => $importRow['field_D'] ?? $d,
+            'has_receipt_companion' => $rowMetadata['has_receipt_companion'] ?? '0',
+        ], $idValue);
+        if ($historicalTotalAccount !== '') {
+            $classificationTotalAccount = $historicalTotalAccount;
+        }
     }
 
     $suggestedCostCenters = suggestHistoricalCostCenters(
@@ -810,7 +996,7 @@ if ($action === 'get') {
         'cost_centers' => $rowCostCenters,
         'cost_center_breakdowns' => $rowCostCenterBreakdowns,
         'suggested_cost_centers' => $suggestedCostCenters,
-        'total_account' => $classificationMetadata['total_account'] ?? '',
+        'total_account' => $classificationTotalAccount,
         'row_total_account' => $rowMetadata['total_account'] ?? '',
         'has_receipt_companion' => $rowMetadata['has_receipt_companion'] ?? '0',
         'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
@@ -947,20 +1133,16 @@ if ($action === 'get') {
             'classification_model_name' => $saveModelName !== '' ? $saveModelName : $selectedModelName,
         ]);
 
-        $stmtExisting = $pdo->prepare(
-            'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
-        );
-        $stmtExisting->execute([$a, $b, $d]);
-        $existingClassRaw = $stmtExisting->fetchColumn() ?: '';
-        $existingClass = normalizeAccountingAccounts($existingClassRaw);
-        $existingClassMetadata = normalizeAccountingMetadata($existingClassRaw);
-
         $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC);
         if (!$importRow) {
             throw new RuntimeException('Importação inexistente');
         }
+        [$classificationEmitter, $classificationAcquirer, $classificationDocType] = resolveClassificationStorageIdentifiers($a, $b, $d, $importRow);
+        $existingClassRaw = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
+        $existingClass = normalizeAccountingAccounts($existingClassRaw);
+        $existingClassMetadata = normalizeAccountingMetadata($existingClassRaw);
         if ($costCenterBreakdownsJson !== '') {
             $decodedCostCenterBreakdowns = json_decode($costCenterBreakdownsJson, true);
             if (!is_array($decodedCostCenterBreakdowns)) {
@@ -1083,8 +1265,10 @@ if ($action === 'get') {
         $serializedRow = serializeAccountingAccounts($rowAccounts, $submittedMetadata, $existingRowMetadata);
         $classMetadata = $submittedMetadata;
         $classMetadata['manual_review_required'] = '0';
+        $classMetadata['receipt_total_account'] = $existingClassMetadata['receipt_total_account'] ?? '';
         if (($submittedMetadata['has_receipt_companion'] ?? '0') === '1') {
             $classMetadata['total_account'] = $existingClassMetadata['total_account'] ?? '';
+            $classMetadata['receipt_total_account'] = $submittedMetadata['total_account'] ?? '';
         }
         $classMetadata['has_receipt_companion'] = '0';
         $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
@@ -1118,7 +1302,7 @@ if ($action === 'get') {
             . 'VALUES (?, ?, ?, ?) '
             . 'ON DUPLICATE KEY UPDATE account = VALUES(account)'
         );
-        $stmt2->execute([$a, $b, $d, $serializedClass]);
+        $stmt2->execute([$classificationEmitter, $classificationAcquirer, $classificationDocType, $serializedClass]);
         $pdo->commit();
         echo json_encode([
             'success' => true,

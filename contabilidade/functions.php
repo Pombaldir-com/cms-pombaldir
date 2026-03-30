@@ -1702,6 +1702,7 @@ function normalizeAccountingMetadataFlag($value): string {
 function defaultAccountingMetadata(): array {
     return [
         'total_account' => '',
+        'receipt_total_account' => '',
         'manual_review_required' => '0',
         'ignore_detected_rates' => '0',
         'classification_model_name' => '',
@@ -1739,6 +1740,12 @@ function normalizeAccountingMetadata(?string $json): array {
             $value = extractStringValue($candidate['total_account'], ['account', 'code', 'value']);
             if ($value !== null) {
                 $result['total_account'] = $value;
+            }
+        }
+        if (array_key_exists('receipt_total_account', $candidate)) {
+            $value = extractStringValue($candidate['receipt_total_account'], ['account', 'code', 'value']);
+            if ($value !== null) {
+                $result['receipt_total_account'] = $value;
             }
         }
         if (array_key_exists('manual_review_required', $candidate)) {
@@ -1784,6 +1791,13 @@ function sanitizeAccountingMetadata($input): array {
         $candidate = extractStringValue($source['total_account'], ['account', 'code', 'value']);
         if ($candidate !== null) {
             $result['total_account'] = $candidate;
+        }
+    }
+
+    if (is_array($source) && array_key_exists('receipt_total_account', $source)) {
+        $candidate = extractStringValue($source['receipt_total_account'], ['account', 'code', 'value']);
+        if ($candidate !== null) {
+            $result['receipt_total_account'] = $candidate;
         }
     }
 

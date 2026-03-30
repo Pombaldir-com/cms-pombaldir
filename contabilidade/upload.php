@@ -454,7 +454,7 @@ function normalizeUploadImportDocType(string $value): string {
     if (in_array($normalized, ['FATURA', 'FACTURA'], true)) {
         return 'FT';
     }
-    if ($normalized === 'RECIBO') {
+    if (in_array($normalized, ['RECIBO', 'RG'], true)) {
         return 'RC';
     }
     return $normalized;
@@ -562,6 +562,41 @@ function filterUploadRowsPreferInvoicesByFile(array $rows): array {
     }
 
     return $filtered;
+}
+
+function collectUploadFilesWithInvoiceAndReceipt(array $rows): array {
+    if (empty($rows)) {
+        return [];
+    }
+
+    $fileFlags = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $file = trim((string) ($row['filename'] ?? ''));
+        if ($file === '') {
+            continue;
+        }
+        if (!isset($fileFlags[$file])) {
+            $fileFlags[$file] = ['has_invoice' => false, 'has_receipt' => false];
+        }
+        $docType = (string) ($row['D'] ?? '');
+        if (uploadImportDocTypeIsInvoice($docType)) {
+            $fileFlags[$file]['has_invoice'] = true;
+        } elseif (uploadImportDocTypeIsReceipt($docType)) {
+            $fileFlags[$file]['has_receipt'] = true;
+        }
+    }
+
+    $result = [];
+    foreach ($fileFlags as $file => $flags) {
+        if (!empty($flags['has_invoice']) && !empty($flags['has_receipt'])) {
+            $result[] = $file;
+        }
+    }
+
+    return $result;
 }
 
 function normalizeUploadMoneyValue($value): string {
@@ -1160,12 +1195,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['error' => 'Dados inválidos', 'csrf_token' => $newToken]);
             exit;
         }
+        $filesWithReceiptCompanion = collectUploadFilesWithInvoiceAndReceipt($rows);
         $rows = annotateUploadRowsWithReceiptCompanion($rows);
         $rows = filterUploadRowsPreferInvoicesByFile($rows);
 
         $importType = isset($data['import_type']) ? (int)$data['import_type'] : 1;
 
         $pdo = getPDO();
+
+        if (!empty($filesWithReceiptCompanion)) {
+            $deletePendingReceipts = $pdo->prepare(
+                'DELETE FROM accounting_imports '
+                . 'WHERE import_type = ? '
+                . 'AND (cab_id IS NULL OR cab_id = \'\') '
+                . 'AND filename = ? '
+                . 'AND UPPER(TRIM(COALESCE(field_D, \'\'))) IN (\'RC\', \'RECIBO\', \'RG\')'
+            );
+            foreach ($filesWithReceiptCompanion as $fileWithReceiptCompanion) {
+                $deletePendingReceipts->execute([$importType, $fileWithReceiptCompanion]);
+            }
+        }
 
         // Preencher conta associada, se existir classificação e sincronizar entidade do emitente
         $stmt = $pdo->prepare('SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1');
@@ -1232,6 +1281,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fieldG = trim((string) ($row['G'] ?? ''));
             $fieldH = $row['H'] ?? '';
             $fieldR = trim((string) ($row['R'] ?? ''));
+            $filename = trim((string) ($row['filename'] ?? ''));
+
+            if ($filename !== '' && in_array($filename, $filesWithReceiptCompanion, true) && uploadImportDocTypeIsReceipt($fieldD)) {
+                continue;
+            }
 
             $existsByComposite->execute([$importType, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG, $fieldR]);
             if ($existsByComposite->fetchColumn()) {
@@ -1266,7 +1320,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row['Q'] ?? '',
                 $fieldR,
                 $row['account'] ?? '',
-                $row['filename'] ?? '',
+                $filename,
                 $importType
             ]);
 

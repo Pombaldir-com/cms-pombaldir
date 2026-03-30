@@ -3918,38 +3918,45 @@ window.addEventListener('load', function() {
             }
             var updated = false;
             if (ivaAccount) {
+                var currentIvaAccount = info.ivaAccount ? String(info.ivaAccount.value || '').trim() : String((ensureRateData(resolvedKey).iva_account || '')).trim();
                 if (info.ivaAccount) {
                     info.ivaAccount.value = ivaAccount;
                 }
                 ensureRateData(resolvedKey).iva_account = ivaAccount;
-                updated = true;
-                applied = true;
+                if (currentIvaAccount !== ivaAccount) {
+                    updated = true;
+                    applied = true;
+                }
             }
             if (generalAccount) {
+                var currentGeneralAccount = info.generalAccount ? String(info.generalAccount.value || '').trim() : String((ensureRateData(resolvedKey).general_account || '')).trim();
                 if (info.generalAccount) {
                     info.generalAccount.value = generalAccount;
                 }
                 ensureRateData(resolvedKey).general_account = generalAccount;
-                updated = true;
-                applied = true;
+                if (currentGeneralAccount !== generalAccount) {
+                    updated = true;
+                    applied = true;
+                }
             }
             if (updated) {
                 populateRateRow(resolvedKey);
-            }
-            if (applied) {
                 updateRowDirtyState(resolvedKey);
             }
             });
         }
 
         if (totalAccountSuggested && totalAccountInput) {
+            var currentSuggestedTotal = String(totalAccountInput.value || '').trim();
             totalAccountInput.value = totalAccountSuggested;
             updatePlanInputTitle(totalAccountInput);
             currentTotalAccount = totalAccountSuggested;
             if (currentBtn) {
                 currentBtn.setAttribute('data-total-account', totalAccountSuggested);
             }
-            applied = true;
+            if (currentSuggestedTotal !== totalAccountSuggested) {
+                applied = true;
+            }
         }
         var requiredRates = null;
         if (assistantResponse && typeof assistantResponse === 'object' && assistantResponse.cost_center_required_rates && typeof assistantResponse.cost_center_required_rates === 'object') {
@@ -3966,7 +3973,6 @@ window.addEventListener('load', function() {
         }
         if (requiredRates) {
             applyCostCenterRequirementMap(requiredRates);
-            applied = true;
         }
         return applied;
     }
@@ -5281,6 +5287,12 @@ window.addEventListener('load', function() {
                         });
                     }
                     showSuccess('Sugestoes aplicadas (' + sourceLabel + ').');
+                } else if (parsed) {
+                    if (message && !/^Sugestoes de contas geradas\.?$/i.test(String(message).trim())) {
+                        showNotice('warning', message);
+                    } else {
+                        showNotice('warning', 'Nao existem sugestoes para aplicar.');
+                    }
                 } else if (message) {
                     showNotice('warning', message);
                 } else {
@@ -5736,6 +5748,9 @@ window.addEventListener('load', function() {
                 var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
                 var effectiveTotalAccount = (rowTotalAccount || classificationTotalAccount || buttonTotalAccount || '').trim();
                 currentTotalAccount = effectiveTotalAccount || '';
+                if (currentBtn) {
+                    currentBtn.setAttribute('data-total-account', currentTotalAccount);
+                }
                 if (Object.prototype.hasOwnProperty.call(res, 'has_receipt_companion') && currentBtn) {
                     currentBtn.setAttribute('data-has-receipt-companion', String(res.has_receipt_companion || '').trim() === '1' ? '1' : '0');
                 }

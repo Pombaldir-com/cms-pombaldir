@@ -35,6 +35,122 @@ if (!function_exists('normalizeDocTypeValue')) {
     }
 }
 
+if (!function_exists('buildClassificationPartyKey')) {
+    function buildClassificationPartyKey($value, $fallbackVat = ''): string {
+        $fallbackVat = trim((string) ($fallbackVat ?? ''));
+        $vat = extractVatNumber($fallbackVat !== '' ? $fallbackVat : (string) $value);
+        if ($vat !== '') {
+            return $vat;
+        }
+        return normalizeSupplierPartyValue($value);
+    }
+}
+
+if (!function_exists('resolveClassificationStorageIdentifiers')) {
+    function resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, array $importRow = []): array {
+        $resolvedEmitterSource = array_key_exists('field_A', $importRow) ? $importRow['field_A'] : $emitter;
+        $resolvedEmitterVat = array_key_exists('field_C', $importRow) ? $importRow['field_C'] : '';
+        $resolvedAcquirerSource = array_key_exists('field_B', $importRow) ? $importRow['field_B'] : $acquirer;
+        $resolvedDocType = array_key_exists('field_D', $importRow) ? $importRow['field_D'] : $docType;
+
+        return [
+            buildClassificationPartyKey($resolvedEmitterSource, $resolvedEmitterVat),
+            buildClassificationPartyKey($resolvedAcquirerSource),
+            normalizeDocTypeValue($resolvedDocType),
+        ];
+    }
+}
+
+if (!function_exists('fetchClassificationAccountPayload')) {
+    function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docType, array $importRow = []): string {
+        $candidates = [];
+
+        $resolved = resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, $importRow);
+        $candidates[] = $resolved;
+
+        $normalizedLegacy = [
+            normalizeSupplierPartyValue($emitter),
+            normalizeSupplierPartyValue($acquirer),
+            normalizeDocTypeValue($docType),
+        ];
+        $candidates[] = $normalizedLegacy;
+
+        $rawLegacy = [
+            trim((string) ($emitter ?? '')),
+            trim((string) ($acquirer ?? '')),
+            trim((string) ($docType ?? '')),
+        ];
+        $candidates[] = $rawLegacy;
+
+        $seen = [];
+        $stmt = $pdo->prepare(
+            'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+        );
+
+        foreach ($candidates as $candidate) {
+            [$candidateEmitter, $candidateAcquirer, $candidateDocType] = $candidate;
+            $signature = $candidateEmitter . '|' . $candidateAcquirer . '|' . $candidateDocType;
+            if ($candidateEmitter === '' || $candidateAcquirer === '' || $candidateDocType === '' || isset($seen[$signature])) {
+                continue;
+            }
+            $seen[$signature] = true;
+            $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
+            $payload = $stmt->fetchColumn();
+            if (is_string($payload) && trim($payload) !== '') {
+                return $payload;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('resolveClassificationTotalAccountForContext')) {
+    function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
+        $normalizedFlag = trim($receiptCompanionFlag) === '1' ? '1' : '0';
+        if ($normalizedFlag === '1') {
+            $receiptTotalAccount = trim((string) ($metadata['receipt_total_account'] ?? ''));
+            if ($receiptTotalAccount !== '') {
+                return $receiptTotalAccount;
+            }
+        }
+        return trim((string) ($metadata['total_account'] ?? ''));
+    }
+}
+
+if (!function_exists('resolveDisplayClassificationAccounts')) {
+    function resolveDisplayClassificationAccounts(array $defaultAccounts, array $rowAccounts): array {
+        $baseSanitized = sanitizeAccountInput($defaultAccounts);
+        $rowSanitized = sanitizeAccountInput($rowAccounts);
+        $allRates = array_values(array_unique(array_merge(array_keys($baseSanitized), array_keys($rowSanitized))));
+        $result = [];
+
+        foreach ($allRates as $rate) {
+            $defaultEntry = $baseSanitized[$rate] ?? [];
+            $rowEntry = $rowSanitized[$rate] ?? [];
+            $entry = $defaultEntry;
+
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field'] as $field) {
+                $rowValue = isset($rowEntry[$field]) ? trim((string) $rowEntry[$field]) : '';
+                if ($rowValue !== '') {
+                    $entry[$field] = $rowValue;
+                }
+            }
+
+            $rowCostCenterRequired = trim((string) ($rowEntry['cost_center_required'] ?? ''));
+            if ($rowCostCenterRequired === '1') {
+                $entry['cost_center_required'] = '1';
+            } elseif (!empty($defaultEntry['cost_center_required'])) {
+                $entry['cost_center_required'] = '1';
+            }
+
+            $result[$rate] = $entry;
+        }
+
+        return $result;
+    }
+}
+
 $useDataTables = true;
 $useDropzone = false;
 
@@ -61,7 +177,7 @@ function buildReceiptRowsHiddenSqlCondition(string $tableReference = ''): string
 
     return 'NOT ('
         . $filenameExpr . " <> '' AND "
-        . $docTypeExpr . " IN ('RC', 'RECIBO') AND EXISTS ("
+        . $docTypeExpr . " IN ('RC', 'RECIBO', 'RG') AND EXISTS ("
         . 'SELECT 1 FROM accounting_imports ai_invoice '
         . 'WHERE ai_invoice.import_type = ' . $outerPrefix . 'import_type '
         . "AND (ai_invoice.cab_id IS NULL OR ai_invoice.cab_id = '') "
@@ -824,8 +940,25 @@ function prepareImportRow(array $row): array {
         $row['emitter_nif_normalized'] = $normalizedEmitterNif;
     }
 
-    $accounts = normalizeAccountingAccounts($row['account'] ?? '');
-    $accountMetadata = normalizeAccountingMetadata($row['account'] ?? '');
+    $rowAccounts = normalizeAccountingAccounts($row['account'] ?? '');
+    $rowMetadata = normalizeAccountingMetadata($row['account'] ?? '');
+    $classificationPayload = fetchClassificationAccountPayload(
+        $pdo,
+        (string) ($row['field_A'] ?? ''),
+        (string) ($row['field_B'] ?? ''),
+        (string) ($row['field_D'] ?? ''),
+        $row
+    );
+    $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
+    $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
+    $accounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
+    $accountMetadata = $rowMetadata;
+    if (trim((string) ($accountMetadata['total_account'] ?? '')) === '') {
+        $accountMetadata['total_account'] = resolveClassificationTotalAccountForContext(
+            $classificationMetadata,
+            $rowMetadata['has_receipt_companion'] ?? '0'
+        );
+    }
     $summaries = computeImportRateSummaries($row);
     [$payload, $requirements] = buildClassificationRequirements($summaries, $accounts, $accountMetadata);
     if (($accountMetadata['ignore_detected_rates'] ?? '0') === '1') {
@@ -836,8 +969,8 @@ function prepareImportRow(array $row): array {
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
     $row['cost_center_breakdowns'] = normalizeCostCenterBreakdowns($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
-    $row['manual_review_required'] = (($accountMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
-    $row['has_receipt_companion'] = (($accountMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
+    $row['manual_review_required'] = (($rowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
+    $row['has_receipt_companion'] = (($rowMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
@@ -1090,7 +1223,7 @@ function normalizeSuggestionLigacaoDocType(string $docType): string {
     if (in_array($value, ['NOTA DEBITO', 'NOTA DE DÉBITO', 'ND'], true)) {
         return 'ND';
     }
-    if (in_array($value, ['RECIBO', 'RC'], true)) {
+    if (in_array($value, ['RECIBO', 'RC', 'RG'], true)) {
         return 'RC';
     }
     return $value;
@@ -2536,12 +2669,11 @@ if ($action === 'ready_ids') {
     $isImportOnlyRequest = $importType === 1 && $viewMode === 'import';
 
     try {
-        $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
         $stmt = $pdo->prepare(
             'SELECT * '
-            . 'FROM accounting_imports '
+            . 'FROM accounting_imports ai '
             . 'WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\') '
-            . $visibilitySql
+            . ($importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '')
             . 'ORDER BY id'
         );
         $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
@@ -2633,8 +2765,8 @@ if ($action === 'data') {
         }
 
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-        $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
-        $baseSql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')$visibilitySql";
+        $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '';
+        $baseSql = "SELECT $colList FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')$visibilitySql";
         if ($isImportOnlyRequest) {
             $stmt = $pdo->prepare($baseSql . ' ORDER BY id');
             $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
@@ -2649,7 +2781,7 @@ if ($action === 'data') {
             $filteredCount = $totalCount;
             $rows = array_slice($rows, $start, $length);
         } else {
-            $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql;
+            $countSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql;
             $countStmt = $pdo->prepare($countSql);
             $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
             $countStmt->execute();
@@ -2789,8 +2921,8 @@ if ($action === 'data') {
     }
     exit;
 }
-$initialVisibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
-$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')' . $initialVisibilitySql);
+$initialVisibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '';
+$stmt = $pdo->prepare('SELECT * FROM accounting_imports ai WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')' . $initialVisibilitySql);
 $stmt->execute([':type' => $importType]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

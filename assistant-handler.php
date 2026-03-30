@@ -2746,14 +2746,23 @@ function normalizePartyToken(string $value): string {
     return $value;
 }
 
-function extractTotalAccountFromPayload(string $json): string {
+function extractTotalAccountFromPayload(string $json, string $receiptCompanionFlag = '0'): string {
     $decoded = json_decode($json, true);
     if (!is_array($decoded)) {
         return '';
     }
     $candidate = '';
+    $preferReceiptCompanion = normalizeSuggestionReceiptCompanionFlag($receiptCompanionFlag) === '1';
     if (isset($decoded['meta']) && is_array($decoded['meta'])) {
-        $candidate = trim((string) ($decoded['meta']['total_account'] ?? ''));
+        if ($preferReceiptCompanion) {
+            $candidate = trim((string) ($decoded['meta']['receipt_total_account'] ?? ''));
+        }
+        if ($candidate === '') {
+            $candidate = trim((string) ($decoded['meta']['total_account'] ?? ''));
+        }
+    }
+    if ($candidate === '' && $preferReceiptCompanion) {
+        $candidate = trim((string) ($decoded['receipt_total_account'] ?? ''));
     }
     if ($candidate === '') {
         $candidate = trim((string) ($decoded['total_account'] ?? ''));
@@ -2833,7 +2842,8 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
             continue;
         }
         $rates = extractAccountsFromPayload($accountJson);
-        if (!$rates) {
+        $totalAccount = extractTotalAccountFromPayload($accountJson, $receiptCompanionFlag);
+        if (!$rates && $totalAccount === '') {
             continue;
         }
 
@@ -2877,7 +2887,7 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
             'doc_type' => (string) ($row['field_D'] ?? ''),
             'rates' => $rates,
             'score' => $score,
-            'total_account' => extractTotalAccountFromPayload($accountJson),
+            'total_account' => $totalAccount,
             'has_receipt_companion' => $rowReceiptCompanionFlag,
             'source' => 'history',
         ];
@@ -2924,7 +2934,7 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
             continue;
         }
         $rates = extractAccountsFromPayload($accountPayload);
-        $totalAccount = extractTotalAccountFromPayload($accountPayload);
+        $totalAccount = extractTotalAccountFromPayload($accountPayload, $receiptCompanionFlag);
         $rowReceiptCompanionFlag = extractReceiptCompanionFlagFromPayload($accountPayload);
         if (!$rates && $totalAccount === '') {
             continue;

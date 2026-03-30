@@ -235,6 +235,7 @@ window.addEventListener('load', function() {
             this.data(data);
         });
         table.draw(false);
+        pruneReceiptRowsAcrossTable();
         refreshUploadActionState();
     }
 
@@ -614,7 +615,7 @@ window.addEventListener('load', function() {
         if (normalized === 'FATURA' || normalized === 'FACTURA') {
             return 'FT';
         }
-        if (normalized === 'RECIBO') {
+        if (normalized === 'RECIBO' || normalized === 'RG') {
             return 'RC';
         }
         return normalized;
@@ -722,14 +723,14 @@ window.addEventListener('load', function() {
         table.rows(receiptNodes).remove().draw(false);
     }
 
-    function pruneReceiptRowsAcrossPendingFiles() {
-        var pendingNodes = getPendingRowNodes();
-        if (!pendingNodes.length) {
+    function pruneReceiptRowsAcrossTable() {
+        var allNodes = table.rows().nodes().toArray();
+        if (!allNodes.length) {
             return;
         }
 
         var grouped = {};
-        pendingNodes.forEach(function(node) {
+        allNodes.forEach(function(node) {
             var filePath = getRowFilePath(node);
             if (!filePath) {
                 return;
@@ -762,7 +763,8 @@ window.addEventListener('load', function() {
                 if (!data.length) {
                     return;
                 }
-                data[data.length - 1] = buildActionsHtml(filePath, false, true);
+                var imported = $(node).find('.delete-row').length === 0;
+                data[data.length - 1] = buildActionsHtml(filePath, imported, true);
                 rowApi.data(data);
                 shouldRedraw = true;
             });
@@ -778,6 +780,7 @@ window.addEventListener('load', function() {
         if (shouldRedraw) {
             table.draw(false);
         }
+        refreshUploadActionState();
     }
 
     function addStructuredRows(rows, filePath) {
@@ -826,7 +829,7 @@ window.addEventListener('load', function() {
             setReceiptCompanionFlagForFile(filePath, true);
         }
         pruneReceiptRowsForFile(filePath);
-        pruneReceiptRowsAcrossPendingFiles();
+        pruneReceiptRowsAcrossTable();
 
         refreshUploadActionState();
         return added;
