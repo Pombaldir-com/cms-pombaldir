@@ -387,6 +387,7 @@ window.addEventListener('load', function() {
     var importCtbButton = $('#importCtbButton');
     var importCtbWrapper = $('#importCtbButtonWrapper');
     var importCtbParamInfo = $('<small id="importCtbParamInfo" class="text-muted ms-2"></small>');
+    var importCtbButtonLabel = importCtbButton.find('.import-ctb-button-label');
     var acquirerDatabaseModalEl = document.getElementById('acquirerDatabaseModal');
     var acquirerDatabaseModal = acquirerDatabaseModalEl ? new bootstrap.Modal(acquirerDatabaseModalEl) : null;
     var acquirerDatabaseForm = document.getElementById('acquirerDatabaseForm');
@@ -400,10 +401,18 @@ window.addEventListener('load', function() {
     var pendingAcquirerEntity = null;
     var acquirerDatabasePending = false;
     var acquirerDatabaseSelectionResolved = false;
+    var readyIdsCache = {
+        ids: null,
+        fetchedAt: 0,
+        promise: null
+    };
+    var readyIdsCacheTtlMs = 3000;
 
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
+        stateSave: false,
+        displayStart: 0,
         ajax: function(requestData, callback) {
             var draw = requestData && typeof requestData.draw !== 'undefined' ? requestData.draw : 0;
             var payload = $.extend(true, {}, requestData || {});
@@ -465,6 +474,10 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    if (table && table.state && typeof table.state.clear === 'function') {
+        table.state.clear();
+    }
 
     function hideImportButtonWrapper() {
         if (importCtbWrapper.length) {
@@ -863,6 +876,7 @@ window.addEventListener('load', function() {
             }
 
             hideImportButtonWrapper();
+            renderImportParamInfo();
             return;
         }
 
@@ -901,7 +915,86 @@ window.addEventListener('load', function() {
         return '.classify-row.btn-success';
     }
 
-    function updateImportButtonState() {
+    function buildReadyIdsUrl() {
+        var query = new URLSearchParams();
+        query.set('import_type', String(importType));
+        if (viewMode !== '') {
+            query.set('view_mode', viewMode);
+        }
+        return 'contabilidade/classificacao-importacao/ready-ids?' + query.toString();
+    }
+
+    function invalidateReadyImportIdsCache() {
+        readyIdsCache.ids = null;
+        readyIdsCache.fetchedAt = 0;
+        readyIdsCache.promise = null;
+    }
+
+    function updateImportButtonLabel(readyCount) {
+        if (!importCtbButton.length || !importCtbButtonLabel.length) {
+            return;
+        }
+
+        var baseLabel = String(importCtbButton.data('base-label') || '').trim();
+        if (baseLabel === '') {
+            baseLabel = String(importCtbButtonLabel.text() || '').replace(/\s*\(\d+\)\s*$/, '').trim();
+        }
+
+        var count = parseInt(readyCount, 10);
+        if (isNaN(count) || count < 0) {
+            count = 0;
+        }
+
+        var nextLabel = baseLabel;
+        if (isClassificationOnlyView && count > 0) {
+            nextLabel += ' (' + count + ')';
+        }
+
+        importCtbButtonLabel.text(nextLabel);
+    }
+
+    function fetchReadyImportIds(forceRefresh) {
+        var now = Date.now();
+        if (!forceRefresh && Array.isArray(readyIdsCache.ids) && (now - readyIdsCache.fetchedAt) < readyIdsCacheTtlMs) {
+            return Promise.resolve(readyIdsCache.ids.slice());
+        }
+
+        if (!forceRefresh && readyIdsCache.promise) {
+            return readyIdsCache.promise.then(function(ids) {
+                return Array.isArray(ids) ? ids.slice() : [];
+            });
+        }
+
+        readyIdsCache.promise = fetchJson(buildReadyIdsUrl())
+            .then(function(res) {
+                if (!res || res.success === false) {
+                    throw new Error((res && res.error) ? res.error : 'Não foi possível obter as linhas prontas para importar.');
+                }
+
+                if (!Array.isArray(res.ids)) {
+                    readyIdsCache.ids = [];
+                    readyIdsCache.fetchedAt = Date.now();
+                    return [];
+                }
+
+                readyIdsCache.ids = res.ids.map(function(id) {
+                    return String(id);
+                }).filter(function(id) {
+                    return id !== '';
+                });
+                readyIdsCache.fetchedAt = Date.now();
+                return readyIdsCache.ids.slice();
+            })
+            .finally(function() {
+                readyIdsCache.promise = null;
+            });
+
+        return readyIdsCache.promise.then(function(ids) {
+            return Array.isArray(ids) ? ids.slice() : [];
+        });
+    }
+
+    function updateImportButtonState(forceRefresh) {
         if (!importCtbButton.length || !importTypeAllowsImport) {
             return;
         }
@@ -914,8 +1007,21 @@ window.addEventListener('load', function() {
             importCtbButton.prop('disabled', true);
             return;
         }
-        var readyCount = $('#classify-table').find(getImportReadySelector()).length;
-        importCtbButton.prop('disabled', readyCount === 0);
+        importCtbButton.prop('disabled', true);
+
+        fetchReadyImportIds(!!forceRefresh)
+            .then(function(ids) {
+                updateImportButtonLabel(ids.length);
+                if (importCtbButton.data('loading') || acquirerDatabasePending) {
+                    importCtbButton.prop('disabled', true);
+                    return;
+                }
+                importCtbButton.prop('disabled', ids.length === 0);
+            })
+            .catch(function() {
+                updateImportButtonLabel(0);
+                importCtbButton.prop('disabled', true);
+            });
     }
 
     function performImport(ids) {
@@ -1043,6 +1149,7 @@ window.addEventListener('load', function() {
                 if (typeof window.console !== 'undefined') {
                     console.log('[Classificação] Import CTB concluído. HTTP:', res.http_status, 'Tipo:', noticeType, 'IDs:', ids);
                 }
+                invalidateReadyImportIdsCache();
                 table.ajax.reload(null, false);
             })
             .catch(function(err) {
@@ -1066,40 +1173,34 @@ window.addEventListener('load', function() {
         if (!importCtbButton.length || importCtbButton.data('loading')) {
             return;
         }
-        var ids = [];
-        var readySelector = getImportReadySelector();
-        $('#classify-table').find(readySelector).each(function() {
-            var id = this.getAttribute('data-id');
-            if (id) {
-                ids.push(id);
-            }
-        });
-        if (ids.length === 0) {
-            showError('Não existem linhas prontas para importar.');
-            return;
-        }
-
-        pendingImportIds = ids.slice();
-        pendingAcquirerEntity = null;
-        acquirerDatabasePending = false;
-
         importCtbButton.data('loading', true);
         importCtbButton.prop('disabled', true);
 
-        ensureAcquirerDatabase(ids)
-            .then(function(result) {
-                if (result && result.entity) {
-                    pendingAcquirerEntity = result.entity;
-                    renderImportParamInfo();
+        fetchReadyImportIds(true)
+            .then(function(ids) {
+                if (ids.length === 0) {
+                    throw new Error('Não existem linhas prontas para importar.');
                 }
-                if (result && result.requiresSelection) {
-                    acquirerDatabasePending = true;
-                    importCtbButton.data('loading', false);
-                    updateImportButtonState();
-                    showAcquirerDatabaseModal(pendingAcquirerEntity);
-                    return null;
-                }
-                return performImport(ids);
+
+                pendingImportIds = ids.slice();
+                pendingAcquirerEntity = null;
+                acquirerDatabasePending = false;
+
+                return ensureAcquirerDatabase(ids)
+                    .then(function(result) {
+                        if (result && result.entity) {
+                            pendingAcquirerEntity = result.entity;
+                            renderImportParamInfo();
+                        }
+                        if (result && result.requiresSelection) {
+                            acquirerDatabasePending = true;
+                            importCtbButton.data('loading', false);
+                            updateImportButtonState();
+                            showAcquirerDatabaseModal(pendingAcquirerEntity);
+                            return null;
+                        }
+                        return performImport(ids);
+                    });
             })
             .catch(function(err) {
                 if (typeof window.console !== 'undefined') {
@@ -5370,6 +5471,7 @@ window.addEventListener('load', function() {
                 modalTitleEl.textContent = defaultModalTitle || 'Classificar';
             }
             resetClassifyDocumentPreview();
+            invalidateReadyImportIdsCache();
             table.ajax.reload(null, false);
             currentBtn = null;
             updateCurrentPlanContextFromButton(null);
@@ -5456,6 +5558,7 @@ window.addEventListener('load', function() {
 
     if (linesModalEl) {
         linesModalEl.addEventListener('hidden.bs.modal', function() {
+            invalidateReadyImportIdsCache();
             table.ajax.reload(null, false);
         });
     }
@@ -6019,6 +6122,7 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
+                invalidateReadyImportIdsCache();
                 table.ajax.reload(null, false);
             } else {
                 showError(res.error || 'Erro ao remover');

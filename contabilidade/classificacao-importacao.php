@@ -2321,6 +2321,65 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+if ($action === 'ready_ids') {
+    header('Content-Type: application/json; charset=utf-8');
+    $viewMode = strtolower(trim((string) ($_GET['view_mode'] ?? ($_GET['type'] ?? ''))));
+    $isImportOnlyRequest = $importType === 1 && $viewMode === 'import';
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT * '
+            . 'FROM accounting_imports '
+            . 'WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\') '
+            . 'ORDER BY id'
+        );
+        $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $readyIds = [];
+        foreach ($rows as $row) {
+            $preparedRow = prepareImportRow($row);
+
+            if ($importType === 2) {
+                if (trim((string) ($preparedRow['line_btn_class'] ?? '')) === 'btn-success') {
+                    $readyIds[] = (int) $preparedRow['id'];
+                }
+                continue;
+            }
+
+            if ($isImportOnlyRequest) {
+                if (isImportReadyRow($preparedRow)) {
+                    $readyIds[] = (int) $preparedRow['id'];
+                }
+                continue;
+            }
+
+            if (isImportReadyRow($preparedRow)) {
+                $readyIds[] = (int) $preparedRow['id'];
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'ids' => $readyIds,
+            'count' => count($readyIds),
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $throwable) {
+        http_response_code(500);
+        if (function_exists('logErpMessage')) {
+            logErpMessage('Erro ao obter linhas prontas para importação: ' . $throwable->getMessage());
+        }
+        echo json_encode([
+            'success' => false,
+            'ids' => [],
+            'count' => 0,
+            'error' => 'Não foi possível obter as linhas prontas para importação.',
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
 if ($action === 'data') {
     $draw = (int)($_GET['draw'] ?? 0);
     header('Content-Type: application/json; charset=utf-8');
@@ -2529,6 +2588,20 @@ if ($isImportOnlyView) {
     $rows = array_values(array_filter($rows, static fn(array $row): bool => isImportReadyRow($row)));
 }
 
+$initialReadyCount = 0;
+foreach ($rows as $row) {
+    if ($importType === 2) {
+        if (trim((string) ($row['line_btn_class'] ?? '')) === 'btn-success') {
+            $initialReadyCount++;
+        }
+        continue;
+    }
+
+    if (isImportReadyRow($row)) {
+        $initialReadyCount++;
+    }
+}
+
 $csrfToken = generateCsrfToken();
 $showImportButton = ($importType === 1) || ($importType === 2);
 if ($importType === 2) {
@@ -2551,9 +2624,15 @@ require_once __DIR__ . '/../header.php';
         <?php if ($showImportButton): ?>
 
 
-        <div id="importCtbButtonWrapper" class="d-none">
-            <button type="button" class="btn btn-sm btn-primary" id="importCtbButton" disabled>
-                <i class="fa <?= htmlspecialchars($importButtonIcon); ?>"></i> <?= htmlspecialchars($importButtonLabel); ?>
+        <div id="importCtbButtonWrapper" class="mb-3 d-none" aria-hidden="true">
+            <button
+                type="button"
+                class="btn btn-sm btn-primary"
+                id="importCtbButton"
+                data-base-label="<?= htmlspecialchars($importButtonLabel, ENT_QUOTES, 'UTF-8'); ?>"
+                <?= $initialReadyCount > 0 ? '' : 'disabled'; ?>
+            >
+                <i class="fa <?= htmlspecialchars($importButtonIcon); ?>"></i> <span class="import-ctb-button-label"><?= htmlspecialchars($importButtonLabel); ?><?= $initialReadyCount > 0 ? ' (' . (int) $initialReadyCount . ')' : ''; ?></span>
             </button>
         </div>
         <?php endif; ?>

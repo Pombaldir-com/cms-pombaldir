@@ -3153,10 +3153,17 @@ function resolveAccountingLineAmount($primaryValue, $fallbackValue = null): ?flo
  * @param string      $component Either 'base' or 'iva'.
  */
 function buildAccountingLineEntry(string $account, float $amount, string $description, ?string $costCenter, ?string $rate, string $component, array $costCenterDistribution = []): array {
+    $entryDirection = 'D';
+    if ($component === 'total') {
+        $entryDirection = $amount >= 0 ? 'C' : 'D';
+    } else {
+        $entryDirection = $amount >= 0 ? 'D' : 'C';
+    }
+
     $entry = [
         'strConta' => $account,
         'fltValor' => round(abs($amount), 2),
-        'strDeb_Cre' => $component === 'total' ? 'C' : ($amount >= 0 ? 'D' : 'C'),
+        'strDeb_Cre' => $entryDirection,
         'strDescricao' => $description,
         'line_component' => $component,
     ];
@@ -3187,6 +3194,24 @@ function buildAccountingLineEntry(string $account, float $amount, string $descri
     return $entry;
 }
 
+function isCreditAccountingDocumentType(string $docType): bool {
+    $normalized = strtoupper(trim($docType));
+    if ($normalized === '') {
+        return false;
+    }
+
+    $normalized = str_replace(['-', '_', ' '], '', $normalized);
+
+    return in_array($normalized, [
+        'NC',
+        'RC',
+        'CN',
+        'CREDITNOTE',
+        'NOTACREDITO',
+        'NOTADECREDITO',
+    ], true);
+}
+
 /**
  * Convert stored classification data into ERP accounting lines.
  *
@@ -3199,6 +3224,8 @@ function buildDocumentAccountingLines(array $document): array {
     $costCenters = normalizeCostCenters($document['cost_center'] ?? '');
     $costCenterBreakdowns = normalizeCostCenterBreakdowns($document['cost_center'] ?? '');
     $summaries = computeImportRateSummaries($document);
+    $docType = (string) ($document['field_D'] ?? $document['invoice_type'] ?? '');
+    $documentSign = isCreditAccountingDocumentType($docType) ? -1 : 1;
     $lines = [];
 
     foreach ($accounts as $rate => $config) {
@@ -3214,6 +3241,7 @@ function buildDocumentAccountingLines(array $document): array {
         $generalAccount = trim((string) ($config['general_account'] ?? ''));
         $baseAmount = resolveAccountingLineAmount($config['base'] ?? '', $summary['base_value'] ?? null);
         if ($generalAccount !== '' && $baseAmount !== null) {
+            $baseAmount *= $documentSign;
             $description = buildAccountingLineDescription($document, $rateKey, 'Base', $label);
             $lines[] = buildAccountingLineEntry(
                 $generalAccount,
@@ -3229,6 +3257,7 @@ function buildDocumentAccountingLines(array $document): array {
         $ivaAccount = trim((string) ($config['iva_account'] ?? ''));
         $ivaAmount = resolveAccountingLineAmount($config['iva'] ?? '', $summary['iva_value'] ?? null);
         if ($ivaAccount !== '' && $ivaAmount !== null) {
+            $ivaAmount *= $documentSign;
             $description = buildAccountingLineDescription($document, $rateKey, 'IVA', $label);
             $lines[] = buildAccountingLineEntry(
                 $ivaAccount,
@@ -3245,6 +3274,7 @@ function buildDocumentAccountingLines(array $document): array {
     if ($totalAccount !== '') {
         $totalAmount = computeDocumentTotalAmount($document);
         if ($totalAmount !== null) {
+            $totalAmount *= $documentSign;
             $nif = '';
             foreach (['emitter_nif_normalized', 'field_A', 'field_C'] as $nifKey) {
                 if (!array_key_exists($nifKey, $document)) {

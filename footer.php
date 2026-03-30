@@ -309,6 +309,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 </script>
 <?php endif; ?>
+<?php if ($useDateRangePicker): ?>
+<script src="vendors/moment/min/moment.min.js"></script>
+<script src="vendors/bootstrap-daterangepicker/daterangepicker.js"></script>
+<?php endif; ?>
 
 <?php if (function_exists('isInternalChatEnabled') && isInternalChatEnabled() && function_exists('hasInternalChatTables') && hasInternalChatTables()): ?>
 <script>

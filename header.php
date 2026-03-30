@@ -27,6 +27,7 @@ $useDataTables = $useDataTables ?? false;
 $useDropzone   = $useDropzone ?? false;
 $useSelect2    = $useSelect2 ?? false;
 $useSwitchery  = $useSwitchery ?? false;
+$useDateRangePicker = $useDateRangePicker ?? false;
 $aiEnabled = getSetting('ai_enabled', '0') === '1';
 $internalChatEnabled = isInternalChatEnabled();
 $showInternalChatFloating = $internalChatEnabled
@@ -65,6 +66,9 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
 <?php endif; ?>
 <?php if ($useSwitchery): ?>
 <link rel="stylesheet" href="vendors/switchery/standalone/switchery.css">
+<?php endif; ?>
+<?php if ($useDateRangePicker): ?>
+<link rel="stylesheet" href="vendors/bootstrap-daterangepicker/daterangepicker.css">
 <?php endif; ?>
 
 <link rel="stylesheet" href="assets/css/custom.css">

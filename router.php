@@ -266,6 +266,14 @@ switch (true) {
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
     case in_array($path, [
+        'contabilidade/classificacao-importacao/ready-ids',
+        'contabilidade/classificacao-importacao/ready_ids',
+        'contabilidade/classificacao-importacao-ready-ids.php'
+    ], true):
+        $_GET['action'] = 'ready_ids';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
+    case in_array($path, [
         'contabilidade/classificacao-importacao/import-ctb',
         'contabilidade/classificacao-importacao/import_ctb',
         'contabilidade/classificacao-importacao-import-ctb.php'

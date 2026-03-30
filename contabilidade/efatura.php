@@ -16,6 +16,7 @@ if (!userHasDepartmentPermission('ctb_efatura_aceder')) {
 }
 
 $useDataTables = true;
+$useDateRangePicker = true;
 $hideOcrModal = true;
 $pdo = getPDO();
 $user = currentUser();
@@ -558,10 +559,94 @@ require_once __DIR__ . '/../header.php';
 </div>
 <?php
 $pageScripts = 'var efaturaStyle = document.createElement("style");
-efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter{width:100%;}.efatura-documents-status-filter .form-control{width:100%;min-width:0;}}";
+efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .row:last-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:right;}#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{display:flex;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter,.efatura-documents-date-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label,.efatura-documents-date-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-documents-date-filter .form-control{width:250px;min-width:250px;background:#fff;cursor:pointer;}.efatura-documents-date-filter .btn{white-space:nowrap;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child,#efatura-documents-table_wrapper .row:last-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter,.efatura-documents-date-filter{width:100%;}.efatura-documents-status-filter .form-control,.efatura-documents-date-filter .form-control{width:100%;min-width:0;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:left;}}";
 document.head.appendChild(efaturaStyle);
 window.efaturaSyncStatusUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/sync-status', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=documents_data', JSON_UNESCAPED_UNICODE) . ';
+window.efaturaDocumentsDateStorageKey = ' . json_encode('efatura_documents_date_range:' . (int) $selectedEntityId, JSON_UNESCAPED_UNICODE) . ';
+window.efaturaDocumentsDateFilter = (function() {
+    var fallbackStart = null;
+    var fallbackEnd = null;
+
+    if (window.moment) {
+        fallbackStart = window.moment().startOf("month");
+        fallbackEnd = window.moment().endOf("month");
+    }
+
+    function cloneMomentValue(value) {
+        return value && typeof value.clone === "function" ? value.clone() : null;
+    }
+
+    function saveRange(startValue, endValue) {
+        if (!window.localStorage) {
+            return;
+        }
+        try {
+            if (!startValue || !endValue) {
+                window.localStorage.removeItem(window.efaturaDocumentsDateStorageKey);
+                return;
+            }
+            window.localStorage.setItem(window.efaturaDocumentsDateStorageKey, JSON.stringify({
+                start: startValue.format("YYYY-MM-DD"),
+                end: endValue.format("YYYY-MM-DD")
+            }));
+        } catch (error) {}
+    }
+
+    function loadRange() {
+        if (!window.localStorage || !window.moment) {
+            return null;
+        }
+        try {
+            var raw = window.localStorage.getItem(window.efaturaDocumentsDateStorageKey);
+            if (!raw) {
+                return null;
+            }
+            var parsed = JSON.parse(raw);
+            if (!parsed || !parsed.start || !parsed.end) {
+                return null;
+            }
+            var startValue = window.moment(parsed.start, "YYYY-MM-DD", true);
+            var endValue = window.moment(parsed.end, "YYYY-MM-DD", true);
+            if (!startValue.isValid() || !endValue.isValid()) {
+                return null;
+            }
+            return { start: startValue, end: endValue };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    var storedRange = loadRange();
+    var currentDateStart = storedRange ? storedRange.start : cloneMomentValue(fallbackStart);
+    var currentDateEnd = storedRange ? storedRange.end : cloneMomentValue(fallbackEnd);
+    saveRange(currentDateStart, currentDateEnd);
+
+    return {
+        getStart: function() {
+            return currentDateStart ? currentDateStart.format("YYYY-MM-DD") : "";
+        },
+        getEnd: function() {
+            return currentDateEnd ? currentDateEnd.format("YYYY-MM-DD") : "";
+        },
+        getStartMoment: function() {
+            return cloneMomentValue(currentDateStart);
+        },
+        getEndMoment: function() {
+            return cloneMomentValue(currentDateEnd);
+        },
+        setRange: function(startValue, endValue) {
+            currentDateStart = cloneMomentValue(startValue);
+            currentDateEnd = cloneMomentValue(endValue);
+            saveRange(currentDateStart, currentDateEnd);
+        },
+        clearRange: function() {
+            currentDateStart = null;
+            currentDateEnd = null;
+            saveRange(null, null);
+        }
+    };
+})();
 function initEfaturaTable(selector, options) {
     if (!window.jQuery || !jQuery.fn.DataTable || !document.querySelector(selector)) {
         return null;
@@ -591,9 +676,75 @@ var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
     processing: true,
     order: [[0, "desc"]],
     pagingType: "full_numbers",
-    dom: "<\"row\"<\"col-sm-6 col-12 d-flex align-items-center gap-2 efatura-documents-controls\"l<\"efatura-documents-status-slot\">><\"col-sm-6 col-12\"f>>rt<\"row\"<\"col-sm-6 col-12\"i><\"col-sm-6 col-12\"p>>",
+    dom: "<\"row\"<\"col-sm-8 col-12 d-flex align-items-center gap-2 efatura-documents-controls\"l<\"efatura-documents-date-slot\"><\"efatura-documents-status-slot\">><\"col-sm-4 col-12\"f>>rt<\"row\"<\"col-sm-6 col-12\"i><\"col-sm-6 col-12\"p>>",
     initComplete: function() {
+        var dateSlot = document.querySelector("#efatura-documents-table_wrapper .efatura-documents-date-slot");
         var slot = document.querySelector("#efatura-documents-table_wrapper .efatura-documents-status-slot");
+        if (dateSlot && !dateSlot.querySelector("#efatura-document-date-range")) {
+            dateSlot.innerHTML = "<div class=\"efatura-documents-date-filter\"><label for=\"efatura-document-date-range\">Datas</label><input type=\"text\" id=\"efatura-document-date-range\" class=\"form-control\" placeholder=\"Todas as datas\" autocomplete=\"off\"><button type=\"button\" class=\"btn btn-default btn-sm\" id=\"efatura-document-date-clear\">Limpar</button></div>";
+            var dateInput = dateSlot.querySelector("#efatura-document-date-range");
+            var clearButton = dateSlot.querySelector("#efatura-document-date-clear");
+
+            if (window.jQuery && jQuery.fn.daterangepicker && window.moment) {
+                var initialStart = window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getStartMoment === "function"
+                    ? window.efaturaDocumentsDateFilter.getStartMoment()
+                    : null;
+                var initialEnd = window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getEndMoment === "function"
+                    ? window.efaturaDocumentsDateFilter.getEndMoment()
+                    : null;
+
+                jQuery(dateInput).daterangepicker({
+                    autoUpdateInput: false,
+                    autoApply: true,
+                    opens: "left",
+                    startDate: initialStart || window.moment().startOf("month"),
+                    endDate: initialEnd || window.moment().endOf("month"),
+                    locale: {
+                        format: "DD/MM/YYYY",
+                        separator: " - ",
+                        applyLabel: "Aplicar",
+                        cancelLabel: "Limpar",
+                        fromLabel: "De",
+                        toLabel: "Até",
+                        customRangeLabel: "Personalizado",
+                        weekLabel: "S",
+                        daysOfWeek: ["Do", "2ª", "3ª", "4ª", "5ª", "6ª", "Sá"],
+                        monthNames: ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"],
+                        firstDay: 1
+                    }
+                });
+
+                if (initialStart && initialEnd) {
+                    dateInput.value = initialStart.format("DD/MM/YYYY") + " - " + initialEnd.format("DD/MM/YYYY");
+                }
+
+                jQuery(dateInput).on("apply.daterangepicker", function(ev, picker) {
+                    window.efaturaDocumentsDateFilter.setRange(picker.startDate, picker.endDate);
+                    dateInput.value = picker.startDate.format("DD/MM/YYYY") + " - " + picker.endDate.format("DD/MM/YYYY");
+                    if (efaturaDocumentsTable && typeof efaturaDocumentsTable.draw === "function") {
+                        efaturaDocumentsTable.draw();
+                    }
+                });
+
+                jQuery(dateInput).on("cancel.daterangepicker", function() {
+                    window.efaturaDocumentsDateFilter.clearRange();
+                    dateInput.value = "";
+                    if (efaturaDocumentsTable && typeof efaturaDocumentsTable.draw === "function") {
+                        efaturaDocumentsTable.draw();
+                    }
+                });
+            }
+
+            if (clearButton) {
+                clearButton.addEventListener("click", function() {
+                    window.efaturaDocumentsDateFilter.clearRange();
+                    dateInput.value = "";
+                    if (efaturaDocumentsTable && typeof efaturaDocumentsTable.draw === "function") {
+                        efaturaDocumentsTable.draw();
+                    }
+                });
+            }
+        }
         if (!slot || slot.querySelector("#efatura-document-status-filter")) {
             return;
         }
@@ -609,6 +760,8 @@ var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
         data: function(d) {
             var statusFilter = document.querySelector("#efatura-document-status-filter");
             d.status_filter = statusFilter ? String(statusFilter.value || "").trim() : "";
+            d.date_start = window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getStart === "function" ? window.efaturaDocumentsDateFilter.getStart() : "";
+            d.date_end = window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getEnd === "function" ? window.efaturaDocumentsDateFilter.getEnd() : "";
         }
     },
     columns: [
@@ -1112,8 +1265,26 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
 
     $searchValue = trim((string) ($_GET['search']['value'] ?? ''));
     $statusFilter = strtoupper(trim((string) ($_GET['status_filter'] ?? '')));
+    $dateStart = trim((string) ($_GET['date_start'] ?? ''));
+    $dateEnd = trim((string) ($_GET['date_end'] ?? ''));
     $orderColumn = (int) ($_GET['order'][0]['column'] ?? 0);
     $orderDir = strtolower(trim((string) ($_GET['order'][0]['dir'] ?? 'desc'))) === 'asc' ? 'ASC' : 'DESC';
+
+    $dateStartNormalized = '';
+    if ($dateStart !== '') {
+        $date = DateTime::createFromFormat('Y-m-d', $dateStart);
+        if ($date instanceof DateTime) {
+            $dateStartNormalized = $date->format('Y-m-d');
+        }
+    }
+
+    $dateEndNormalized = '';
+    if ($dateEnd !== '') {
+        $date = DateTime::createFromFormat('Y-m-d', $dateEnd);
+        if ($date instanceof DateTime) {
+            $dateEndNormalized = $date->format('Y-m-d');
+        }
+    }
 
     $orderableColumns = [
         0 => 'd.invoice_date',
@@ -1160,6 +1331,16 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     if ($statusFilter === 'A') {
         $where[] = 'UPPER(COALESCE(d.document_status, "")) = ?';
         $params[] = $statusFilter;
+    }
+
+    if ($dateStartNormalized !== '') {
+        $where[] = 'DATE(d.invoice_date) >= ?';
+        $params[] = $dateStartNormalized;
+    }
+
+    if ($dateEndNormalized !== '') {
+        $where[] = 'DATE(d.invoice_date) <= ?';
+        $params[] = $dateEndNormalized;
     }
 
     if ($searchValue !== '') {
