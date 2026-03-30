@@ -164,10 +164,12 @@ Atalho:
   - Botão global `Importar Ctb`.
 
 ### 8.1.1 Regras de leitura por ficheiro PDF
-- Se o mesmo ficheiro contiver faturas `FT`/`FR` e recibos `RC`, os `RC` devem ser ignorados.
+- Se o mesmo ficheiro contiver faturas `FT`/`FR` e recibos `RC`/`RG`, os recibos devem ser ignorados e ocultados na listagem.
 - A leitura de multiplas faturas no mesmo ficheiro deve ser preservada.
-- Quando uma fatura vem no mesmo PDF com um `RC`, esse contexto deve ser considerado na sugestao da conta de `Valor Total`.
+- Quando uma fatura vem no mesmo PDF com um `RC`/`RG`, esse contexto deve ser considerado na sugestao da conta de `Valor Total`.
 - Em `LigacaoCteTipoDoc`, documentos `FR`/`FTR` devem usar a parametrizacao `FT`.
+- Em taxa `0%`, `Conta IVA` deve ficar vazia e isso nao impede o estado `Classificado`.
+- O botao global `Classificado` deve importar a configuracao efetiva da linha, mesmo que a modal nunca tenha sido aberta.
 
 ### 8.2 Regras de permissões (obrigatório)
 - `ctb_classificar_docs`:
@@ -268,6 +270,9 @@ Se não houver histórico suficiente:
   - `PC_Descricao = TAXA NORMAL` => `23%`
 - `fltVatRate`, `fltTaxaValor` e campos numéricos equivalentes podem vir a `0`/`.000000`; não confiar neles como fonte principal da taxa.
 - O webservice devolve as linhas candidatas, mas a seleção final da linha correta por taxa é feita localmente com base em `PC_Descricao` e nos dados do documento/QR.
+- Se o fornecedor nao existir em `LigacaoCteTipoDoc`, nao inventar `general_account`.
+- Quando o fornecedor nao for encontrado, apenas admitir sugestao de `total_account` para bancos (`12...`) se existir recibo acompanhante no mesmo PDF.
+- A explicacao da sugestao deve indicar explicitamente quando o fornecedor nao foi encontrado no ERP.
 - Se ainda faltar informação, usa:
 - Usa:
   - `erp_movimentos_search(db, strCodExercicio, intCodDiario, intMes, strAbrevTpDoc, limit, offset)`.
@@ -312,6 +317,7 @@ Preferir:
 - Se faltar:
   - Usar taxa de IVA (`fltVatRate`).
   - Validar no plano de contas ERP.
+- Em taxa `0%`, a sugestao correta para `Conta IVA` e vazio.
 
 ---
 
@@ -324,6 +330,21 @@ Quando o utilizador ativa `classify-row`:
   - `.iva-account-field`.
 - Nunca sobrescrevas valores já preenchidos.
 - Preenche apenas os inputs correspondentes à taxa ativa.
+- Se nenhuma sugestao alterar efetivamente a interface, nao apresentar mensagem de sucesso como se tivesse aplicado contas.
+
+### 11.1 Memoria de Valor Total
+- A memoria da conta de `Valor Total` deve distinguir:
+  - documentos normais;
+  - documentos com recibo acompanhante no mesmo ficheiro.
+- Para esse segundo caso, a memoria generica deve preservar `receipt_total_account`.
+- Os modelos guardados pelo utilizador devem incluir `Valor Total` e carregá-lo quando o contexto e compativel.
+
+### 11.2 Lancamentos ERP
+- Em `contabilidade/lancamentos`, ao editar notas de credito (`NC`), a linha de `Valor Total` deve ser preservada.
+- A natureza contabilistica deve respeitar o tipo documental:
+  - documentos normais: base/IVA a debito, total a credito;
+  - notas de credito: base/IVA a credito, total a debito.
+- Ao eliminar um lancamento, os anexos digitais devem ser apagados antes do movimento; se essa remocao falhar, nao eliminar o lancamento.
 
 ---
 

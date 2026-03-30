@@ -127,9 +127,29 @@ O módulo de contabilidade consulta o webservice **ERP-SINC** para sincronizar d
 
 #### Regras de leitura por ficheiro PDF
 - O mesmo PDF pode conter multiplas faturas; o sistema preserva todas as `FT`/`FR` encontradas no ficheiro.
-- Se o mesmo ficheiro contiver `FT`/`FR` e `RC`, os recibos `RC` sao ignorados e apenas as faturas seguem para classificacao/importacao.
-- Quando uma fatura vem no mesmo PDF com um `RC`, esse contexto e guardado para a sugestao de contas, sobretudo para a conta de `Valor Total`.
+- Se o mesmo ficheiro contiver `FT`/`FR` e recibos `RC`/`RG`, os recibos sao ignorados e ocultados nas vistas de upload e classificacao; apenas as faturas seguem para classificacao/importacao.
+- Quando uma fatura vem no mesmo PDF com um `RC`/`RG`, esse contexto e guardado para a sugestao de contas, sobretudo para a conta de `Valor Total`.
 - Na ligacao ERP `LigacaoCteTipoDoc`, documentos `FR`/`FTR` sao tratados como `FT` para obter a parametrizacao contabilistica correta.
+
+#### Regras adicionais de classificacao
+- Numa linha de taxa `0%`, `Conta IVA` deve ficar vazia; isso nao impede o estado `Classificado` (verde).
+- O botao global `Classificado` importa a configuracao contabilistica efetiva do documento (`linha + classificacao generica`), mesmo que a modal nunca tenha sido aberta.
+- Quando um fornecedor nao existe em `LigacaoCteTipoDoc`, a sugestao deixa de inventar `Conta Geral`; nesse caso, apenas pode sugerir `Valor Total` para contas de bancos (`12...`) se a fatura tiver recibo `RC`/`RG` no mesmo PDF.
+- A explicacao da sugestao mostra explicitamente quando o fornecedor nao foi encontrado no ERP.
+
+#### Memoria e modelos de sugestao
+- A memoria da conta de `Valor Total` distingue faturas normais de faturas com recibo associado no mesmo ficheiro.
+- Para esse contexto, a classificacao generica guarda tambem `receipt_total_account`, evitando perder a memoria quando o registo individual de `accounting_imports.account` e limpo.
+- Os modelos guardados pelo utilizador preservam `rates`, `centros de custo` e `Valor Total`.
+
+### Lancamentos ERP
+- Em `contabilidade/lancamentos`, fechar a modal volta a sincronizar a grelha com o ERP, evitando desaparecimentos visuais da linha.
+- Ao eliminar um lancamento, os anexos digitais sao apagados primeiro; se a remocao do anexo falhar, o lancamento nao e eliminado.
+- Quando o ERP recusa uma importacao por documento duplicado, a resposta passa a indicar em que exercicio/diario/mes/n. diario o documento ja existe.
+- Na edicao de lancamentos, notas de credito (`NC`) preservam a linha de `Valor Total` e respeitam a natureza debito/credito correta.
+
+### E-fatura
+- Em `contabilidade/efatura/documentos`, o calendario do filtro por datas mostra os dois meses lado a lado em desktop.
 
 #### Resumo prático
 - Utilizador com `ctb_classificar_docs` e sem `ctb_importar_docs`:

@@ -43,9 +43,9 @@ URL: `contabilidade/classificacao-importacao?import_type=1&type=import`
 ## Regras de leitura QR por ficheiro
 
 - Um mesmo PDF pode conter vários QR/documentos; o sistema mantém multiplas faturas `FT`/`FR` do mesmo ficheiro.
-- Se o mesmo ficheiro contiver pelo menos uma fatura (`FT` ou `FR`) e tambem um recibo (`RC`), os `RC` sao ignorados.
-- Esta regra e aplicada na grelha de upload e repetida no backend no momento do `import`, para garantir consistencia.
-- Quando uma fatura e mantida mas o mesmo ficheiro tinha tambem um `RC`, a linha fica marcada internamente com contexto de `recibo associado`.
+- Se o mesmo ficheiro contiver pelo menos uma fatura (`FT` ou `FR`) e tambem um recibo (`RC` ou `RG`), os recibos sao ignorados.
+- Esta regra e aplicada na grelha de upload, na listagem de classificacao e repetida no backend no momento do `import`, para garantir consistencia.
+- Quando uma fatura e mantida mas o mesmo ficheiro tinha tambem um `RC`/`RG`, a linha fica marcada internamente com contexto de `recibo associado`.
 - Esse contexto nao cria linhas extra; serve para a memoria da sugestao distinguir:
   - faturas isoladas, em que `Valor Total` tende a apontar para conta do fornecedor;
   - faturas acompanhadas por recibo no mesmo PDF, em que `Valor Total` pode ser corrigido pelo utilizador para uma conta de bancos.
@@ -105,13 +105,28 @@ Normalizacao documental usada nesta consulta:
 
 - `FT` -> `FT`
 - `FR` / `FTR` -> `FT`
-- `RC` -> `RC`
+- `RC` / `RG` -> `RC`
 
 Exemplo:
 
 `GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=504128582&db=emp_566&strCodExercicio=2026&strTpDoc=FT`
 
 O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
+
+Regras adicionais desta fonte:
+
+- Se o ERP devolver contas por taxa em `strConta` e `strConta_Iva`, essas contas devem ser privilegiadas mesmo quando o plano nao ajuda a mapear a taxa de forma explicita.
+- Em documentos com apenas uma taxa, a conta IVA da ligacao pode ser usada diretamente se a separacao por taxa nao for ambigua.
+- Se `LigacaoCteTipoDoc` nao devolver resultados para o fornecedor/tipo, a aplicacao nao deve inventar `Conta Geral`.
+- Nessa situacao, apenas pode surgir uma sugestao de `Valor Total` para bancos (`12...`) quando a fatura tiver recibo associado no mesmo PDF.
+- A explicacao da sugestao deve mencionar explicitamente quando o fornecedor nao foi encontrado no ERP.
+
+## Regras de classificacao
+
+- Em taxas `0%`, `Conta IVA` deve ficar vazia.
+- A ausencia de `Conta IVA` numa taxa `0%` nao impede o estado `Classificado` (verde).
+- A grelha de classificacao mostra apenas o NIF do emitente na coluna visivel.
+- O botao global `Classificado` importa a configuracao contabilistica efetiva do documento, incluindo `Valor Total` vindo da classificacao generica, mesmo sem abrir antes a modal.
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 
@@ -144,9 +159,25 @@ A sugestao de contas cruza varias fontes:
 
 Para a conta de `Valor Total`, a memoria do historico ja nao trata todos os documentos da mesma forma. O fator de memoria passa tambem a distinguir:
 
-- documentos sem `RC` no mesmo ficheiro;
-- documentos cuja digitalizacao continha tambem um `RC`.
+- documentos sem `RC`/`RG` no mesmo ficheiro;
+- documentos cuja digitalizacao continha tambem um `RC`/`RG`.
 
 Isto e importante porque, no segundo caso, o utilizador pode trocar a conta do `Valor Total` de fornecedor para uma conta de bancos. Essa decisao passa a ser aprendida e reutilizada apenas para documentos do mesmo contexto, evitando contaminar a sugestao de faturas normais.
+
+Persistencia adicional:
+
+- A classificacao generica passa a guardar tambem `receipt_total_account` para o contexto "fatura com recibo associado".
+- Isto permite recuperar a conta de `Valor Total` mesmo quando o registo individual em `accounting_imports.account` e apagado ou limpo.
+- Os modelos guardados pelo utilizador preservam `Valor Total`, alem das contas por taxa e centros de custo.
+
+## Lançamentos ERP
+
+No fluxo `contabilidade/lancamentos`:
+
+- fechar a modal volta a recarregar a grelha a partir do ERP;
+- a eliminacao do lancamento tenta apagar primeiro os anexos digitais;
+- se a eliminacao do anexo falhar, o lancamento nao e removido;
+- a mensagem de duplicado no ERP passa a indicar a localizacao do lancamento existente;
+- em notas de credito (`NC`), a linha de `Valor Total` e preservada e a natureza debito/credito e ajustada ao tipo documental.
 
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).
