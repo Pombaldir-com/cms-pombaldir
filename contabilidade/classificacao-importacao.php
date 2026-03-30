@@ -151,6 +151,43 @@ if (!function_exists('resolveDisplayClassificationAccounts')) {
     }
 }
 
+if (!function_exists('resolveEffectiveDocumentAccountingConfiguration')) {
+    function resolveEffectiveDocumentAccountingConfiguration(PDO $pdo, array $document): string {
+        $rowPayload = (string) ($document['account'] ?? '');
+        $rowAccounts = normalizeAccountingAccounts($rowPayload);
+        $rowMetadata = normalizeAccountingMetadata($rowPayload);
+        $classificationPayload = fetchClassificationAccountPayload(
+            $pdo,
+            (string) ($document['field_A'] ?? ''),
+            (string) ($document['field_B'] ?? ''),
+            (string) ($document['field_D'] ?? ''),
+            $document
+        );
+
+        if (trim($classificationPayload) === '') {
+            return $rowPayload;
+        }
+
+        $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
+        $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
+        $effectiveAccounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
+        $effectiveMetadata = $rowMetadata;
+
+        if (trim((string) ($effectiveMetadata['total_account'] ?? '')) === '') {
+            $effectiveMetadata['total_account'] = resolveClassificationTotalAccountForContext(
+                $classificationMetadata,
+                $rowMetadata['has_receipt_companion'] ?? '0'
+            );
+        }
+
+        if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
+            $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
+        }
+
+        return serializeAccountingAccounts($effectiveAccounts, $effectiveMetadata, $rowMetadata);
+    }
+}
+
 $useDataTables = true;
 $useDropzone = false;
 
@@ -632,8 +669,13 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 
     $documentsWithoutLines = [];
     foreach ($documentsPayload as &$documentPayload) {
-        $originalAccountConfig = $documentPayload['account'] ?? '';
-        $documentPayload['account_configuration'] = $originalAccountConfig;
+        $originalAccountConfig = (string) ($documentPayload['account'] ?? '');
+        $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfiguration($pdo, $documentPayload);
+        if (trim($effectiveAccountConfig) !== '') {
+            $documentPayload['account'] = $effectiveAccountConfig;
+        }
+        $documentPayload['account_configuration'] = (string) ($documentPayload['account'] ?? '');
+        $documentPayload['account_configuration_source'] = $originalAccountConfig;
         $documentPayload['cost_center_configuration'] = $documentPayload['cost_center'] ?? '';
         $accountLines = buildDocumentAccountingLines($documentPayload);
         $documentPayload['account_lines'] = $accountLines;

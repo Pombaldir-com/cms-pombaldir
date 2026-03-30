@@ -458,10 +458,12 @@ $pageScripts = <<<'JS'
         : null;
     var canDeleteLancamento = window.lancamentosCanDelete === true;
     var currentDetailRow = null;
+    var skipDetailModalReloadOnClose = false;
     var classifyModalEl = document.getElementById('classifyModal');
     var classifyModal = (classifyModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
         ? new window.bootstrap.Modal(classifyModalEl)
         : null;
+    var skipClassifyModalReloadOnClose = false;
     var classifyModalTitleEl = document.getElementById('classifyModalLabel');
     var classifyFormEl = document.getElementById('classify-form');
     var classifyTableBodyEl = classifyFormEl ? classifyFormEl.querySelector('tbody') : null;
@@ -589,6 +591,15 @@ $pageScripts = <<<'JS'
 
     function isDefaultRate(rateKey) {
         return ['0', '6', '13', '23'].indexOf(String(rateKey || '')) !== -1;
+    }
+
+    function isCreditAccountingDocumentType(docType) {
+        var normalized = sanitizeText(docType).toUpperCase();
+        if (normalized === '') {
+            return false;
+        }
+        normalized = normalized.replace(/[-_\s]+/g, '');
+        return ['NC', 'RC', 'CN', 'CREDITNOTE', 'NOTACREDITO', 'NOTADECREDITO'].indexOf(normalized) !== -1;
     }
 
     function sanitizeText(value) {
@@ -952,9 +963,8 @@ $pageScripts = <<<'JS'
         if (description.indexOf('TOTAL') !== -1) {
             return 'total';
         }
-        var debCre = sanitizeText(line && line.strDeb_Cre).toUpperCase();
         var nif = sanitizeText(line && line.strNumContrib);
-        if (debCre === 'C' && nif !== '') {
+        if (nif !== '') {
             return 'total';
         }
         return 'base';
@@ -1568,6 +1578,9 @@ $pageScripts = <<<'JS'
 
     function buildMovementDocumentFromEditor(rowData) {
         var lines = [];
+        var isCreditDoc = isCreditAccountingDocumentType(rowData && rowData.strAbrevTpDoc);
+        var baseNature = isCreditDoc ? 'C' : 'D';
+        var totalNature = isCreditDoc ? 'D' : 'C';
         getEditorRateKeys().forEach(function(rateKey) {
             var data = editorRateData[rateKey] || {};
             var label = sanitizeText(data.label || getRateLabel(rateKey, ''));
@@ -1581,7 +1594,7 @@ $pageScripts = <<<'JS'
                 lines.push({
                     strConta: generalAccount,
                     fltValor: Math.abs(baseValue),
-                    strDeb_Cre: 'D',
+                    strDeb_Cre: baseNature,
                     strDescricao: 'Doc ' + sanitizeText(rowData.strNumDoc) + ' - BASE ' + label,
                     tax_rate: taxRate !== null ? String(taxRate) : '',
                     mov_cc: movCcRows.map(function(item, index) {
@@ -1590,7 +1603,7 @@ $pageScripts = <<<'JS'
                             strConta_CCusto: sanitizeText(item.cost_center),
                             fltPercentagem: parseDecimalValue(item.percentage) || 0,
                             fltValor: parseDecimalValue(item.value) || 0,
-                            strDeb_Cre: 'D'
+                            strDeb_Cre: baseNature
                         };
                     })
                 });
@@ -1599,7 +1612,7 @@ $pageScripts = <<<'JS'
                 lines.push({
                     strConta: ivaAccount,
                     fltValor: Math.abs(ivaValue),
-                    strDeb_Cre: 'D',
+                    strDeb_Cre: baseNature,
                     strDescricao: 'Doc ' + sanitizeText(rowData.strNumDoc) + ' - IVA ' + label,
                     tax_rate: taxRate !== null ? String(taxRate) : ''
                 });
@@ -1611,7 +1624,7 @@ $pageScripts = <<<'JS'
             lines.push({
                 strConta: totalAccount,
                 fltValor: Math.abs(totalValue),
-                strDeb_Cre: 'C',
+                strDeb_Cre: totalNature,
                 strDescricao: 'Total - Doc ' + sanitizeText(rowData.strNumDoc),
                 strNumContrib: sanitizeText(rowData.strFArchTaxPayer),
                 intGrp_Terc: 1
@@ -1926,6 +1939,11 @@ $pageScripts = <<<'JS'
     if (detailModalEl) {
         jQuery(detailModalEl).on('hidden.bs.modal', function() {
             currentDetailRow = null;
+            if (skipDetailModalReloadOnClose) {
+                skipDetailModalReloadOnClose = false;
+                return;
+            }
+            table.ajax.reload(null, false);
         });
     }
 
@@ -1937,6 +1955,11 @@ $pageScripts = <<<'JS'
             if (totalAccountInput) {
                 totalAccountInput.value = '';
             }
+            if (skipClassifyModalReloadOnClose) {
+                skipClassifyModalReloadOnClose = false;
+                return;
+            }
+            table.ajax.reload(null, false);
         });
     }
 
@@ -2125,6 +2148,7 @@ $pageScripts = <<<'JS'
                     return;
                 }
                 if (classifyModal) {
+                    skipClassifyModalReloadOnClose = true;
                     classifyModal.hide();
                 }
                 table.ajax.reload(null, false);
@@ -2258,7 +2282,9 @@ $pageScripts = <<<'JS'
                         sequence = sequence.then(function() {
                             var anexoId = anexo && (anexo.id || anexo.idCab);
                             if (!anexoId) {
-                                return;
+                                return jQuery.Deferred().reject({
+                                    message: 'Falha ao identificar um anexo digital para eliminacao.'
+                                }).promise();
                             }
                             return jQuery.ajax({
                                 url: erpBaseUrl + '/anexosdigitais',
@@ -2272,6 +2298,15 @@ $pageScripts = <<<'JS'
                                     database: dbValue,
                                     id: String(anexoId)
                                 })
+                            }).then(function(deleteResp) {
+                                if (!deleteResp || !(deleteResp.success === 1 || deleteResp.success === true)) {
+                                    return jQuery.Deferred().reject({
+                                        message: (deleteResp && (deleteResp.errormsg || deleteResp.message))
+                                            ? (deleteResp.errormsg || deleteResp.message)
+                                            : 'Falha ao eliminar anexo digital.'
+                                    }).promise();
+                                }
+                                return deleteResp;
                             });
                         });
                     });
@@ -2279,7 +2314,7 @@ $pageScripts = <<<'JS'
                 });
             }
 
-            deleteAnexosIfAny().always(function() {
+            deleteAnexosIfAny().done(function() {
                 callDeleteMovimento()
                     .done(function(resp) {
                         if (!resp || !(resp.success === 1 || resp.success === true)) {
@@ -2289,9 +2324,11 @@ $pageScripts = <<<'JS'
                         currentDetailRow = null;
                         editorCurrentRow = null;
                         if (detailModal) {
+                            skipDetailModalReloadOnClose = true;
                             detailModal.hide();
                         }
                         if (classifyModal) {
+                            skipClassifyModalReloadOnClose = true;
                             classifyModal.hide();
                         }
                         table.ajax.reload(null, false);
@@ -2322,6 +2359,15 @@ $pageScripts = <<<'JS'
                     .always(function() {
                         $btn.prop('disabled', false);
                     });
+            }).fail(function(xhr) {
+                var msg = 'Falha ao eliminar anexos digitais do lançamento.';
+                if (xhr && xhr.message) {
+                    msg = xhr.message;
+                } else if (xhr && xhr.responseJSON && (xhr.responseJSON.errormsg || xhr.responseJSON.message)) {
+                    msg = xhr.responseJSON.errormsg || xhr.responseJSON.message;
+                }
+                alert(msg);
+                $btn.prop('disabled', false);
             });
     }
 
