@@ -722,6 +722,64 @@ window.addEventListener('load', function() {
         table.rows(receiptNodes).remove().draw(false);
     }
 
+    function pruneReceiptRowsAcrossPendingFiles() {
+        var pendingNodes = getPendingRowNodes();
+        if (!pendingNodes.length) {
+            return;
+        }
+
+        var grouped = {};
+        pendingNodes.forEach(function(node) {
+            var filePath = getRowFilePath(node);
+            if (!filePath) {
+                return;
+            }
+            if (!grouped[filePath]) {
+                grouped[filePath] = {
+                    invoiceNodes: [],
+                    receiptNodes: []
+                };
+            }
+            var data = table.row(node).data() || [];
+            if (isInvoiceDocType(data[3] || '')) {
+                grouped[filePath].invoiceNodes.push(node);
+            } else if (isReceiptDocType(data[3] || '')) {
+                grouped[filePath].receiptNodes.push(node);
+            }
+        });
+
+        var nodesToRemove = [];
+        var shouldRedraw = false;
+        Object.keys(grouped).forEach(function(filePath) {
+            var group = grouped[filePath];
+            if (!group || !group.invoiceNodes.length || !group.receiptNodes.length) {
+                return;
+            }
+
+            group.invoiceNodes.forEach(function(node) {
+                var rowApi = table.row(node);
+                var data = rowApi.data() || [];
+                if (!data.length) {
+                    return;
+                }
+                data[data.length - 1] = buildActionsHtml(filePath, false, true);
+                rowApi.data(data);
+                shouldRedraw = true;
+            });
+
+            nodesToRemove = nodesToRemove.concat(group.receiptNodes);
+        });
+
+        if (nodesToRemove.length) {
+            table.rows(nodesToRemove).remove();
+            shouldRedraw = true;
+        }
+
+        if (shouldRedraw) {
+            table.draw(false);
+        }
+    }
+
     function addStructuredRows(rows, filePath) {
         var added = 0;
         var rowsToAdd = [];
@@ -768,6 +826,7 @@ window.addEventListener('load', function() {
             setReceiptCompanionFlagForFile(filePath, true);
         }
         pruneReceiptRowsForFile(filePath);
+        pruneReceiptRowsAcrossPendingFiles();
 
         refreshUploadActionState();
         return added;

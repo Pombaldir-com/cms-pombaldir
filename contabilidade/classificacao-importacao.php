@@ -54,6 +54,22 @@ if ($isImportOnlyView && !$canImportCtb) {
     exit('Sem permissao para importar documentos CTB.');
 }
 
+function buildReceiptRowsHiddenSqlCondition(string $tableReference = ''): string {
+    $outerPrefix = trim($tableReference) !== '' ? trim($tableReference) . '.' : '';
+    $filenameExpr = "TRIM(COALESCE({$outerPrefix}filename, ''))";
+    $docTypeExpr = "UPPER(TRIM(COALESCE({$outerPrefix}field_D, '')))";
+
+    return 'NOT ('
+        . $filenameExpr . " <> '' AND "
+        . $docTypeExpr . " IN ('RC', 'RECIBO') AND EXISTS ("
+        . 'SELECT 1 FROM accounting_imports ai_invoice '
+        . 'WHERE ai_invoice.import_type = ' . $outerPrefix . 'import_type '
+        . "AND (ai_invoice.cab_id IS NULL OR ai_invoice.cab_id = '') "
+        . 'AND ai_invoice.filename = ' . $outerPrefix . 'filename '
+        . "AND UPPER(TRIM(COALESCE(ai_invoice.field_D, ''))) IN ('FT', 'FR', 'FTR', 'FATURA', 'FACTURA', 'FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO')"
+        . '))';
+}
+
 function buildDocumentFileAttachment(string $relativePath): ?array {
     $trimmedPath = trim($relativePath);
     if ($trimmedPath === '') {
@@ -2520,10 +2536,12 @@ if ($action === 'ready_ids') {
     $isImportOnlyRequest = $importType === 1 && $viewMode === 'import';
 
     try {
+        $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
         $stmt = $pdo->prepare(
             'SELECT * '
             . 'FROM accounting_imports '
             . 'WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\') '
+            . $visibilitySql
             . 'ORDER BY id'
         );
         $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
@@ -2615,7 +2633,8 @@ if ($action === 'data') {
         }
 
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
-        $baseSql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')";
+        $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
+        $baseSql = "SELECT $colList FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')$visibilitySql";
         if ($isImportOnlyRequest) {
             $stmt = $pdo->prepare($baseSql . ' ORDER BY id');
             $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
@@ -2630,7 +2649,7 @@ if ($action === 'data') {
             $filteredCount = $totalCount;
             $rows = array_slice($rows, $start, $length);
         } else {
-            $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')';
+            $countSql = 'SELECT COUNT(*) FROM accounting_imports WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql;
             $countStmt = $pdo->prepare($countSql);
             $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
             $countStmt->execute();
@@ -2770,7 +2789,8 @@ if ($action === 'data') {
     }
     exit;
 }
-$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')');
+$initialVisibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition() : '';
+$stmt = $pdo->prepare('SELECT * FROM accounting_imports WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')' . $initialVisibilitySql);
 $stmt->execute([':type' => $importType]);
 
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
