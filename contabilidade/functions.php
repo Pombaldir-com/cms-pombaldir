@@ -1048,9 +1048,10 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
  *
  * @param string $path Path appended to the ERP base URL.
  * @param bool   $returnDebug Return debug information alongside data.
+ * @param string $database Optional ERP database override.
  * @return array Associative array with data/error info.
  */
-function fetchErpTableData(string $path, bool $returnDebug = false): array {
+function fetchErpTableData(string $path, bool $returnDebug = false, string $database = ''): array {
     if (!function_exists('curl_init')) {
         $message = 'Extensão cURL não disponível para obter tabelas ERP-SINC.';
         logErpMessage($message);
@@ -1064,7 +1065,7 @@ function fetchErpTableData(string $path, bool $returnDebug = false): array {
     }
 
     $endpoint = buildErpEndpointFromBase($baseUrl, $path);
-    $endpoint = appendQueryParamsToUrl($endpoint, buildErpCompanyQueryParams());
+    $endpoint = appendQueryParamsToUrl($endpoint, buildErpCompanyQueryParams($database));
     if ($endpoint === '') {
         $message = 'URL do ERP-SINC inválida para obter tabelas.';
         logErpMessage($message);
@@ -1162,6 +1163,504 @@ function fetchErpTableData(string $path, bool $returnDebug = false): array {
     return ['data' => $data];
 }
 
+function normalizeErpEInvoiceDocTypeLookupValue(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (function_exists('mb_strtoupper')) {
+        $value = mb_strtoupper($value, 'UTF-8');
+    } else {
+        $value = strtoupper($value);
+    }
+
+    if (function_exists('iconv')) {
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if (is_string($transliterated) && $transliterated !== '') {
+            $value = $transliterated;
+        }
+    }
+
+    $value = preg_replace('/[^A-Z0-9]+/', ' ', $value);
+    $value = preg_replace('/\s+/', ' ', (string) $value);
+    return trim((string) $value);
+}
+
+function buildOfficialEfaturaDocTypeCodes(string $documentType): array {
+    $normalized = normalizeErpEInvoiceDocTypeLookupValue($documentType);
+    if ($normalized === '') {
+        return [];
+    }
+
+    switch ($normalized) {
+        case 'FT':
+        case 'FATURA':
+        case 'FACTURA':
+            return ['FT'];
+        case 'FR':
+        case 'FTR':
+        case 'FATURA RECIBO':
+        case 'FACTURA RECIBO':
+            return ['FR', 'FTR'];
+        case 'FS':
+        case 'FATURA SIMPLIFICADA':
+        case 'FACTURA SIMPLIFICADA':
+            return ['FS'];
+        case 'NC':
+        case 'NOTA CREDITO':
+        case 'NOTA DE CREDITO':
+            return ['NC'];
+        case 'ND':
+        case 'NOTA DEBITO':
+        case 'NOTA DE DEBITO':
+            return ['ND'];
+        case 'RC':
+        case 'RG':
+        case 'RECIBO':
+            return ['RC', 'RG'];
+    }
+
+    if (preg_match('/^[A-Z0-9]{2,6}$/', $normalized)) {
+        return [$normalized];
+    }
+
+    return [];
+}
+
+function getAccountingQrDocTypeMappingKey(string $documentType): string {
+    $officialCodes = buildOfficialEfaturaDocTypeCodes($documentType);
+    if (!empty($officialCodes)) {
+        return trim((string) $officialCodes[0]);
+    }
+
+    return normalizeErpEInvoiceDocTypeLookupValue($documentType);
+}
+
+function normalizeAccountingQrDocTypeMappingsPayload($rawValue): array {
+    $rawValue = trim((string) $rawValue);
+    if ($rawValue === '') {
+        return [];
+    }
+
+    $decoded = json_decode($rawValue, true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($decoded as $rawKey => $rawEntry) {
+        $mappingKey = getAccountingQrDocTypeMappingKey((string) $rawKey);
+        if ($mappingKey === '') {
+            continue;
+        }
+
+        $entry = [];
+        if (is_array($rawEntry)) {
+            $entry = $rawEntry;
+        } elseif (is_string($rawEntry)) {
+            $entry = ['erp_doc_type' => $rawEntry];
+        }
+
+        $erpDocType = trim((string) ($entry['erp_doc_type'] ?? $entry['value'] ?? ''));
+        if ($erpDocType === '') {
+            continue;
+        }
+
+        $normalized[$mappingKey] = [
+            'qr_doc_type' => $mappingKey,
+            'erp_doc_type' => $erpDocType,
+            'erp_label' => trim((string) ($entry['erp_label'] ?? $entry['label'] ?? '')),
+            'updated_at' => trim((string) ($entry['updated_at'] ?? '')),
+        ];
+    }
+
+    return $normalized;
+}
+
+function getAccountingQrDocTypeMappings(string $database = ''): array {
+    $database = resolveErpDatabaseIdentifier($database);
+    if ($database === '') {
+        return [];
+    }
+
+    if (
+        isset($GLOBALS['accounting_qr_doc_type_mappings_cache'])
+        && is_array($GLOBALS['accounting_qr_doc_type_mappings_cache'])
+        && array_key_exists($database, $GLOBALS['accounting_qr_doc_type_mappings_cache'])
+        && is_array($GLOBALS['accounting_qr_doc_type_mappings_cache'][$database])
+    ) {
+        return $GLOBALS['accounting_qr_doc_type_mappings_cache'][$database];
+    }
+
+    $pdo = getPDO();
+    $entity = findAccountingAcquirerEntityByDatabase($pdo, $database);
+    if (!is_array($entity)) {
+        if (!isset($GLOBALS['accounting_qr_doc_type_mappings_cache']) || !is_array($GLOBALS['accounting_qr_doc_type_mappings_cache'])) {
+            $GLOBALS['accounting_qr_doc_type_mappings_cache'] = [];
+        }
+        $GLOBALS['accounting_qr_doc_type_mappings_cache'][$database] = [];
+        return [];
+    }
+
+    $normalized = normalizeAccountingQrDocTypeMappingsPayload($entity['qr_doc_type_mappings'] ?? '');
+    if (!isset($GLOBALS['accounting_qr_doc_type_mappings_cache']) || !is_array($GLOBALS['accounting_qr_doc_type_mappings_cache'])) {
+        $GLOBALS['accounting_qr_doc_type_mappings_cache'] = [];
+    }
+    $GLOBALS['accounting_qr_doc_type_mappings_cache'][$database] = $normalized;
+    return $normalized;
+}
+
+function saveAccountingQrDocTypeMappings(array $mappings, string $database = ''): void {
+    $database = resolveErpDatabaseIdentifier($database);
+    if ($database === '') {
+        throw new InvalidArgumentException('Base de dados ERP inválida para guardar a associação do tipo documental.');
+    }
+
+    $normalized = [];
+    foreach ($mappings as $rawKey => $rawEntry) {
+        $mappingKey = getAccountingQrDocTypeMappingKey((string) $rawKey);
+        if ($mappingKey === '') {
+            continue;
+        }
+
+        $entry = is_array($rawEntry) ? $rawEntry : ['erp_doc_type' => $rawEntry];
+        $erpDocType = trim((string) ($entry['erp_doc_type'] ?? $entry['value'] ?? ''));
+        if ($erpDocType === '') {
+            continue;
+        }
+
+        $normalized[$mappingKey] = [
+            'qr_doc_type' => $mappingKey,
+            'erp_doc_type' => $erpDocType,
+            'erp_label' => trim((string) ($entry['erp_label'] ?? $entry['label'] ?? '')),
+            'updated_at' => trim((string) ($entry['updated_at'] ?? date('Y-m-d H:i:s'))),
+        ];
+    }
+
+    $pdo = getPDO();
+    $entity = findAccountingAcquirerEntityByDatabase($pdo, $database);
+    if (!is_array($entity)) {
+        throw new RuntimeException('Empresa local não encontrada para guardar a associação do tipo documental.');
+    }
+
+    saveAccountingEntity($pdo, [
+        'nif' => trim((string) ($entity['nif'] ?? '')),
+        'name' => trim((string) ($entity['name'] ?? '')),
+        'erp_database' => trim((string) ($entity['erp_database'] ?? '')),
+        'entity_type' => trim((string) ($entity['entity_type'] ?? 'acquirer')),
+        'erp_client_code' => trim((string) ($entity['erp_client_code'] ?? '')),
+        'qr_doc_type_mappings' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
+    ]);
+
+    if (!isset($GLOBALS['accounting_qr_doc_type_mappings_cache']) || !is_array($GLOBALS['accounting_qr_doc_type_mappings_cache'])) {
+        $GLOBALS['accounting_qr_doc_type_mappings_cache'] = [];
+    }
+    $GLOBALS['accounting_qr_doc_type_mappings_cache'][$database] = $normalized;
+}
+
+function getAccountingQrDocTypeMappingEntry(string $documentType, string $database = ''): array {
+    $mappingKey = getAccountingQrDocTypeMappingKey($documentType);
+    if ($mappingKey === '') {
+        return [];
+    }
+
+    $mappings = getAccountingQrDocTypeMappings($database);
+    if (!isset($mappings[$mappingKey]) || !is_array($mappings[$mappingKey])) {
+        return [];
+    }
+
+    return $mappings[$mappingKey];
+}
+
+function setAccountingQrDocTypeMapping(string $documentType, string $erpDocType, string $erpLabel = '', string $database = ''): array {
+    $mappingKey = getAccountingQrDocTypeMappingKey($documentType);
+    $erpDocType = trim($erpDocType);
+    if ($mappingKey === '' || $erpDocType === '') {
+        return [];
+    }
+
+    $mappings = getAccountingQrDocTypeMappings($database);
+    $mappings[$mappingKey] = [
+        'qr_doc_type' => $mappingKey,
+        'erp_doc_type' => $erpDocType,
+        'erp_label' => trim($erpLabel),
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    saveAccountingQrDocTypeMappings($mappings, $database);
+
+    return $mappings[$mappingKey];
+}
+
+function buildErpEInvoiceDocTypeAliases(string $documentType): array {
+    $normalized = normalizeErpEInvoiceDocTypeLookupValue($documentType);
+    if ($normalized === '') {
+        return [];
+    }
+
+    $aliases = [$normalized];
+    $officialCodes = buildOfficialEfaturaDocTypeCodes($documentType);
+    $aliases = array_merge($aliases, $officialCodes);
+
+    foreach ($officialCodes as $officialCode) {
+        switch ($officialCode) {
+            case 'FT':
+                $aliases = array_merge($aliases, ['FATURA', 'FACTURA']);
+                break;
+            case 'FR':
+            case 'FTR':
+                $aliases = array_merge($aliases, ['FATURA RECIBO', 'FACTURA RECIBO']);
+                break;
+            case 'FS':
+                $aliases = array_merge($aliases, ['FATURA SIMPLIFICADA', 'FACTURA SIMPLIFICADA']);
+                break;
+            case 'NC':
+                $aliases = array_merge($aliases, ['NOTA CREDITO', 'NOTA DE CREDITO']);
+                break;
+            case 'ND':
+                $aliases = array_merge($aliases, ['NOTA DEBITO', 'NOTA DE DEBITO']);
+                break;
+            case 'RC':
+            case 'RG':
+                $aliases = array_merge($aliases, ['RECIBO']);
+                break;
+        }
+    }
+
+    $aliases = array_values(array_unique(array_filter(array_map('trim', $aliases), static function ($value): bool {
+        return $value !== '';
+    })));
+
+    return $aliases;
+}
+
+function parseErpEInvoiceDocTypeListDocs(string $listDocs): array {
+    $listDocs = trim($listDocs);
+    if ($listDocs === '') {
+        return [];
+    }
+
+    $parts = preg_split('/[\r\n,;|]+/', $listDocs);
+    if (!is_array($parts)) {
+        return [];
+    }
+
+    $tokens = [];
+    foreach ($parts as $part) {
+        $normalized = normalizeErpEInvoiceDocTypeLookupValue((string) $part);
+        if ($normalized !== '') {
+            $tokens[] = $normalized;
+        }
+    }
+
+    return array_values(array_unique($tokens));
+}
+
+function buildErpEInvoiceDocTypeOptions(string $database = ''): array {
+    $rows = fetchErpEInvoiceDocTypeRows($database);
+    $byValue = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $value = trim((string) ($row['strAbrevTpDoc'] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+
+        $key = normalizeErpEInvoiceDocTypeLookupValue($value);
+        if (!isset($byValue[$key])) {
+            $byValue[$key] = [
+                'value' => $value,
+                'titles' => [],
+                'official_codes' => [],
+            ];
+        }
+
+        $title = trim((string) ($row['strTpDoc'] ?? ''));
+        if ($title !== '' && !in_array($title, $byValue[$key]['titles'], true)) {
+            $byValue[$key]['titles'][] = $title;
+        }
+
+        foreach (parseErpEInvoiceDocTypeListDocs((string) ($row['strListDocs'] ?? '')) as $officialCode) {
+            if (!in_array($officialCode, $byValue[$key]['official_codes'], true)) {
+                $byValue[$key]['official_codes'][] = $officialCode;
+            }
+        }
+    }
+
+    $items = [];
+    foreach ($byValue as $option) {
+        $value = trim((string) ($option['value'] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+
+        $titles = isset($option['titles']) && is_array($option['titles']) ? $option['titles'] : [];
+        $officialCodes = isset($option['official_codes']) && is_array($option['official_codes']) ? $option['official_codes'] : [];
+        sort($officialCodes, SORT_NATURAL);
+        $title = !empty($titles) ? implode(' / ', $titles) : $value;
+        $label = $title !== $value ? ($title . ' (' . $value . ')') : $value;
+        $description = '';
+        if (!empty($officialCodes)) {
+            $description = 'Codigos QR: ' . implode(', ', $officialCodes);
+        }
+
+        $items[] = [
+            'value' => $value,
+            'title' => $title,
+            'label' => $label,
+            'description' => $description,
+            'official_codes' => $officialCodes,
+        ];
+    }
+
+    usort($items, static function (array $left, array $right): int {
+        return strnatcasecmp((string) ($left['label'] ?? ''), (string) ($right['label'] ?? ''));
+    });
+
+    return $items;
+}
+
+function fetchErpEInvoiceDocTypeRows(string $database = '', bool $forceRefresh = false): array {
+    static $requestCache = [];
+
+    $database = resolveErpDatabaseIdentifier($database);
+    if ($database === '') {
+        return [];
+    }
+
+    $ttlSeconds = 3600;
+    $now = time();
+
+    if (!$forceRefresh && isset($requestCache[$database])) {
+        $cachedEntry = $requestCache[$database];
+        $fetchedAt = (int) ($cachedEntry['fetched_at'] ?? 0);
+        if ($fetchedAt > 0 && ($now - $fetchedAt) < $ttlSeconds) {
+            return isset($cachedEntry['rows']) && is_array($cachedEntry['rows']) ? $cachedEntry['rows'] : [];
+        }
+    }
+
+    if (!$forceRefresh && session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['erp_einvoice_tpdocs'][$database])) {
+        $cachedEntry = $_SESSION['erp_einvoice_tpdocs'][$database];
+        $fetchedAt = (int) ($cachedEntry['fetched_at'] ?? 0);
+        if ($fetchedAt > 0 && ($now - $fetchedAt) < $ttlSeconds) {
+            $rows = isset($cachedEntry['rows']) && is_array($cachedEntry['rows']) ? $cachedEntry['rows'] : [];
+            $requestCache[$database] = [
+                'fetched_at' => $fetchedAt,
+                'rows' => $rows,
+            ];
+            return $rows;
+        }
+    }
+
+    $response = fetchErpTableData('contabilidade/eInvoice_TpDocs', true, $database);
+    $rows = [];
+    if (isset($response['data']) && is_array($response['data'])) {
+        foreach ($response['data'] as $row) {
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
+        }
+    }
+
+    $cacheEntry = [
+        'fetched_at' => $now,
+        'rows' => $rows,
+    ];
+    $requestCache[$database] = $cacheEntry;
+
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        if (!isset($_SESSION['erp_einvoice_tpdocs']) || !is_array($_SESSION['erp_einvoice_tpdocs'])) {
+            $_SESSION['erp_einvoice_tpdocs'] = [];
+        }
+        $_SESSION['erp_einvoice_tpdocs'][$database] = $cacheEntry;
+    }
+
+    return $rows;
+}
+
+function preloadErpEInvoiceDocTypes(string $database = ''): void {
+    fetchErpEInvoiceDocTypeRows($database);
+}
+
+function resolveErpAccountingDocumentTypeAbbreviation(string $documentType, string $database = ''): string {
+    $documentType = trim($documentType);
+    if ($documentType === '') {
+        return '';
+    }
+
+    if (strpos($documentType, '/') !== false) {
+        return $documentType;
+    }
+
+    $configuredMapping = getAccountingQrDocTypeMappingEntry($documentType, $database);
+    $configuredValue = trim((string) ($configuredMapping['erp_doc_type'] ?? ''));
+    if ($configuredValue !== '') {
+        return $configuredValue;
+    }
+
+    $officialCodes = buildOfficialEfaturaDocTypeCodes($documentType);
+    $aliases = buildErpEInvoiceDocTypeAliases($documentType);
+    if (empty($aliases) && empty($officialCodes)) {
+        return '';
+    }
+
+    $rows = fetchErpEInvoiceDocTypeRows($database);
+    $bestMatch = '';
+    $bestScore = -1;
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $rowAbbreviation = trim((string) ($row['strAbrevTpDoc'] ?? ''));
+        if ($rowAbbreviation === '') {
+            continue;
+        }
+
+        $score = 0;
+        $listDocTokens = parseErpEInvoiceDocTypeListDocs((string) ($row['strListDocs'] ?? ''));
+        if (!empty($officialCodes)) {
+            $primaryOfficialCode = $officialCodes[0];
+            if (in_array($primaryOfficialCode, $listDocTokens, true)) {
+                $score += 1000;
+            } else {
+                foreach ($officialCodes as $officialCode) {
+                    if (in_array($officialCode, $listDocTokens, true)) {
+                        $score += 900;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $rowType = normalizeErpEInvoiceDocTypeLookupValue((string) ($row['strTpDoc'] ?? ''));
+        if ($rowType !== '' && in_array($rowType, $aliases, true)) {
+            $score += 100;
+        }
+
+        $rowAbbreviationNormalized = normalizeErpEInvoiceDocTypeLookupValue($rowAbbreviation);
+        if ($rowAbbreviationNormalized !== '' && in_array($rowAbbreviationNormalized, $aliases, true)) {
+            $score += 90;
+        }
+
+        if ($score > $bestScore) {
+            $bestScore = $score;
+            $bestMatch = $rowAbbreviation;
+        }
+    }
+
+    if ($bestScore >= 0 && $bestMatch !== '') {
+        return $bestMatch;
+    }
+
+    return '';
+}
+
 /**
  * Fetch an accounting entity stored locally by VAT number.
  *
@@ -1170,7 +1669,7 @@ function fetchErpTableData(string $path, bool $returnDebug = false): array {
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
-    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
@@ -1189,8 +1688,26 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     if ($normalizedType === '') {
         return findAccountingEntity($pdo, $nif);
     }
-    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, created_at FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
     $stmt->execute([$nif, $normalizedType]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row !== false ? $row : null;
+}
+
+function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?array {
+    $database = trim($database);
+    if ($database === '') {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at
+         FROM accounting_entities
+         WHERE entity_type = ? AND (erp_database = ? OR erp_client_code = ?)
+         ORDER BY id ASC
+         LIMIT 1'
+    );
+    $stmt->execute(['acquirer', $database, $database]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
 }
@@ -1239,23 +1756,30 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
     }
 
     if (is_array($existing) && !empty($existing['id'])) {
+        $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
+            ? (string) $data['qr_doc_type_mappings']
+            : (string) ($existing['qr_doc_type_mappings'] ?? '');
         $stmt = $pdo->prepare(
-            'UPDATE accounting_entities SET name = ?, erp_database = ?, entity_type = ?, erp_client_code = ? WHERE id = ?'
+            'UPDATE accounting_entities SET name = ?, erp_database = ?, entity_type = ?, erp_client_code = ?, qr_doc_type_mappings = ? WHERE id = ?'
         );
         $stmt->execute([
             $name,
             $erpDatabase,
             $entityType,
             $erpClientCode,
+            $qrDocTypeMappings,
             (int) $existing['id'],
         ]);
         return;
     }
 
+    $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
+        ? (string) $data['qr_doc_type_mappings']
+        : '';
     $stmt = $pdo->prepare(
-        'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode]);
+    $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode, $qrDocTypeMappings]);
 }
 
 function findAccountingEntityNameFromEfatura(PDO $pdo, string $nif): string {

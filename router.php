@@ -305,6 +305,14 @@ switch (true) {
         $_GET['action'] = 'cost_centers';
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/qr-doc-type-mapping',
+        'contabilidade/classificacao-importacao/qr_doc_type_mapping',
+        'contabilidade/classificacao-importacao-qr-doc-type-mapping.php'
+    ], true):
+        $_GET['action'] = 'qr_doc_type_mapping';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;

@@ -396,11 +396,21 @@ window.addEventListener('load', function() {
     var acquirerDatabaseError = document.getElementById('acquirerDatabaseError');
     var acquirerDatabaseLoadingIndicator = document.getElementById('acquirerDatabaseLoading');
     var confirmAcquirerDatabaseBtn = document.getElementById('confirmAcquirerDatabaseBtn');
+    var qrDocTypeMappingModalEl = document.getElementById('qrDocTypeMappingModal');
+    var qrDocTypeMappingModal = qrDocTypeMappingModalEl ? new bootstrap.Modal(qrDocTypeMappingModalEl) : null;
+    var qrDocTypeMappingForm = document.getElementById('qrDocTypeMappingForm');
+    var qrDocTypeMappingMessage = document.getElementById('qrDocTypeMappingMessage');
+    var qrDocTypeMappingContainer = document.getElementById('qrDocTypeMappingContainer');
+    var qrDocTypeMappingError = document.getElementById('qrDocTypeMappingError');
+    var confirmQrDocTypeMappingBtn = document.getElementById('confirmQrDocTypeMappingBtn');
     var acquirerDatabaseOptionsCache = null;
     var pendingImportIds = null;
     var pendingAcquirerEntity = null;
     var acquirerDatabasePending = false;
     var acquirerDatabaseSelectionResolved = false;
+    var qrDocTypeMappingPending = false;
+    var qrDocTypeMappingResolved = false;
+    var pendingQrDocTypeMappingContext = null;
     var readyIdsCache = {
         ids: null,
         fetchedAt: 0,
@@ -844,6 +854,188 @@ window.addEventListener('load', function() {
         });
     }
 
+    function resetQrDocTypeMappingModal() {
+        pendingQrDocTypeMappingContext = null;
+        if (qrDocTypeMappingForm) {
+            qrDocTypeMappingForm.reset();
+        }
+        if (qrDocTypeMappingContainer) {
+            qrDocTypeMappingContainer.innerHTML = '';
+        }
+        if (qrDocTypeMappingMessage) {
+            qrDocTypeMappingMessage.textContent = 'Associe o tipo de documento E-fatura lido no QR ao tipo documental ERP.';
+        }
+        if (qrDocTypeMappingError) {
+            qrDocTypeMappingError.classList.add('d-none');
+            qrDocTypeMappingError.textContent = '';
+        }
+        if (confirmQrDocTypeMappingBtn) {
+            confirmQrDocTypeMappingBtn.disabled = false;
+        }
+    }
+
+    function resolvePendingImportDatabase() {
+        if (pendingQrDocTypeMappingContext && typeof pendingQrDocTypeMappingContext.database === 'string' && pendingQrDocTypeMappingContext.database.trim() !== '') {
+            return pendingQrDocTypeMappingContext.database.trim();
+        }
+        if (pendingAcquirerEntity && typeof pendingAcquirerEntity.erp_database === 'string' && pendingAcquirerEntity.erp_database.trim() !== '') {
+            return pendingAcquirerEntity.erp_database.trim();
+        }
+        return '';
+    }
+
+    function showQrDocTypeMappingModal(context) {
+        if (!qrDocTypeMappingModal || !qrDocTypeMappingContainer) {
+            throw new Error('A modal de associação do tipo documental não está disponível.');
+        }
+
+        resetQrDocTypeMappingModal();
+        pendingQrDocTypeMappingContext = context || null;
+
+        var items = context && Array.isArray(context.items) ? context.items : [];
+        var options = context && Array.isArray(context.options) ? context.options : [];
+        var database = context && typeof context.database === 'string' ? context.database.trim() : '';
+        if (!items.length) {
+            throw new Error('Não existem tipos documentais QR por associar.');
+        }
+
+        if (qrDocTypeMappingMessage) {
+            qrDocTypeMappingMessage.textContent = database !== ''
+                ? 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis na base ' + database + '.'
+                : 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis.';
+        }
+
+        var html = '';
+        items.forEach(function(item, index) {
+            var qrDocType = item && item.qr_doc_type ? String(item.qr_doc_type).trim() : '';
+            if (!qrDocType) {
+                return;
+            }
+            var rawDocType = item && item.raw_doc_type ? String(item.raw_doc_type).trim() : '';
+            var suggestedValue = item && item.suggested_value ? String(item.suggested_value).trim() : '';
+            html += '<div class="mb-3">';
+            html += '<label class="form-label" for="qrDocTypeMappingSelect_' + index + '">Tipo de documento E-fatura: ' + escapeHtml(qrDocType) + '</label>';
+            if (rawDocType && rawDocType !== qrDocType) {
+                html += '<div class="text-muted small mb-1">Detetado no documento: ' + escapeHtml(rawDocType) + '</div>';
+            }
+            html += '<select class="form-select qr-doc-type-mapping-select" id="qrDocTypeMappingSelect_' + index + '" data-qr-doc-type="' + escapeHtml(qrDocType) + '" required>';
+            html += '<option value="">Selecionar tipo documental ERP</option>';
+            options.forEach(function(option) {
+                var value = option && option.value ? String(option.value).trim() : '';
+                if (!value) {
+                    return;
+                }
+                var label = option && option.label ? String(option.label).trim() : value;
+                var description = option && option.description ? String(option.description).trim() : '';
+                var selected = suggestedValue !== '' && suggestedValue === value ? ' selected' : '';
+                html += '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + (description ? ' [' + escapeHtml(description) + ']' : '') + '</option>';
+            });
+            html += '</select>';
+            html += '</div>';
+        });
+
+        qrDocTypeMappingContainer.innerHTML = html;
+        qrDocTypeMappingModal.show();
+    }
+
+    function ensureQrDocTypeMappings(ids, database) {
+        var payload = {
+            ids: ids,
+            import_type: importType,
+            database: String(database || '').trim(),
+            csrf_token: csrfInput ? csrfInput.value : '',
+            mode: 'check'
+        };
+        if (isClassificationOnlyView) {
+            payload.allow_classified_flow = 1;
+        }
+
+        debugJson('Pedido de validação de associações de tipos QR', payload);
+        return fetchJson('contabilidade/classificacao-importacao/qr-doc-type-mapping', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        }).then(function(res) {
+            debugJson('Resposta de validação de associações de tipos QR', res);
+            if (!res || typeof res !== 'object') {
+                throw new Error('Resposta inválida ao validar os tipos documentais do QR.');
+            }
+            if (res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success === false) {
+                throw new Error(res.error || 'Não foi possível validar os tipos documentais do QR.');
+            }
+            return {
+                requiresMapping: !!res.requires_mapping,
+                items: Array.isArray(res.items) ? res.items : [],
+                options: Array.isArray(res.options) ? res.options : [],
+                database: typeof res.database === 'string' ? res.database.trim() : String(database || '').trim()
+            };
+        });
+    }
+
+    function saveQrDocTypeMappings(mappings, database) {
+        var payload = {
+            ids: Array.isArray(pendingImportIds) ? pendingImportIds.slice() : [],
+            import_type: importType,
+            database: String(database || '').trim(),
+            mappings: mappings,
+            csrf_token: csrfInput ? csrfInput.value : '',
+            mode: 'save'
+        };
+        if (isClassificationOnlyView) {
+            payload.allow_classified_flow = 1;
+        }
+
+        debugJson('Pedido de gravação de associações de tipos QR', payload);
+        return fetchJson('contabilidade/classificacao-importacao/qr-doc-type-mapping', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        }).then(function(res) {
+            debugJson('Resposta de gravação de associações de tipos QR', res);
+            if (!res || typeof res !== 'object') {
+                throw new Error('Resposta inválida ao guardar a associação do tipo documental.');
+            }
+            if (res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (res.success === false) {
+                throw new Error(res.error || 'Não foi possível guardar a associação do tipo documental.');
+            }
+            return res;
+        });
+    }
+
+    function runPendingImportWithDocTypeMappings(ids) {
+        var resolvedIds = Array.isArray(ids) ? ids.slice() : [];
+        if (!resolvedIds.length) {
+            return Promise.resolve();
+        }
+
+        var database = resolvePendingImportDatabase();
+        return ensureQrDocTypeMappings(resolvedIds, database)
+            .then(function(mappingResult) {
+                if (mappingResult && mappingResult.requiresMapping) {
+                    qrDocTypeMappingPending = true;
+                    pendingQrDocTypeMappingContext = mappingResult;
+                    if (importCtbButton.length) {
+                        importCtbButton.data('loading', false);
+                    }
+                    updateImportButtonState();
+                    showQrDocTypeMappingModal(mappingResult);
+                    return null;
+                }
+
+                return performImport(resolvedIds);
+            });
+    }
+
     function moveImportButtonToFilter() {
         if (!importCtbButton.length || !importTypeAllowsImport) {
             showImportButtonWrapper();
@@ -1003,7 +1195,7 @@ window.addEventListener('load', function() {
             importCtbButton.prop('disabled', true);
             return;
         }
-        if (acquirerDatabasePending) {
+        if (acquirerDatabasePending || qrDocTypeMappingPending) {
             importCtbButton.prop('disabled', true);
             return;
         }
@@ -1012,7 +1204,7 @@ window.addEventListener('load', function() {
         fetchReadyImportIds(!!forceRefresh)
             .then(function(ids) {
                 updateImportButtonLabel(ids.length);
-                if (importCtbButton.data('loading') || acquirerDatabasePending) {
+                if (importCtbButton.data('loading') || acquirerDatabasePending || qrDocTypeMappingPending) {
                     importCtbButton.prop('disabled', true);
                     return;
                 }
@@ -1165,6 +1357,8 @@ window.addEventListener('load', function() {
                 pendingImportIds = null;
                 pendingAcquirerEntity = null;
                 acquirerDatabasePending = false;
+                qrDocTypeMappingPending = false;
+                pendingQrDocTypeMappingContext = null;
                 updateImportButtonState();
             });
     }
@@ -1185,6 +1379,8 @@ window.addEventListener('load', function() {
                 pendingImportIds = ids.slice();
                 pendingAcquirerEntity = null;
                 acquirerDatabasePending = false;
+                qrDocTypeMappingPending = false;
+                pendingQrDocTypeMappingContext = null;
 
                 return ensureAcquirerDatabase(ids)
                     .then(function(result) {
@@ -1199,7 +1395,7 @@ window.addEventListener('load', function() {
                             showAcquirerDatabaseModal(pendingAcquirerEntity);
                             return null;
                         }
-                        return performImport(ids);
+                        return runPendingImportWithDocTypeMappings(ids);
                     });
             })
             .catch(function(err) {
@@ -1210,6 +1406,8 @@ window.addEventListener('load', function() {
                 pendingImportIds = null;
                 pendingAcquirerEntity = null;
                 acquirerDatabasePending = false;
+                qrDocTypeMappingPending = false;
+                pendingQrDocTypeMappingContext = null;
                 renderImportParamInfo();
                 if (importCtbButton.length) {
                     importCtbButton.data('loading', false);
@@ -1229,6 +1427,8 @@ window.addEventListener('load', function() {
                 pendingImportIds = null;
                 pendingAcquirerEntity = null;
                 acquirerDatabasePending = false;
+                qrDocTypeMappingPending = false;
+                pendingQrDocTypeMappingContext = null;
                 if (importCtbButton.length) {
                     importCtbButton.data('loading', false);
                 }
@@ -1270,24 +1470,111 @@ window.addEventListener('load', function() {
                         acquirerDatabaseModal.hide();
                     }
                     if (Array.isArray(pendingImportIds) && pendingImportIds.length) {
-                        performImport(pendingImportIds.slice());
+                        return runPendingImportWithDocTypeMappings(pendingImportIds.slice());
                     } else {
                         pendingImportIds = null;
                         if (importCtbButton.length) {
                             importCtbButton.data('loading', false);
                         }
                         updateImportButtonState();
+                        return null;
                     }
                 })
                 .catch(function(err) {
                     if (confirmAcquirerDatabaseBtn) {
                         confirmAcquirerDatabaseBtn.disabled = false;
                     }
-                    if (acquirerDatabaseError) {
+                    if (acquirerDatabaseModalEl && acquirerDatabaseModalEl.classList.contains('show') && acquirerDatabaseError) {
                         acquirerDatabaseError.textContent = err && err.message ? err.message : 'Não foi possível guardar a base de dados.';
                         acquirerDatabaseError.classList.remove('d-none');
                     } else {
                         showError(err && err.message ? err.message : 'Não foi possível guardar a base de dados.');
+                    }
+                });
+        });
+    }
+
+    if (qrDocTypeMappingModalEl) {
+        qrDocTypeMappingModalEl.addEventListener('hidden.bs.modal', function() {
+            resetQrDocTypeMappingModal();
+            if (!qrDocTypeMappingResolved) {
+                pendingImportIds = null;
+                pendingAcquirerEntity = null;
+                qrDocTypeMappingPending = false;
+                pendingQrDocTypeMappingContext = null;
+                if (importCtbButton.length) {
+                    importCtbButton.data('loading', false);
+                }
+                updateImportButtonState();
+            }
+            qrDocTypeMappingResolved = false;
+        });
+    }
+
+    if (qrDocTypeMappingForm) {
+        qrDocTypeMappingForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (!pendingQrDocTypeMappingContext || !Array.isArray(pendingQrDocTypeMappingContext.items)) {
+                showError('Não existe nenhuma associação pendente para guardar.');
+                return;
+            }
+
+            var selects = qrDocTypeMappingContainer ? qrDocTypeMappingContainer.querySelectorAll('.qr-doc-type-mapping-select') : [];
+            var mappings = {};
+            var hasInvalid = false;
+
+            Array.prototype.forEach.call(selects, function(selectEl) {
+                var qrDocType = String(selectEl.getAttribute('data-qr-doc-type') || '').trim();
+                var value = String(selectEl.value || '').trim();
+                if (!value) {
+                    selectEl.classList.add('is-invalid');
+                    hasInvalid = true;
+                    return;
+                }
+                selectEl.classList.remove('is-invalid');
+                if (qrDocType) {
+                    mappings[qrDocType] = value;
+                }
+            });
+
+            if (hasInvalid || !Object.keys(mappings).length) {
+                if (qrDocTypeMappingError) {
+                    qrDocTypeMappingError.textContent = 'Selecione um tipo documental ERP para todos os tipos QR apresentados.';
+                    qrDocTypeMappingError.classList.remove('d-none');
+                }
+                return;
+            }
+
+            if (qrDocTypeMappingError) {
+                qrDocTypeMappingError.classList.add('d-none');
+                qrDocTypeMappingError.textContent = '';
+            }
+            if (confirmQrDocTypeMappingBtn) {
+                confirmQrDocTypeMappingBtn.disabled = true;
+            }
+
+            saveQrDocTypeMappings(mappings, pendingQrDocTypeMappingContext.database || '')
+                .then(function() {
+                    qrDocTypeMappingResolved = true;
+                    qrDocTypeMappingPending = false;
+                    var idsToImport = Array.isArray(pendingImportIds) ? pendingImportIds.slice() : [];
+                    if (qrDocTypeMappingModal) {
+                        qrDocTypeMappingModal.hide();
+                    }
+                    if (idsToImport.length) {
+                        return performImport(idsToImport);
+                    }
+                    return null;
+                })
+                .catch(function(err) {
+                    if (confirmQrDocTypeMappingBtn) {
+                        confirmQrDocTypeMappingBtn.disabled = false;
+                    }
+                    if (qrDocTypeMappingError) {
+                        qrDocTypeMappingError.textContent = err && err.message ? err.message : 'Não foi possível guardar a associação do tipo documental.';
+                        qrDocTypeMappingError.classList.remove('d-none');
+                    } else {
+                        showError(err && err.message ? err.message : 'Não foi possível guardar a associação do tipo documental.');
                     }
                 });
         });

@@ -707,15 +707,52 @@ function getPendingMigrationsSummary(bool $forceRefresh = false): array {
     $companiesFile = __DIR__ . '/data/companies.php';
     $companies = is_file($companiesFile) ? (require $companiesFile) : [];
     if (!is_array($companies)) {
-        $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
-        return $summary;
+        $companies = [];
     }
 
+    $migrationTargets = [];
+    $addMigrationTarget = static function (array $cfg, string $fallbackLabel = '') use (&$migrationTargets): void {
+        $dbName = trim((string) ($cfg['db_name'] ?? ''));
+        if ($dbName === '') {
+            return;
+        }
+
+        $identity = implode('|', [
+            trim((string) ($cfg['db_host'] ?? 'localhost')),
+            trim((string) ($cfg['db_port'] ?? '')),
+            trim((string) ($cfg['db_socket'] ?? '')),
+            $dbName,
+        ]);
+
+        if (isset($migrationTargets[$identity])) {
+            return;
+        }
+
+        if (!isset($cfg['slug']) || trim((string) $cfg['slug']) === '') {
+            $cfg['slug'] = $fallbackLabel !== '' ? $fallbackLabel : $dbName;
+        }
+
+        $migrationTargets[$identity] = $cfg;
+    };
+
     foreach ($companies as $nif => $cfg) {
+        if (!is_array($cfg)) {
+            continue;
+        }
+        $addMigrationTarget($cfg, (string) $nif);
+    }
+
+    if (!empty($_SESSION['company']) && is_array($_SESSION['company'])) {
+        $sessionCompany = $_SESSION['company'];
+        $sessionLabel = trim((string) ($sessionCompany['slug'] ?? ($sessionCompany['db_name'] ?? '')));
+        $addMigrationTarget($sessionCompany, $sessionLabel);
+    }
+
+    foreach ($migrationTargets as $cfg) {
         if (!is_array($cfg) || !empty($cfg['skip_migrations'])) {
             continue;
         }
-        $label = $cfg['slug'] ?? (string) $nif;
+        $label = trim((string) ($cfg['slug'] ?? ($cfg['db_name'] ?? 'base')));
         try {
             $pdo = new PDO(buildMigrationDsn($cfg), $cfg['db_user'], $cfg['db_pass'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

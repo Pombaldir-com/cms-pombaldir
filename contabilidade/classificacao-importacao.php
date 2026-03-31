@@ -642,8 +642,11 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 
     $postingDateMode = trim((string) getSetting('accounting_posting_date_mode', 'document'));
     $useMonthEnd = $importType === 1 && $postingDateMode === 'month_end';
+    if ($importType === 1 && $targetCompany !== '') {
+        preloadErpEInvoiceDocTypes($targetCompany);
+    }
 
-    $documentsPayload = array_map(static function (array $document) use ($useMonthEnd, $postingDateMode): array {
+    $documentsPayload = array_map(static function (array $document) use ($useMonthEnd, $postingDateMode, $targetCompany, $importType): array {
         if ($useMonthEnd) {
             $document = applyPostingDateMode($document, $postingDateMode);
         }
@@ -659,6 +662,16 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
             $attachment = buildDocumentFileAttachment((string) $document['filename']);
             if ($attachment !== null) {
                 $document['file_attachment'] = $attachment;
+            }
+        }
+
+        if ($importType === 1) {
+            $rawDocumentType = trim((string) ($document['field_D'] ?? $document['docType'] ?? ''));
+            $resolvedDocumentType = resolveErpAccountingDocumentTypeAbbreviation($rawDocumentType, $targetCompany);
+            if ($resolvedDocumentType !== '') {
+                $document['docType'] = $resolvedDocumentType;
+            } elseif ($rawDocumentType !== '') {
+                $document['docType'] = $rawDocumentType;
             }
         }
 
@@ -1050,6 +1063,9 @@ function prepareImportRow(array $row): array {
     }
     if ($row['acquirer_erp_database'] === '') {
         $row['acquirer_erp_database'] = trim((string) getSetting('erp_database', ''));
+    }
+    if ($row['acquirer_erp_database'] !== '') {
+        preloadErpEInvoiceDocTypes((string) $row['acquirer_erp_database']);
     }
 
     $lines = json_decode($row['line_items'] ?? '', true);
@@ -2351,6 +2367,210 @@ if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQU
     exit;
 }
 
+if (
+    ($action === 'qr_doc_type_mapping' || $action === 'qr-doc-type-mapping' || $action === 'doc_type_mapping' || $action === 'doc-type-mapping')
+    && $_SERVER['REQUEST_METHOD'] === 'POST'
+) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $rawBody = file_get_contents('php://input');
+    $payload = json_decode($rawBody ?? '', true);
+    $response = [
+        'success' => false,
+        'requires_mapping' => false,
+        'items' => [],
+        'options' => [],
+    ];
+
+    if (!is_array($payload)) {
+        $response['error'] = 'Pedido inválido.';
+        $response['csrf_token'] = generateCsrfToken(true);
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $csrfToken = (string) ($payload['csrf_token'] ?? '');
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        $response['error'] = 'Token CSRF inválido.';
+        $response['csrf_token'] = generateCsrfToken(true);
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $response['csrf_token'] = generateCsrfToken();
+
+    $ids = [];
+    foreach ($payload['ids'] ?? [] as $value) {
+        if (is_numeric($value)) {
+            $id = (int) $value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+    }
+    $ids = array_values($ids);
+
+    if (empty($ids)) {
+        $response['error'] = 'Nenhuma linha seleccionada.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $requestedImportType = (int) ($payload['import_type'] ?? $importType);
+    if ($requestedImportType <= 0) {
+        $requestedImportType = 1;
+    }
+
+    $allowClassifiedFlow = (int) ($payload['allow_classified_flow'] ?? 0) === 1;
+    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs') && !$allowClassifiedFlow) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Sem permissao para importar documentos.',
+            'csrf_token' => generateCsrfToken(true),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $targetDatabase = trim((string) ($payload['database'] ?? ''));
+    if ($targetDatabase === '') {
+        try {
+            $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
+            if (!empty($entities)) {
+                foreach ($entities as $entity) {
+                    $candidateDatabase = resolveAccountingEntityDatabase($entity);
+                    if ($candidateDatabase !== '') {
+                        $targetDatabase = $candidateDatabase;
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable $throwable) {
+            logErpMessage('Erro ao determinar a base de dados ERP para associação de tipos QR: ' . $throwable->getMessage());
+        }
+    }
+
+    if ($targetDatabase === '') {
+        $targetDatabase = trim((string) getSetting('erp_database', ''));
+    }
+
+    if ($targetDatabase === '') {
+        $response['error'] = 'Não foi possível determinar a base de dados ERP para associar o tipo documental.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $response['database'] = $targetDatabase;
+    $options = buildErpEInvoiceDocTypeOptions($targetDatabase);
+    $response['options'] = $options;
+
+    if (empty($options)) {
+        $response['error'] = 'O webservice ERP não devolveu tipos documentais disponíveis para esta base de dados.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $optionsByValue = [];
+    foreach ($options as $option) {
+        if (!is_array($option)) {
+            continue;
+        }
+        $optionValue = trim((string) ($option['value'] ?? ''));
+        if ($optionValue === '') {
+            continue;
+        }
+        $optionsByValue[$optionValue] = $option;
+    }
+
+    $mode = strtolower(trim((string) ($payload['mode'] ?? 'check')));
+    if ($mode === 'save') {
+        $requestedMappings = is_array($payload['mappings'] ?? null) ? $payload['mappings'] : [];
+        $savedMappings = [];
+
+        foreach ($requestedMappings as $qrDocType => $erpDocTypeValue) {
+            $mappingKey = getAccountingQrDocTypeMappingKey((string) $qrDocType);
+            $erpDocType = trim((string) $erpDocTypeValue);
+            if ($mappingKey === '' || $erpDocType === '') {
+                continue;
+            }
+            if (!isset($optionsByValue[$erpDocType])) {
+                continue;
+            }
+
+            $option = $optionsByValue[$erpDocType];
+            try {
+                $savedMappings[$mappingKey] = setAccountingQrDocTypeMapping(
+                    $mappingKey,
+                    $erpDocType,
+                    trim((string) ($option['title'] ?? $option['label'] ?? $erpDocType)),
+                    $targetDatabase
+                );
+            } catch (Throwable $throwable) {
+                $response['error'] = 'Não foi possível guardar a associação do tipo documental para a empresa selecionada.';
+                logErpMessage('Erro ao guardar associação do tipo documental QR para a base ' . $targetDatabase . ': ' . $throwable->getMessage());
+                echo json_encode($response, JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+        }
+
+        if (empty($savedMappings)) {
+            $response['error'] = 'Selecione uma associação válida para guardar.';
+            echo json_encode($response, JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $response['success'] = true;
+        $response['saved_mappings'] = $savedMappings;
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT id, field_D FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id'
+    );
+    $stmt->bindValue(1, $requestedImportType, PDO::PARAM_INT);
+    foreach ($ids as $index => $id) {
+        $stmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $items = [];
+    $seenTypes = [];
+    foreach ($rows as $row) {
+        $rawDocType = trim((string) ($row['field_D'] ?? ''));
+        $mappingKey = getAccountingQrDocTypeMappingKey($rawDocType);
+        if ($mappingKey === '' || isset($seenTypes[$mappingKey])) {
+            continue;
+        }
+        $seenTypes[$mappingKey] = true;
+
+        $configuredMapping = getAccountingQrDocTypeMappingEntry($mappingKey, $targetDatabase);
+        $configuredDocType = trim((string) ($configuredMapping['erp_doc_type'] ?? ''));
+        if ($configuredDocType !== '') {
+            continue;
+        }
+
+        $items[] = [
+            'qr_doc_type' => $mappingKey,
+            'raw_doc_type' => $rawDocType,
+            'suggested_value' => resolveErpAccountingDocumentTypeAbbreviation($rawDocType, $targetDatabase),
+        ];
+    }
+
+    usort($items, static function (array $left, array $right): int {
+        return strnatcasecmp((string) ($left['qr_doc_type'] ?? ''), (string) ($right['qr_doc_type'] ?? ''));
+    });
+
+    $response['success'] = true;
+    $response['requires_mapping'] = !empty($items);
+    $response['items'] = $items;
+
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -3195,6 +3415,27 @@ require __DIR__ . '/partials/classify-modal.php';
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary" id="confirmAcquirerDatabaseBtn">Confirmar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="qrDocTypeMappingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="qrDocTypeMappingForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">Associar tipo documental QR</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="qrDocTypeMappingMessage" class="mb-3">Associe o tipo de documento E-fatura lido no QR ao tipo documental ERP.</p>
+                    <div id="qrDocTypeMappingContainer"></div>
+                    <div id="qrDocTypeMappingError" class="alert alert-danger d-none mt-3" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="confirmQrDocTypeMappingBtn">Guardar associação</button>
                 </div>
             </form>
         </div>

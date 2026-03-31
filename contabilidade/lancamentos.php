@@ -25,11 +25,25 @@ $pdo = getPDO();
 $companyDatabases = [];
 try {
     $stmt = $pdo->query(
-        "SELECT erp_database, MAX(CASE WHEN entity_type = 'acquirer' THEN name ELSE '' END) AS company_name
+        "SELECT
+            id,
+            name AS company_name,
+            nif,
+            TRIM(
+                CASE
+                    WHEN COALESCE(NULLIF(erp_client_code, ''), '') <> '' THEN erp_client_code
+                    ELSE erp_database
+                END
+            ) AS erp_database
          FROM accounting_entities
-         WHERE erp_database <> ''
-         GROUP BY erp_database
-         ORDER BY erp_database ASC"
+         WHERE entity_type = 'acquirer'
+           AND TRIM(
+            CASE
+                WHEN COALESCE(NULLIF(erp_client_code, ''), '') <> '' THEN erp_client_code
+                ELSE erp_database
+            END
+         ) <> ''
+         ORDER BY company_name ASC, nif ASC, erp_database ASC"
     );
     $companyDatabases = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 } catch (Throwable $e) {
