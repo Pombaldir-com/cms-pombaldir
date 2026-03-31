@@ -77,6 +77,7 @@ window.addEventListener('load', function() {
     function showNotice(type, message) {
         var normalizedType = normalizeNoticeType(type);
         var text = typeof message === 'string' && message.trim() !== '' ? message.trim() : '';
+        var noticeDelay = 10000;
         if (text === '') {
             text = normalizedType === 'danger' ? 'Ocorreu um erro' : 'Operação concluída';
         }
@@ -96,7 +97,9 @@ window.addEventListener('load', function() {
             window.Swal.fire({
                 icon: icon,
                 title: title,
-                text: text
+                html: '<div style="white-space: pre-line; text-align: left;">' + escapeHtml(text) + '</div>',
+                timer: noticeDelay,
+                timerProgressBar: true
             });
             return;
         }
@@ -104,7 +107,8 @@ window.addEventListener('load', function() {
             title: title,
             text: text,
             type: normalizedType,
-            styling: 'bootstrap3'
+            styling: 'bootstrap3',
+            delay: noticeDelay
         })) {
             return;
         }
@@ -127,11 +131,41 @@ window.addEventListener('load', function() {
         if (res && res.service_response) {
             sources.push(res.service_response);
         }
+        if (res && Array.isArray(res.batches)) {
+            res.batches.forEach(function(batch) {
+                if (!batch || typeof batch !== 'object') {
+                    return;
+                }
+                sources.push(batch);
+                if (batch.service_payload) {
+                    sources.push(batch.service_payload);
+                }
+                if (batch.service_response) {
+                    sources.push(batch.service_response);
+                }
+            });
+        }
+        var resolvedType = '';
+        var resolvedPriority = -1;
+        var typePriority = {
+            success: 0,
+            info: 1,
+            warning: 2,
+            danger: 3
+        };
         for (var i = 0; i < sources.length; i += 1) {
             var source = sources[i];
             if (source && typeof source === 'object' && source.type) {
-                return normalizeNoticeType(source.type);
+                var normalizedType = normalizeNoticeType(source.type);
+                var priority = Object.prototype.hasOwnProperty.call(typePriority, normalizedType) ? typePriority[normalizedType] : -1;
+                if (priority > resolvedPriority) {
+                    resolvedPriority = priority;
+                    resolvedType = normalizedType;
+                }
             }
+        }
+        if (resolvedType !== '') {
+            return resolvedType;
         }
         if (res && typeof res.success !== 'undefined') {
             return res.success ? 'success' : 'danger';
@@ -971,46 +1005,79 @@ window.addEventListener('load', function() {
         resetQrDocTypeMappingModal();
         pendingQrDocTypeMappingContext = context || null;
 
-        var items = context && Array.isArray(context.items) ? context.items : [];
-        var options = context && Array.isArray(context.options) ? context.options : [];
-        var database = context && typeof context.database === 'string' ? context.database.trim() : '';
-        if (!items.length) {
+        var groups = context && Array.isArray(context.groups) ? context.groups.filter(function(group) {
+            return group && Array.isArray(group.items) && group.items.length;
+        }) : [];
+        if (!groups.length) {
+            groups = [{
+                items: context && Array.isArray(context.items) ? context.items : [],
+                options: context && Array.isArray(context.options) ? context.options : [],
+                database: context && typeof context.database === 'string' ? context.database.trim() : ''
+            }];
+        }
+
+        if (!groups.length || !Array.isArray(groups[0].items) || !groups[0].items.length) {
             throw new Error('Não existem tipos documentais QR por associar.');
         }
 
+        var isMultiGroup = groups.length > 1;
         if (qrDocTypeMappingMessage) {
-            qrDocTypeMappingMessage.textContent = database !== ''
-                ? 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis na base ' + database + '.'
-                : 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis.';
+            if (isMultiGroup) {
+                qrDocTypeMappingMessage.textContent = 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP de cada base adquirente.';
+            } else {
+                var database = groups[0] && typeof groups[0].database === 'string' ? groups[0].database.trim() : '';
+                qrDocTypeMappingMessage.textContent = database !== ''
+                    ? 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis na base ' + database + '.'
+                    : 'Associe os tipos de documento E-fatura lidos do QR aos tipos ERP disponíveis.';
+            }
         }
 
         var html = '';
-        items.forEach(function(item, index) {
-            var qrDocType = item && item.qr_doc_type ? String(item.qr_doc_type).trim() : '';
-            if (!qrDocType) {
+        groups.forEach(function(group, groupIndex) {
+            var groupDatabase = group && typeof group.database === 'string' ? group.database.trim() : '';
+            var groupItems = group && Array.isArray(group.items) ? group.items : [];
+            var groupOptions = group && Array.isArray(group.options) ? group.options : [];
+            if (!groupItems.length) {
                 return;
             }
-            var rawDocType = item && item.raw_doc_type ? String(item.raw_doc_type).trim() : '';
-            var suggestedValue = item && item.suggested_value ? String(item.suggested_value).trim() : '';
-            html += '<div class="mb-3">';
-            html += '<label class="form-label" for="qrDocTypeMappingSelect_' + index + '">Tipo de documento E-fatura: ' + escapeHtml(qrDocType) + '</label>';
-            if (rawDocType && rawDocType !== qrDocType) {
-                html += '<div class="text-muted small mb-1">Detetado no documento: ' + escapeHtml(rawDocType) + '</div>';
+
+            if (isMultiGroup) {
+                html += '<div class="border rounded p-3 mb-3">';
+                html += '<div class="fw-semibold mb-3">Base ERP: ' + escapeHtml(groupDatabase || 'n/d') + '</div>';
             }
-            html += '<select class="form-select qr-doc-type-mapping-select" id="qrDocTypeMappingSelect_' + index + '" data-qr-doc-type="' + escapeHtml(qrDocType) + '" required>';
-            html += '<option value="">Selecionar tipo documental ERP</option>';
-            options.forEach(function(option) {
-                var value = option && option.value ? String(option.value).trim() : '';
-                if (!value) {
+
+            groupItems.forEach(function(item, itemIndex) {
+                var qrDocType = item && item.qr_doc_type ? String(item.qr_doc_type).trim() : '';
+                if (!qrDocType) {
                     return;
                 }
-                var label = option && option.label ? String(option.label).trim() : value;
-                var description = option && option.description ? String(option.description).trim() : '';
-                var selected = suggestedValue !== '' && suggestedValue === value ? ' selected' : '';
-                html += '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + (description ? ' [' + escapeHtml(description) + ']' : '') + '</option>';
+                var rawDocType = item && item.raw_doc_type ? String(item.raw_doc_type).trim() : '';
+                var suggestedValue = item && item.suggested_value ? String(item.suggested_value).trim() : '';
+                var selectId = 'qrDocTypeMappingSelect_' + groupIndex + '_' + itemIndex;
+                html += '<div class="mb-3">';
+                html += '<label class="form-label" for="' + selectId + '">Tipo de documento E-fatura: ' + escapeHtml(qrDocType) + '</label>';
+                if (rawDocType && rawDocType !== qrDocType) {
+                    html += '<div class="text-muted small mb-1">Detetado no documento: ' + escapeHtml(rawDocType) + '</div>';
+                }
+                html += '<select class="form-select qr-doc-type-mapping-select" id="' + selectId + '" data-database="' + escapeHtml(groupDatabase) + '" data-qr-doc-type="' + escapeHtml(qrDocType) + '" required>';
+                html += '<option value="">Selecionar tipo documental ERP</option>';
+                groupOptions.forEach(function(option) {
+                    var value = option && option.value ? String(option.value).trim() : '';
+                    if (!value) {
+                        return;
+                    }
+                    var label = option && option.label ? String(option.label).trim() : value;
+                    var description = option && option.description ? String(option.description).trim() : '';
+                    var selected = suggestedValue !== '' && suggestedValue === value ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + (description ? ' [' + escapeHtml(description) + ']' : '') + '</option>';
+                });
+                html += '</select>';
+                html += '</div>';
             });
-            html += '</select>';
-            html += '</div>';
+
+            if (isMultiGroup) {
+                html += '</div>';
+            }
         });
 
         qrDocTypeMappingContainer.innerHTML = html;
@@ -1051,12 +1118,13 @@ window.addEventListener('load', function() {
                 requiresMapping: !!res.requires_mapping,
                 items: Array.isArray(res.items) ? res.items : [],
                 options: Array.isArray(res.options) ? res.options : [],
+                groups: Array.isArray(res.groups) ? res.groups : [],
                 database: typeof res.database === 'string' ? res.database.trim() : String(database || '').trim()
             };
         });
     }
 
-    function saveQrDocTypeMappings(mappings, database) {
+    function saveQrDocTypeMappings(mappings, database, groupMappings) {
         var payload = {
             ids: Array.isArray(pendingImportIds) ? pendingImportIds.slice() : [],
             import_type: importType,
@@ -1065,6 +1133,9 @@ window.addEventListener('load', function() {
             csrf_token: csrfInput ? csrfInput.value : '',
             mode: 'save'
         };
+        if (groupMappings && typeof groupMappings === 'object' && Object.keys(groupMappings).length) {
+            payload.group_mappings = groupMappings;
+        }
         if (isClassificationOnlyView) {
             payload.allow_classified_flow = 1;
         }
@@ -1377,22 +1448,7 @@ window.addEventListener('load', function() {
                 var message = 'OK';
                 if (res) {
                     if (res.service_payload) {
-                        var payloadMessage = '';
-                        if (typeof res.service_payload === 'string') {
-                            payloadMessage = res.service_payload;
-                        } else if (typeof res.service_payload === 'object') {
-                            var messageFields = ['mensagem', 'message', 'msg', 'mensagem_erro'];
-                            for (var i = 0; i < messageFields.length; i += 1) {
-                                var field = messageFields[i];
-                                if (Object.prototype.hasOwnProperty.call(res.service_payload, field)) {
-                                    var candidate = res.service_payload[field];
-                                    if (typeof candidate === 'string' && candidate.trim() !== '') {
-                                        payloadMessage = candidate.trim();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+                        var payloadMessage = extractMessageFromPayload(res.service_payload);
                         if (payloadMessage) {
                             message = payloadMessage;
                         }
@@ -1415,6 +1471,7 @@ window.addEventListener('load', function() {
                         }
                     }
                 }
+                message = buildImportResultMessage(res, message);
                 var noticeType = resolveNoticeTypeFromResponse(res);
                 showNotice(noticeType, message);
                 if (typeof window.console !== 'undefined') {
@@ -1593,16 +1650,25 @@ window.addEventListener('load', function() {
     if (qrDocTypeMappingForm) {
         qrDocTypeMappingForm.addEventListener('submit', function(event) {
             event.preventDefault();
-            if (!pendingQrDocTypeMappingContext || !Array.isArray(pendingQrDocTypeMappingContext.items)) {
+            var contextGroups = pendingQrDocTypeMappingContext && Array.isArray(pendingQrDocTypeMappingContext.groups)
+                ? pendingQrDocTypeMappingContext.groups.filter(function(group) {
+                    return group && Array.isArray(group.items) && group.items.length;
+                })
+                : [];
+            var hasSingleContextItems = pendingQrDocTypeMappingContext && Array.isArray(pendingQrDocTypeMappingContext.items) && pendingQrDocTypeMappingContext.items.length;
+            if (!pendingQrDocTypeMappingContext || (!contextGroups.length && !hasSingleContextItems)) {
                 showError('Não existe nenhuma associação pendente para guardar.');
                 return;
             }
 
             var selects = qrDocTypeMappingContainer ? qrDocTypeMappingContainer.querySelectorAll('.qr-doc-type-mapping-select') : [];
             var mappings = {};
+            var groupMappings = {};
             var hasInvalid = false;
+            var useGroupedMappings = contextGroups.length > 1;
 
             Array.prototype.forEach.call(selects, function(selectEl) {
+                var database = String(selectEl.getAttribute('data-database') || '').trim();
                 var qrDocType = String(selectEl.getAttribute('data-qr-doc-type') || '').trim();
                 var value = String(selectEl.value || '').trim();
                 if (!value) {
@@ -1612,11 +1678,19 @@ window.addEventListener('load', function() {
                 }
                 selectEl.classList.remove('is-invalid');
                 if (qrDocType) {
-                    mappings[qrDocType] = value;
+                    if (useGroupedMappings) {
+                        if (!groupMappings[database]) {
+                            groupMappings[database] = {};
+                        }
+                        groupMappings[database][qrDocType] = value;
+                    } else {
+                        mappings[qrDocType] = value;
+                    }
                 }
             });
 
-            if (hasInvalid || !Object.keys(mappings).length) {
+            var hasMappings = useGroupedMappings ? Object.keys(groupMappings).length > 0 : Object.keys(mappings).length > 0;
+            if (hasInvalid || !hasMappings) {
                 if (qrDocTypeMappingError) {
                     qrDocTypeMappingError.textContent = 'Selecione um tipo documental ERP para todos os tipos QR apresentados.';
                     qrDocTypeMappingError.classList.remove('d-none');
@@ -1632,7 +1706,7 @@ window.addEventListener('load', function() {
                 confirmQrDocTypeMappingBtn.disabled = true;
             }
 
-            saveQrDocTypeMappings(mappings, pendingQrDocTypeMappingContext.database || '')
+            saveQrDocTypeMappings(mappings, pendingQrDocTypeMappingContext.database || '', groupMappings)
                 .then(function() {
                     qrDocTypeMappingResolved = true;
                     qrDocTypeMappingPending = false;
@@ -1750,6 +1824,103 @@ window.addEventListener('load', function() {
             existing: existing,
             created: created
         };
+    }
+
+    function extractMessageFromPayload(payload) {
+        if (!payload) {
+            return '';
+        }
+        if (typeof payload === 'string') {
+            return payload.trim();
+        }
+        if (typeof payload !== 'object') {
+            return '';
+        }
+
+        var messageFields = ['mensagem', 'message', 'msg', 'mensagem_erro'];
+        for (var i = 0; i < messageFields.length; i += 1) {
+            var field = messageFields[i];
+            if (!Object.prototype.hasOwnProperty.call(payload, field)) {
+                continue;
+            }
+            var candidate = payload[field];
+            if (typeof candidate === 'string' && candidate.trim() !== '') {
+                return candidate.trim();
+            }
+        }
+
+        return '';
+    }
+
+    function buildImportResultMessage(res, fallbackMessage) {
+        var summary = typeof fallbackMessage === 'string' ? fallbackMessage.trim() : '';
+        if (!res || !Array.isArray(res.batches) || !res.batches.length) {
+            return summary || 'OK';
+        }
+
+        var detailLines = [];
+        var seenLines = {};
+        var appendLine = function(line) {
+            var normalized = typeof line === 'string' ? line.trim() : '';
+            if (!normalized || seenLines[normalized]) {
+                return;
+            }
+            seenLines[normalized] = true;
+            detailLines.push(normalized);
+        };
+
+        res.batches.forEach(function(batch) {
+            if (!batch || typeof batch !== 'object') {
+                return;
+            }
+
+            var databaseLabel = typeof batch.database === 'string' && batch.database.trim() !== '' ? batch.database.trim() + ': ' : '';
+            var recDetails = extractRecDetails(batch.service_payload) || extractRecDetails(batch.service_response);
+
+            if (recDetails) {
+                if (Array.isArray(recDetails.errors)) {
+                    recDetails.errors.forEach(function(item) {
+                        appendLine(databaseLabel + item);
+                    });
+                }
+                if (Array.isArray(recDetails.existing)) {
+                    recDetails.existing.forEach(function(item) {
+                        appendLine(databaseLabel + item);
+                    });
+                }
+                if ((!recDetails.errors || !recDetails.errors.length) && (!recDetails.existing || !recDetails.existing.length) && Array.isArray(recDetails.created)) {
+                    recDetails.created.forEach(function(item) {
+                        appendLine(databaseLabel + item);
+                    });
+                }
+            }
+
+            if (!recDetails || ((!recDetails.errors || !recDetails.errors.length) && (!recDetails.existing || !recDetails.existing.length) && (!recDetails.created || !recDetails.created.length))) {
+                var batchMessage = '';
+                if (typeof batch.message === 'string' && batch.message.trim() !== '') {
+                    batchMessage = batch.message.trim();
+                }
+                if (batchMessage === '') {
+                    batchMessage = extractMessageFromPayload(batch.service_payload) || extractMessageFromPayload(batch.service_response);
+                }
+                if (batchMessage !== '') {
+                    appendLine(databaseLabel + batchMessage);
+                }
+            }
+        });
+
+        if (!detailLines.length) {
+            return summary || 'OK';
+        }
+
+        if (summary !== '') {
+            if (detailLines.length === 1 && detailLines[0] === summary) {
+                return summary;
+            }
+            return summary + '\n' + detailLines.join('\n');
+        }
+
+        return detailLines.join('\n');
     }
 
     function parseJsonAttribute(el, attr) {

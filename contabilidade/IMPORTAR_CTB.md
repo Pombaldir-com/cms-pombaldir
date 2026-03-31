@@ -181,3 +181,16 @@ No fluxo `contabilidade/lancamentos`:
 - em notas de credito (`NC`), a linha de `Valor Total` e preservada e a natureza debito/credito e ajustada ao tipo documental.
 
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).
+
+## Importacao global com varios adquirentes
+
+Na vista `contabilidade/classificacao-importacao?import_type=1`, o botao global `Classificado` tem de continuar a aceitar documentos de varios adquirentes na mesma operacao.
+
+Regras que nao devem regredir:
+
+- Nao bloquear a importacao com erro de "mais do que um adquirente associado" quando as linhas selecionadas pertencem a varios adquirentes validos.
+- A importacao tem de agrupar as linhas pela base ERP do adquirente (`accounting_entities.erp_database`) e chamar a importacao CTB uma vez por cada base.
+- A modal para escolher a base do adquirente so deve aparecer quando existir exatamente um adquirente sem base ERP definida; nao deve substituir o fluxo multi-adquirente quando as bases ja estao resolvidas.
+- As associacoes de tipo documental QR tambem sao por base ERP do grupo; quando a selecao tiver varias bases, a validacao e a gravacao das associacoes devem respeitar esse agrupamento.
+- Se houver sucesso parcial entre bases ERP, a resposta deve indicar importacao parcial em vez de falhar toda a operacao silenciosamente.
+- Mesmo em resposta agregada por varias bases, a mensagem final nao pode perder os detalhes de documentos ja existentes devolvidos pelo ERP; quando houver duplicados, deve continuar a indicar que o documento ja esta lancado e o nº de diario/lancamento devolvido no `recs.exist`.

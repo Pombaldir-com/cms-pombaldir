@@ -3254,11 +3254,22 @@ function resolveLigacaoRateKeyFromRow(array $row): string {
     return '';
 }
 
-function scoreErpLigacaoRows(array $rows): int {
+function resolveErpLigacaoLineTypes(string $docType): array {
+    $normalizedDocType = normalizeErpLigacaoDocType($docType);
+    if ($normalizedDocType === 'NC') {
+        return ['rate' => 'C', 'total' => 'D'];
+    }
+
+    return ['rate' => 'D', 'total' => 'C'];
+}
+
+function scoreErpLigacaoRows(array $rows, string $docType = ''): int {
     if (empty($rows)) {
         return 0;
     }
 
+    $lineTypes = resolveErpLigacaoLineTypes($docType);
+    $rateLineType = $lineTypes['rate'];
     $hasDebitLine = false;
     $hasRateScopedLine = false;
     foreach ($rows as $row) {
@@ -3266,7 +3277,7 @@ function scoreErpLigacaoRows(array $rows): int {
             continue;
         }
         $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
-        if ($tipo !== '' && $tipo !== 'D') {
+        if ($tipo !== '' && $tipo !== $rateLineType) {
             continue;
         }
         $general = trim((string) ($row['strConta'] ?? ''));
@@ -3303,6 +3314,9 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
     }
 
     $exerciseCandidates = buildErpLigacaoExerciseCandidates($isoDocDate);
+    $lineTypes = resolveErpLigacaoLineTypes($docType);
+    $rateLineType = $lineTypes['rate'];
+    $totalLineType = $lineTypes['total'];
     $rows = [];
     $selectedDocType = '';
     $selectedExercise = '';
@@ -3325,7 +3339,7 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
             if ($response['ok']) {
                 $candidateRows = extractErpRows($response['data']);
             }
-            $candidateScore = scoreErpLigacaoRows($candidateRows);
+            $candidateScore = scoreErpLigacaoRows($candidateRows, $docTypeValue);
             logAiDebug([
                 'type' => 'erp_ligacao_cte_tipo_doc_attempt',
                 'attempt_kind' => 'query',
@@ -3392,13 +3406,13 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         $iva = trim((string) ($row['strConta_Iva'] ?? ''));
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
         $codFichRepart = trim((string) ($row['strCodFichRepart'] ?? ''));
-        if ($tipo === 'C' && $general !== '') {
+        if ($tipo === $totalLineType && $general !== '') {
             $totalCreditCounts[$general] = ($totalCreditCounts[$general] ?? 0) + 1;
         }
         if ($total !== '') {
             $totalEntityCounts[$total] = ($totalEntityCounts[$total] ?? 0) + 1;
         }
-        if ($tipo !== '' && $tipo !== 'D') {
+        if ($tipo !== '' && $tipo !== $rateLineType) {
             continue;
         }
         $rateKey = resolveLigacaoRateKeyFromRow($row);
@@ -3545,6 +3559,29 @@ function findIvaAccountForRate(array $planAccounts, array $rateInfo): string {
             }
         }
     }
+    return '';
+}
+
+function findDirectIvaPlanAccountForRate(array $planAccounts, array $rateInfo, array $preferredPrefixes = ['2434', '2433', '2432', '243']): string {
+    if (!$planAccounts) {
+        return '';
+    }
+    if (normalizeRateKey((string) ($rateInfo['key'] ?? '')) === '0') {
+        return '';
+    }
+
+    foreach ($preferredPrefixes as $prefix) {
+        foreach ($planAccounts as $row) {
+            $account = trim((string) ($row['account'] ?? ''));
+            if ($account === '' || strpos($account, $prefix) !== 0) {
+                continue;
+            }
+            if (accountMatchesRateInfo($planAccounts, $account, $rateInfo, 'account')) {
+                return $account;
+            }
+        }
+    }
+
     return '';
 }
 
@@ -4157,6 +4194,26 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
             if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && !empty($movementIva)) {
                 $finalSuggested[$rateKey]['iva_account'] = (string) $movementIva[0];
+            }
+        }
+    }
+
+    if (normalizeErpLigacaoDocType($docType) === 'NC' && $planAccounts) {
+        foreach ($rateItems as $rateInfo) {
+            $rateKey = (string) ($rateInfo['key'] ?? '');
+            if ($rateKey === '') {
+                continue;
+            }
+            $normalizedRateKey = normalizeRateKey($rateKey);
+            if ($normalizedRateKey === '0') {
+                continue;
+            }
+            if (!isset($finalSuggested[$rateKey])) {
+                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
+            }
+            $directIva = findDirectIvaPlanAccountForRate($planAccounts, $rateInfo);
+            if ($directIva !== '') {
+                $finalSuggested[$rateKey]['iva_account'] = $directIva;
             }
         }
     }

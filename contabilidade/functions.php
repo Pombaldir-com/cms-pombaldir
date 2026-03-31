@@ -1713,19 +1713,19 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
 }
 
 function resolveAccountingEntityDatabase(array $entity): string {
-    $entityType = trim((string) ($entity['entity_type'] ?? ''));
     $erpDatabase = trim((string) ($entity['erp_database'] ?? ''));
     $erpClientCode = trim((string) ($entity['erp_client_code'] ?? ''));
 
-    if ($entityType === 'acquirer' && $erpClientCode !== '') {
-        return $erpClientCode;
-    }
     if ($erpDatabase !== '') {
         return $erpDatabase;
     }
-    if ($erpClientCode !== '') {
+
+    // `erp_client_code` may store an internal ERP company identifier. Only use it
+    // as database fallback when it already looks like an ERP database key.
+    if ($erpClientCode !== '' && preg_match('/^emp[_-]?\d+$/i', $erpClientCode)) {
         return $erpClientCode;
     }
+
     return '';
 }
 

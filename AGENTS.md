@@ -38,6 +38,11 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
   - `Classificar` (quando incompleto)
   - `Classificado` (quando pronto/verde)
 - Nesta vista existe o botao global `Classificado`, que processa/importa as linhas verdes diretamente para contabilidade.
+- O botao global `Classificado` tem de suportar selecao de documentos de varios adquirentes ao mesmo tempo; nao reintroduzir validacoes que exijam um unico adquirente por operacao.
+- Quando existem varios adquirentes selecionados, a importacao CTB deve agrupar internamente as linhas por `accounting_entities.erp_database` do adquirente e importar cada grupo para a respetiva base ERP.
+- A selecao manual de base de dados do adquirente so deve surgir quando existir exatamente um adquirente sem `erp_database` resolvida; se houver varios adquirentes resolvidos, o fluxo deve continuar sem bloquear.
+- A validacao e gravacao das associacoes QR (`qr_doc_type_mapping`) tambem tem de respeitar a base ERP de cada grupo de adquirente, e nao uma unica base global da selecao.
+- No fluxo multi-base, a mensagem final da importacao nao pode ocultar detalhes de duplicados ja devolvidos pelo ERP; se um documento ja existir, a UI deve continuar a mostrar essa informacao e o nº de lancamento/diario devolvido pelo webservice.
 - `contabilidade/classificacao-importacao?import_type=1&type=import` e a vista de Importacao.
 - Nesta vista aparecem apenas as linhas verdes e o botao `Importar Ctb`.
 - O item de menu `Importação` (`type=import`) deve ficar visivel apenas para utilizadores com permissao `ctb_importar_docs`.

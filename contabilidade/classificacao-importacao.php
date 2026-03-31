@@ -1285,6 +1285,236 @@ function collectAcquirerEntities(PDO $pdo, array $ids, int $importType): array {
     return array_values($entities);
 }
 
+/**
+ * Group selected import rows by resolved ERP database of the acquirer.
+ *
+ * @param PDO    $pdo
+ * @param array  $ids
+ * @param int    $importType
+ * @param string $requestedDatabase Optional explicit database override.
+ * @return array{groups: array<string, array<int>>, missing: array<int, array<string, mixed>>, entities: array<int, array<string, mixed>>}
+ */
+function collectImportGroupsByDatabase(PDO $pdo, array $ids, int $importType, string $requestedDatabase = ''): array {
+    if (empty($ids)) {
+        return ['groups' => [], 'missing' => [], 'entities' => []];
+    }
+
+    $requestedDatabase = trim($requestedDatabase);
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $sql = 'SELECT id, field_B, field_C FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(1, $importType, PDO::PARAM_INT);
+
+    foreach ($ids as $index => $id) {
+        $stmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
+        return ['groups' => [], 'missing' => [], 'entities' => []];
+    }
+
+    $groups = [];
+    $missing = [];
+    $entities = [];
+    $entityCache = [];
+
+    foreach ($rows as $row) {
+        $fieldB = trim((string) ($row['field_B'] ?? ''));
+        $fieldC = trim((string) ($row['field_C'] ?? ''));
+        $rowId = (int) ($row['id'] ?? 0);
+
+        $candidateValues = [];
+        if ($fieldC !== '') {
+            $candidateValues[] = $fieldC;
+        }
+        if ($fieldB !== '') {
+            $candidateValues[] = $fieldB;
+        }
+
+        $acquirerNif = '';
+        foreach ($candidateValues as $candidateValue) {
+            $candidateNif = extractVatNumber($candidateValue);
+            if ($candidateNif !== '') {
+                $acquirerNif = $candidateNif;
+                break;
+            }
+        }
+
+        if ($acquirerNif === '') {
+            $missing[] = [
+                'id' => $rowId,
+                'nif' => '',
+                'display_name' => $fieldB !== '' ? $fieldB : ('ID ' . $rowId),
+            ];
+            continue;
+        }
+
+        if (!array_key_exists($acquirerNif, $entityCache)) {
+            $preferredValue = $fieldB !== '' ? $fieldB : ($fieldC !== '' ? $fieldC : $acquirerNif);
+            $displayName = trim($preferredValue);
+            if ($displayName === '') {
+                $displayName = $acquirerNif;
+            }
+
+            $entity = null;
+            try {
+                $entity = ensureAccountingEntity($pdo, $preferredValue, ['entity_type' => 'acquirer']);
+            } catch (Throwable $throwable) {
+                logErpMessage('Erro ao garantir adquirente ' . $acquirerNif . ': ' . $throwable->getMessage());
+            }
+
+            if ($entity === null) {
+                try {
+                    $entity = findAccountingEntity($pdo, $acquirerNif);
+                } catch (Throwable $throwable) {
+                    logErpMessage('Erro ao pesquisar adquirente ' . $acquirerNif . ': ' . $throwable->getMessage());
+                }
+            }
+
+            if ($entity === null) {
+                $entity = [
+                    'id' => null,
+                    'nif' => $acquirerNif,
+                    'name' => $displayName !== '' ? $displayName : 'Cliente ' . $acquirerNif,
+                    'erp_database' => '',
+                ];
+            }
+
+            $entityDatabase = resolveAccountingEntityDatabase($entity);
+            if ($entityDatabase === '' && $requestedDatabase !== '') {
+                $entityDatabase = $requestedDatabase;
+            }
+
+            $displayNameResolved = trim((string) ($entity['name'] ?? ''));
+            if ($displayNameResolved === '') {
+                $displayNameResolved = $displayName !== '' ? $displayName : $acquirerNif;
+            }
+
+            $entityCache[$acquirerNif] = [
+                'id' => $entity['id'] ?? null,
+                'nif' => $acquirerNif,
+                'name' => $displayNameResolved,
+                'display_name' => $displayNameResolved,
+                'erp_database' => $entityDatabase,
+            ];
+        }
+
+        $entity = $entityCache[$acquirerNif];
+        $entities[$acquirerNif] = $entity;
+        $entityDatabase = trim((string) ($entity['erp_database'] ?? ''));
+
+        if ($entityDatabase === '') {
+            $missing[] = [
+                'id' => $rowId,
+                'nif' => $acquirerNif,
+                'display_name' => $entity['display_name'] ?? $entity['name'] ?? $acquirerNif,
+            ];
+            continue;
+        }
+
+        if (!isset($groups[$entityDatabase])) {
+            $groups[$entityDatabase] = [];
+        }
+        $groups[$entityDatabase][] = $rowId;
+    }
+
+    return [
+        'groups' => $groups,
+        'missing' => $missing,
+        'entities' => array_values($entities),
+    ];
+}
+
+function summarizeImportGroupMissingEntities(array $missing): string {
+    $labels = [];
+
+    foreach ($missing as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $rowId = (int) ($item['id'] ?? 0);
+        $nif = trim((string) ($item['nif'] ?? ''));
+        $displayName = trim((string) ($item['display_name'] ?? ''));
+
+        if ($displayName === '') {
+            if ($nif !== '') {
+                $displayName = 'Cliente ' . $nif;
+            } elseif ($rowId > 0) {
+                $displayName = 'ID ' . $rowId;
+            } else {
+                $displayName = 'Registo sem adquirente';
+            }
+        }
+
+        if ($nif !== '' && stripos($displayName, $nif) === false) {
+            $displayName .= ' (NIF ' . $nif . ')';
+        }
+
+        $key = $nif !== '' ? $nif : ($displayName !== '' ? $displayName : ('id_' . $rowId));
+        $labels[$key] = $displayName;
+    }
+
+    return implode('; ', array_values($labels));
+}
+
+function buildQrDocTypeMappingContextForIds(PDO $pdo, array $ids, int $importType, string $targetDatabase): array {
+    $context = [
+        'database' => trim($targetDatabase),
+        'options' => [],
+        'items' => [],
+    ];
+
+    if (empty($ids)) {
+        return $context;
+    }
+
+    $context['options'] = buildErpEInvoiceDocTypeOptions($context['database']);
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare(
+        'SELECT id, field_D FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id'
+    );
+    $stmt->bindValue(1, $importType, PDO::PARAM_INT);
+    foreach ($ids as $index => $id) {
+        $stmt->bindValue($index + 2, $id, PDO::PARAM_INT);
+    }
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $items = [];
+    $seenTypes = [];
+    foreach ($rows as $row) {
+        $rawDocType = trim((string) ($row['field_D'] ?? ''));
+        $mappingKey = getAccountingQrDocTypeMappingKey($rawDocType);
+        if ($mappingKey === '' || isset($seenTypes[$mappingKey])) {
+            continue;
+        }
+        $seenTypes[$mappingKey] = true;
+
+        $configuredMapping = getAccountingQrDocTypeMappingEntry($mappingKey, $context['database']);
+        $configuredDocType = trim((string) ($configuredMapping['erp_doc_type'] ?? ''));
+        if ($configuredDocType !== '') {
+            continue;
+        }
+
+        $items[] = [
+            'qr_doc_type' => $mappingKey,
+            'raw_doc_type' => $rawDocType,
+            'suggested_value' => resolveErpAccountingDocumentTypeAbbreviation($rawDocType, $context['database']),
+        ];
+    }
+
+    usort($items, static function (array $left, array $right): int {
+        return strnatcasecmp((string) ($left['qr_doc_type'] ?? ''), (string) ($right['qr_doc_type'] ?? ''));
+    });
+
+    $context['items'] = $items;
+
+    return $context;
+}
+
 function normalizeSuggestionRateKey(string $value): string {
     $clean = trim(str_replace('%', '', $value));
     if ($clean === '') {
@@ -1352,6 +1582,15 @@ function normalizeSuggestionLigacaoDocType(string $docType): string {
         return 'RC';
     }
     return $value;
+}
+
+function resolveSuggestionLigacaoLineTypes(string $docType): array {
+    $normalized = normalizeSuggestionLigacaoDocType($docType);
+    if ($normalized === 'NC') {
+        return ['rate' => 'C', 'total' => 'D'];
+    }
+
+    return ['rate' => 'D', 'total' => 'C'];
 }
 
 function resolveSuggestionLigacaoRateKeyFromRow(array $row): string {
@@ -1974,6 +2213,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $ligacaoRows = [];
     $ligacaoPerRate = [];
     $ligacaoDocType = normalizeSuggestionLigacaoDocType($docType);
+    $ligacaoLineTypes = resolveSuggestionLigacaoLineTypes($docType);
+    $ligacaoRateLineType = $ligacaoLineTypes['rate'];
+    $ligacaoTotalLineType = $ligacaoLineTypes['total'];
     $ligacaoNifCandidates = array_values(array_unique(array_filter([
         $emitterNif,
         extractVatNumber($emitter),
@@ -2030,13 +2272,13 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         $general = trim((string) ($row['strConta'] ?? ''));
         $iva = trim((string) ($row['strConta_Iva'] ?? ''));
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
-        if ($tipo === 'C' && $general !== '') {
+        if ($tipo === $ligacaoTotalLineType && $general !== '') {
             $ligacaoTotalCreditAccounts[$general] = ($ligacaoTotalCreditAccounts[$general] ?? 0) + 1;
         }
         if ($total !== '') {
             $ligacaoTotalEntityAccounts[$total] = ($ligacaoTotalEntityAccounts[$total] ?? 0) + 1;
         }
-        if ($tipo !== '' && $tipo !== 'D') {
+        if ($tipo !== '' && $tipo !== $ligacaoRateLineType) {
             continue;
         }
         $rateKey = resolveSuggestionLigacaoRateKeyFromRow($row);
@@ -2499,84 +2741,113 @@ if (
         exit;
     }
 
-    $targetDatabase = trim((string) ($payload['database'] ?? ''));
-    if ($targetDatabase === '') {
-        try {
-            $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
-            if (!empty($entities)) {
-                foreach ($entities as $entity) {
-                    $candidateDatabase = resolveAccountingEntityDatabase($entity);
-                    if ($candidateDatabase !== '') {
-                        $targetDatabase = $candidateDatabase;
-                        break;
-                    }
-                }
-            }
-        } catch (Throwable $throwable) {
-            logErpMessage('Erro ao determinar a base de dados ERP para associação de tipos QR: ' . $throwable->getMessage());
-        }
-    }
-
-    if ($targetDatabase === '') {
-        $targetDatabase = trim((string) getSetting('erp_database', ''));
-    }
-
-    if ($targetDatabase === '') {
+    $requestedDatabase = trim((string) ($payload['database'] ?? ''));
+    try {
+        $groupResolution = collectImportGroupsByDatabase($pdo, $ids, $requestedImportType, $requestedDatabase);
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao determinar a base de dados ERP para associação de tipos QR: ' . $throwable->getMessage());
         $response['error'] = 'Não foi possível determinar a base de dados ERP para associar o tipo documental.';
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    $response['database'] = $targetDatabase;
-    $options = buildErpEInvoiceDocTypeOptions($targetDatabase);
-    $response['options'] = $options;
-
-    if (empty($options)) {
-        $response['error'] = 'O webservice ERP não devolveu tipos documentais disponíveis para esta base de dados.';
+    $missingEntities = $groupResolution['missing'] ?? [];
+    if (!empty($missingEntities)) {
+        $missingLabel = summarizeImportGroupMissingEntities($missingEntities);
+        $response['error'] = 'Não foi possível determinar a base de dados ERP para associar o tipo documental'
+            . ($missingLabel !== '' ? ' em: ' . $missingLabel : '.');
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    $optionsByValue = [];
-    foreach ($options as $option) {
-        if (!is_array($option)) {
-            continue;
+    $databaseGroups = $groupResolution['groups'] ?? [];
+    if (empty($databaseGroups)) {
+        $targetDatabase = $requestedDatabase;
+        if ($targetDatabase === '') {
+            $targetDatabase = trim((string) getSetting('erp_database', ''));
         }
-        $optionValue = trim((string) ($option['value'] ?? ''));
-        if ($optionValue === '') {
-            continue;
+
+        if ($targetDatabase === '') {
+            $response['error'] = 'Não foi possível determinar a base de dados ERP para associar o tipo documental.';
+            echo json_encode($response, JSON_UNESCAPED_UNICODE);
+            exit;
         }
-        $optionsByValue[$optionValue] = $option;
+
+        $databaseGroups = [
+            $targetDatabase => $ids,
+        ];
     }
 
     $mode = strtolower(trim((string) ($payload['mode'] ?? 'check')));
     if ($mode === 'save') {
         $requestedMappings = is_array($payload['mappings'] ?? null) ? $payload['mappings'] : [];
+        $requestedGroupMappings = is_array($payload['group_mappings'] ?? null) ? $payload['group_mappings'] : [];
         $savedMappings = [];
 
-        foreach ($requestedMappings as $qrDocType => $erpDocTypeValue) {
-            $mappingKey = getAccountingQrDocTypeMappingKey((string) $qrDocType);
-            $erpDocType = trim((string) $erpDocTypeValue);
-            if ($mappingKey === '' || $erpDocType === '') {
+        $mappingsByDatabase = [];
+        foreach ($requestedGroupMappings as $groupDatabase => $groupMappings) {
+            $normalizedDatabase = trim((string) $groupDatabase);
+            if ($normalizedDatabase === '' || !isset($databaseGroups[$normalizedDatabase]) || !is_array($groupMappings)) {
                 continue;
             }
-            if (!isset($optionsByValue[$erpDocType])) {
-                continue;
-            }
+            $mappingsByDatabase[$normalizedDatabase] = $groupMappings;
+        }
 
-            $option = $optionsByValue[$erpDocType];
-            try {
-                $savedMappings[$mappingKey] = setAccountingQrDocTypeMapping(
-                    $mappingKey,
-                    $erpDocType,
-                    trim((string) ($option['title'] ?? $option['label'] ?? $erpDocType)),
-                    $targetDatabase
-                );
-            } catch (Throwable $throwable) {
-                $response['error'] = 'Não foi possível guardar a associação do tipo documental para a empresa selecionada.';
-                logErpMessage('Erro ao guardar associação do tipo documental QR para a base ' . $targetDatabase . ': ' . $throwable->getMessage());
+        if (empty($mappingsByDatabase)) {
+            $fallbackDatabase = $requestedDatabase;
+            if ($fallbackDatabase === '' && !empty($databaseGroups)) {
+                $fallbackDatabase = (string) array_key_first($databaseGroups);
+            }
+            if ($fallbackDatabase !== '' && isset($databaseGroups[$fallbackDatabase])) {
+                $mappingsByDatabase[$fallbackDatabase] = $requestedMappings;
+            }
+        }
+
+        foreach ($mappingsByDatabase as $mappingDatabase => $databaseMappings) {
+            $context = buildQrDocTypeMappingContextForIds($pdo, $databaseGroups[$mappingDatabase], $requestedImportType, $mappingDatabase);
+            $options = is_array($context['options'] ?? null) ? $context['options'] : [];
+            if (empty($options)) {
+                $response['error'] = 'O webservice ERP não devolveu tipos documentais disponíveis para a base ' . $mappingDatabase . '.';
                 echo json_encode($response, JSON_UNESCAPED_UNICODE);
                 exit;
+            }
+
+            $optionsByValue = [];
+            foreach ($options as $option) {
+                if (!is_array($option)) {
+                    continue;
+                }
+                $optionValue = trim((string) ($option['value'] ?? ''));
+                if ($optionValue === '') {
+                    continue;
+                }
+                $optionsByValue[$optionValue] = $option;
+            }
+
+            foreach ($databaseMappings as $qrDocType => $erpDocTypeValue) {
+                $mappingKey = getAccountingQrDocTypeMappingKey((string) $qrDocType);
+                $erpDocType = trim((string) $erpDocTypeValue);
+                if ($mappingKey === '' || $erpDocType === '' || !isset($optionsByValue[$erpDocType])) {
+                    continue;
+                }
+
+                $option = $optionsByValue[$erpDocType];
+                try {
+                    if (!isset($savedMappings[$mappingDatabase])) {
+                        $savedMappings[$mappingDatabase] = [];
+                    }
+                    $savedMappings[$mappingDatabase][$mappingKey] = setAccountingQrDocTypeMapping(
+                        $mappingKey,
+                        $erpDocType,
+                        trim((string) ($option['title'] ?? $option['label'] ?? $erpDocType)),
+                        $mappingDatabase
+                    );
+                } catch (Throwable $throwable) {
+                    $response['error'] = 'Não foi possível guardar a associação do tipo documental para a base ' . $mappingDatabase . '.';
+                    logErpMessage('Erro ao guardar associação do tipo documental QR para a base ' . $mappingDatabase . ': ' . $throwable->getMessage());
+                    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+                    exit;
+                }
             }
         }
 
@@ -2592,47 +2863,34 @@ if (
         exit;
     }
 
-    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT id, field_D FROM accounting_imports WHERE import_type = ? AND id IN (' . $placeholders . ') ORDER BY id'
-    );
-    $stmt->bindValue(1, $requestedImportType, PDO::PARAM_INT);
-    foreach ($ids as $index => $id) {
-        $stmt->bindValue($index + 2, $id, PDO::PARAM_INT);
-    }
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $items = [];
-    $seenTypes = [];
-    foreach ($rows as $row) {
-        $rawDocType = trim((string) ($row['field_D'] ?? ''));
-        $mappingKey = getAccountingQrDocTypeMappingKey($rawDocType);
-        if ($mappingKey === '' || isset($seenTypes[$mappingKey])) {
-            continue;
+    $groupContexts = [];
+    foreach ($databaseGroups as $groupDatabase => $groupIds) {
+        $context = buildQrDocTypeMappingContextForIds($pdo, $groupIds, $requestedImportType, (string) $groupDatabase);
+        $options = is_array($context['options'] ?? null) ? $context['options'] : [];
+        if (empty($options)) {
+            $response['error'] = 'O webservice ERP não devolveu tipos documentais disponíveis para a base ' . $groupDatabase . '.';
+            echo json_encode($response, JSON_UNESCAPED_UNICODE);
+            exit;
         }
-        $seenTypes[$mappingKey] = true;
-
-        $configuredMapping = getAccountingQrDocTypeMappingEntry($mappingKey, $targetDatabase);
-        $configuredDocType = trim((string) ($configuredMapping['erp_doc_type'] ?? ''));
-        if ($configuredDocType !== '') {
-            continue;
+        if (!empty($context['items'])) {
+            $groupContexts[] = $context;
         }
-
-        $items[] = [
-            'qr_doc_type' => $mappingKey,
-            'raw_doc_type' => $rawDocType,
-            'suggested_value' => resolveErpAccountingDocumentTypeAbbreviation($rawDocType, $targetDatabase),
-        ];
     }
 
-    usort($items, static function (array $left, array $right): int {
-        return strnatcasecmp((string) ($left['qr_doc_type'] ?? ''), (string) ($right['qr_doc_type'] ?? ''));
-    });
+    if (count($groupContexts) === 1) {
+        $singleContext = $groupContexts[0];
+        $response['database'] = $singleContext['database'] ?? '';
+        $response['options'] = $singleContext['options'] ?? [];
+        $response['items'] = $singleContext['items'] ?? [];
+    } else {
+        $response['database'] = '';
+        $response['options'] = [];
+        $response['items'] = [];
+    }
 
     $response['success'] = true;
-    $response['requires_mapping'] = !empty($items);
-    $response['items'] = $items;
+    $response['requires_mapping'] = !empty($groupContexts);
+    $response['groups'] = $groupContexts;
 
     echo json_encode($response, JSON_UNESCAPED_UNICODE);
     exit;
@@ -2713,19 +2971,61 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    try {
+        $groupResolution = collectImportGroupsByDatabase($pdo, $ids, $requestedImportType);
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao determinar grupos de importação CTB por adquirente: ' . $throwable->getMessage());
+        $response['error'] = 'Não foi possível determinar a base de dados do adquirente.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if (empty($entities)) {
         $response['success'] = true;
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    if (count($entities) > 1) {
-        $response['error'] = 'Existe mais do que um adquirente associado às linhas seleccionadas.';
-        echo json_encode($response, JSON_UNESCAPED_UNICODE);
-        exit;
+    $entitiesByNif = [];
+    foreach ($entities as $entity) {
+        if (!is_array($entity)) {
+            continue;
+        }
+        $nif = trim((string) ($entity['nif'] ?? ''));
+        if ($nif === '') {
+            continue;
+        }
+        $entitiesByNif[$nif] = $entity;
+    }
+
+    $missingSelectionCandidates = [];
+    foreach (($groupResolution['missing'] ?? []) as $missingItem) {
+        if (!is_array($missingItem)) {
+            continue;
+        }
+
+        $nif = trim((string) ($missingItem['nif'] ?? ''));
+        $key = $nif !== '' ? $nif : ('id_' . (int) ($missingItem['id'] ?? 0));
+        if (isset($missingSelectionCandidates[$key])) {
+            continue;
+        }
+
+        $entity = $nif !== '' && isset($entitiesByNif[$nif]) ? $entitiesByNif[$nif] : [
+            'nif' => $nif,
+            'name' => trim((string) ($missingItem['display_name'] ?? '')),
+            'display_name' => trim((string) ($missingItem['display_name'] ?? '')),
+            'erp_database' => '',
+            'entity_type' => 'acquirer',
+            'erp_client_code' => '',
+        ];
+        $missingSelectionCandidates[$key] = $entity;
     }
 
     $entity = $entities[0];
+    if (count($missingSelectionCandidates) === 1) {
+        $entity = reset($missingSelectionCandidates);
+    }
+
     $entityDatabase = resolveAccountingEntityDatabase($entity);
     $entityResponse = [
         'nif' => $entity['nif'],
@@ -2736,11 +3036,23 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($mode === 'check') {
         $response['success'] = true;
-        $response['entity'] = $entityResponse;
-        $response['requires_selection'] = $entityDatabase === '';
-        if ($response['requires_selection']) {
+        if (count($missingSelectionCandidates) === 1) {
+            $response['entity'] = $entityResponse;
+            $response['requires_selection'] = true;
             $response['message'] = 'Selecione a base de dados do adquirente antes de importar.';
+        } elseif (!empty($missingSelectionCandidates)) {
+            $response['success'] = false;
+            $response['error'] = 'Existem adquirentes sem base de dados ERP associada: '
+                . summarizeImportGroupMissingEntities($groupResolution['missing'] ?? []) . '.';
+        } elseif (count($entities) === 1) {
+            $response['entity'] = $entityResponse;
         }
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (count($missingSelectionCandidates) !== 1) {
+        $response['error'] = 'Não foi possível determinar um único adquirente para atualizar a base de dados ERP.';
         echo json_encode($response, JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -2869,8 +3181,162 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $requestedImportType = 1;
     }
 
+    try {
+        $groupResolution = collectImportGroupsByDatabase($pdo, $ids, $requestedImportType, $requestedDatabase);
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao determinar grupos da importação CTB: ' . $throwable->getMessage());
+        echo json_encode([
+            'success' => false,
+            'error' => 'Não foi possível determinar a base de dados do adquirente.',
+            'csrf_token' => generateCsrfToken(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $missingEntities = $groupResolution['missing'] ?? [];
+    if (!empty($missingEntities)) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Existem adquirentes sem base de dados ERP associada: ' . summarizeImportGroupMissingEntities($missingEntities) . '.',
+            'csrf_token' => generateCsrfToken(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $databaseGroups = $groupResolution['groups'] ?? [];
+    if (count($databaseGroups) > 1) {
+        $batchResults = [];
+        $mergedCabIdMap = [];
+        $successCount = 0;
+        $failureCount = 0;
+        $statusCodes = [];
+        $successDatabases = [];
+        $failedDatabases = [];
+
+        foreach ($databaseGroups as $groupDatabase => $groupIds) {
+            $serviceResult = import_CTB($pdo, $groupIds, $requestedImportType, (string) $groupDatabase);
+            $batchSuccess = !empty($serviceResult['success']);
+            $servicePayload = null;
+
+            $batchPayload = [
+                'database' => (string) $groupDatabase,
+                'ids' => array_values($groupIds),
+                'success' => $batchSuccess,
+                'http_status' => $serviceResult['status'] ?? 0,
+            ];
+
+            if (!empty($serviceResult['error'])) {
+                $batchPayload['error'] = $serviceResult['error'];
+            }
+            if (!empty($serviceResult['error_detail'])) {
+                $batchPayload['error_detail'] = $serviceResult['error_detail'];
+            }
+
+            if (array_key_exists('decoded', $serviceResult)) {
+                $servicePayload = sanitizeServiceDebugPayload($serviceResult['decoded']);
+                $batchPayload['service_payload'] = $servicePayload;
+
+                if (is_array($servicePayload) && array_key_exists('response', $servicePayload)) {
+                    $serviceResponse = sanitizeServiceDebugPayload($servicePayload['response']);
+                    if ($serviceResponse !== null && $serviceResponse !== '') {
+                        $batchPayload['service_response'] = $serviceResponse;
+                    }
+                }
+            }
+
+            if (!array_key_exists('service_response', $batchPayload) && array_key_exists('response', $serviceResult)) {
+                $batchPayload['service_response'] = sanitizeServiceDebugPayload($serviceResult['response']);
+            }
+
+            if (!empty($serviceResult['message'])) {
+                $batchPayload['message'] = $serviceResult['message'];
+            }
+            if (array_key_exists('log', $serviceResult)) {
+                $batchPayload['log'] = $serviceResult['log'];
+            }
+            if (!empty($serviceResult['cab_id_map'])) {
+                $batchPayload['cab_id_map'] = $serviceResult['cab_id_map'];
+                $mergedCabIdMap = array_replace($mergedCabIdMap, $serviceResult['cab_id_map']);
+            }
+
+            $batchMessage = '';
+            if (is_array($servicePayload)) {
+                foreach (['mensagem', 'message', 'msg', 'mensagem_erro'] as $messageKey) {
+                    if (!isset($servicePayload[$messageKey])) {
+                        continue;
+                    }
+                    $candidate = trim((string) $servicePayload[$messageKey]);
+                    if ($candidate !== '') {
+                        $batchMessage = $candidate;
+                        break;
+                    }
+                }
+            } elseif (is_string($servicePayload)) {
+                $candidate = trim($servicePayload);
+                if ($candidate !== '') {
+                    $batchMessage = $candidate;
+                }
+            }
+            if ($batchMessage === '' && !empty($serviceResult['message'])) {
+                $batchMessage = trim((string) $serviceResult['message']);
+            }
+            if ($batchMessage === '' && !$batchSuccess && !empty($serviceResult['error'])) {
+                $batchMessage = trim((string) $serviceResult['error']);
+            }
+            if ($batchMessage !== '') {
+                $batchPayload['message'] = $batchMessage;
+            }
+
+            $statusCodes[] = (int) ($serviceResult['status'] ?? 0);
+            if ($batchSuccess) {
+                $successCount++;
+                $successDatabases[] = (string) $groupDatabase;
+            } else {
+                $failureCount++;
+                $failedDatabases[] = (string) $groupDatabase;
+            }
+
+            $batchResults[] = $batchPayload;
+        }
+
+        $responsePayload = [
+            'success' => $successCount > 0,
+            'ids' => $ids,
+            'import_type' => $requestedImportType,
+            'csrf_token' => generateCsrfToken(),
+            'group_count' => count($databaseGroups),
+            'batches' => $batchResults,
+            'http_status' => !empty($statusCodes) ? max($statusCodes) : 0,
+        ];
+
+        if (!empty($mergedCabIdMap)) {
+            $responsePayload['cab_id_map'] = $mergedCabIdMap;
+        }
+
+        if ($failureCount === 0) {
+            $responsePayload['type'] = 'success';
+            $responsePayload['message'] = 'Importação concluída para ' . count($successDatabases) . ' empresa(s): ' . implode(', ', $successDatabases) . '.';
+        } elseif ($successCount > 0) {
+            $responsePayload['type'] = 'warning';
+            $responsePayload['message'] = 'Importação concluída parcialmente. Empresas importadas: ' . implode(', ', $successDatabases)
+                . '. Empresas com erro: ' . implode(', ', $failedDatabases) . '.';
+        } else {
+            $responsePayload['error'] = 'Falha ao importar os documentos nas empresas selecionadas: ' . implode(', ', $failedDatabases) . '.';
+        }
+
+        $jsonResponse = json_encode($responsePayload, JSON_UNESCAPED_UNICODE);
+        if ($jsonResponse === false) {
+            $jsonResponse = '{"success":false,"error":"Não foi possível preparar a resposta da importação."}';
+        }
+
+        echo $jsonResponse;
+        exit;
+    }
+
     $targetDatabase = $requestedDatabase;
-    if ($targetDatabase === '') {
+    if (count($databaseGroups) === 1) {
+        $targetDatabase = (string) array_key_first($databaseGroups);
+    } elseif ($targetDatabase === '') {
         try {
             $entities = collectAcquirerEntities($pdo, $ids, $requestedImportType);
             if (!empty($entities)) {

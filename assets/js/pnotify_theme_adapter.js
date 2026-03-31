@@ -111,6 +111,7 @@
         if (text !== '') {
             var span = document.createElement('span');
             span.textContent = text;
+            span.style.whiteSpace = 'pre-line';
             alertBox.appendChild(span);
         }
 
@@ -153,6 +154,7 @@
                 if (newText !== '') {
                     var newSpan = document.createElement('span');
                     newSpan.textContent = newText;
+                    newSpan.style.whiteSpace = 'pre-line';
                     alertBox.appendChild(newSpan);
                 }
                 options = merged;
