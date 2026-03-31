@@ -3458,6 +3458,10 @@ require __DIR__ . '/partials/classify-modal.php';
         trim((string) getSetting('erp_database', '')),
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
+    window.classificacaoImportDebugMode = <?= json_encode(
+        getSetting('debug_mode', '0') === '1',
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+    ); ?>;
 </script>
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/classificacao_importacao.js"></script>

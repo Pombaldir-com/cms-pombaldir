@@ -377,6 +377,7 @@ window.addEventListener('load', function() {
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
     var erpBaseCompany = window.erpBaseCompany ? String(window.erpBaseCompany).trim() : '';
     var erpDefaultDatabase = window.erpDefaultDatabase ? String(window.erpDefaultDatabase).trim() : '';
+    var classificacaoImportDebugMode = window.classificacaoImportDebugMode === true;
     var currentCostCenterOptions = [];
     var currentCostCenterContextKey = '';
 
@@ -515,6 +516,10 @@ window.addEventListener('load', function() {
 
     function renderImportParamInfo() {
         if (!importCtbButton.length || !importTypeAllowsImport) {
+            return;
+        }
+        if (!classificacaoImportDebugMode) {
+            importCtbParamInfo.detach();
             return;
         }
         var params = resolveCurrentImportParams();
@@ -1054,7 +1059,7 @@ window.addEventListener('load', function() {
             if (!layoutEnd.find('#importCtbButton').length) {
                 importCtbButton.prependTo(layoutEnd);
             }
-            if (!layoutEnd.find('#importCtbParamInfo').length) {
+            if (classificacaoImportDebugMode && !layoutEnd.find('#importCtbParamInfo').length) {
                 importCtbParamInfo.insertAfter(importCtbButton);
             }
 
@@ -1086,12 +1091,12 @@ window.addEventListener('load', function() {
             if (!label.find('#importCtbButton').length) {
                 importCtbButton.prependTo(label);
             }
-            if (!label.find('#importCtbParamInfo').length) {
+            if (classificacaoImportDebugMode && !label.find('#importCtbParamInfo').length) {
                 importCtbParamInfo.insertAfter(importCtbButton);
             }
         } else if (!filter.find('#importCtbButton').length) {
             importCtbButton.prependTo(filter);
-            if (!filter.find('#importCtbParamInfo').length) {
+            if (classificacaoImportDebugMode && !filter.find('#importCtbParamInfo').length) {
                 importCtbParamInfo.insertAfter(importCtbButton);
             }
         }
