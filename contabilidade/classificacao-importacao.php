@@ -3212,6 +3212,7 @@ foreach ($rows as $row) {
 
 $csrfToken = generateCsrfToken();
 $showImportButton = ($importType === 1) || ($importType === 2);
+$showImportCtbParamInfo = getSetting('debug_mode', '0') === '1';
 if ($importType === 2) {
     $importButtonLabel = 'Importar Compras';
     $importButtonIcon = 'fa-shopping-cart';
@@ -3227,6 +3228,13 @@ require_once __DIR__ . '/../header.php';
 ?>
 <input type="hidden" id="import_type" value="<?= htmlspecialchars($importType); ?>">
 <input type="hidden" id="view_mode" value="<?= htmlspecialchars($viewMode); ?>">
+<?php if (!$showImportCtbParamInfo): ?>
+<style>
+    #importCtbParamInfo {
+        display: none !important;
+    }
+</style>
+<?php endif; ?>
 <div class="row mb-3">
     <div class="col-12">
         <?php if ($showImportButton): ?>
@@ -3459,7 +3467,7 @@ require __DIR__ . '/partials/classify-modal.php';
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
     window.classificacaoImportDebugMode = <?= json_encode(
-        getSetting('debug_mode', '0') === '1',
+        $showImportCtbParamInfo,
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
 </script>
