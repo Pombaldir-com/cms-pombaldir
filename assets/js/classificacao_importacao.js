@@ -419,6 +419,22 @@ window.addEventListener('load', function() {
     };
     var readyIdsCacheTtlMs = 3000;
 
+    function buildClassificationTableStateKey() {
+        return ['datatable_state', window.location.pathname, 'classify-table'].join(':');
+    }
+
+    function clearClassificationTableState() {
+        try {
+            if (window.localStorage) {
+                window.localStorage.removeItem(buildClassificationTableStateKey());
+            }
+        } catch (error) {
+            // Ignore storage cleanup errors to avoid blocking table rendering.
+        }
+    }
+
+    clearClassificationTableState();
+
     var table = $('#classify-table').DataTable({
         serverSide: true,
         processing: true,
@@ -488,6 +504,9 @@ window.addEventListener('load', function() {
 
     if (table && table.state && typeof table.state.clear === 'function') {
         table.state.clear();
+    }
+    if (table && typeof table.page === 'function') {
+        table.page('first').draw('page');
     }
 
     function hideImportButtonWrapper() {
