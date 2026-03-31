@@ -19,7 +19,10 @@ if (!is_array($payload)) {
 $csrfToken = trim((string) ($payload['csrf_token'] ?? ''));
 if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
     http_response_code(400);
-    echo json_encode(['message' => 'Token invalido. Recarregue a pagina.']);
+    echo json_encode([
+        'message' => 'Token invalido. Tente novamente.',
+        'csrf_token' => generateCsrfToken(true)
+    ]);
     exit;
 }
 
@@ -2606,17 +2609,9 @@ function getErpDatabaseForNif(string $nif): ?string {
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (is_array($row)) {
-        $entityType = trim((string) ($row['entity_type'] ?? ''));
         $erpDatabase = trim((string) ($row['erp_database'] ?? ''));
-        $erpClientCode = trim((string) ($row['erp_client_code'] ?? ''));
-        if ($entityType === 'acquirer' && $erpClientCode !== '') {
-            return $erpClientCode;
-        }
         if ($erpDatabase !== '') {
             return $erpDatabase;
-        }
-        if ($erpClientCode !== '') {
-            return $erpClientCode;
         }
     }
     return null;
@@ -4627,25 +4622,31 @@ function resolveEfaturaEntity(PDO $pdo, string $company): ?array {
         return null;
     }
     if (ctype_digit($company)) {
-        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
         $stmt->execute([(int) $company]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) {
+            $row['erp_database'] = trim((string) ($row['erp_database'] ?? ''));
             return $row;
         }
     }
     $nif = preg_replace('/\D+/', '', $company);
     if (strlen($nif) === 9) {
-        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE nif = ? AND entity_type = 'acquirer' LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, name, nif, erp_database, erp_client_code FROM accounting_entities WHERE nif = ? AND entity_type = 'acquirer' LIMIT 1");
         $stmt->execute([$nif]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) {
+            $row['erp_database'] = trim((string) ($row['erp_database'] ?? ''));
             return $row;
         }
     }
-    $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE entity_type = 'acquirer' AND name LIKE ? ORDER BY name ASC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, name, nif, erp_database, erp_client_code FROM accounting_entities WHERE entity_type = 'acquirer' AND name LIKE ? ORDER BY name ASC LIMIT 1");
     $stmt->execute(['%' . $company . '%']);
-    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($row) {
+        $row['erp_database'] = trim((string) ($row['erp_database'] ?? ''));
+    }
+    return $row;
 }
 
 function assistantEfaturaSearchLocal(PDO $pdo, array $entity, array $args): array {

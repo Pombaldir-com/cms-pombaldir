@@ -1273,7 +1273,7 @@ function collectAcquirerEntities(PDO $pdo, array $ids, int $importType): array {
             'id' => $entity['id'] ?? null,
             'nif' => $acquirerNif,
             'name' => trim((string)($entity['name'] ?? $displayName)) ?: ($displayName !== '' ? $displayName : 'Cliente ' . $acquirerNif),
-            'erp_database' => trim((string)($entity['erp_database'] ?? '')),
+            'erp_database' => resolveAccountingEntityDatabase($entity),
             'entity_type' => $entityType,
             'erp_client_code' => trim((string)($entity['erp_client_code'] ?? '')),
             'display_name' => $displayName,
@@ -3098,7 +3098,12 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'name' => $entityName,
         'erp_database' => $selectedDatabase,
         'entity_type' => $entityType,
-        'erp_client_code' => trim((string)($entity['erp_client_code'] ?? '')),
+        'erp_client_code' => $entityType === 'acquirer'
+            ? fetchAccountingAcquirerClientCodeFromBaseErp(
+                (string) $entity['nif'],
+                trim((string)($entity['erp_client_code'] ?? ''))
+            )
+            : trim((string)($entity['erp_client_code'] ?? '')),
     ];
 
     try {

@@ -31,6 +31,8 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 ## ERP
 - Não usar baseUrl hardcoded; o endpoint do ERP deve vir sempre das Definições (`erp_webservice_url`).
 - Em páginas com DataTables, chamar o webservice diretamente no browser (sem proxy interno).
+- Em `accounting_entities`, `erp_database` e sempre a base ERP da empresa no formato `emp_XXX`.
+- Em `accounting_entities`, `erp_client_code` e o codigo da entidade/cliente/fornecedor dentro da base ERP e nunca deve ser usado como substituto de `erp_database`.
 
 ## Classificacao/Importacao CTB
 - `contabilidade/classificacao-importacao?import_type=1` e a vista de Classificacao.

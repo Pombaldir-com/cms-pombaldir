@@ -143,6 +143,7 @@ Regras de funcionamento:
 - As sugestões são lidas do endpoint ERP `GET /contabilidade/planocontas`.
 - A chamada é feita no browser para o webservice configurado em `erp_webservice_url`, usando `X-API-KEY`.
 - Sempre que possível, é usada a base de dados ERP do adquirente (`accounting_entities.erp_database`).
+- `accounting_entities.erp_database` e sempre a base ERP `emp_XXX`; `accounting_entities.erp_client_code` guarda o codigo da entidade dentro dessa base e nao deve ser usado como fallback da base ERP.
 - Na modal, o parâmetro `db` é enviado com a base de dados ERP do adquirente associada à linha/documento selecionado.
 - É enviado `EMP` com o valor de **Módulos > Contabilidade > Empresa base** (`accounting_base_company`).
 - Os resultados do plano são mantidos em cache no cliente por contexto (db + NIF adquirente + exercício), para resposta rápida durante a escrita.

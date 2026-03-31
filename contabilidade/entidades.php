@@ -116,13 +116,13 @@ $subzoneError = '';
 $erpError = '';
 if ($consultId > 0) {
     $stmt = $pdo->prepare(
-        "SELECT id, nif, name, erp_database FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
+        "SELECT id, nif, name, erp_database, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
     );
     $stmt->execute([$consultId, $entityType]);
     $consultEntity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
     if ($consultEntity) {
-        $erpDatabase = trim((string) ($consultEntity['erp_database'] ?? ''));
+        $erpDatabase = resolveAccountingEntityDatabase($consultEntity);
         $consultNif = trim((string) ($consultEntity['nif'] ?? ''));
         if ($consultNif === '') {
             $erpError = 'Entidade sem NIF definido.';
@@ -205,7 +205,7 @@ if ($consultId > 0 && !$consultEntity && $erpError === '') {
 }
 
 $stmt = $pdo->prepare(
-    "SELECT id, nif, name, erp_database FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
+    "SELECT id, nif, name, erp_database, erp_client_code FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
 );
 $stmt->execute([$entityType]);
 $entities = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -471,7 +471,7 @@ require_once __DIR__ . '/../header.php';
                         <tr>
                             <td><?= htmlspecialchars($entity['nif'] ?? ''); ?></td>
                             <td><?= htmlspecialchars($entity['name'] ?? ''); ?></td>
-                            <td><?= htmlspecialchars($entity['erp_database'] ?? ''); ?></td>
+                            <td><?= htmlspecialchars(resolveAccountingEntityDatabase($entity)); ?></td>
                             <td class="text-right">
                                 <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>" class="btn btn-xs btn-primary">
                                     <i class="fa fa-search"></i> Consulta

@@ -18,6 +18,7 @@ contabilidade/magick-*
 contabilidade/debug_qr.txt
 data/*.log
 migrations/*
+!migrations/*.sql
 data/companies.php
 AGENTS.md
 .github/copilot-instructions.MD

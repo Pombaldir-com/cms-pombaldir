@@ -441,6 +441,39 @@ window.addEventListener('load', function() {
     var currentCostCenterOptions = [];
     var currentCostCenterContextKey = '';
 
+    function updateCsrfTokenFromResponse(res) {
+        if (res && res.csrf_token && csrfInput) {
+            csrfInput.value = res.csrf_token;
+        }
+    }
+
+    function isInvalidCsrfResponse(res) {
+        var messages = extractErrorMessages(res);
+        if (!messages.length) {
+            return false;
+        }
+        return messages.some(function(message) {
+            var normalized = String(message || '').trim().toLowerCase();
+            return normalized.indexOf('token invalido') !== -1 || normalized.indexOf('token csrf invalido') !== -1;
+        });
+    }
+
+    function postAssistantRequest(body, hasRetried) {
+        var requestBody = body && typeof body === 'object' ? Object.assign({}, body) : {};
+        requestBody.csrf_token = csrfInput ? csrfInput.value : '';
+        return fetchJson('assistant-handler.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        }).then(function(res) {
+            updateCsrfTokenFromResponse(res);
+            if (!hasRetried && isInvalidCsrfResponse(res) && csrfInput && csrfInput.value) {
+                return postAssistantRequest(body, true);
+            }
+            return res;
+        });
+    }
+
     function buildImportCtbUrl() {
         return importCtbRelativeUrl;
     }
@@ -6173,31 +6206,23 @@ window.addEventListener('load', function() {
             }
             aiSuggestBtn.disabled = true;
             aiSuggestBtn.classList.add('disabled');
-            fetchJson('assistant-handler.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    csrf_token: csrfInput ? csrfInput.value : '',
-                    action: 'suggest_accounts',
-                    payload: {
-                        acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
-                        acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
-                        emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
-                        emitter_raw: currentBtn.getAttribute('data-emitter') || '',
-                        emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
-                        db: currentBtn.getAttribute('data-acquirer-db') || '',
-                        doc_type: currentBtn.getAttribute('data-doctype') || '',
-                        doc_date: currentBtn.getAttribute('data-docdate') || '',
-                        has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
-                        rates: rateLines
-                    },
-                    message: prompt,
-                    session_id: 'ai_suggest_accounts'
-                })
+            postAssistantRequest({
+                action: 'suggest_accounts',
+                payload: {
+                    acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                    acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
+                    emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                    emitter_raw: currentBtn.getAttribute('data-emitter') || '',
+                    emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                    db: currentBtn.getAttribute('data-acquirer-db') || '',
+                    doc_type: currentBtn.getAttribute('data-doctype') || '',
+                    doc_date: currentBtn.getAttribute('data-docdate') || '',
+                    has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
+                    rates: rateLines
+                },
+                message: prompt,
+                session_id: 'ai_suggest_accounts'
             }).then(function(res) {
-                if (res && res.csrf_token && csrfInput) {
-                    csrfInput.value = res.csrf_token;
-                }
                 var message = '';
                 if (res) {
                     message = res.message || res.error || res.details || '';
@@ -7105,25 +7130,16 @@ window.addEventListener('load', function() {
                             accepted = false;
                         }
                     });
-                    fetchJson('assistant-handler.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            csrf_token: csrfInput ? csrfInput.value : '',
-                            action: 'log_feedback',
-                            log_id: window.aiSuggestionLogId,
-                            accepted: accepted ? 1 : 0,
-                            corrected_after: accepted ? 0 : 1,
-                            corrected_accounts: corrections,
-                            suggested_accounts: window.aiSuggestedAccounts,
-                            sources: window.aiSuggestionSources || [],
-                            category: 'suggest_accounts',
-                            session_id: 'ai_suggest_accounts'
-                        })
-                    }).then(function(res) {
-                        if (res && res.csrf_token && csrfInput) {
-                            csrfInput.value = res.csrf_token;
-                        }
+                    postAssistantRequest({
+                        action: 'log_feedback',
+                        log_id: window.aiSuggestionLogId,
+                        accepted: accepted ? 1 : 0,
+                        corrected_after: accepted ? 0 : 1,
+                        corrected_accounts: corrections,
+                        suggested_accounts: window.aiSuggestedAccounts,
+                        sources: window.aiSuggestionSources || [],
+                        category: 'suggest_accounts',
+                        session_id: 'ai_suggest_accounts'
                     }).catch(function() {});
                 }
 

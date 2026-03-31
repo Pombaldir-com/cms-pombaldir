@@ -25,27 +25,20 @@ $pdo = getPDO();
 $companyDatabases = [];
 try {
     $stmt = $pdo->query(
-        "SELECT
-            id,
-            name AS company_name,
-            nif,
-            TRIM(
-                CASE
-                    WHEN COALESCE(NULLIF(erp_client_code, ''), '') <> '' THEN erp_client_code
-                    ELSE erp_database
-                END
-            ) AS erp_database
+        "SELECT id, name AS company_name, nif, erp_database, erp_client_code
          FROM accounting_entities
          WHERE entity_type = 'acquirer'
-           AND TRIM(
-            CASE
-                WHEN COALESCE(NULLIF(erp_client_code, ''), '') <> '' THEN erp_client_code
-                ELSE erp_database
-            END
-         ) <> ''
-         ORDER BY company_name ASC, nif ASC, erp_database ASC"
+         ORDER BY company_name ASC, nif ASC, id ASC"
     );
-    $companyDatabases = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    foreach ($rows as $row) {
+        $resolvedDatabase = resolveAccountingEntityDatabase($row);
+        if ($resolvedDatabase === '') {
+            continue;
+        }
+        $row['erp_database'] = $resolvedDatabase;
+        $companyDatabases[] = $row;
+    }
 } catch (Throwable $e) {
     $companyDatabases = [];
 }

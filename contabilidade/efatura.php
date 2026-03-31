@@ -1564,12 +1564,7 @@ function efaturaFetchEntity(PDO $pdo, int $entityId): ?array {
 }
 
 function efaturaResolveEntityErpDatabase(array $entity): string {
-    $erpClientCode = trim((string) ($entity['erp_client_code'] ?? ''));
-    if ($erpClientCode !== '' && preg_match('/^emp[_-]?\d+$/i', $erpClientCode)) {
-        return $erpClientCode;
-    }
-
-    return trim((string) ($entity['erp_database'] ?? ''));
+    return resolveAccountingEntityDatabase($entity);
 }
 
 function efaturaFormatErpDatabase(string $value): string {

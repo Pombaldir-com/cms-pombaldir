@@ -1043,6 +1043,32 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
     return $entity;
 }
 
+function fetchAccountingAcquirerClientCodeFromBaseErp(string $nif, string $fallback = ''): string {
+    static $cache = [];
+
+    $nif = extractVatNumber($nif);
+    $fallback = trim($fallback);
+    if ($nif === '') {
+        return $fallback;
+    }
+
+    if (array_key_exists($nif, $cache)) {
+        return $cache[$nif] !== '' ? $cache[$nif] : $fallback;
+    }
+
+    $baseDatabase = trim((string) getSetting('erp_database', ''));
+    if ($baseDatabase === '') {
+        $cache[$nif] = '';
+        return $fallback;
+    }
+
+    $remote = fetchAccountingEntityFromErp($nif, 'acquirer', false, $baseDatabase);
+    $clientCode = is_array($remote) ? trim((string) ($remote['erp_client_code'] ?? '')) : '';
+    $cache[$nif] = $clientCode;
+
+    return $clientCode !== '' ? $clientCode : $fallback;
+}
+
 /**
  * Fetch a table list from the ERP-SINC API (e.g., zonas/subzonas).
  *
@@ -1347,7 +1373,7 @@ function saveAccountingQrDocTypeMappings(array $mappings, string $database = '')
     saveAccountingEntity($pdo, [
         'nif' => trim((string) ($entity['nif'] ?? '')),
         'name' => trim((string) ($entity['name'] ?? '')),
-        'erp_database' => trim((string) ($entity['erp_database'] ?? '')),
+        'erp_database' => resolveAccountingEntityDatabase($entity),
         'entity_type' => trim((string) ($entity['entity_type'] ?? 'acquirer')),
         'erp_client_code' => trim((string) ($entity['erp_client_code'] ?? '')),
         'qr_doc_type_mappings' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
@@ -1694,8 +1720,43 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     return $row !== false ? $row : null;
 }
 
+function normalizeAccountingEntityDatabaseKey(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/^emp[_-]?(\d+)$/i', $value, $matches)) {
+        return 'emp_' . $matches[1];
+    }
+
+    return $value;
+}
+
+function normalizeAccountingEntityStoragePayload(array $data): array {
+    $entityType = trim((string) ($data['entity_type'] ?? ''));
+    if ($entityType === '') {
+        $entityType = 'acquirer';
+    }
+
+    $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($data['erp_database'] ?? ''));
+    $erpClientCode = trim((string) ($data['erp_client_code'] ?? ''));
+
+    // `erp_client_code` stores the entity code inside the ERP base and must not
+    // keep legacy `emp_XXX` values.
+    if (preg_match('/^emp[_-]?\d+$/i', $erpClientCode)) {
+        $erpClientCode = '';
+    }
+
+    $data['entity_type'] = $entityType;
+    $data['erp_database'] = $erpDatabase;
+    $data['erp_client_code'] = $erpClientCode;
+
+    return $data;
+}
+
 function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?array {
-    $database = trim($database);
+    $database = normalizeAccountingEntityDatabaseKey($database);
     if ($database === '') {
         return null;
     }
@@ -1703,30 +1764,18 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
     $stmt = $pdo->prepare(
         'SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at
          FROM accounting_entities
-         WHERE entity_type = ? AND (erp_database = ? OR erp_client_code = ?)
+         WHERE entity_type = ?
+           AND erp_database = ?
          ORDER BY id ASC
          LIMIT 1'
     );
-    $stmt->execute(['acquirer', $database, $database]);
+    $stmt->execute(['acquirer', $database]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
 }
 
 function resolveAccountingEntityDatabase(array $entity): string {
-    $erpDatabase = trim((string) ($entity['erp_database'] ?? ''));
-    $erpClientCode = trim((string) ($entity['erp_client_code'] ?? ''));
-
-    if ($erpDatabase !== '') {
-        return $erpDatabase;
-    }
-
-    // `erp_client_code` may store an internal ERP company identifier. Only use it
-    // as database fallback when it already looks like an ERP database key.
-    if ($erpClientCode !== '' && preg_match('/^emp[_-]?\d+$/i', $erpClientCode)) {
-        return $erpClientCode;
-    }
-
-    return '';
+    return normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
 }
 
 /**
@@ -1737,9 +1786,10 @@ function resolveAccountingEntityDatabase(array $entity): string {
  * @return void
  */
 function saveAccountingEntity(PDO $pdo, array $data): void {
+    $data = normalizeAccountingEntityStoragePayload($data);
     $nif = trim((string) ($data['nif'] ?? ''));
     $name = trim((string) ($data['name'] ?? ''));
-    $erpDatabase = trim((string) ($data['erp_database'] ?? ''));
+    $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($data['erp_database'] ?? ''));
     $entityType = trim((string) ($data['entity_type'] ?? ''));
     $erpClientCode = trim((string) ($data['erp_client_code'] ?? ''));
 
@@ -1869,10 +1919,6 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
         return null;
     }
 
-    if (array_key_exists($nif, $cache)) {
-        return $cache[$nif] ?: null;
-    }
-
     $defaults = is_array($defaults) ? $defaults : [];
     $defaultEntityType = trim((string) ($defaults['entity_type'] ?? ''));
     if ($defaultEntityType === '') {
@@ -1883,12 +1929,56 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
         $defaultErpDatabase = trim((string) $defaults['erp_database']);
     }
 
+    if (array_key_exists($nif, $cache)) {
+        $cachedEntity = $cache[$nif];
+        if (
+            is_array($cachedEntity)
+            && $defaultErpDatabase !== null
+            && $defaultErpDatabase !== ''
+            && resolveAccountingEntityDatabase($cachedEntity) === ''
+        ) {
+            unset($cache[$nif]);
+        } else {
+            return $cachedEntity ?: null;
+        }
+    }
+
     $existing = null;
     try {
         $existing = findAccountingEntity($pdo, $nif);
-        if ($existing !== null && !isPlaceholderAccountingEntityName($existing['name'] ?? '', $nif)) {
-            $cache[$nif] = $existing;
-            return $existing;
+        if ($existing !== null) {
+            $existingDatabase = resolveAccountingEntityDatabase($existing);
+            $requiresDatabaseUpdate = $defaultErpDatabase !== null
+                && $defaultErpDatabase !== ''
+                && $existingDatabase === '';
+            $existingEntityType = trim((string) ($existing['entity_type'] ?? '')) !== ''
+                ? trim((string) ($existing['entity_type'] ?? ''))
+                : $defaultEntityType;
+            $resolvedClientCode = trim((string) ($existing['erp_client_code'] ?? ''));
+            if ($existingEntityType === 'acquirer') {
+                $resolvedClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $resolvedClientCode);
+            }
+            $requiresClientCodeUpdate = $existingEntityType === 'acquirer'
+                && $resolvedClientCode !== trim((string) ($existing['erp_client_code'] ?? ''));
+
+            if ($requiresDatabaseUpdate || $requiresClientCodeUpdate) {
+                saveAccountingEntity($pdo, [
+                    'nif' => $nif,
+                    'name' => trim((string) ($existing['name'] ?? '')),
+                    'erp_database' => $requiresDatabaseUpdate ? $defaultErpDatabase : $existingDatabase,
+                    'erp_client_code' => $resolvedClientCode,
+                    'entity_type' => $existingEntityType,
+                    'qr_doc_type_mappings' => array_key_exists('qr_doc_type_mappings', $existing)
+                        ? (string) ($existing['qr_doc_type_mappings'] ?? '')
+                        : '',
+                ]);
+                $existing = findAccountingEntity($pdo, $nif);
+            }
+
+            if ($existing !== null && !isPlaceholderAccountingEntityName($existing['name'] ?? '', $nif)) {
+                $cache[$nif] = $existing;
+                return $existing;
+            }
         }
     } catch (Throwable $e) {
         logErpMessage('Erro ao pesquisar entidade ' . $nif . ': ' . $e->getMessage());
@@ -1900,14 +1990,19 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
     if ($remote === null) {
         $efaturaName = findAccountingEntityNameFromEfatura($pdo, $nif);
         if ($efaturaName !== '') {
+            $fallbackEntityType = trim((string) ($existing['entity_type'] ?? '')) !== ''
+                ? trim((string) ($existing['entity_type'] ?? ''))
+                : $defaultEntityType;
+            $fallbackClientCode = trim((string) ($existing['erp_client_code'] ?? ''));
+            if ($fallbackEntityType === 'acquirer') {
+                $fallbackClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $fallbackClientCode);
+            }
             $fallbackData = [
                 'nif' => $nif,
                 'name' => $efaturaName,
                 'erp_database' => trim((string) ($existing['erp_database'] ?? ($defaultErpDatabase ?? ''))),
-                'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
-                'entity_type' => trim((string) ($existing['entity_type'] ?? '')) !== ''
-                    ? trim((string) $existing['entity_type'])
-                    : $defaultEntityType,
+                'erp_client_code' => $fallbackClientCode,
+                'entity_type' => $fallbackEntityType,
             ];
 
             try {
@@ -1949,11 +2044,16 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
         $erpDatabase = $defaultErpDatabase;
     }
 
+    $erpClientCode = trim((string) ($remote['erp_client_code'] ?? ''));
+    if ($entityType === 'acquirer') {
+        $erpClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $erpClientCode);
+    }
+
     $data = [
         'nif' => $nif,
         'name' => $name,
         'erp_database' => $erpDatabase,
-        'erp_client_code' => trim((string) ($remote['erp_client_code'] ?? '')),
+        'erp_client_code' => $erpClientCode,
         'entity_type' => $entityType,
     ];
 

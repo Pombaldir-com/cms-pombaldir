@@ -590,7 +590,7 @@ function resolveClassificationModelTenantKey(PDO $pdo, array $context = []): str
     $acquirerNif = extractVatNumber((string) ($context['acquirer'] ?? ''));
     if ($acquirerNif !== '') {
         $entity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
-        $entityTenantKey = normalizeClassificationModelTenantKey($entity['erp_database'] ?? '');
+        $entityTenantKey = normalizeClassificationModelTenantKey(is_array($entity) ? resolveAccountingEntityDatabase($entity) : '');
         if ($entityTenantKey !== '') {
             return $entityTenantKey;
         }
@@ -599,7 +599,7 @@ function resolveClassificationModelTenantKey(PDO $pdo, array $context = []): str
     $emitterNif = extractVatNumber((string) ($context['emitter'] ?? ''));
     if ($emitterNif !== '') {
         $entity = findAccountingEntityByType($pdo, $emitterNif, 'emitter');
-        $entityTenantKey = normalizeClassificationModelTenantKey($entity['erp_database'] ?? '');
+        $entityTenantKey = normalizeClassificationModelTenantKey(is_array($entity) ? resolveAccountingEntityDatabase($entity) : '');
         if ($entityTenantKey !== '') {
             return $entityTenantKey;
         }

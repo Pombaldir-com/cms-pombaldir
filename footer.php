@@ -278,6 +278,10 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php endif; ?>
 <?php endif; ?>
 
+<?php
+$accountingUploadScriptVersion = @filemtime(__DIR__ . '/assets/js/accounting_upload.js');
+$mobileCaptureScriptVersion = @filemtime(__DIR__ . '/assets/js/mobile_capture.js');
+?>
 <script src="vendors/jquery/dist/jquery.min.js"></script>
 <script src="vendors/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
 <?php if ($useDataTables): ?>
@@ -292,8 +296,8 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php if (!empty($dropzoneScript)): ?>
 <script src="assets/js/<?= htmlspecialchars($dropzoneScript); ?>"></script>
 <?php else: ?>
-<script src="assets/js/accounting_upload.js"></script>
-<script src="assets/js/mobile_capture.js"></script>
+<script src="assets/js/accounting_upload.js<?= $accountingUploadScriptVersion ? '?v=' . rawurlencode((string) $accountingUploadScriptVersion) : ''; ?>"></script>
+<script src="assets/js/mobile_capture.js<?= $mobileCaptureScriptVersion ? '?v=' . rawurlencode((string) $mobileCaptureScriptVersion) : ''; ?>"></script>
 
 <?php endif; ?>
 <?php endif; ?>

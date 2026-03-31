@@ -1073,10 +1073,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $acquirerDatabase = is_array($acquirerEntity) ? resolveAccountingEntityDatabase($acquirerEntity) : '';
             if ($acquirerDatabase !== '') {
-                if ($database === '') {
+                if ($entityType === 'emitter') {
+                    $database = $acquirerDatabase;
+                } elseif ($database === '') {
                     $database = $acquirerDatabase;
                 }
-            } elseif ($acquirerEntity === null) {
+            } else {
                 $requiresAcquirerDatabase = true;
             }
         }
@@ -1161,7 +1163,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'name' => $name,
             'erp_database' => $selectedDatabase,
             'entity_type' => 'acquirer',
-            'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
+            'erp_client_code' => fetchAccountingAcquirerClientCodeFromBaseErp(
+                $acquirerNif,
+                trim((string) ($existing['erp_client_code'] ?? ''))
+            ),
         ];
         saveAccountingEntity($pdo, $saveData);
 
@@ -1202,6 +1207,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $importType = isset($data['import_type']) ? (int)$data['import_type'] : 1;
 
         $pdo = getPDO();
+        $defaultErpDatabase = trim((string) getSetting('erp_database', ''));
+        $acquirerDatabaseCache = [];
 
         if (!empty($filesWithReceiptCompanion)) {
             $deletePendingReceipts = $pdo->prepare(
@@ -1230,10 +1237,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fieldH = trim((string) ($row['H'] ?? ''));
             $fieldR = trim((string) ($row['R'] ?? ''));
             $hasDocumentIdentity = ($a !== '' || trim((string) $b) !== '' || trim((string) $d) !== '' || $fieldF !== '' || $fieldG !== '' || $fieldH !== '' || $fieldR !== '');
+            $rowEmitterDatabase = $defaultErpDatabase;
+            $acquirerNif = extractVatNumber((string) $b);
+            if ($acquirerNif !== '') {
+                if (!array_key_exists($acquirerNif, $acquirerDatabaseCache)) {
+                    $acquirerEntity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+                    if ($acquirerEntity === null) {
+                        $acquirerEntity = findAccountingEntity($pdo, $acquirerNif);
+                    }
+                    $acquirerDatabaseCache[$acquirerNif] = is_array($acquirerEntity)
+                        ? resolveAccountingEntityDatabase($acquirerEntity)
+                        : '';
+                }
+                if (trim((string) ($acquirerDatabaseCache[$acquirerNif] ?? '')) !== '') {
+                    $rowEmitterDatabase = trim((string) $acquirerDatabaseCache[$acquirerNif]);
+                }
+            }
             if ($rawEmitterValue !== '') {
                 $nif = $normalizedEmitterNif;
                 if ($nif !== '' && !array_key_exists($nif, $entityCache)) {
-                    $entityCache[$nif] = ensureAccountingEntity($pdo, $rawEmitterValue);
+                    $entityDefaults = ['entity_type' => 'emitter'];
+                    if ($rowEmitterDatabase !== '') {
+                        $entityDefaults['erp_database'] = $rowEmitterDatabase;
+                    }
+                    $entityCache[$nif] = ensureAccountingEntity($pdo, $rawEmitterValue, $entityDefaults);
                 }
             }
             $row['A'] = $a;
