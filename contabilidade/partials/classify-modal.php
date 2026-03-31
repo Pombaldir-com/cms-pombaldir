@@ -13,11 +13,26 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         max-width: min(96vw, 1680px);
     }
 
+    #classify-form {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    #classify-form .modal-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
     .classify-modal-layout {
         display: flex;
         gap: 1rem;
         align-items: stretch;
-        min-height: 72vh;
+        min-height: 0;
     }
 
     .classify-modal-preview-pane {
@@ -25,6 +40,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         max-width: 50%;
         display: flex;
         flex-direction: column;
+        min-height: 0;
         min-width: 0;
     }
 
@@ -33,6 +49,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         max-width: 50%;
         display: flex;
         flex-direction: column;
+        min-height: 0;
         min-width: 320px;
     }
 
@@ -56,11 +73,6 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         justify-content: center;
         text-align: center;
         padding: 1.5rem;
-    }
-
-    .classify-modal-form-pane .table-responsive {
-        max-height: 58vh;
-        overflow: auto;
     }
 
     .classify-modal-vat-table {
@@ -178,6 +190,51 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         margin-bottom: 0;
     }
 
+    .classify-document-fields-panel {
+        margin-bottom: 1rem;
+    }
+
+    .classify-document-fields-panel .x_title {
+        margin-bottom: 0;
+    }
+
+    .classify-document-fields-panel .x_content {
+        padding-top: 12px;
+    }
+
+    .classify-document-fields-note {
+        margin-bottom: 12px;
+    }
+
+    .classify-document-field-help {
+        display: inline-block;
+        margin-left: 0.35rem;
+        font-weight: 400;
+    }
+
+    .classify-document-field-input {
+        width: 100%;
+    }
+
+    .classify-modal-header-content {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .classify-modal-header-content .modal-title {
+        margin: 0;
+        min-width: 0;
+    }
+
+    .classify-modal-company-badge {
+        margin-left: auto;
+        font-size: 12px;
+        line-height: 1.2;
+    }
+
     #costCenterDistributionModal .modal-header {
         cursor: move;
     }
@@ -220,13 +277,24 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         .classify-document-preview-empty {
             min-height: 48vh;
         }
+
+        .classify-modal-header-content {
+            flex-wrap: wrap;
+        }
+
+        .classify-modal-company-badge {
+            margin-left: 0;
+        }
     }
 </style>
 <div class="modal fade" id="classifyModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable classify-modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="classifyModalLabel"><?= htmlspecialchars($classifyModalTitle); ?></h5>
+                <div class="classify-modal-header-content">
+                    <h5 class="modal-title" id="classifyModalLabel"><?= htmlspecialchars($classifyModalTitle); ?></h5>
+                    <span id="classifyModalCompanyBadge" class="badge badge-default classify-modal-company-badge d-none"></span>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <form id="classify-form">
@@ -275,7 +343,19 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                     </div>
                                 </div>
                             </div>
-                            <small class="text-muted d-block mb-2">Os valores apresentados na grelha correspondem ao que foi lido e extraído do QR Code do documento.</small>
+                            <div id="classifyDocumentFieldsPanel" class="x_panel classify-document-fields-panel">
+                                <div class="x_title">
+                                    <h2><i class="fa fa-file-text-o"></i> Campos do Documento</h2>
+                                    <div class="clearfix"></div>
+                                </div>
+                                <div class="x_content">
+                                    <p class="text-muted small classify-document-fields-note">
+                                        Complete ou corrija os campos do documento quando a linha entrou por <strong>Importar assim</strong>. Os valores monetarios sao calculados a partir das linhas de classificacao, para reduzir o preenchimento manual.
+                                    </p>
+                                    <div id="classifyDocumentFieldsGrid" class="row"></div>
+                                </div>
+                            </div>
+                            <small class="text-muted d-block mb-2">Os valores apresentados na grelha correspondem ao que foi lido do QR Code ou ao que foi preenchido manualmente nos campos do documento.</small>
                             <div class="table-responsive">
                                 <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
                                     <thead>

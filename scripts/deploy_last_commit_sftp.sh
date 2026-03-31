@@ -60,15 +60,22 @@ should_skip() {
 }
 
 FILES=()
-declare -A seen_files=()
 for f in "${ALL_FILES[@]}"; do
   if should_skip "$f"; then
     continue
   fi
-  if [[ -n "${seen_files[$f]:-}" ]]; then
+  already_seen=0
+  if ((${#FILES[@]:-0} > 0)); then
+    for existing in "${FILES[@]}"; do
+      if [[ "$existing" == "$f" ]]; then
+        already_seen=1
+        break
+      fi
+    done
+  fi
+  if [[ "$already_seen" -eq 1 ]]; then
     continue
   fi
-  seen_files["$f"]=1
   FILES+=("$f")
 done
 

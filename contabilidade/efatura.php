@@ -45,6 +45,10 @@ if ($action === 'documents_data') {
     handleEfaturaDocumentsData($pdo, $selectedEntityId);
 }
 
+if ($action === 'missing_docs_preview') {
+    handleEfaturaMissingDocsPreview($pdo, $selectedEntityId, $user);
+}
+
 $tablesReady = efaturaTablesReady();
 $canManageCredentials = userHasDepartmentPermission('ctb_efatura_credenciais');
 $canSync = userHasDepartmentPermission('ctb_efatura_sincronizar');
@@ -102,6 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $e) {
             $flash = ['type' => 'error', 'message' => $e->getMessage()];
         }
+    } elseif ($postAction === 'send_missing_docs_email') {
+        handleEfaturaSendMissingDocsEmail($pdo, $selectedEntityId, $user);
     }
 }
 
@@ -557,12 +563,74 @@ require_once __DIR__ . '/../header.php';
         </div>
     </div>
 </div>
+<div class="modal fade" id="efaturaMissingDocsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title">Enviar faltas de documentos</h4>
+                <button type="button" class="close" data-dismiss="modal" data-bs-dismiss="modal" aria-label="Fechar"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="efaturaMissingDocsAlert" class="alert" role="alert" style="display:none;"></div>
+                <div class="alert alert-info" role="alert">
+                    A mensagem é gerada com os dados da empresa selecionada e com a lista de documentos do E-fatura que continuam sem upload.
+                </div>
+                <div id="efaturaMissingDocsSummary" class="text-muted" style="margin-bottom:14px;"></div>
+                <form id="efaturaMissingDocsForm">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                    <input type="hidden" name="action" value="send_missing_docs_email">
+                    <div class="row">
+                        <div class="col-sm-6 col-12">
+                            <div class="form-group">
+                                <label for="efaturaMissingDocsTo">Para</label>
+                                <input type="text" class="form-control" id="efaturaMissingDocsTo" name="to" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-sm-6 col-12">
+                            <div class="form-group">
+                                <label for="efaturaMissingDocsFrom">Remetente</label>
+                                <select class="form-control" id="efaturaMissingDocsFrom" name="from_email"></select>
+                            </div>
+                        </div>
+                        <div class="col-sm-12 col-12">
+                            <div class="form-group">
+                                <label for="efaturaMissingDocsReplyTo">Responder para</label>
+                                <input type="text" class="form-control" id="efaturaMissingDocsReplyTo" name="reply_to" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-sm-12 col-12">
+                            <div class="form-group">
+                                <label for="efaturaMissingDocsSubject">Assunto</label>
+                                <input type="text" class="form-control" id="efaturaMissingDocsSubject" name="subject" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-sm-12 col-12">
+                            <div class="form-group" style="margin-bottom:0;">
+                                <label for="efaturaMissingDocsBody">Mensagem</label>
+                                <textarea class="form-control" id="efaturaMissingDocsBody" name="body" rows="16"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning" id="efaturaMissingDocsSendBtn">
+                    <i class="fa fa-paper-plane"></i> Enviar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <?php
 $pageScripts = 'var efaturaStyle = document.createElement("style");
-efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .row:last-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:right;}#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{display:flex;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter,.efatura-documents-date-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label,.efatura-documents-date-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-documents-date-filter .form-control{width:250px;min-width:250px;background:#fff;cursor:pointer;}.efatura-documents-date-filter .btn{white-space:nowrap;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child,#efatura-documents-table_wrapper .row:last-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter,.efatura-documents-date-filter{width:100%;}.efatura-documents-status-filter .form-control,.efatura-documents-date-filter .form-control{width:100%;min-width:0;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:left;}}";
+efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .row:last-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:right;}#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{display:flex;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter,.efatura-documents-date-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label,.efatura-documents-date-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-documents-date-filter .form-control{width:250px;min-width:250px;background:#fff;cursor:pointer;}.efatura-documents-date-filter .btn{white-space:nowrap;}.efatura-documents-missing-slot{display:flex;align-items:center;}.efatura-documents-missing-slot .btn{white-space:nowrap;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child,#efatura-documents-table_wrapper .row:last-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter,.efatura-documents-date-filter,.efatura-documents-missing-slot{width:100%;}.efatura-documents-status-filter .form-control,.efatura-documents-date-filter .form-control{width:100%;min-width:0;}.efatura-documents-missing-slot .btn{width:100%;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:left;}}";
 document.head.appendChild(efaturaStyle);
 window.efaturaSyncStatusUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/sync-status', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=documents_data', JSON_UNESCAPED_UNICODE) . ';
+window.efaturaMissingDocsPreviewUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=missing_docs_preview', JSON_UNESCAPED_UNICODE) . ';
+window.efaturaMissingDocsSendUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos', JSON_UNESCAPED_UNICODE) . ';
+window.efaturaSelectedEntityId = ' . (int) $selectedEntityId . ';
 window.efaturaDocumentsDateStorageKey = ' . json_encode('efatura_documents_date_range:' . (int) $selectedEntityId, JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDateFilter = (function() {
     var fallbackStart = null;
@@ -676,10 +744,11 @@ var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
     processing: true,
     order: [[0, "desc"]],
     pagingType: "full_numbers",
-    dom: "<\"row\"<\"col-sm-8 col-12 d-flex align-items-center gap-2 efatura-documents-controls\"l<\"efatura-documents-date-slot\"><\"efatura-documents-status-slot\">><\"col-sm-4 col-12\"f>>rt<\"row\"<\"col-sm-6 col-12\"i><\"col-sm-6 col-12\"p>>",
+    dom: "<\"row\"<\"col-sm-8 col-12 d-flex align-items-center gap-2 efatura-documents-controls\"l<\"efatura-documents-date-slot\"><\"efatura-documents-status-slot\">><\"col-sm-4 col-12 d-flex align-items-center justify-content-end gap-2\"<\"efatura-documents-missing-slot\">f>>rt<\"row\"<\"col-sm-6 col-12\"i><\"col-sm-6 col-12\"p>>",
     initComplete: function() {
         var dateSlot = document.querySelector("#efatura-documents-table_wrapper .efatura-documents-date-slot");
         var slot = document.querySelector("#efatura-documents-table_wrapper .efatura-documents-status-slot");
+        var missingSlot = document.querySelector("#efatura-documents-table_wrapper .efatura-documents-missing-slot");
         if (dateSlot && !dateSlot.querySelector("#efatura-document-date-range")) {
             dateSlot.innerHTML = "<div class=\"efatura-documents-date-filter\"><label for=\"efatura-document-date-range\">Datas</label><input type=\"text\" id=\"efatura-document-date-range\" class=\"form-control\" placeholder=\"Todas as datas\" autocomplete=\"off\"><button type=\"button\" class=\"btn btn-default btn-sm\" id=\"efatura-document-date-clear\">Limpar</button></div>";
             var dateInput = dateSlot.querySelector("#efatura-document-date-range");
@@ -744,6 +813,9 @@ var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
                     }
                 });
             }
+        }
+        if (missingSlot && !missingSlot.querySelector("#efatura-documents-missing-btn")) {
+            missingSlot.innerHTML = "<button type=\"button\" class=\"btn btn-warning btn-sm\" id=\"efatura-documents-missing-btn\"" + (window.efaturaSelectedEntityId > 0 ? "" : " disabled") + "><i class=\"fa fa-envelope\"></i> Faltas</button>";
         }
         if (!slot || slot.querySelector("#efatura-document-status-filter")) {
             return;
@@ -888,6 +960,286 @@ function bindEfaturaJobLogButtons() {
     }
 }
 bindEfaturaJobLogButtons();
+';
+
+$pageScripts .= '
+(function() {
+    var modalEl = document.getElementById("efaturaMissingDocsModal");
+    var formEl = document.getElementById("efaturaMissingDocsForm");
+    var alertEl = document.getElementById("efaturaMissingDocsAlert");
+    var summaryEl = document.getElementById("efaturaMissingDocsSummary");
+    var toEl = document.getElementById("efaturaMissingDocsTo");
+    var fromEl = document.getElementById("efaturaMissingDocsFrom");
+    var replyToEl = document.getElementById("efaturaMissingDocsReplyTo");
+    var subjectEl = document.getElementById("efaturaMissingDocsSubject");
+    var bodyEl = document.getElementById("efaturaMissingDocsBody");
+    var sendBtn = document.getElementById("efaturaMissingDocsSendBtn");
+    var previewState = null;
+
+    function getDocumentsSearchValue() {
+        if (efaturaDocumentsTable && typeof efaturaDocumentsTable.search === "function") {
+            return String(efaturaDocumentsTable.search() || "").trim();
+        }
+        var input = document.querySelector("#efatura-documents-table_filter input, #efatura-documents-table_wrapper .dataTables_filter input");
+        return input ? String(input.value || "").trim() : "";
+    }
+
+    function getCurrentFilters() {
+        var statusFilter = document.querySelector("#efatura-document-status-filter");
+        return {
+            search: getDocumentsSearchValue(),
+            status_filter: statusFilter ? String(statusFilter.value || "").trim() : "",
+            date_start: window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getStart === "function" ? window.efaturaDocumentsDateFilter.getStart() : "",
+            date_end: window.efaturaDocumentsDateFilter && typeof window.efaturaDocumentsDateFilter.getEnd === "function" ? window.efaturaDocumentsDateFilter.getEnd() : ""
+        };
+    }
+
+    function openModal() {
+        if (!modalEl) {
+            return;
+        }
+        if (window.jQuery && jQuery.fn.modal) {
+            jQuery(modalEl).modal("show");
+        } else if (window.bootstrap && typeof window.bootstrap.Modal === "function") {
+            new window.bootstrap.Modal(modalEl).show();
+        }
+    }
+
+    function closeModal() {
+        if (!modalEl) {
+            return;
+        }
+        if (window.jQuery && jQuery.fn.modal) {
+            jQuery(modalEl).modal("hide");
+        }
+    }
+
+    function showAlert(type, message) {
+        if (!alertEl) {
+            return;
+        }
+        alertEl.className = "alert alert-" + (type || "info");
+        alertEl.textContent = message || "";
+        alertEl.style.display = message ? "" : "none";
+    }
+
+    function resetGeneratedFields() {
+        previewState = null;
+        if (toEl) {
+            toEl.value = "";
+        }
+        if (fromEl) {
+            fromEl.innerHTML = "";
+        }
+        if (replyToEl) {
+            replyToEl.value = "";
+        }
+        if (subjectEl) {
+            subjectEl.value = "";
+        }
+        if (bodyEl) {
+            bodyEl.value = "";
+        }
+        updateSummary(null);
+    }
+
+    function renderTemplate(template, values) {
+        return String(template || "").replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi, function(match, key) {
+            return Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] || "") : "";
+        });
+    }
+
+    function getSelectedSender() {
+        if (!fromEl) {
+            return null;
+        }
+        var selectedOption = fromEl.options[fromEl.selectedIndex];
+        if (!selectedOption) {
+            return null;
+        }
+        return {
+            email: String(selectedOption.value || "").trim(),
+            name: String(selectedOption.getAttribute("data-sender-name") || "").trim()
+        };
+    }
+
+    function applyRenderedTemplate() {
+        if (!previewState) {
+            return;
+        }
+        var sender = getSelectedSender();
+        var renderValues = Object.assign({}, previewState.placeholders || {}, {
+            sender_name: sender && sender.name ? sender.name : "",
+            sender_email: sender && sender.email ? sender.email : ""
+        });
+        if (subjectEl) {
+            subjectEl.value = renderTemplate(previewState.subject_template || "", renderValues);
+        }
+        if (bodyEl) {
+            bodyEl.value = renderTemplate(previewState.body_template || "", renderValues);
+        }
+    }
+
+    function populateSenderOptions(options, defaultSender) {
+        if (!fromEl) {
+            return;
+        }
+        fromEl.innerHTML = "";
+        (options || []).forEach(function(option) {
+            var optionEl = document.createElement("option");
+            optionEl.value = String(option.email || "").trim();
+            optionEl.textContent = String(option.label || option.email || "").trim();
+            optionEl.setAttribute("data-sender-name", String(option.name || "").trim());
+            if (optionEl.value === String(defaultSender || "").trim()) {
+                optionEl.selected = true;
+            }
+            fromEl.appendChild(optionEl);
+        });
+    }
+
+    function updateSummary(payload) {
+        if (!summaryEl) {
+            return;
+        }
+        var parts = [];
+        if (payload && payload.company_label) {
+            parts.push(payload.company_label);
+        }
+        if (payload && payload.missing_count) {
+            parts.push(String(payload.missing_count) + " documento(s) sem upload");
+        }
+        if (payload && payload.filters_summary) {
+            parts.push(payload.filters_summary);
+        }
+        summaryEl.textContent = parts.join(" | ");
+    }
+
+    function requestPreview() {
+        if (!window.fetch) {
+            showAlert("danger", "O browser nao suporta pedidos assincronos.");
+            return;
+        }
+        if (!window.efaturaSelectedEntityId) {
+            showAlert("warning", "Seleciona uma empresa antes de enviar faltas.");
+            openModal();
+            return;
+        }
+
+        var filters = getCurrentFilters();
+        var url = new URL(window.efaturaMissingDocsPreviewUrl, window.location.origin);
+        Object.keys(filters).forEach(function(key) {
+            if (filters[key]) {
+                url.searchParams.set(key, filters[key]);
+            }
+        });
+
+        showAlert("info", "A preparar a listagem...");
+        if (sendBtn) {
+            sendBtn.disabled = true;
+        }
+        openModal();
+
+        fetch(url.toString(), { credentials: "same-origin" })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok || !data || !data.ok) {
+                        var errorMessage = data && data.error ? data.error : "Nao foi possivel preparar a mensagem.";
+                        throw new Error(errorMessage);
+                    }
+                    return data;
+                });
+            })
+            .then(function(payload) {
+                previewState = payload || null;
+                populateSenderOptions(payload.sender_options || [], payload.default_sender || "");
+                if (toEl) {
+                    toEl.value = String(payload.recipient_email || "").trim();
+                }
+                if (replyToEl) {
+                    replyToEl.value = String(payload.default_reply_to || "").trim();
+                }
+                updateSummary(payload);
+                applyRenderedTemplate();
+                showAlert(payload.recipient_email ? "success" : "warning", payload.recipient_email ? "Mensagem pronta a enviar." : "Nao foi encontrado email na ficha da entidade. Indica manualmente o destinatario.");
+                if (sendBtn) {
+                    sendBtn.disabled = false;
+                }
+            })
+            .catch(function(error) {
+                resetGeneratedFields();
+                if (sendBtn) {
+                    sendBtn.disabled = true;
+                }
+                showAlert("danger", error && error.message ? error.message : "Erro ao preparar a mensagem.");
+            });
+    }
+
+    document.addEventListener("click", function(event) {
+        var button = event.target.closest ? event.target.closest("#efatura-documents-missing-btn") : null;
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        requestPreview();
+    });
+
+    if (fromEl) {
+        fromEl.addEventListener("change", function() {
+            applyRenderedTemplate();
+        });
+    }
+
+    if (sendBtn && formEl) {
+        sendBtn.addEventListener("click", function() {
+            if (!previewState) {
+                showAlert("warning", "Prepara primeiro a listagem de faltas.");
+                return;
+            }
+            if (!window.fetch) {
+                showAlert("danger", "O browser nao suporta pedidos assincronos.");
+                return;
+            }
+
+            var formData = new FormData(formEl);
+            sendBtn.disabled = true;
+            showAlert("info", "A enviar email...");
+
+            fetch(window.efaturaMissingDocsSendUrl, {
+                method: "POST",
+                body: formData,
+                credentials: "same-origin"
+            })
+                .then(function(response) {
+                    return response.json().then(function(data) {
+                        if (!response.ok || !data || !data.ok) {
+                            var errorMessage = data && data.error ? data.error : "Nao foi possivel enviar o email.";
+                            throw new Error(errorMessage);
+                        }
+                        return data;
+                    });
+                })
+                .then(function(payload) {
+                    showAlert("success", payload && payload.message ? payload.message : "Email enviado com sucesso.");
+                    setTimeout(function() {
+                        closeModal();
+                    }, 700);
+                })
+                .catch(function(error) {
+                    showAlert("danger", error && error.message ? error.message : "Erro ao enviar o email.");
+                })
+                .finally(function() {
+                    sendBtn.disabled = false;
+                });
+        });
+    }
+
+    if (window.jQuery && modalEl) {
+        jQuery(modalEl).on("hidden.bs.modal", function() {
+            resetGeneratedFields();
+            showAlert("", "");
+        });
+    }
+})();
 ';
 
 require_once __DIR__ . '/../footer.php';
@@ -1250,59 +1602,77 @@ function efaturaFetchDocuments(PDO $pdo, int $entityId = 0): array {
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
-    header('Content-Type: application/json; charset=utf-8');
-
-    $draw = (int) ($_GET['draw'] ?? 1);
-    $start = max(0, (int) ($_GET['start'] ?? 0));
-    $length = (int) ($_GET['length'] ?? 10);
-    if ($length <= 0) {
-        $length = 10;
-    }
-    if ($length > 500) {
-        $length = 500;
+function efaturaParseDocumentFilters(array $source): array {
+    $searchRaw = '';
+    if (isset($source['search']) && is_array($source['search'])) {
+        $searchRaw = (string) ($source['search']['value'] ?? '');
+    } else {
+        $searchRaw = (string) ($source['search'] ?? '');
     }
 
-    $searchValue = trim((string) ($_GET['search']['value'] ?? ''));
-    $statusFilter = strtoupper(trim((string) ($_GET['status_filter'] ?? '')));
-    $dateStart = trim((string) ($_GET['date_start'] ?? ''));
-    $dateEnd = trim((string) ($_GET['date_end'] ?? ''));
-    $orderColumn = (int) ($_GET['order'][0]['column'] ?? 0);
-    $orderDir = strtolower(trim((string) ($_GET['order'][0]['dir'] ?? 'desc'))) === 'asc' ? 'ASC' : 'DESC';
+    $filters = [
+        'search' => trim($searchRaw),
+        'status_filter' => strtoupper(trim((string) ($source['status_filter'] ?? ''))),
+        'date_start' => '',
+        'date_end' => '',
+    ];
 
-    $dateStartNormalized = '';
+    $dateStart = trim((string) ($source['date_start'] ?? ''));
     if ($dateStart !== '') {
         $date = DateTime::createFromFormat('Y-m-d', $dateStart);
         if ($date instanceof DateTime) {
-            $dateStartNormalized = $date->format('Y-m-d');
+            $filters['date_start'] = $date->format('Y-m-d');
         }
     }
 
-    $dateEndNormalized = '';
+    $dateEnd = trim((string) ($source['date_end'] ?? ''));
     if ($dateEnd !== '') {
         $date = DateTime::createFromFormat('Y-m-d', $dateEnd);
         if ($date instanceof DateTime) {
-            $dateEndNormalized = $date->format('Y-m-d');
+            $filters['date_end'] = $date->format('Y-m-d');
         }
     }
 
-    $orderableColumns = [
-        0 => 'd.invoice_date',
-        1 => 'd.issuer_name',
-        2 => 'd.issuer_vat',
-        3 => 'd.invoice_no',
-        4 => 'd.invoice_type',
-        5 => 'd.net_total',
-        6 => 'd.tax_payable',
-        7 => 'd.gross_total',
-        8 => 'has_upload',
-        9 => 'has_classification',
-        10 => 'has_ctb_import',
-    ];
-    $orderBy = $orderableColumns[$orderColumn] ?? 'd.invoice_date';
+    return $filters;
+}
 
+function efaturaBuildDocumentWhereSql(int $selectedEntityId, array $filters, array &$params): string {
+    $where = [];
+    $params = [];
+
+    if ($selectedEntityId > 0) {
+        $where[] = 'd.entity_id = ?';
+        $params[] = $selectedEntityId;
+    }
+
+    if (($filters['status_filter'] ?? '') === 'A') {
+        $where[] = 'UPPER(COALESCE(d.document_status, "")) = ?';
+        $params[] = 'A';
+    }
+
+    if (($filters['date_start'] ?? '') !== '') {
+        $where[] = 'DATE(d.invoice_date) >= ?';
+        $params[] = $filters['date_start'];
+    }
+
+    if (($filters['date_end'] ?? '') !== '') {
+        $where[] = 'DATE(d.invoice_date) <= ?';
+        $params[] = $filters['date_end'];
+    }
+
+    if (($filters['search'] ?? '') !== '') {
+        $where[] = '(d.invoice_date LIKE ? OR ae.name LIKE ? OR d.issuer_name LIKE ? OR d.issuer_vat LIKE ? OR d.invoice_no LIKE ? OR d.invoice_type LIKE ?)';
+        $searchTerm = '%' . $filters['search'] . '%';
+        array_push($params, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm);
+    }
+
+    return $where ? ' WHERE ' . implode(' AND ', $where) : '';
+}
+
+function efaturaBuildDocumentLinkSql(): array {
     $linkSelect = '';
     $linkJoin = '';
+
     if (accountingImportsEfaturaLinkReady()) {
         $linkSelect = ',
             COALESCE(ai.has_upload, 0) AS has_upload,
@@ -1319,37 +1689,95 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
                 GROUP BY efatura_document_id
             ) ai ON ai.efatura_document_id = d.id';
     }
-    $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id ' . $linkJoin;
-    $where = [];
+
+    return [$linkSelect, $linkJoin];
+}
+
+function efaturaResolveDocumentImportState(PDO $pdo, array $row, ?PDOStatement $importStatusStmt = null): array {
+    $hasUpload = (int) ($row['has_upload'] ?? 0) === 1;
+    $hasClassification = (int) ($row['has_classification'] ?? 0) === 1;
+    $hasCtbImport = (int) ($row['has_ctb_import'] ?? 0) === 1;
+
+    if (!$hasUpload && $importStatusStmt instanceof PDOStatement) {
+        $match = reconcileEfaturaDocumentWithAccountingImport($pdo, (int) ($row['id'] ?? 0), $row);
+        if ($match && !empty($match['id'])) {
+            $hasUpload = true;
+            $importStatusStmt->execute([(int) $match['id']]);
+            $importRow = $importStatusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $hasClassification = trim((string) ($importRow['account'] ?? '')) !== '';
+            $hasCtbImport = trim((string) ($importRow['cab_id'] ?? '')) !== '';
+        }
+    }
+
+    return [
+        'has_upload' => $hasUpload,
+        'has_classification' => $hasClassification,
+        'has_ctb_import' => $hasCtbImport,
+    ];
+}
+
+function efaturaFetchFilteredDocumentRows(PDO $pdo, int $selectedEntityId, array $filters, string $orderBy = 'd.invoice_date DESC, d.id DESC', ?int $limit = null, int $offset = 0): array {
+    [$linkSelect, $linkJoin] = efaturaBuildDocumentLinkSql();
+    $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id' . $linkJoin;
     $params = [];
+    $whereSql = efaturaBuildDocumentWhereSql($selectedEntityId, $filters, $params);
+    $sql = 'SELECT d.*, ae.name AS entity_name' . $linkSelect
+        . $baseFrom
+        . $whereSql
+        . ' ORDER BY ' . $orderBy;
 
-    if ($selectedEntityId > 0) {
-        $where[] = 'd.entity_id = ?';
-        $params[] = $selectedEntityId;
+    if ($limit !== null && $limit > 0) {
+        $sql .= ' LIMIT ' . (int) $limit . ' OFFSET ' . max(0, $offset);
     }
 
-    if ($statusFilter === 'A') {
-        $where[] = 'UPPER(COALESCE(d.document_status, "")) = ?';
-        $params[] = $statusFilter;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function efaturaBuildImportStatusLookup(PDO $pdo): ?PDOStatement {
+    if (!accountingImportsEfaturaLinkReady()) {
+        return null;
+    }
+    return $pdo->prepare('SELECT account, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
+}
+
+function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $draw = (int) ($_GET['draw'] ?? 1);
+    $start = max(0, (int) ($_GET['start'] ?? 0));
+    $length = (int) ($_GET['length'] ?? 10);
+    if ($length <= 0) {
+        $length = 10;
+    }
+    if ($length > 500) {
+        $length = 500;
     }
 
-    if ($dateStartNormalized !== '') {
-        $where[] = 'DATE(d.invoice_date) >= ?';
-        $params[] = $dateStartNormalized;
-    }
+    $filters = efaturaParseDocumentFilters($_GET);
+    $orderColumn = (int) ($_GET['order'][0]['column'] ?? 0);
+    $orderDir = strtolower(trim((string) ($_GET['order'][0]['dir'] ?? 'desc'))) === 'asc' ? 'ASC' : 'DESC';
 
-    if ($dateEndNormalized !== '') {
-        $where[] = 'DATE(d.invoice_date) <= ?';
-        $params[] = $dateEndNormalized;
-    }
+    $orderableColumns = [
+        0 => 'd.invoice_date',
+        1 => 'd.issuer_name',
+        2 => 'd.issuer_vat',
+        3 => 'd.invoice_no',
+        4 => 'd.invoice_type',
+        5 => 'd.net_total',
+        6 => 'd.tax_payable',
+        7 => 'd.gross_total',
+        8 => 'has_upload',
+        9 => 'has_classification',
+        10 => 'has_ctb_import',
+    ];
+    $orderBy = $orderableColumns[$orderColumn] ?? 'd.invoice_date';
 
-    if ($searchValue !== '') {
-        $where[] = '(d.invoice_date LIKE ? OR ae.name LIKE ? OR d.issuer_name LIKE ? OR d.issuer_vat LIKE ? OR d.invoice_no LIKE ? OR d.invoice_type LIKE ?)';
-        $searchTerm = '%' . $searchValue . '%';
-        array_push($params, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm);
-    }
-
-    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+    [$linkSelect, $linkJoin] = efaturaBuildDocumentLinkSql();
+    $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id ' . $linkJoin;
+    $params = [];
+    $whereSql = efaturaBuildDocumentWhereSql($selectedEntityId, $filters, $params);
 
     $totalSql = 'SELECT COUNT(*)' . $baseFrom . ($selectedEntityId > 0 ? ' WHERE d.entity_id = ?' : '');
     $totalStmt = $pdo->prepare($totalSql);
@@ -1369,27 +1797,15 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $dataStmt = $pdo->prepare($dataSql);
     $dataStmt->execute($params);
     $rows = $dataStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    $importStatusStmt = null;
-    if (accountingImportsEfaturaLinkReady()) {
-        $importStatusStmt = $pdo->prepare('SELECT account, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
-    }
+    $importStatusStmt = efaturaBuildImportStatusLookup($pdo);
 
     $data = [];
     foreach ($rows as $row) {
         $status = strtoupper(trim((string) ($row['document_status'] ?? '')));
-        $hasUpload = (int) ($row['has_upload'] ?? 0) === 1;
-        $hasClassification = (int) ($row['has_classification'] ?? 0) === 1;
-        $hasCtbImport = (int) ($row['has_ctb_import'] ?? 0) === 1;
-        if (!$hasUpload && $importStatusStmt instanceof PDOStatement) {
-            $match = reconcileEfaturaDocumentWithAccountingImport($pdo, (int) ($row['id'] ?? 0), $row);
-            if ($match && !empty($match['id'])) {
-                $hasUpload = true;
-                $importStatusStmt->execute([(int) $match['id']]);
-                $importRow = $importStatusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-                $hasClassification = trim((string) ($importRow['account'] ?? '')) !== '';
-                $hasCtbImport = trim((string) ($importRow['cab_id'] ?? '')) !== '';
-            }
-        }
+        $state = efaturaResolveDocumentImportState($pdo, $row, $importStatusStmt);
+        $hasUpload = $state['has_upload'];
+        $hasClassification = $state['has_classification'];
+        $hasCtbImport = $state['has_ctb_import'];
         $statusBadgeClass = $hasCtbImport ? 'badge-success' : ($hasClassification ? 'badge-info' : ($hasUpload ? 'badge-warning' : 'badge-secondary'));
         $statusBadgeLabel = $hasCtbImport ? 'Importado CTB' : ($hasClassification ? 'Classificado' : ($hasUpload ? 'Por classificar' : 'Em falta'));
         $data[] = [
@@ -1416,6 +1832,566 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+function handleEfaturaMissingDocsPreview(PDO $pdo, int $selectedEntityId, array $user): void {
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        if ($selectedEntityId <= 0) {
+            throw new RuntimeException('Seleciona uma empresa antes de enviar faltas.');
+        }
+
+        $filters = efaturaParseDocumentFilters($_GET);
+        $missingDocuments = efaturaFetchMissingDocumentsForCommunication($pdo, $selectedEntityId, $filters);
+        if (!$missingDocuments) {
+            throw new RuntimeException('Nao existem documentos sem upload com os filtros atuais.');
+        }
+
+        $entityContext = efaturaResolveEntityCommunicationContext($pdo, $selectedEntityId);
+        $senderConfig = efaturaResolveMissingDocsSenderOptions($user);
+        $templates = efaturaResolveMissingDocsTemplates();
+        $placeholders = efaturaBuildMissingDocsPlaceholders($entityContext, $missingDocuments, $filters);
+
+        echo json_encode([
+            'ok' => true,
+            'company_label' => (string) ($placeholders['entity_display'] ?? ''),
+            'missing_count' => count($missingDocuments),
+            'filters_summary' => (string) ($placeholders['filters_summary'] ?? ''),
+            'recipient_email' => (string) ($entityContext['entity_email'] ?? ''),
+            'sender_options' => $senderConfig['options'],
+            'default_sender' => (string) ($senderConfig['default_sender'] ?? ''),
+            'default_reply_to' => (string) ($senderConfig['default_reply_to'] ?? ''),
+            'subject_template' => $templates['subject'],
+            'body_template' => $templates['body'],
+            'placeholders' => $placeholders,
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'error' => $e->getMessage(),
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+function handleEfaturaSendMissingDocsEmail(PDO $pdo, int $selectedEntityId, array $user): void {
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        if ($selectedEntityId <= 0) {
+            throw new RuntimeException('Seleciona uma empresa antes de enviar faltas.');
+        }
+
+        $recipients = efaturaExtractEmailAddresses((string) ($_POST['to'] ?? ''));
+        if (!$recipients) {
+            throw new RuntimeException('Indica pelo menos um destinatario valido.');
+        }
+
+        $subject = trim((string) ($_POST['subject'] ?? ''));
+        $body = trim((string) ($_POST['body'] ?? ''));
+        if ($subject === '') {
+            throw new RuntimeException('O assunto e obrigatorio.');
+        }
+        if ($body === '') {
+            throw new RuntimeException('A mensagem e obrigatoria.');
+        }
+
+        $senderConfig = efaturaResolveMissingDocsSenderOptions($user);
+        $allowedSenders = [];
+        foreach ($senderConfig['options'] as $option) {
+            $email = strtolower(trim((string) ($option['email'] ?? '')));
+            if ($email !== '') {
+                $allowedSenders[$email] = $option;
+            }
+        }
+
+        $fromEmail = strtolower(trim((string) ($_POST['from_email'] ?? '')));
+        if ($fromEmail === '' || !isset($allowedSenders[$fromEmail])) {
+            throw new RuntimeException('O remetente selecionado nao e valido.');
+        }
+
+        $replyToList = efaturaExtractEmailAddresses((string) ($_POST['reply_to'] ?? ''));
+        $replyTo = $replyToList[0] ?? '';
+
+        efaturaSendEmail([
+            'to' => $recipients,
+            'from_email' => (string) $allowedSenders[$fromEmail]['email'],
+            'from_name' => (string) ($allowedSenders[$fromEmail]['name'] ?? ''),
+            'reply_to' => $replyTo,
+            'subject' => $subject,
+            'body' => $body,
+        ]);
+
+        logAuditAction('efatura_missing_docs_email_send', 'accounting_entities', $selectedEntityId, [
+            'entity_id' => $selectedEntityId,
+            'to' => implode('; ', $recipients),
+            'from' => (string) $allowedSenders[$fromEmail]['email'],
+            'reply_to' => $replyTo,
+            'subject' => $subject,
+            'sent_by' => (int) ($user['id'] ?? 0),
+        ]);
+
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Email enviado com sucesso.',
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'error' => $e->getMessage(),
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+function efaturaFetchMissingDocumentsForCommunication(PDO $pdo, int $selectedEntityId, array $filters): array {
+    $rows = efaturaFetchFilteredDocumentRows($pdo, $selectedEntityId, $filters, 'd.invoice_date ASC, d.id ASC');
+    $importStatusStmt = efaturaBuildImportStatusLookup($pdo);
+    $missing = [];
+
+    foreach ($rows as $row) {
+        $state = efaturaResolveDocumentImportState($pdo, $row, $importStatusStmt);
+        if ($state['has_upload']) {
+            continue;
+        }
+        $row['has_upload'] = 0;
+        $missing[] = $row;
+    }
+
+    return $missing;
+}
+
+function efaturaResolveEntityCommunicationContext(PDO $pdo, int $entityId): array {
+    $entity = efaturaFetchEntity($pdo, $entityId);
+    if (!$entity) {
+        throw new RuntimeException('Empresa nao encontrada.');
+    }
+
+    $code = efaturaFormatErpDatabase((string) ($entity['erp_database'] ?? ''));
+    $display = ($code !== '' && $code !== '-' ? $code . ' - ' : '') . trim((string) ($entity['name'] ?? ''));
+    $context = [
+        'entity_name' => trim((string) ($entity['name'] ?? '')),
+        'entity_nif' => trim((string) ($entity['nif'] ?? '')),
+        'entity_code' => $code !== '-' ? $code : '',
+        'entity_erp_database' => trim((string) ($entity['erp_database'] ?? '')),
+        'entity_display' => trim($display),
+        'entity_email' => '',
+        'entity_address' => '',
+        'entity_address2' => '',
+        'entity_postal_code' => '',
+        'entity_city' => '',
+        'entity_phone' => '',
+        'entity_mobile' => '',
+        'entity_number' => '',
+    ];
+
+    $erpDatabase = trim((string) ($entity['erp_database'] ?? ''));
+    $entityNif = trim((string) ($entity['nif'] ?? ''));
+    if ($entityNif !== '') {
+        $remote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $erpDatabase);
+        if (is_array($remote) && empty($remote['error'])) {
+            $row = efaturaExtractErpEntityRow($remote['payload'] ?? []);
+            if ($row) {
+                $emails = efaturaExtractEmailAddresses((string) ($row['strEmail'] ?? ''));
+                $context['entity_name'] = trim((string) ($row['strNome'] ?? '')) !== '' ? trim((string) ($row['strNome'] ?? '')) : $context['entity_name'];
+                $context['entity_nif'] = extractVatNumber((string) ($row['strNumContrib'] ?? '')) ?: $context['entity_nif'];
+                $context['entity_email'] = $emails ? implode('; ', $emails) : '';
+                $context['entity_address'] = trim((string) ($row['strMorada_lin1'] ?? ''));
+                $context['entity_address2'] = trim((string) ($row['strMorada_lin2'] ?? ''));
+                $context['entity_postal_code'] = trim((string) ($row['strPostal'] ?? ''));
+                $context['entity_city'] = trim((string) ($row['strLocalidade'] ?? ''));
+                $context['entity_phone'] = trim((string) ($row['strTelefone'] ?? ''));
+                $context['entity_mobile'] = trim((string) ($row['strTelemovel'] ?? ''));
+                $context['entity_number'] = trim((string) ($row['intCodigo'] ?? $row['Id'] ?? ''));
+            }
+        }
+    }
+
+    $context['entity_display'] = trim((($context['entity_code'] ?? '') !== '' ? ($context['entity_code'] . ' - ') : '') . ($context['entity_name'] ?? ''));
+    $context['entity_address_full'] = efaturaJoinNonEmpty([
+        $context['entity_address'],
+        $context['entity_address2'],
+        trim(efaturaJoinNonEmpty([$context['entity_postal_code'], $context['entity_city']], ' ')),
+    ], ', ');
+    $context['entity_contact_summary'] = efaturaJoinNonEmpty([
+        $context['entity_email'],
+        $context['entity_phone'],
+        $context['entity_mobile'],
+    ], ' | ');
+
+    return $context;
+}
+
+function efaturaExtractErpEntityRow($payload): array {
+    if (!is_array($payload)) {
+        return [];
+    }
+    if (isset($payload['aaData']) && is_array($payload['aaData']) && !empty($payload['aaData'][0]) && is_array($payload['aaData'][0])) {
+        return $payload['aaData'][0];
+    }
+    if (isset($payload['data']) && is_array($payload['data']) && !empty($payload['data'][0]) && is_array($payload['data'][0])) {
+        return $payload['data'][0];
+    }
+    return [];
+}
+
+function efaturaResolveMissingDocsTemplates(): array {
+    $defaultSubject = 'E-fatura - documentos em falta para {{entity_display}}';
+    $defaultBody = "Exmos. Senhores,\n\n"
+        . "Na conferência dos documentos de {{entity_name}} (NIF {{entity_nif}}), identificámos {{missing_count}} documento(s) no E-fatura sem o respetivo upload para classificação contabilística.\n\n"
+        . "Filtros considerados: {{filters_summary}}\n\n"
+        . "Agradecemos o envio do papel ou PDF dos seguintes documentos:\n"
+        . "{{documents_list}}\n\n"
+        . "Se algum destes documentos já tiver sido entregue, podem ignorar a respetiva linha.\n\n"
+        . "Com os melhores cumprimentos,\n"
+        . "{{sender_name}}\n"
+        . "{{sender_email}}";
+
+    return [
+        'subject' => trim((string) getSetting('efatura_missing_docs_email_subject_template', $defaultSubject)),
+        'body' => trim((string) getSetting('efatura_missing_docs_email_body_template', $defaultBody)),
+    ];
+}
+
+function efaturaBuildMissingDocsPlaceholders(array $entityContext, array $missingDocuments, array $filters): array {
+    $dateGenerated = date('Y-m-d H:i');
+    $documentsList = efaturaBuildMissingDocumentLinesText($missingDocuments);
+
+    return [
+        'entity_name' => (string) ($entityContext['entity_name'] ?? ''),
+        'entity_nif' => (string) ($entityContext['entity_nif'] ?? ''),
+        'entity_code' => (string) ($entityContext['entity_code'] ?? ''),
+        'entity_display' => (string) ($entityContext['entity_display'] ?? ''),
+        'entity_erp_database' => (string) ($entityContext['entity_erp_database'] ?? ''),
+        'entity_email' => (string) ($entityContext['entity_email'] ?? ''),
+        'entity_address' => (string) ($entityContext['entity_address'] ?? ''),
+        'entity_address2' => (string) ($entityContext['entity_address2'] ?? ''),
+        'entity_postal_code' => (string) ($entityContext['entity_postal_code'] ?? ''),
+        'entity_city' => (string) ($entityContext['entity_city'] ?? ''),
+        'entity_address_full' => (string) ($entityContext['entity_address_full'] ?? ''),
+        'entity_phone' => (string) ($entityContext['entity_phone'] ?? ''),
+        'entity_mobile' => (string) ($entityContext['entity_mobile'] ?? ''),
+        'entity_number' => (string) ($entityContext['entity_number'] ?? ''),
+        'entity_contact_summary' => (string) ($entityContext['entity_contact_summary'] ?? ''),
+        'missing_count' => (string) count($missingDocuments),
+        'documents_list' => $documentsList,
+        'filters_summary' => efaturaBuildMissingDocsFilterSummary($filters),
+        'generated_at' => $dateGenerated,
+        'sender_name' => '',
+        'sender_email' => '',
+    ];
+}
+
+function efaturaBuildMissingDocumentLinesText(array $documents): string {
+    $lines = [];
+    foreach ($documents as $row) {
+        $invoiceDate = trim((string) ($row['invoice_date'] ?? ''));
+        $invoiceType = trim((string) ($row['invoice_type'] ?? ''));
+        $invoiceNo = trim((string) ($row['invoice_no'] ?? ''));
+        $issuerName = trim((string) ($row['issuer_name'] ?? ''));
+        $issuerVat = trim((string) ($row['issuer_vat'] ?? ''));
+        $grossTotal = number_format((float) ($row['gross_total'] ?? 0), 2, ',', ' ');
+        $parts = [
+            $invoiceDate,
+            trim($invoiceType . ' ' . $invoiceNo),
+            $issuerName,
+        ];
+        if ($issuerVat !== '') {
+            $parts[] = 'NIF ' . $issuerVat;
+        }
+        $parts[] = 'Total ' . $grossTotal . ' EUR';
+        $lines[] = '- ' . efaturaJoinNonEmpty($parts, ' | ');
+    }
+    return implode("\n", $lines);
+}
+
+function efaturaBuildMissingDocsFilterSummary(array $filters): string {
+    $parts = [];
+    if (($filters['date_start'] ?? '') !== '' && ($filters['date_end'] ?? '') !== '') {
+        $parts[] = $filters['date_start'] . ' a ' . $filters['date_end'];
+    } elseif (($filters['date_start'] ?? '') !== '') {
+        $parts[] = 'desde ' . $filters['date_start'];
+    } elseif (($filters['date_end'] ?? '') !== '') {
+        $parts[] = 'ate ' . $filters['date_end'];
+    }
+
+    if (($filters['status_filter'] ?? '') === 'A') {
+        $parts[] = 'apenas anulados';
+    }
+
+    if (($filters['search'] ?? '') !== '') {
+        $parts[] = 'pesquisa "' . $filters['search'] . '"';
+    }
+
+    return $parts ? implode(' | ', $parts) : 'sem filtros adicionais';
+}
+
+function efaturaResolveMissingDocsSenderOptions(array $user): array {
+    $options = [];
+    $currentUserEmail = efaturaExtractEmailAddresses((string) ($user['email'] ?? ''));
+    $currentUserEmail = $currentUserEmail[0] ?? '';
+    $currentUserName = trim((string) ($user['name'] ?? $user['username'] ?? ''));
+    $appName = trim((string) getSetting('app_name', 'AICRM'));
+    $noReplyEmail = efaturaResolveNoReplyEmail($user);
+
+    if ($currentUserEmail !== '') {
+        $options[] = [
+            'email' => $currentUserEmail,
+            'name' => $currentUserName !== '' ? $currentUserName : $currentUserEmail,
+            'label' => 'Utilizador atual - ' . ($currentUserName !== '' ? $currentUserName . ' <' . $currentUserEmail . '>' : $currentUserEmail),
+        ];
+    }
+
+    $options[] = [
+        'email' => $noReplyEmail,
+        'name' => $appName !== '' ? $appName : 'No-reply',
+        'label' => 'No-reply - ' . $noReplyEmail,
+    ];
+
+    $unique = [];
+    foreach ($options as $option) {
+        $key = strtolower(trim((string) ($option['email'] ?? '')));
+        if ($key === '' || isset($unique[$key])) {
+            continue;
+        }
+        $unique[$key] = $option;
+    }
+
+    return [
+        'options' => array_values($unique),
+        'default_sender' => $currentUserEmail !== '' ? $currentUserEmail : $noReplyEmail,
+        'default_reply_to' => $currentUserEmail !== '' ? $currentUserEmail : $noReplyEmail,
+    ];
+}
+
+function efaturaResolveNoReplyEmail(array $user): string {
+    $domain = '';
+    $smtpUserEmails = efaturaExtractEmailAddresses((string) getSetting('smtp_user', ''));
+    if (!empty($smtpUserEmails[0]) && strpos($smtpUserEmails[0], '@') !== false) {
+        $domain = substr($smtpUserEmails[0], strpos($smtpUserEmails[0], '@') + 1);
+    }
+
+    if ($domain === '') {
+        $userEmails = efaturaExtractEmailAddresses((string) ($user['email'] ?? ''));
+        if (!empty($userEmails[0]) && strpos($userEmails[0], '@') !== false) {
+            $domain = substr($userEmails[0], strpos($userEmails[0], '@') + 1);
+        }
+    }
+
+    if ($domain === '') {
+        $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? '')));
+        $host = preg_replace('/:\d+$/', '', $host) ?? '';
+        $host = preg_replace('/^www\./', '', $host) ?? '';
+        if ($host !== '') {
+            $domain = $host;
+        }
+    }
+
+    if ($domain === '') {
+        $domain = 'example.local';
+    }
+
+    return 'noreply@' . $domain;
+}
+
+function efaturaExtractEmailAddresses(string $value): array {
+    $value = trim($value);
+    if ($value === '') {
+        return [];
+    }
+
+    $parts = preg_split('/[;,]+/', $value) ?: [];
+    $emails = [];
+    foreach ($parts as $part) {
+        $candidate = trim((string) $part);
+        if ($candidate === '') {
+            continue;
+        }
+        if (preg_match('/<([^>]+)>/', $candidate, $matches)) {
+            $candidate = trim((string) $matches[1]);
+        }
+        $candidate = trim($candidate, "\"' ");
+        if (!filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        $key = strtolower($candidate);
+        $emails[$key] = $candidate;
+    }
+
+    return array_values($emails);
+}
+
+function efaturaJoinNonEmpty(array $parts, string $separator): string {
+    $filtered = [];
+    foreach ($parts as $part) {
+        $value = trim((string) $part);
+        if ($value !== '') {
+            $filtered[] = $value;
+        }
+    }
+    return implode($separator, $filtered);
+}
+
+function efaturaSendEmail(array $message): void {
+    $smtpHost = trim((string) getSetting('smtp_host', ''));
+    if ($smtpHost !== '') {
+        efaturaSendEmailViaSmtp($message);
+        return;
+    }
+    efaturaSendEmailViaMail($message);
+}
+
+function efaturaSendEmailViaMail(array $message): void {
+    if (!function_exists('mail')) {
+        throw new RuntimeException('Nao existe transporte de email configurado.');
+    }
+
+    $headers = efaturaBuildEmailHeaders($message, false, false);
+    $toHeader = implode(', ', $message['to']);
+    $subject = efaturaEncodeMimeHeader((string) ($message['subject'] ?? ''));
+    $body = chunk_split(base64_encode((string) ($message['body'] ?? '')));
+    $envelopeFrom = trim((string) ($message['from_email'] ?? ''));
+
+    $result = @mail($toHeader, $subject, $body, $headers, $envelopeFrom !== '' ? '-f ' . $envelopeFrom : '');
+    if (!$result) {
+        throw new RuntimeException('Falha ao enviar email pelo transporte local.');
+    }
+}
+
+function efaturaSendEmailViaSmtp(array $message): void {
+    $host = trim((string) getSetting('smtp_host', ''));
+    $port = (int) getSetting('smtp_port', '0');
+    $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
+    $username = trim((string) getSetting('smtp_user', ''));
+    $password = (string) getSetting('smtp_pass', '');
+
+    if ($host === '') {
+        throw new RuntimeException('Servidor SMTP nao configurado.');
+    }
+
+    if ($port <= 0) {
+        $port = $encryption === 'ssl' ? 465 : 587;
+    }
+
+    $remoteHost = $encryption === 'ssl' ? 'ssl://' . $host : $host;
+    $socket = @stream_socket_client($remoteHost . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        throw new RuntimeException('Falha ao ligar ao SMTP: ' . $errstr);
+    }
+
+    stream_set_timeout($socket, 20);
+    efaturaSmtpExpect($socket, [220], 'ligacao inicial');
+    efaturaSmtpCommand($socket, 'EHLO ' . efaturaSmtpClientHost(), [250], 'EHLO');
+
+    if ($encryption === 'tls') {
+        efaturaSmtpCommand($socket, 'STARTTLS', [220], 'STARTTLS');
+        $cryptoEnabled = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+        if ($cryptoEnabled !== true) {
+            fclose($socket);
+            throw new RuntimeException('Nao foi possivel ativar TLS no SMTP.');
+        }
+        efaturaSmtpCommand($socket, 'EHLO ' . efaturaSmtpClientHost(), [250], 'EHLO pos-TLS');
+    }
+
+    if ($username !== '') {
+        efaturaSmtpCommand($socket, 'AUTH LOGIN', [334], 'AUTH LOGIN');
+        efaturaSmtpCommand($socket, base64_encode($username), [334], 'SMTP utilizador');
+        efaturaSmtpCommand($socket, base64_encode($password), [235], 'SMTP password');
+    }
+
+    $fromEmail = trim((string) ($message['from_email'] ?? ''));
+    $smtpEnvelopeCandidates = efaturaExtractEmailAddresses($username);
+    $envelopeFrom = $smtpEnvelopeCandidates[0] ?? $fromEmail;
+    efaturaSmtpCommand($socket, 'MAIL FROM:<' . $envelopeFrom . '>', [250], 'MAIL FROM');
+    foreach ($message['to'] as $recipient) {
+        efaturaSmtpCommand($socket, 'RCPT TO:<' . $recipient . '>', [250, 251], 'RCPT TO');
+    }
+
+    efaturaSmtpCommand($socket, 'DATA', [354], 'DATA');
+    $rawMessage = efaturaBuildRawEmailMessage($message);
+    $rawMessage = preg_replace("/(?m)^\\./", '..', $rawMessage) ?? $rawMessage;
+    fwrite($socket, $rawMessage . "\r\n.\r\n");
+    efaturaSmtpExpect($socket, [250], 'corpo da mensagem');
+    @fwrite($socket, "QUIT\r\n");
+    fclose($socket);
+}
+
+function efaturaBuildRawEmailMessage(array $message): string {
+    $headers = efaturaBuildEmailHeaders($message, true, true);
+    $body = chunk_split(base64_encode((string) ($message['body'] ?? '')));
+    return $headers . "\r\n\r\n" . $body;
+}
+
+function efaturaBuildEmailHeaders(array $message, bool $includeToHeader = false, bool $includeSubjectHeader = true): string {
+    $headers = [];
+    if ($includeToHeader) {
+        $headers[] = 'To: ' . implode(', ', $message['to']);
+    }
+    $fromName = trim((string) ($message['from_name'] ?? ''));
+    $fromEmail = trim((string) ($message['from_email'] ?? ''));
+    $headers[] = 'From: ' . ($fromName !== '' ? efaturaEncodeMimeHeader($fromName) . ' <' . $fromEmail . '>' : $fromEmail);
+    if (trim((string) ($message['reply_to'] ?? '')) !== '') {
+        $headers[] = 'Reply-To: ' . trim((string) $message['reply_to']);
+    }
+    if ($includeSubjectHeader) {
+        $headers[] = 'Subject: ' . efaturaEncodeMimeHeader((string) ($message['subject'] ?? ''));
+    }
+    $headers[] = 'Date: ' . date(DATE_RFC2822);
+    $headers[] = 'Message-ID: <' . uniqid('efatura_', true) . '@' . efaturaSmtpClientHost() . '>';
+    $headers[] = 'MIME-Version: 1.0';
+    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'Content-Transfer-Encoding: base64';
+    $headers[] = 'X-Mailer: AICRM E-fatura';
+    return implode("\r\n", $headers);
+}
+
+function efaturaEncodeMimeHeader(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    return '=?UTF-8?B?' . base64_encode($value) . '?=';
+}
+
+function efaturaSmtpClientHost(): string {
+    $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? 'localhost.localdomain')));
+    $host = preg_replace('/:\d+$/', '', $host) ?? 'localhost.localdomain';
+    return $host !== '' ? $host : 'localhost.localdomain';
+}
+
+function efaturaSmtpCommand($socket, string $command, array $expectedCodes, string $context): string {
+    fwrite($socket, $command . "\r\n");
+    return efaturaSmtpExpect($socket, $expectedCodes, $context);
+}
+
+function efaturaSmtpExpect($socket, array $expectedCodes, string $context): string {
+    $response = efaturaSmtpReadResponse($socket);
+    $code = (int) substr($response, 0, 3);
+    if (!in_array($code, $expectedCodes, true)) {
+        throw new RuntimeException('SMTP falhou em ' . $context . ': ' . trim($response));
+    }
+    return $response;
+}
+
+function efaturaSmtpReadResponse($socket): string {
+    $response = '';
+    while (!feof($socket)) {
+        $line = fgets($socket, 515);
+        if ($line === false) {
+            break;
+        }
+        $response .= $line;
+        if (strlen($line) >= 4 && $line[3] === ' ') {
+            break;
+        }
+    }
+    if ($response === '') {
+        throw new RuntimeException('Resposta vazia do servidor SMTP.');
+    }
+    return $response;
 }
 
 function efaturaFetchJobs(PDO $pdo, int $entityId = 0, int $limit = 20): array {

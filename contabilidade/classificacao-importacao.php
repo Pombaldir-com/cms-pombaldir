@@ -201,6 +201,60 @@ $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 $currentErpToken = trim((string) getSetting('erp_token', ''));
 $canClassifyCtb = $importType !== 1 || userHasDepartmentPermission('ctb_classificar_docs');
 $canImportCtb = $importType !== 1 || userHasDepartmentPermission('ctb_importar_docs');
+$classificationAcquirerOptions = [];
+
+if (hasTable('accounting_entities')) {
+    try {
+        $stmt = $pdo->query("SELECT nif, name, erp_database, entity_type, erp_client_code FROM accounting_entities WHERE entity_type = 'acquirer' ORDER BY name ASC, nif ASC");
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $entityRow) {
+            $nif = extractVatNumber((string) ($entityRow['nif'] ?? ''));
+            if ($nif === '') {
+                continue;
+            }
+
+            $name = trim((string) ($entityRow['name'] ?? ''));
+            $databaseRef = resolveAccountingEntityDatabase($entityRow);
+            $companyCode = '';
+            $companySort = PHP_INT_MAX;
+            if (preg_match('/^emp[_-]?(\d+)$/i', $databaseRef, $matches)) {
+                $companyCode = ltrim($matches[1], '0');
+                if ($companyCode === '') {
+                    $companyCode = '0';
+                }
+                $companySort = (int) $matches[1];
+            }
+
+            if ($companyCode !== '') {
+                $label = $companyCode . ' - ' . ($name !== '' ? $name : $nif);
+            } else {
+                $label = $name !== '' && $name !== $nif ? ($name . ' - ' . $nif) : $nif;
+            }
+
+            $classificationAcquirerOptions[] = [
+                'value' => $nif,
+                'nif' => $nif,
+                'name' => $name,
+                'label' => $label,
+                'company_code' => $companyCode,
+                'company_sort' => $companySort,
+            ];
+        }
+
+        usort($classificationAcquirerOptions, static function (array $left, array $right): int {
+            $leftSort = (int) ($left['company_sort'] ?? PHP_INT_MAX);
+            $rightSort = (int) ($right['company_sort'] ?? PHP_INT_MAX);
+            if ($leftSort !== $rightSort) {
+                return $leftSort <=> $rightSort;
+            }
+
+            $leftLabel = (string) ($left['label'] ?? '');
+            $rightLabel = (string) ($right['label'] ?? '');
+            return strnatcasecmp($leftLabel, $rightLabel);
+        });
+    } catch (Throwable $throwable) {
+        logErpMessage('Erro ao carregar lista de adquirentes para classificação: ' . $throwable->getMessage());
+    }
+}
 
 if ($isImportOnlyView && !$canImportCtb) {
     http_response_code(403);
@@ -971,6 +1025,12 @@ function prepareImportRow(array $row): array {
                 $entity = findAccountingEntity($pdo, $normalizedEmitterNif);
                 if (is_array($entity)) {
                     $candidate = trim((string)($entity['name'] ?? ''));
+                    if ($candidate !== '' && (!function_exists('isPlaceholderAccountingEntityName') || !isPlaceholderAccountingEntityName($candidate, $normalizedEmitterNif))) {
+                        $cachedName = $candidate;
+                    }
+                }
+                if (($cachedName === null || $cachedName === '') && function_exists('findAccountingEntityNameFromEfatura')) {
+                    $candidate = trim((string) findAccountingEntityNameFromEfatura($pdo, $normalizedEmitterNif));
                     if ($candidate !== '') {
                         $cachedName = $candidate;
                     }
@@ -1026,6 +1086,14 @@ function prepareImportRow(array $row): array {
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
     $row['manual_review_required'] = (($rowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
     $row['has_receipt_companion'] = (($rowMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
+    $hasDocumentIdentity = false;
+    foreach (['field_A', 'field_B', 'field_D', 'field_F', 'field_G', 'field_H', 'field_R'] as $identityField) {
+        if (trim((string) ($row[$identityField] ?? '')) !== '') {
+            $hasDocumentIdentity = true;
+            break;
+        }
+    }
+    $row['show_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$hasDocumentIdentity) ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';
@@ -1271,9 +1339,8 @@ function normalizeSuggestionLigacaoDocType(string $docType): string {
     if (in_array($value, ['FATURA', 'FACTURA', 'INVOICE'], true)) {
         return 'FT';
     }
-    // For account suggestions, FR/FTR should reuse the FT mapping in LigacaoCteTipoDoc.
     if (in_array($value, ['FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO', 'FR', 'FTR'], true)) {
-        return 'FT';
+        return 'FR';
     }
     if (in_array($value, ['NOTA CREDITO', 'NOTA DE CREDITO', 'NC'], true)) {
         return 'NC';
@@ -3100,6 +3167,7 @@ if ($action === 'data') {
                     . 'data-cost-center-breakdowns="' . $costCenterBreakdownsAttr . '" '
                     . 'data-total-account="' . htmlspecialchars($row['total_account'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-manual-review="' . htmlspecialchars((string) ($row['manual_review_required'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-show-document-fields="' . htmlspecialchars((string) ($row['show_document_fields'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-auto-import="' . (isAutoImportReadyRow($row) ? '1' : '0') . '" '
                     . 'data-emitter="' . $emitterRawEscaped . '" '
                     . 'data-emitter-display="' . $emitterDisplayEscaped . '" '
@@ -3340,6 +3408,7 @@ require_once __DIR__ . '/../header.php';
                                 data-cost-centers="<?= $costCentersAttr; ?>"
                                 data-cost-center-breakdowns="<?= $costCenterBreakdownsAttr; ?>"
                                 data-manual-review="<?= htmlspecialchars((string) ($row['manual_review_required'] ?? '0')); ?>"
+                                data-show-document-fields="<?= htmlspecialchars((string) ($row['show_document_fields'] ?? '0')); ?>"
                                 data-auto-import="<?= isAutoImportReadyRow($row) ? '1' : '0'; ?>"
                                 data-emitter="<?= htmlspecialchars($emitterRawValue); ?>"
                                 data-emitter-display="<?= htmlspecialchars($emitterDisplay); ?>"
@@ -3468,6 +3537,10 @@ require __DIR__ . '/partials/classify-modal.php';
     ); ?>;
     window.classificacaoImportDebugMode = <?= json_encode(
         $showImportCtbParamInfo,
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+    ); ?>;
+    window.classificationAcquirerOptions = <?= json_encode(
+        $classificationAcquirerOptions,
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
 </script>

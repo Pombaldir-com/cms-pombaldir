@@ -43,6 +43,7 @@ window.addEventListener('load', function() {
     var manualDecodeBtn = document.getElementById('manualQrDecodeBtn');
     var manualClearBtn = document.getElementById('manualQrClearBtn');
     var manualDiscardBtn = document.getElementById('manualQrDiscardBtn');
+    var manualImportAsIsBtn = document.getElementById('manualQrImportAsIsBtn');
     var manualPrevPageBtn = document.getElementById('manualQrPrevPageBtn');
     var manualNextPageBtn = document.getElementById('manualQrNextPageBtn');
     var manualZoom100Btn = document.getElementById('manualQrZoom100Btn');
@@ -59,6 +60,7 @@ window.addEventListener('load', function() {
     var manualEfaturaInfo = document.getElementById('manualQrEfaturaInfo');
     var manualEfaturaError = document.getElementById('manualQrEfaturaError');
     var manualSelectedEfaturaDocument = null;
+    var manualImportAsIsPending = false;
     var qrKeys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
 
     var manualQueue = [];
@@ -327,6 +329,16 @@ window.addEventListener('load', function() {
     function updateCsrfToken(res) {
         if (res && res.csrf_token && csrfInput) {
             csrfInput.value = res.csrf_token;
+        }
+    }
+
+    function setManualImportAsIsBusy(busy) {
+        manualImportAsIsPending = !!busy;
+        if (manualImportAsIsBtn) {
+            manualImportAsIsBtn.disabled = manualImportAsIsPending;
+        }
+        if (manualDiscardBtn) {
+            manualDiscardBtn.disabled = manualImportAsIsPending;
         }
     }
 
@@ -1126,6 +1138,7 @@ window.addEventListener('load', function() {
     }
 
     function finishManualQueueItem() {
+        setManualImportAsIsBusy(false);
         manualActive = null;
         manualPage = 1;
         manualPageCount = 1;
@@ -1149,7 +1162,7 @@ window.addEventListener('load', function() {
     }
 
     function discardManualActiveFile() {
-        if (!manualActive) {
+        if (!manualActive || manualImportAsIsPending) {
             return;
         }
         var filePath = manualActive.file;
@@ -1171,6 +1184,65 @@ window.addEventListener('load', function() {
         });
     }
 
+    function submitImportRows(rows, type) {
+        return fetch('contabilidade/upload.php?action=import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rows: rows, import_type: type, csrf_token: csrfInput.value })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            updateCsrfToken(res);
+            if (!res || !res.success) {
+                throw new Error((res && res.error) ? res.error : 'Falha na importação');
+            }
+            return res;
+        });
+    }
+
+    function importManualActiveFileAsIs() {
+        if (!manualActive || manualImportAsIsPending) {
+            return;
+        }
+
+        var filePath = manualActive.file;
+        if (!filePath) {
+            setManualError('Ficheiro inválido para importar.');
+            return;
+        }
+
+        setManualError('');
+        setManualImportAsIsBusy(true);
+
+        submitImportRows([{ filename: filePath }], 1)
+            .then(function() {
+                if (manualActive && manualActive.dropzoneFile) {
+                    removeDropzoneFileByServerPath(filePath);
+                    if (debugEnabled) {
+                        var manualImportItem = ensureDebugFile(manualActive.dropzoneFile);
+                        manualImportItem.finishedAt = performance.now();
+                        manualImportItem.ms = Math.max(0, Math.round(manualImportItem.finishedAt - manualImportItem.startedAt));
+                        manualImportItem.frontendMs = Math.max(0, manualImportItem.ms - (manualImportItem.backendMs || 0));
+                        manualImportItem.state = 'manual_import_as_is';
+                        debugStats.manualSuccess += 1;
+                    }
+                } else {
+                    removeDropzoneFileByServerPath(filePath);
+                }
+                refreshUploadActionState();
+                notifySuccess('Documento enviado para Classificação.');
+                if (manualModal) {
+                    manualModal.hide();
+                } else {
+                    finishManualQueueItem();
+                }
+            })
+            .catch(function(err) {
+                setManualError((err && err.message) ? err.message : 'Falha ao enviar o documento para Classificação.');
+                setManualImportAsIsBusy(false);
+            });
+    }
+
     if (manualCanvasWrap) {
         manualCanvasWrap.addEventListener('mousedown', startSelection);
         manualCanvasWrap.addEventListener('touchstart', startSelection, { passive: false });
@@ -1190,6 +1262,12 @@ window.addEventListener('load', function() {
     if (manualDiscardBtn) {
         manualDiscardBtn.addEventListener('click', function() {
             discardManualActiveFile();
+        });
+    }
+
+    if (manualImportAsIsBtn) {
+        manualImportAsIsBtn.addEventListener('click', function() {
+            importManualActiveFileAsIs();
         });
     }
 
@@ -1229,7 +1307,7 @@ window.addEventListener('load', function() {
 
     if (manualDecodeBtn) {
         manualDecodeBtn.addEventListener('click', function() {
-            if (!manualActive) {
+            if (!manualActive || manualImportAsIsPending) {
                 return;
             }
             if (!manualSelection || manualSelection.w <= 0 || manualSelection.h <= 0) {
@@ -1326,7 +1404,7 @@ window.addEventListener('load', function() {
 
     if (manualEfaturaApplyBtn) {
         manualEfaturaApplyBtn.addEventListener('click', function() {
-            if (!manualActive) {
+            if (!manualActive || manualImportAsIsPending) {
                 return;
             }
             if (!manualSelectedEfaturaDocument || !manualSelectedEfaturaDocument.mapped_row) {
@@ -1539,23 +1617,13 @@ window.addEventListener('load', function() {
             obj.has_receipt_companion = getRowHasReceiptCompanion(node) ? '1' : '0';
             return obj;
         });
-        fetch('contabilidade/upload.php?action=import', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rows: payload, import_type: type, csrf_token: csrfInput.value })
+        submitImportRows(payload, type)
+        .then(function() {
+            notifySuccess('Importação concluída');
+            markCurrentRowsAsImported();
         })
-        .then(function(res) { return res.json(); })
-        .then(function(res) {
-            updateCsrfToken(res);
-            if (res.success) {
-                notifySuccess('Importação concluída');
-                markCurrentRowsAsImported();
-            } else {
-                showAlert(res.error || 'Falha na importação');
-            }
-        })
-        .catch(function() {
-            showAlert('Falha na importação');
+        .catch(function(err) {
+            showAlert((err && err.message) ? err.message : 'Falha na importação');
         });
     }
 

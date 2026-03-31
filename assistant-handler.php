@@ -3180,10 +3180,8 @@ function normalizeErpLigacaoDocType(string $docType): string {
     if (in_array($value, ['FATURA', 'FACTURA', 'INVOICE'], true)) {
         return 'FT';
     }
-    // In LigacaoCteTipoDoc the ERP may return a different parametrization for FR,
-    // but for accounting suggestions FR/FTR should reuse the FT mapping.
     if (in_array($value, ['FATURA-RECIBO', 'FATURA RECIBO', 'FACTURA-RECIBO', 'FR', 'FTR'], true)) {
-        return 'FT';
+        return 'FR';
     }
     if (in_array($value, ['NOTA CREDITO', 'NOTA DE CREDITO', 'NC'], true)) {
         return 'NC';

@@ -1225,6 +1225,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $a = $normalizedEmitterNif !== '' ? $normalizedEmitterNif : $rawEmitterValue;
             $b = $row['B'] ?? '';
             $d = $row['D'] ?? '';
+            $fieldF = trim((string) ($row['F'] ?? ''));
+            $fieldG = trim((string) ($row['G'] ?? ''));
+            $fieldH = trim((string) ($row['H'] ?? ''));
+            $fieldR = trim((string) ($row['R'] ?? ''));
+            $hasDocumentIdentity = ($a !== '' || trim((string) $b) !== '' || trim((string) $d) !== '' || $fieldF !== '' || $fieldG !== '' || $fieldH !== '' || $fieldR !== '');
             if ($rawEmitterValue !== '') {
                 $nif = $normalizedEmitterNif;
                 if ($nif !== '' && !array_key_exists($nif, $entityCache)) {
@@ -1238,9 +1243,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($existingAccount !== '' || $hasReceiptCompanion === '1') {
                 $row['account'] = serializeAccountingAccounts(
                     normalizeAccountingAccounts($existingAccount),
-                    ['has_receipt_companion' => $hasReceiptCompanion],
+                    [
+                        'has_receipt_companion' => $hasReceiptCompanion,
+                        'manual_document_fields' => $hasDocumentIdentity ? '0' : '1',
+                    ],
                     normalizeAccountingMetadata($existingAccount)
                 );
+            } elseif (!$hasDocumentIdentity) {
+                $row['account'] = serializeAccountingAccounts([], ['manual_document_fields' => '1']);
             } else {
                 $row['account'] = '';
             }
@@ -1273,23 +1283,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             . 'AND field_G = ? '
             . 'LIMIT 1'
         );
+        $existsBlankByFilename = $pdo->prepare(
+            'SELECT 1 FROM accounting_imports '
+            . 'WHERE import_type = ? '
+            . 'AND filename = ? '
+            . 'AND TRIM(COALESCE(field_A, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_B, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_D, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_F, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_G, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_H, \'\')) = \'\' '
+            . 'AND TRIM(COALESCE(field_R, \'\')) = \'\' '
+            . 'LIMIT 1'
+        );
         foreach ($rows as $row) {
             $fieldA = trim((string) ($row['A'] ?? ''));
             $fieldB = trim((string) ($row['B'] ?? ''));
             $fieldD = trim((string) ($row['D'] ?? ''));
             $fieldF = trim((string) ($row['F'] ?? ''));
             $fieldG = trim((string) ($row['G'] ?? ''));
-            $fieldH = $row['H'] ?? '';
+            $fieldH = trim((string) ($row['H'] ?? ''));
             $fieldR = trim((string) ($row['R'] ?? ''));
             $filename = trim((string) ($row['filename'] ?? ''));
+            $hasDocumentIdentity = ($fieldA !== '' || $fieldB !== '' || $fieldD !== '' || $fieldF !== '' || $fieldG !== '' || $fieldH !== '' || $fieldR !== '');
 
             if ($filename !== '' && in_array($filename, $filesWithReceiptCompanion, true) && uploadImportDocTypeIsReceipt($fieldD)) {
                 continue;
             }
 
-            $existsByComposite->execute([$importType, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG, $fieldR]);
-            if ($existsByComposite->fetchColumn()) {
-                continue;
+            if (!$hasDocumentIdentity && $filename !== '') {
+                $existsBlankByFilename->execute([$importType, $filename]);
+                if ($existsBlankByFilename->fetchColumn()) {
+                    continue;
+                }
+            }
+
+            if ($hasDocumentIdentity) {
+                $existsByComposite->execute([$importType, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG, $fieldR]);
+                if ($existsByComposite->fetchColumn()) {
+                    continue;
+                }
             }
 
             if ($fieldH !== '') {
@@ -1588,6 +1621,7 @@ if ($qrParallelUploads > 6) {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger" id="manualQrDiscardBtn"><i class="fa fa-trash"></i> Ignorar ficheiro</button>
+                <button type="button" class="btn btn-warning" id="manualQrImportAsIsBtn"><i class="fa fa-share"></i> Importar assim</button>
                 <button type="button" class="btn btn-default" id="manualQrClearBtn"><i class="fa fa-eraser"></i> Limpar seleção</button>
                 <button type="button" class="btn btn-primary" id="manualQrDecodeBtn"><i class="fa fa-qrcode"></i> Ler QR selecionado</button>
             </div>

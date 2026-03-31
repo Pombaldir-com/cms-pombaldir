@@ -104,7 +104,7 @@ Parâmetros recomendados para esta chamada (dinâmicos por documento):
 Normalizacao documental usada nesta consulta:
 
 - `FT` -> `FT`
-- `FR` / `FTR` -> `FT`
+- `FR` / `FTR` -> `FR`
 - `RC` / `RG` -> `RC`
 
 Exemplo:

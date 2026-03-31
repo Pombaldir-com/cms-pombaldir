@@ -85,6 +85,184 @@ function normalizeErpCodeValue($value): string {
     return substr($string, 0, 255);
 }
 
+function getEditableAccountingImportFieldColumns(): array {
+    return [
+        'field_A',
+        'field_B',
+        'field_C',
+        'field_D',
+        'field_E',
+        'field_F',
+        'field_G',
+        'field_H',
+        'field_I1',
+        'field_I3',
+        'field_I4',
+        'field_I5',
+        'field_I6',
+        'field_I7',
+        'field_I8',
+        'field_N',
+        'field_O',
+        'field_Q',
+        'field_R',
+    ];
+}
+
+function normalizeEditableAccountingImportFieldKey($key): string {
+    $string = trim((string) ($key ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    $upper = strtoupper($string);
+    if (strpos($upper, 'FIELD_') === 0) {
+        $suffix = substr($upper, 6);
+        return $suffix !== '' ? 'field_' . $suffix : '';
+    }
+
+    return 'field_' . $upper;
+}
+
+function normalizeEditableAccountingImportFieldValue(string $field, $value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    $maxLength = 255;
+    if ($field === 'field_D') {
+        $maxLength = 50;
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, $maxLength, 'UTF-8');
+    }
+
+    return substr($string, 0, $maxLength);
+}
+
+function extractEditableAccountingImportFields(array $row): array {
+    $result = [];
+    foreach (getEditableAccountingImportFieldColumns() as $field) {
+        $result[$field] = isset($row[$field]) ? (string) $row[$field] : '';
+    }
+    return $result;
+}
+
+function normalizeSubmittedEditableAccountingImportFields($value): array {
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $allowedFields = array_flip(getEditableAccountingImportFieldColumns());
+    $result = [];
+
+    foreach ($value as $fieldKey => $fieldValue) {
+        $normalizedKey = normalizeEditableAccountingImportFieldKey($fieldKey);
+        if ($normalizedKey === '' || !isset($allowedFields[$normalizedKey])) {
+            continue;
+        }
+        $result[$normalizedKey] = normalizeEditableAccountingImportFieldValue($normalizedKey, $fieldValue);
+    }
+
+    return $result;
+}
+
+function buildDerivedEditableAccountingImportAmountFields(array $rates): array {
+    $result = [
+        'field_I3' => '',
+        'field_I4' => '',
+        'field_I5' => '',
+        'field_I6' => '',
+        'field_I7' => '',
+        'field_I8' => '',
+        'field_N' => '',
+        'field_O' => '',
+    ];
+
+    $rateFieldMap = [
+        '6' => ['base' => 'field_I3', 'iva' => 'field_I4'],
+        '13' => ['base' => 'field_I5', 'iva' => 'field_I6'],
+        '23' => ['base' => 'field_I7', 'iva' => 'field_I8'],
+    ];
+
+    $normalizedRates = sanitizeAccountInput($rates);
+    $aggregated = [];
+    $seenFields = [];
+    $totalIva = 0.0;
+    $totalDocument = 0.0;
+    $hasAnyAmount = false;
+
+    foreach ($normalizedRates as $rate => $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $baseString = extractDecimalAmount($entry['base'] ?? ($entry['base_value'] ?? ''));
+        $ivaString = extractDecimalAmount($entry['iva'] ?? ($entry['iva_value'] ?? ''));
+        $hasBase = ($baseString !== null && $baseString !== '');
+        $hasIva = ($ivaString !== null && $ivaString !== '');
+        if (!$hasBase && !$hasIva) {
+            continue;
+        }
+
+        $baseValue = $hasBase ? (float) $baseString : 0.0;
+        $ivaValue = $hasIva ? (float) $ivaString : 0.0;
+        $hasAnyAmount = true;
+        $totalIva += $ivaValue;
+        $totalDocument += $baseValue + $ivaValue;
+
+        $normalizedRate = normalizeAccountingRateKey((string) $rate);
+        if (!isset($rateFieldMap[$normalizedRate])) {
+            continue;
+        }
+
+        $baseField = $rateFieldMap[$normalizedRate]['base'];
+        $ivaField = $rateFieldMap[$normalizedRate]['iva'];
+        $aggregated[$baseField] = ($aggregated[$baseField] ?? 0.0) + $baseValue;
+        $aggregated[$ivaField] = ($aggregated[$ivaField] ?? 0.0) + $ivaValue;
+        $seenFields[$baseField] = true;
+        $seenFields[$ivaField] = true;
+    }
+
+    foreach ($aggregated as $fieldName => $value) {
+        if (!isset($result[$fieldName])) {
+            continue;
+        }
+        $result[$fieldName] = number_format((float) $value, 2, '.', '');
+    }
+
+    foreach ($seenFields as $fieldName => $_) {
+        if (!isset($result[$fieldName]) || $result[$fieldName] !== '') {
+            continue;
+        }
+        $result[$fieldName] = '0.00';
+    }
+
+    if ($hasAnyAmount) {
+        $result['field_N'] = number_format($totalIva, 2, '.', '');
+        $result['field_O'] = number_format($totalDocument, 2, '.', '');
+    }
+
+    return $result;
+}
+
+function applyDefaultEditableAccountingImportFields(array &$row): void {
+    if (trim((string) ($row['field_C'] ?? '')) === '') {
+        $row['field_C'] = 'PT';
+    }
+    if (trim((string) ($row['field_I1'] ?? '')) === '') {
+        $row['field_I1'] = 'PT';
+    }
+    if (trim((string) ($row['field_E'] ?? '')) === '') {
+        $row['field_E'] = 'N';
+    }
+    if (trim((string) ($row['field_F'] ?? '')) === '') {
+        $row['field_F'] = date('Y-m-d');
+    }
+}
+
 function requireCtbClassificationPermission(PDO $pdo, ?int $importId = null): void {
     if (userHasDepartmentPermission('ctb_classificar_docs')) {
         return;
@@ -313,6 +491,32 @@ function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docTy
     }
 
     return '';
+}
+
+function classificationHasAnyMappedAccount(array $rates): bool {
+    $normalizedRates = sanitizeAccountInput($rates);
+
+    foreach ($normalizedRates as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+
+        $generalAccount = trim((string) ($entry['general_account'] ?? ''));
+        $ivaAccount = trim((string) ($entry['iva_account'] ?? ''));
+        if ($generalAccount !== '' || $ivaAccount !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function shouldPersistSharedClassification(array $requirements, array $payload, array $metadata = [], array $costCenters = []): bool {
+    if (!classificationHasAnyMappedAccount($payload)) {
+        return false;
+    }
+
+    return determineClassificationButtonClass($requirements, $payload, $metadata, $costCenters) === 'btn-success';
 }
 
 function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
@@ -929,11 +1133,25 @@ if ($action === 'get') {
         $stmtRow = $pdo->prepare('SELECT * FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
+        if (!empty($importRow)) {
+            applyDefaultEditableAccountingImportFields($importRow);
+            $a = (string) ($importRow['field_A'] ?? $a);
+            $b = (string) ($importRow['field_B'] ?? $b);
+            $d = (string) ($importRow['field_D'] ?? $d);
+        }
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
         $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         if (($rowMetadata['ignore_detected_rates'] ?? '0') === '1') {
             $rowAccounts = filterVisibleAccountingRates($rowAccounts);
         }
+        $rowHasDocumentIdentity = false;
+        foreach (['field_A', 'field_B', 'field_D', 'field_F', 'field_G', 'field_H', 'field_R'] as $identityField) {
+            if (trim((string) ($importRow[$identityField] ?? '')) !== '') {
+                $rowHasDocumentIdentity = true;
+                break;
+            }
+        }
+        $rowMetadata['manual_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHasDocumentIdentity) ? '1' : '0';
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $rowCostCenterBreakdowns = normalizeCostCenterBreakdowns($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
@@ -1003,6 +1221,8 @@ if ($action === 'get') {
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
         'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
         'original_rates' => $originalSnapshot,
+        'document_fields' => extractEditableAccountingImportFields($importRow),
+        'show_document_fields' => $rowMetadata['manual_document_fields'] ?? '0',
         'csrf_token' => generateCsrfToken()
     ]);
     exit;
@@ -1127,6 +1347,9 @@ if ($action === 'get') {
         $selectedModelName = sanitizeClassificationModelName($_POST['classification_model_name'] ?? '');
         $saveModelName = sanitizeClassificationModelName($_POST['save_model_name'] ?? '');
         $ignoreDetectedRates = trim((string) ($_POST['ignore_detected_rates'] ?? '0'));
+        $documentFieldsJson = $_POST['document_fields'] ?? '{}';
+        $decodedDocumentFields = json_decode($documentFieldsJson, true);
+        $submittedDocumentFields = normalizeSubmittedEditableAccountingImportFields($decodedDocumentFields);
         $submittedMetadata = sanitizeAccountingMetadata([
             'total_account' => $_POST['total_account'] ?? '',
             'ignore_detected_rates' => ($ignoreDetectedRates === '1' || $selectedModelName !== '' || $saveModelName !== '') ? '1' : '0',
@@ -1139,6 +1362,21 @@ if ($action === 'get') {
         if (!$importRow) {
             throw new RuntimeException('Importação inexistente');
         }
+        $rowHadDocumentIdentity = false;
+        foreach (['field_A', 'field_B', 'field_D', 'field_F', 'field_G', 'field_H', 'field_R'] as $identityField) {
+            if (trim((string) ($importRow[$identityField] ?? '')) !== '') {
+                $rowHadDocumentIdentity = true;
+                break;
+            }
+        }
+        foreach ($submittedDocumentFields as $fieldName => $fieldValue) {
+            $importRow[$fieldName] = $fieldValue;
+        }
+        applyDefaultEditableAccountingImportFields($importRow);
+        $a = (string) ($importRow['field_A'] ?? $a);
+        $b = (string) ($importRow['field_B'] ?? $b);
+        $d = (string) ($importRow['field_D'] ?? $d);
+        ensureAccountingEntity($pdo, (string) $a);
         [$classificationEmitter, $classificationAcquirer, $classificationDocType] = resolveClassificationStorageIdentifiers($a, $b, $d, $importRow);
         $existingClassRaw = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
         $existingClass = normalizeAccountingAccounts($existingClassRaw);
@@ -1156,7 +1394,9 @@ if ($action === 'get') {
         $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $existingRowMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
         $existingRowMetadata['has_receipt_companion'] = (($existingRowMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
+        $existingRowMetadata['manual_document_fields'] = (($existingRowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHadDocumentIdentity) ? '1' : '0';
         $submittedMetadata['has_receipt_companion'] = $existingRowMetadata['has_receipt_companion'];
+        $submittedMetadata['manual_document_fields'] = $existingRowMetadata['manual_document_fields'];
 
         $existingOriginalRaw = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {
@@ -1197,6 +1437,10 @@ if ($action === 'get') {
             }
         }
 
+        foreach (buildDerivedEditableAccountingImportAmountFields($rowAccounts) as $fieldName => $fieldValue) {
+            $importRow[$fieldName] = $fieldValue;
+        }
+        $summaries = computeImportRateSummaries($importRow);
         [, $rowRequirements] = buildClassificationRequirements($summaries, $rowAccounts, $submittedMetadata);
         $missingCostCenterRates = [];
         foreach ($rowRequirements as $rate => $requirement) {
@@ -1272,6 +1516,12 @@ if ($action === 'get') {
         }
         $classMetadata['has_receipt_companion'] = '0';
         $serializedClass = serializeAccountingAccounts($classAccounts, $classMetadata, $existingClassMetadata);
+        $shouldUpdateSharedClassification = shouldPersistSharedClassification(
+            $rowRequirements,
+            $rowAccounts,
+            $submittedMetadata,
+            $costCentersData
+        );
         $serializedCostCenters = serializeCostCenters($costCentersData, $costCenterBreakdownsData);
         $serializedOriginal = serializeAccountingAccounts($existingOriginal);
         $responseRowRates = (($submittedMetadata['ignore_detected_rates'] ?? '0') === '1')
@@ -1294,15 +1544,32 @@ if ($action === 'get') {
             ]);
         }
 
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ?, cost_center = ?, account_original = ? WHERE id = ?');
-        $stmt->execute([$serializedRow, $serializedCostCenters, $serializedOriginal, $id]);
+        $editableFieldColumns = getEditableAccountingImportFieldColumns();
+        $updateAssignments = [];
+        $updateValues = [];
+        foreach ($editableFieldColumns as $fieldName) {
+            $updateAssignments[] = $fieldName . ' = ?';
+            $updateValues[] = (string) ($importRow[$fieldName] ?? '');
+        }
+        $updateAssignments[] = 'account = ?';
+        $updateAssignments[] = 'cost_center = ?';
+        $updateAssignments[] = 'account_original = ?';
+        $updateValues[] = $serializedRow;
+        $updateValues[] = $serializedCostCenters;
+        $updateValues[] = $serializedOriginal;
+        $updateValues[] = $id;
 
-        $stmt2 = $pdo->prepare(
-            'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
-            . 'VALUES (?, ?, ?, ?) '
-            . 'ON DUPLICATE KEY UPDATE account = VALUES(account)'
-        );
-        $stmt2->execute([$classificationEmitter, $classificationAcquirer, $classificationDocType, $serializedClass]);
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET ' . implode(', ', $updateAssignments) . ' WHERE id = ?');
+        $stmt->execute($updateValues);
+
+        if ($shouldUpdateSharedClassification) {
+            $stmt2 = $pdo->prepare(
+                'INSERT INTO accounting_classifications (emitter, acquirer, doc_type, account) '
+                . 'VALUES (?, ?, ?, ?) '
+                . 'ON DUPLICATE KEY UPDATE account = VALUES(account)'
+            );
+            $stmt2->execute([$classificationEmitter, $classificationAcquirer, $classificationDocType, $serializedClass]);
+        }
         $pdo->commit();
         echo json_encode([
             'success' => true,
@@ -1320,6 +1587,8 @@ if ($action === 'get') {
             'ignore_detected_rates' => $submittedMetadata['ignore_detected_rates'] ?? '0',
             'classification_model_name' => $submittedMetadata['classification_model_name'] ?? '',
             'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
+            'document_fields' => extractEditableAccountingImportFields($importRow),
+            'show_document_fields' => $submittedMetadata['manual_document_fields'] ?? '0',
             'saved_model_name' => $savedModel['name'] ?? ''
         ]);
     } catch (Exception $e) {

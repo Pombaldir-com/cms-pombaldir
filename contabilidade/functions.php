@@ -1898,6 +1898,30 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
 
     $remote = fetchAccountingEntityFromErp($nif, $defaultEntityType, false, $defaultErpDatabase ?? '');
     if ($remote === null) {
+        $efaturaName = findAccountingEntityNameFromEfatura($pdo, $nif);
+        if ($efaturaName !== '') {
+            $fallbackData = [
+                'nif' => $nif,
+                'name' => $efaturaName,
+                'erp_database' => trim((string) ($existing['erp_database'] ?? ($defaultErpDatabase ?? ''))),
+                'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
+                'entity_type' => trim((string) ($existing['entity_type'] ?? '')) !== ''
+                    ? trim((string) $existing['entity_type'])
+                    : $defaultEntityType,
+            ];
+
+            try {
+                saveAccountingEntity($pdo, $fallbackData);
+                $stored = findAccountingEntity($pdo, $nif);
+                if ($stored !== null) {
+                    $cache[$nif] = $stored;
+                    return $stored;
+                }
+            } catch (Throwable $e) {
+                logErpMessage('Erro ao guardar nome e-Fatura da entidade ' . $nif . ': ' . $e->getMessage());
+            }
+        }
+
         if ($existing !== null) {
             $cache[$nif] = $existing;
             return $existing;
@@ -2231,6 +2255,7 @@ function defaultAccountingMetadata(): array {
         'ignore_detected_rates' => '0',
         'classification_model_name' => '',
         'has_receipt_companion' => '0',
+        'manual_document_fields' => '0',
     ];
 }
 
@@ -2287,6 +2312,9 @@ function normalizeAccountingMetadata(?string $json): array {
         if (array_key_exists('has_receipt_companion', $candidate)) {
             $result['has_receipt_companion'] = normalizeAccountingMetadataFlag($candidate['has_receipt_companion']);
         }
+        if (array_key_exists('manual_document_fields', $candidate)) {
+            $result['manual_document_fields'] = normalizeAccountingMetadataFlag($candidate['manual_document_fields']);
+        }
     }
 
     return $result;
@@ -2342,6 +2370,10 @@ function sanitizeAccountingMetadata($input): array {
 
     if (is_array($source) && array_key_exists('has_receipt_companion', $source)) {
         $result['has_receipt_companion'] = normalizeAccountingMetadataFlag($source['has_receipt_companion']);
+    }
+
+    if (is_array($source) && array_key_exists('manual_document_fields', $source)) {
+        $result['manual_document_fields'] = normalizeAccountingMetadataFlag($source['manual_document_fields']);
     }
 
     return $result;

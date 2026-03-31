@@ -50,6 +50,30 @@ window.addEventListener('load', function() {
         return false;
     }
 
+    function isDomElement(value) {
+        return !!(value && typeof value === 'object' && value.nodeType === 1);
+    }
+
+    function installResizeObserverElementGuard() {
+        if (typeof window.ResizeObserver !== 'function') {
+            return;
+        }
+        if (window.ResizeObserver.__classificationObserveGuardInstalled) {
+            return;
+        }
+        var observe = window.ResizeObserver.prototype && window.ResizeObserver.prototype.observe;
+        if (typeof observe !== 'function') {
+            return;
+        }
+        window.ResizeObserver.prototype.observe = function(target) {
+            if (!isDomElement(target)) {
+                return;
+            }
+            return observe.apply(this, arguments);
+        };
+        window.ResizeObserver.__classificationObserveGuardInstalled = true;
+    }
+
     function showNotice(type, message) {
         var normalizedType = normalizeNoticeType(type);
         var text = typeof message === 'string' && message.trim() !== '' ? message.trim() : '';
@@ -114,6 +138,8 @@ window.addEventListener('load', function() {
         }
         return 'success';
     }
+
+    installResizeObserverElementGuard();
 
     function fetchJson(url, options) {
         var fetchOptions = options ? Object.assign({}, options) : {};
@@ -384,6 +410,35 @@ window.addEventListener('load', function() {
     function buildImportCtbUrl() {
         return importCtbRelativeUrl;
     }
+
+    function extractCompanyCodeFromDatabase(database) {
+        var normalized = String(database || '').trim();
+        if (!normalized) {
+            return '';
+        }
+        var match = normalized.match(/^emp[_-]?(\d+)$/i);
+        if (match && match[1]) {
+            return String(match[1]).trim();
+        }
+        return normalized;
+    }
+
+    function updateClassifyModalCompanyBadge(companyCode) {
+        if (!modalCompanyBadgeEl) {
+            return;
+        }
+
+        var normalized = String(companyCode || '').trim();
+        if (normalized) {
+            modalCompanyBadgeEl.textContent = 'EMP: ' + normalized;
+            modalCompanyBadgeEl.classList.remove('d-none');
+            return;
+        }
+
+        modalCompanyBadgeEl.textContent = '';
+        modalCompanyBadgeEl.classList.add('d-none');
+    }
+
     var showLineCostCenter = importType === 1;
     var importCtbButton = $('#importCtbButton');
     var importCtbWrapper = $('#importCtbButtonWrapper');
@@ -2003,6 +2058,7 @@ window.addEventListener('load', function() {
     var costCenterDistributionHeaderEl = costCenterDistributionModalEl ? costCenterDistributionModalEl.querySelector('.modal-header') : null;
     var costCenterDistributionResizeObserver = null;
     var modalTitleEl = document.getElementById('classifyModalLabel');
+    var modalCompanyBadgeEl = document.getElementById('classifyModalCompanyBadge');
     var classifyDocumentPreviewFrame = document.getElementById('classifyDocumentPreviewFrame');
     var classifyDocumentPreviewEmpty = document.getElementById('classifyDocumentPreviewEmpty');
     var classifyDocumentOpenBtn = document.getElementById('classifyDocumentOpenBtn');
@@ -2040,6 +2096,8 @@ window.addEventListener('load', function() {
     var currentClassificationModelName = '';
     var classificationModels = [];
     var currentDocumentFieldValues = {};
+    var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
+    var documentFieldsPanelEl = document.getElementById('classifyDocumentFieldsPanel');
     var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
     var classificationModelSelect = document.getElementById('classificationModelSelect');
@@ -2055,6 +2113,77 @@ window.addEventListener('load', function() {
     var dynamicRateCounter = 0;
     var originalRatesStoragePrefix = 'classificationOriginalRates:v1:';
     var currentOriginalRatesKey = null;
+    var documentFieldDisplayOrder = [
+        'FIELD_A',
+        'FIELD_B',
+        'FIELD_C',
+        'FIELD_D',
+        'FIELD_E',
+        'FIELD_F',
+        'FIELD_G',
+        'FIELD_H',
+        'FIELD_I1',
+        'FIELD_I3',
+        'FIELD_I4',
+        'FIELD_I5',
+        'FIELD_I6',
+        'FIELD_I7',
+        'FIELD_I8',
+        'FIELD_N',
+        'FIELD_O',
+        'FIELD_Q',
+        'FIELD_R'
+    ];
+    var documentFieldLabelMap = {
+        FIELD_A: 'Emitente',
+        FIELD_B: 'Adquirente',
+        FIELD_C: 'NIF Emitente',
+        FIELD_D: 'Tipo Documento',
+        FIELD_E: 'Campo E',
+        FIELD_F: 'Data Documento',
+        FIELD_G: 'Numero Documento',
+        FIELD_H: 'ATCUD / Ref.',
+        FIELD_I1: 'Pais',
+        FIELD_I3: 'Base 6%',
+        FIELD_I4: 'IVA 6%',
+        FIELD_I5: 'Base 13%',
+        FIELD_I6: 'IVA 13%',
+        FIELD_I7: 'Base 23%',
+        FIELD_I8: 'IVA 23%',
+        FIELD_N: 'Total IVA',
+        FIELD_O: 'Total Documento',
+        FIELD_Q: 'Campo Q',
+        FIELD_R: 'Campo R'
+    };
+    var documentFieldDocTypeOptions = [
+        { value: '', label: 'Selecionar tipo' },
+        { value: 'FT', label: 'FT - Fatura' },
+        { value: 'FR', label: 'FR - Fatura-Recibo' },
+        { value: 'RC', label: 'RC - Recibo' },
+        { value: 'NC', label: 'NC - Nota de Credito' },
+        { value: 'ND', label: 'ND - Nota de Debito' }
+    ];
+    var documentFieldVatAutofillMap = {
+        FIELD_I3: { target: 'FIELD_I4', rate: 6 },
+        FIELD_I5: { target: 'FIELD_I6', rate: 13 },
+        FIELD_I7: { target: 'FIELD_I8', rate: 23 }
+    };
+    var documentFieldHiddenKeys = {
+        FIELD_C: true,
+        FIELD_E: true,
+        FIELD_I3: true,
+        FIELD_I4: true,
+        FIELD_I5: true,
+        FIELD_I6: true,
+        FIELD_I7: true,
+        FIELD_I8: true,
+        FIELD_I1: true,
+        FIELD_N: true,
+        FIELD_O: true,
+        FIELD_Q: true,
+        FIELD_R: true
+    };
+    var classificationAcquirerOptions = Array.isArray(window.classificationAcquirerOptions) ? window.classificationAcquirerOptions : [];
     var canUseOriginalRatesStorage = (function() {
         try {
             var storage = window.localStorage;
@@ -2254,7 +2383,7 @@ window.addEventListener('load', function() {
 
     function resetClassifyDocumentPreview() {
         if (classifyDocumentPreviewFrame) {
-            classifyDocumentPreviewFrame.src = 'about:blank';
+            classifyDocumentPreviewFrame.removeAttribute('src');
             classifyDocumentPreviewFrame.classList.add('d-none');
         }
         if (classifyDocumentPreviewEmpty) {
@@ -3182,6 +3311,14 @@ window.addEventListener('load', function() {
         return normalizeAmountValue(currentDocumentFieldValues[key]);
     }
 
+    function normalizeDocumentFieldValue(fieldName, value) {
+        var normalizedKey = String(fieldName || '').trim().toUpperCase();
+        if (normalizedKey === 'FIELD_D') {
+            return normalizeDocumentDocTypeValue(value);
+        }
+        return String(value || '').trim();
+    }
+
     function normalizeDocumentFieldMap(source) {
         var result = {};
         if (!source || typeof source !== 'object') {
@@ -3192,9 +3329,369 @@ window.addEventListener('load', function() {
             if (!normalizedKey) {
                 return;
             }
-            result[normalizedKey] = source[fieldName];
+            result[normalizedKey] = normalizeDocumentFieldValue(normalizedKey, source[fieldName]);
         });
         return result;
+    }
+
+    function normalizeDocumentDocTypeValue(value) {
+        var normalized = String(value || '').trim().toUpperCase();
+        if (!normalized) {
+            return '';
+        }
+        if (normalized === 'FTR' || normalized === 'FATURA-RECIBO' || normalized === 'FATURA RECIBO' || normalized === 'FACTURA-RECIBO') {
+            return 'FR';
+        }
+        if (normalized === 'FATURA' || normalized === 'FACTURA' || normalized === 'INVOICE') {
+            return 'FT';
+        }
+        if (normalized === 'RECIBO' || normalized === 'RG') {
+            return 'RC';
+        }
+        if (normalized === 'NOTA CREDITO' || normalized === 'NOTA DE CREDITO') {
+            return 'NC';
+        }
+        if (normalized === 'NOTA DEBITO' || normalized === 'NOTA DE DÉBITO') {
+            return 'ND';
+        }
+        return normalized;
+    }
+
+    function getCurrentIsoDateString() {
+        var now = new Date();
+        var year = now.getFullYear();
+        var month = String(now.getMonth() + 1).padStart(2, '0');
+        var day = String(now.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+
+    function applyDocumentFieldDefaults(source) {
+        var result = normalizeDocumentFieldMap(source);
+        if (String(result.FIELD_C || '').trim() === '') {
+            result.FIELD_C = 'PT';
+        }
+        if (String(result.FIELD_I1 || '').trim() === '') {
+            result.FIELD_I1 = 'PT';
+        }
+        if (String(result.FIELD_E || '').trim() === '') {
+            result.FIELD_E = 'N';
+        }
+        if (String(result.FIELD_F || '').trim() === '') {
+            result.FIELD_F = getCurrentIsoDateString();
+        }
+        return result;
+    }
+
+    function getDocumentFieldRawValue(fieldName) {
+        var key = String(fieldName || '').trim().toUpperCase();
+        if (!key || !currentDocumentFieldValues || typeof currentDocumentFieldValues !== 'object') {
+            return '';
+        }
+        if (!Object.prototype.hasOwnProperty.call(currentDocumentFieldValues, key)) {
+            return '';
+        }
+        return String(currentDocumentFieldValues[key] || '');
+    }
+
+    function buildDocumentDocTypeOptionsHtml(selectedValue) {
+        var normalizedSelected = normalizeDocumentDocTypeValue(selectedValue);
+        var hasSelectedOption = false;
+        var html = '';
+
+        documentFieldDocTypeOptions.forEach(function(option) {
+            var optionValue = String(option.value || '').trim();
+            var isSelected = optionValue === normalizedSelected;
+            if (isSelected) {
+                hasSelectedOption = true;
+            }
+            html += '<option value="' + escapeHtml(optionValue) + '"' + (isSelected ? ' selected' : '') + '>' + escapeHtml(option.label) + '</option>';
+        });
+
+        if (normalizedSelected && !hasSelectedOption) {
+            html += '<option value="' + escapeHtml(normalizedSelected) + '" selected>' + escapeHtml(normalizedSelected) + '</option>';
+        }
+
+        return html;
+    }
+
+    function buildAcquirerOptionsHtml(selectedValue) {
+        var normalizedSelected = String(selectedValue || '').trim();
+        var hasSelectedOption = false;
+        var html = '<option value="">Selecionar adquirente</option>';
+
+        classificationAcquirerOptions.forEach(function(option) {
+            var optionValue = String((option && (option.nif || option.value)) || '').trim();
+            if (!optionValue) {
+                return;
+            }
+            var optionLabel = String((option && (option.label || option.name || optionValue)) || optionValue).trim();
+            var isSelected = optionValue === normalizedSelected;
+            if (isSelected) {
+                hasSelectedOption = true;
+            }
+            html += '<option value="' + escapeHtml(optionValue) + '"' + (isSelected ? ' selected' : '') + '>' + escapeHtml(optionLabel) + '</option>';
+        });
+
+        if (normalizedSelected && !hasSelectedOption) {
+            html += '<option value="' + escapeHtml(normalizedSelected) + '" selected>' + escapeHtml(normalizedSelected) + '</option>';
+        }
+
+        return html;
+    }
+
+    function isNumericDocumentField(fieldName) {
+        return fieldName === 'FIELD_I3'
+            || fieldName === 'FIELD_I4'
+            || fieldName === 'FIELD_I5'
+            || fieldName === 'FIELD_I6'
+            || fieldName === 'FIELD_I7'
+            || fieldName === 'FIELD_I8'
+            || fieldName === 'FIELD_N'
+            || fieldName === 'FIELD_O';
+    }
+
+    function getDocumentFieldInputElement(fieldName) {
+        if (!documentFieldsGridEl) {
+            return null;
+        }
+        return documentFieldsGridEl.querySelector('[data-field-name="' + fieldName + '"]');
+    }
+
+    function applyDocumentVatAutofill(sourceFieldName) {
+        var normalizedKey = String(sourceFieldName || '').trim().toUpperCase();
+        var config = documentFieldVatAutofillMap[normalizedKey];
+        if (!config) {
+            return;
+        }
+
+        var sourceInput = getDocumentFieldInputElement(normalizedKey);
+        var targetInput = getDocumentFieldInputElement(config.target);
+        if (!sourceInput || !targetInput) {
+            return;
+        }
+
+        var baseValue = parseDecimalValue(sourceInput.value);
+        if (baseValue === null) {
+            targetInput.value = '';
+            return;
+        }
+
+        targetInput.value = formatDecimalValue(baseValue * (config.rate / 100));
+    }
+
+    function applyDocumentVatAutofillDefaults() {
+        var changed = false;
+
+        Object.keys(documentFieldVatAutofillMap).forEach(function(sourceFieldName) {
+            var config = documentFieldVatAutofillMap[sourceFieldName];
+            var sourceInput = getDocumentFieldInputElement(sourceFieldName);
+            var targetInput = getDocumentFieldInputElement(config.target);
+            if (!sourceInput || !targetInput) {
+                return;
+            }
+            if (String(targetInput.value || '').trim() !== '') {
+                return;
+            }
+
+            var baseValue = parseDecimalValue(sourceInput.value);
+            if (baseValue === null) {
+                return;
+            }
+
+            targetInput.value = formatDecimalValue(baseValue * (config.rate / 100));
+            changed = true;
+        });
+
+        return changed;
+    }
+
+    function syncDocumentFieldStateFromInputs() {
+        currentDocumentFieldValues = collectDocumentFieldInputs();
+        if (currentBtn) {
+            updateButtonDocumentFields(currentBtn, currentDocumentFieldValues);
+        }
+        rebuildRequirementsForCurrentButton();
+        getRateKeys().forEach(function(rate) {
+            populateRateRow(rate);
+        });
+    }
+
+    function updateDocumentFieldsPanelVisibility(visible) {
+        if (!documentFieldsPanelEl) {
+            return;
+        }
+        documentFieldsPanelEl.classList.toggle('d-none', !visible);
+    }
+
+    function getDocumentFieldLabel(fieldName) {
+        var normalizedKey = String(fieldName || '').trim().toUpperCase();
+        if (!normalizedKey) {
+            return 'Campo';
+        }
+        if (Object.prototype.hasOwnProperty.call(documentFieldLabelMap, normalizedKey)) {
+            return documentFieldLabelMap[normalizedKey];
+        }
+        if (normalizedKey.indexOf('FIELD_') === 0) {
+            return 'Campo ' + normalizedKey.slice(6);
+        }
+        return normalizedKey;
+    }
+
+    function shouldDisplayDocumentField(fieldName) {
+        var normalizedKey = String(fieldName || '').trim().toUpperCase();
+        if (!normalizedKey) {
+            return false;
+        }
+        return !Object.prototype.hasOwnProperty.call(documentFieldHiddenKeys, normalizedKey);
+    }
+
+    function getDocumentFieldKeysForDisplay() {
+        var seen = {};
+        var keys = [];
+
+        documentFieldDisplayOrder.forEach(function(fieldName) {
+            if (!shouldDisplayDocumentField(fieldName)) {
+                return;
+            }
+            seen[fieldName] = true;
+            keys.push(fieldName);
+        });
+
+        Object.keys(currentDocumentFieldValues || {}).sort().forEach(function(fieldName) {
+            var normalizedKey = String(fieldName || '').trim().toUpperCase();
+            if (!normalizedKey || seen[normalizedKey] || !shouldDisplayDocumentField(normalizedKey)) {
+                return;
+            }
+            seen[normalizedKey] = true;
+            keys.push(normalizedKey);
+        });
+
+        return keys;
+    }
+
+    function renderDocumentFieldInputs() {
+        if (!documentFieldsGridEl) {
+            return;
+        }
+
+        currentDocumentFieldValues = applyDocumentFieldDefaults(currentDocumentFieldValues || {});
+        var keys = getDocumentFieldKeysForDisplay();
+        if (!keys.length) {
+            documentFieldsGridEl.innerHTML = '';
+            return;
+        }
+
+        var html = '';
+        keys.forEach(function(fieldName) {
+            var normalizedKey = String(fieldName || '').trim().toUpperCase();
+            var inputId = 'classifyDocumentField_' + normalizedKey;
+            var label = getDocumentFieldLabel(normalizedKey);
+            var value = getDocumentFieldRawValue(normalizedKey);
+
+            html += '<div class="col-md-6 col-sm-12">';
+            html += '  <div class="form-group">';
+            html += '    <label class="form-label" for="' + escapeHtml(inputId) + '">' + escapeHtml(label) + '<span class="text-muted small classify-document-field-help">(' + escapeHtml(normalizedKey.toLowerCase()) + ')</span></label>';
+            if (normalizedKey === 'FIELD_B' && classificationAcquirerOptions.length > 0) {
+                html += '    <select class="form-control form-control-sm classify-document-field-input" id="' + escapeHtml(inputId) + '" data-field-name="' + escapeHtml(normalizedKey) + '">';
+                html += buildAcquirerOptionsHtml(value);
+                html += '    </select>';
+            } else if (normalizedKey === 'FIELD_D') {
+                html += '    <select class="form-control form-control-sm classify-document-field-input" id="' + escapeHtml(inputId) + '" data-field-name="' + escapeHtml(normalizedKey) + '">';
+                html += buildDocumentDocTypeOptionsHtml(value);
+                html += '    </select>';
+            } else {
+                var inputMode = isNumericDocumentField(normalizedKey) ? ' inputmode="decimal"' : '';
+                html += '    <input type="text" class="form-control form-control-sm classify-document-field-input" id="' + escapeHtml(inputId) + '" data-field-name="' + escapeHtml(normalizedKey) + '" value="' + escapeHtml(value) + '"' + inputMode + '>';
+            }
+            html += '  </div>';
+            html += '</div>';
+        });
+
+        documentFieldsGridEl.innerHTML = html;
+        if (applyDocumentVatAutofillDefaults()) {
+            currentDocumentFieldValues = collectDocumentFieldInputs();
+        }
+    }
+
+    function collectDocumentFieldInputs() {
+        if (!documentFieldsGridEl) {
+            return applyDocumentFieldDefaults(currentDocumentFieldValues || {});
+        }
+
+        var result = applyDocumentFieldDefaults(currentDocumentFieldValues || {});
+        var inputs = documentFieldsGridEl.querySelectorAll('.classify-document-field-input');
+        Array.prototype.forEach.call(inputs, function(input) {
+            var fieldName = String(input.getAttribute('data-field-name') || '').trim().toUpperCase();
+            if (!fieldName) {
+                return;
+            }
+            var normalizedValue = normalizeDocumentFieldValue(fieldName, input.value);
+            input.value = normalizedValue;
+            result[fieldName] = normalizedValue;
+        });
+
+        return applyDocumentFieldDefaults(result);
+    }
+
+    if (documentFieldsGridEl) {
+        documentFieldsGridEl.addEventListener('input', function(ev) {
+            var target = ev && ev.target ? ev.target : null;
+            if (!target || !target.classList || !target.classList.contains('classify-document-field-input')) {
+                return;
+            }
+            var fieldName = String(target.getAttribute('data-field-name') || '').trim().toUpperCase();
+            if (!fieldName) {
+                return;
+            }
+            target.value = normalizeDocumentFieldValue(fieldName, target.value);
+            applyDocumentVatAutofill(fieldName);
+            syncDocumentFieldStateFromInputs();
+        });
+
+        documentFieldsGridEl.addEventListener('change', function(ev) {
+            var target = ev && ev.target ? ev.target : null;
+            if (!target || !target.classList || !target.classList.contains('classify-document-field-input')) {
+                return;
+            }
+            var fieldName = String(target.getAttribute('data-field-name') || '').trim().toUpperCase();
+            if (!fieldName) {
+                return;
+            }
+            target.value = normalizeDocumentFieldValue(fieldName, target.value);
+            applyDocumentVatAutofill(fieldName);
+            syncDocumentFieldStateFromInputs();
+        });
+    }
+
+    function extractVatDigits(value) {
+        var match = String(value || '').match(/\d{9}/);
+        return match ? match[0] : '';
+    }
+
+    function updateButtonDocumentFields(btn, fieldMap) {
+        if (!btn) {
+            return;
+        }
+
+        var normalizedMap = normalizeDocumentFieldMap(fieldMap);
+        var documentFieldsPayload = {};
+        Object.keys(normalizedMap).forEach(function(fieldName) {
+            var payloadKey = fieldName.indexOf('FIELD_') === 0 ? 'field_' + fieldName.slice(6) : fieldName.toLowerCase();
+            documentFieldsPayload[payloadKey] = normalizedMap[fieldName];
+        });
+        var emitterVat = extractVatDigits(normalizedMap.FIELD_C || '');
+        if (!emitterVat) {
+            emitterVat = extractVatDigits(normalizedMap.FIELD_A || '');
+        }
+
+        btn.setAttribute('data-qr-fields', JSON.stringify(documentFieldsPayload));
+        btn.setAttribute('data-emitter', String(normalizedMap.FIELD_A || '').trim());
+        btn.setAttribute('data-emitter-display', String(normalizedMap.FIELD_A || '').trim());
+        btn.setAttribute('data-emitter-nif', emitterVat);
+        btn.setAttribute('data-acquirer', String(normalizedMap.FIELD_B || '').trim());
+        btn.setAttribute('data-doctype', String(normalizedMap.FIELD_D || '').trim());
+        btn.setAttribute('data-docdate', String(normalizedMap.FIELD_F || '').trim());
+        btn.setAttribute('data-doc-number', String(normalizedMap.FIELD_G || '').trim());
     }
 
     function resolveBaseSourceForRate(rate, rateData) {
@@ -5814,6 +6311,10 @@ window.addEventListener('load', function() {
             if (modalTitleEl) {
                 modalTitleEl.textContent = defaultModalTitle || 'Classificar';
             }
+            updateClassifyModalCompanyBadge('');
+            updateDocumentFieldsPanelVisibility(true);
+            currentDocumentFieldValues = {};
+            renderDocumentFieldInputs();
             resetClassifyDocumentPreview();
             invalidateReadyImportIdsCache();
             table.ajax.reload(null, false);
@@ -5921,6 +6422,8 @@ window.addEventListener('load', function() {
         var docDate = btn.getAttribute('data-docdate') || '';
         var documentDb = btn.getAttribute('data-acquirer-db') || erpDefaultDatabase || '';
         var docNumber = btn.getAttribute('data-doc-number') || '';
+        var documentCompanyCode = extractCompanyCodeFromDatabase(documentDb);
+        var showDocumentFields = String(btn.getAttribute('data-show-document-fields') || '').trim() === '1';
 
         if (modalTitleEl) {
             var baseTitle = defaultModalTitle || 'Classificar';
@@ -5943,6 +6446,8 @@ window.addEventListener('load', function() {
             }
             modalTitleEl.textContent = titleParts.join(' - ');
         }
+        updateClassifyModalCompanyBadge(documentCompanyCode);
+        updateDocumentFieldsPanelVisibility(showDocumentFields);
 
         resetRateRows();
         storedRowRates = {};
@@ -5955,6 +6460,8 @@ window.addEventListener('load', function() {
         currentClassificationModelName = '';
         classificationModels = [];
         currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
+        renderDocumentFieldInputs();
+        updateButtonDocumentFields(btn, currentDocumentFieldValues);
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
             updatePlanInputTitle(totalAccountInput);
@@ -6072,6 +6579,17 @@ window.addEventListener('load', function() {
                 currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
                 currentClassificationModelName = String(res.classification_model_name || '').trim();
                 classificationModels = normalizeClassificationModelList(res.classification_models);
+                if (res.document_fields && typeof res.document_fields === 'object') {
+                    currentDocumentFieldValues = normalizeDocumentFieldMap(res.document_fields);
+                    renderDocumentFieldInputs();
+                }
+                if (Object.prototype.hasOwnProperty.call(res, 'show_document_fields')) {
+                    var showFieldsFlag = String(res.show_document_fields || '').trim() === '1';
+                    updateDocumentFieldsPanelVisibility(showFieldsFlag);
+                    if (currentBtn) {
+                        currentBtn.setAttribute('data-show-document-fields', showFieldsFlag ? '1' : '0');
+                    }
+                }
                 inheritBaseSourceFieldsFromModel(storedRowRates, currentClassificationModelName);
                 inheritBaseSourceFieldsFromModel(storedDefaultRates, currentClassificationModelName);
                 inheritBaseSourceFieldsFromModel(currentRateData, currentClassificationModelName);
@@ -6174,6 +6692,8 @@ window.addEventListener('load', function() {
                 return;
             }
 
+            currentDocumentFieldValues = collectDocumentFieldInputs();
+
             getRateKeys().forEach(function(rate) {
                 recalculateVatForRate(rate, { formatBase: true });
                 updateRowDirtyState(rate);
@@ -6271,6 +6791,7 @@ window.addEventListener('load', function() {
                     ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
                     classification_model_name: currentClassificationModelName,
                     save_model_name: saveModelName,
+                    document_fields: JSON.stringify(currentDocumentFieldValues),
                     csrf_token: csrfInput.value
                 });
                 return fetchJson('contabilidade/save-analysis.php?action=save', {
@@ -6321,6 +6842,16 @@ window.addEventListener('load', function() {
                 currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
                 currentClassificationModelName = String(res.classification_model_name || '').trim();
                 classificationModels = normalizeClassificationModelList(res.classification_models);
+                if (res.document_fields && typeof res.document_fields === 'object') {
+                    currentDocumentFieldValues = normalizeDocumentFieldMap(res.document_fields);
+                    renderDocumentFieldInputs();
+                    updateButtonDocumentFields(currentBtn, currentDocumentFieldValues);
+                }
+                if (Object.prototype.hasOwnProperty.call(res, 'show_document_fields') && currentBtn) {
+                    var responseShowFields = String(res.show_document_fields || '').trim() === '1';
+                    currentBtn.setAttribute('data-show-document-fields', responseShowFields ? '1' : '0');
+                    updateDocumentFieldsPanelVisibility(responseShowFields);
+                }
                 renderClassificationModelOptions(currentClassificationModelName);
                 if (saveClassificationModelSwitch) {
                     saveClassificationModelSwitch.checked = false;
