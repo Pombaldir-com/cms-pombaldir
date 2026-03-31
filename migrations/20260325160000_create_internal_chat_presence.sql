@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS internal_chat_user_presence (
+    user_id INT NOT NULL PRIMARY KEY,
+    state VARCHAR(20) NOT NULL DEFAULT 'online',
+    last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_page VARCHAR(255) DEFAULT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_internal_chat_presence_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE
+);

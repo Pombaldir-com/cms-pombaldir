@@ -1,0 +1,3 @@
+ALTER TABLE users
+    ADD COLUMN ai_chat_floating TINYINT(1) NOT NULL DEFAULT 0,
+    ADD COLUMN ai_read_only TINYINT(1) NOT NULL DEFAULT 1;
