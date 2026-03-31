@@ -156,15 +156,27 @@ $efaturaTopbarSelector = [
     'action' => BASE_URL . 'contabilidade/efatura/' . $view,
     'selected_entity_id' => $selectedEntityId,
     'entities' => array_map(static function (array $entity): array {
-        $erpDatabase = (string) ($entity['erp_database'] ?? '');
-        $erpSuffix = '';
-        if (preg_match('/emp_(\d+)/i', $erpDatabase, $matches)) {
-            $erpSuffix = $matches[1];
+        $erpDatabase = efaturaResolveEntityErpDatabase($entity);
+        $companyCode = '';
+        if (preg_match('/^emp[_-]?(\d+)$/i', $erpDatabase, $matches)) {
+            $companyCode = ltrim($matches[1], '0');
+            if ($companyCode === '') {
+                $companyCode = '0';
+            }
+        }
+        $entityName = (string) ($entity['name'] ?? '');
+        $label = $entityName;
+        if ($companyCode !== '') {
+            $label = $companyCode . ($entityName !== '' ? ' - ' . $entityName : '');
+        } elseif ($erpDatabase !== '') {
+            $label = $erpDatabase . ($entityName !== '' ? ' - ' . $entityName : '');
+        } elseif ($entityName === '') {
+            $label = (string) ($entity['id'] ?? '');
         }
         return [
             'id' => (int) ($entity['id'] ?? 0),
-            'name' => (string) ($entity['name'] ?? ''),
-            'label' => ($erpSuffix !== '' ? $erpSuffix : (string) ($entity['id'] ?? 0)) . ' - ' . (string) ($entity['name'] ?? ''),
+            'name' => $entityName,
+            'label' => $label,
         ];
     }, $entities),
 ];
@@ -259,7 +271,7 @@ require_once __DIR__ . '/../header.php';
                                     <div>
                                         <span class="efatura-selection-label">Empresa ativa</span>
                                         <strong><?= htmlspecialchars((string) $selectedEntity['name']); ?></strong>
-                                        <span class="efatura-selection-meta">NIF <?= htmlspecialchars((string) $selectedEntity['nif']); ?> · <?= htmlspecialchars(efaturaFormatErpDatabase((string) ($selectedEntity['erp_database'] ?? ''))); ?></span>
+                                        <span class="efatura-selection-meta">NIF <?= htmlspecialchars((string) $selectedEntity['nif']); ?> · <?= htmlspecialchars(efaturaFormatErpDatabase(efaturaResolveEntityErpDatabase($selectedEntity))); ?></span>
                                     </div>
                                     <?php if (!empty($selectedEntity['last_sync_at'])): ?>
                                         <span class="badge badge-info">Última sync <?= htmlspecialchars((string) $selectedEntity['last_sync_at']); ?></span>
@@ -285,7 +297,7 @@ require_once __DIR__ . '/../header.php';
                                                 <div class="efatura-company-name"><?= htmlspecialchars((string) ($entity['name'] ?? '')); ?></div>
                                             </td>
                                             <td><?= htmlspecialchars((string) ($entity['nif'] ?? '')); ?></td>
-                                            <td><span class="badge badge-default"><?= htmlspecialchars(efaturaFormatErpDatabase((string) ($entity['erp_database'] ?? ''))); ?></span></td>
+                                            <td><span class="badge badge-default"><?= htmlspecialchars(efaturaFormatErpDatabase(efaturaResolveEntityErpDatabase($entity))); ?></span></td>
                                             <td>
                                                 <?php if (!empty($entity['portal_username'])): ?>
                                                     <span class="badge badge-success"><?= htmlspecialchars(maskEfaturaUsername((string) $entity['portal_username'])); ?></span>
@@ -326,7 +338,7 @@ require_once __DIR__ . '/../header.php';
                                         <div class="efatura-company-card">
                                             <div class="efatura-company-card-head">
                                                 <h4><?= htmlspecialchars((string) $selectedEntity['name']); ?></h4>
-                                                <span class="badge badge-primary"><?= htmlspecialchars(efaturaFormatErpDatabase((string) ($selectedEntity['erp_database'] ?? ''))); ?></span>
+                                                <span class="badge badge-primary"><?= htmlspecialchars(efaturaFormatErpDatabase(efaturaResolveEntityErpDatabase($selectedEntity))); ?></span>
                                             </div>
                                             <div class="row efatura-company-meta">
                                                 <div class="col-sm-6 col-12">
@@ -335,7 +347,7 @@ require_once __DIR__ . '/../header.php';
                                                 </div>
                                                 <div class="col-sm-6 col-12">
                                                     <span class="efatura-meta-label">Base ERP</span>
-                                                    <strong><?= htmlspecialchars(efaturaFormatErpDatabase((string) ($selectedEntity['erp_database'] ?? ''))); ?></strong>
+                                                    <strong><?= htmlspecialchars(efaturaFormatErpDatabase(efaturaResolveEntityErpDatabase($selectedEntity))); ?></strong>
                                                 </div>
                                             </div>
                                         </div>
@@ -1530,7 +1542,7 @@ function launchEfaturaWorker(int $jobId, string $artifactPath, ?array $company, 
 }
 
 function efaturaFetchCompanies(PDO $pdo): array {
-    $sql = "SELECT ae.id, ae.name, ae.nif, ae.erp_database,
+    $sql = "SELECT ae.id, ae.name, ae.nif, ae.erp_database, ae.erp_client_code,
                    ecc.portal_username, ecc.is_active,
                    last_job.finished_at AS last_sync_at
             FROM accounting_entities ae
@@ -1546,9 +1558,18 @@ function efaturaFetchCompanies(PDO $pdo): array {
 }
 
 function efaturaFetchEntity(PDO $pdo, int $entityId): ?array {
-    $stmt = $pdo->prepare("SELECT id, name, nif, erp_database FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id, name, nif, erp_database, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
     $stmt->execute([$entityId]);
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+function efaturaResolveEntityErpDatabase(array $entity): string {
+    $erpClientCode = trim((string) ($entity['erp_client_code'] ?? ''));
+    if ($erpClientCode !== '' && preg_match('/^emp[_-]?\d+$/i', $erpClientCode)) {
+        return $erpClientCode;
+    }
+
+    return trim((string) ($entity['erp_database'] ?? ''));
 }
 
 function efaturaFormatErpDatabase(string $value): string {
@@ -1970,13 +1991,14 @@ function efaturaResolveEntityCommunicationContext(PDO $pdo, int $entityId): arra
         throw new RuntimeException('Empresa nao encontrada.');
     }
 
-    $code = efaturaFormatErpDatabase((string) ($entity['erp_database'] ?? ''));
+    $resolvedErpDatabase = efaturaResolveEntityErpDatabase($entity);
+    $code = efaturaFormatErpDatabase($resolvedErpDatabase);
     $display = ($code !== '' && $code !== '-' ? $code . ' - ' : '') . trim((string) ($entity['name'] ?? ''));
     $context = [
         'entity_name' => trim((string) ($entity['name'] ?? '')),
         'entity_nif' => trim((string) ($entity['nif'] ?? '')),
         'entity_code' => $code !== '-' ? $code : '',
-        'entity_erp_database' => trim((string) ($entity['erp_database'] ?? '')),
+        'entity_erp_database' => $resolvedErpDatabase,
         'entity_display' => trim($display),
         'entity_email' => '',
         'entity_address' => '',
@@ -1988,7 +2010,7 @@ function efaturaResolveEntityCommunicationContext(PDO $pdo, int $entityId): arra
         'entity_number' => '',
     ];
 
-    $erpDatabase = trim((string) ($entity['erp_database'] ?? ''));
+    $erpDatabase = $resolvedErpDatabase;
     $entityNif = trim((string) ($entity['nif'] ?? ''));
     if ($entityNif !== '') {
         $remote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $erpDatabase);

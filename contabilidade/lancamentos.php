@@ -73,8 +73,10 @@ $efaturaTopbarSelector = [
             $companyCode = $dbValue;
         }
         $label = $companyCode;
-        if ($companyName !== '') {
+        if ($companyCode !== '' && $companyName !== '') {
             $label .= ' - ' . $companyName;
+        } elseif ($label === '' && $companyName !== '') {
+            $label = $companyName;
         }
         return [
             'value' => $dbValue,

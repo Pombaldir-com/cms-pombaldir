@@ -225,7 +225,8 @@ if (hasTable('accounting_entities')) {
             }
 
             if ($companyCode !== '') {
-                $label = $companyCode . ' - ' . ($name !== '' ? $name : $nif);
+                $companyName = $name !== '' ? $name : $nif;
+                $label = $databaseRef . ' (' . $companyCode . ' - ' . $companyName . ')';
             } else {
                 $label = $name !== '' && $name !== $nif ? ($name . ' - ' . $nif) : $nif;
             }
