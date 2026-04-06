@@ -187,18 +187,87 @@ $detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $re
     ];
 };
 
+$mergeQrTexts = static function (array ...$groups): array {
+    $merged = [];
+    $seen = [];
+    foreach ($groups as $group) {
+        foreach ($group as $text) {
+            $value = trim((string) $text);
+            if ($value === '' || isset($seen[$value])) {
+                continue;
+            }
+            $seen[$value] = true;
+            $merged[] = $value;
+        }
+    }
+    return $merged;
+};
+
+$completePdfAttempt = static function (array $attempt) use ($mime, $detectQr, $qrRetryDpi, $qrRetryMaxAttempts): ?array {
+    if ($mime !== 'application/pdf') {
+        return null;
+    }
+
+    $texts = isset($attempt['texts']) && is_array($attempt['texts']) ? $attempt['texts'] : [];
+    if (empty($texts)) {
+        return null;
+    }
+
+    $attemptMaxPages = (int) ($attempt['max_pages'] ?? 0);
+    if ($attemptMaxPages === 0) {
+        return null;
+    }
+
+    $completionDpi = max((int) ($attempt['dpi'] ?? 0), $qrRetryDpi);
+    if ($completionDpi <= 0) {
+        return null;
+    }
+
+    $completionMaxAttempts = (int) ($attempt['max_attempts'] ?? 0);
+    if ($completionMaxAttempts <= 0) {
+        $completionMaxAttempts = $qrRetryMaxAttempts;
+    } else {
+        $completionMaxAttempts = max($completionMaxAttempts, $qrRetryMaxAttempts);
+    }
+
+    return $detectQr(
+        $completionDpi,
+        0,
+        $completionMaxAttempts,
+        !empty($attempt['receipt_priority'])
+    );
+};
+
 $attempts = [];
 $attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
 $qrTexts = $attempts[0]['texts'];
 
+$completionAttempt = $completePdfAttempt($attempts[0]);
+if (is_array($completionAttempt)) {
+    $attempts[] = $completionAttempt;
+    $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+}
+
 if (empty($qrTexts)) {
     $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, false);
-    $qrTexts = $attempts[1]['texts'];
+    $qrTexts = $attempts[count($attempts) - 1]['texts'];
+
+    $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
+    if (is_array($completionAttempt)) {
+        $attempts[] = $completionAttempt;
+        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+    }
 }
 
 if (empty($qrTexts)) {
     $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
-    $qrTexts = $attempts[2]['texts'];
+    $qrTexts = $attempts[count($attempts) - 1]['texts'];
+
+    $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
+    if (is_array($completionAttempt)) {
+        $attempts[] = $completionAttempt;
+        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+    }
 }
 
 $timings['finished_at_ms'] = (int) round(microtime(true) * 1000);
