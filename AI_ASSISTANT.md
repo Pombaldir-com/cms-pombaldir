@@ -171,6 +171,19 @@ Atalho:
 - Em taxa `0%`, `Conta IVA` deve ficar vazia e isso nao impede o estado `Classificado`.
 - O botao global `Classificado` deve importar a configuracao efetiva da linha, mesmo que a modal nunca tenha sido aberta.
 
+### 8.1.2 Regra de rubricas de combustiveis
+- Existe uma configuracao em **Modulos > Contabilidade** com os codigos ERP das rubricas de combustiveis.
+- Quando uma taxa tiver uma `Rub_Codigo` configurada como combustivel:
+  - apenas `50%` do IVA e dedutivel;
+  - os outros `50%` do IVA sao somados ao valor da `Base`;
+  - o total do documento mantem-se.
+- Na modal de `Classificacao`, esta regra so deve ser mostrada/aplicada quando a taxa ja tiver **Conta Geral** e **Conta IVA** validamente preenchidas.
+- Se as contas ainda nao estiverem preenchidas, devem manter-se os valores brutos do documento/QR nessa taxa.
+- Quando o utilizador preencher as contas na modal e a taxa tiver rubrica de combustivel, os valores devem ser recalculados nesse momento.
+- Mesmo que a modal nao seja aberta novamente, a importacao CTB deve respeitar esta regra quando a linha ja tiver:
+  - rubrica de combustivel associada; e
+  - contas/configuracao contabilistica guardadas para essa taxa.
+
 ### 8.2 Regras de permissões (obrigatório)
 - `ctb_classificar_docs`:
   - Necessária para classificar por linha na vista de Classificação.

@@ -127,6 +127,15 @@ Regras adicionais desta fonte:
 - A ausencia de `Conta IVA` numa taxa `0%` nao impede o estado `Classificado` (verde).
 - A grelha de classificacao mostra apenas o NIF do emitente na coluna visivel.
 - O botao global `Classificado` importa a configuracao contabilistica efetiva do documento, incluindo `Valor Total` vindo da classificacao generica, mesmo sem abrir antes a modal.
+- Quando a taxa tiver uma `Rub_Codigo` configurada como combustivel:
+  - apenas `50%` do IVA e dedutivel;
+  - os outros `50%` do IVA sao somados ao valor da `Base`;
+  - o total do documento mantem-se.
+- Esta regra de combustivel nao deve alterar logo a linha ao abrir a modal:
+  - so deve ser mostrada/aplicada quando a taxa ja tiver `Conta Geral` e `Conta IVA` validamente preenchidas;
+  - enquanto as contas nao estiverem preenchidas, a modal deve manter os valores brutos lidos do documento.
+- Quando o utilizador preencher as contas na modal, a taxa deve ser recalculada nesse momento se a rubrica for de combustivel.
+- Na importacao CTB, a regra continua a ser obrigatoria mesmo sem reabrir a modal, desde que a linha ja tenha a rubrica/configuracao contabilistica guardada.
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 
