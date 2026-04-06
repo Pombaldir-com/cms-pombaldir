@@ -3249,6 +3249,52 @@ function resolveLigacaoRateKeyFromRow(array $row): string {
     return '';
 }
 
+function isErpLigacaoDirectIvaLine(array $row): bool {
+    $account = trim((string) ($row['strConta'] ?? ''));
+    if ($account === '') {
+        return false;
+    }
+
+    $linkedIvaAccount = trim((string) ($row['strConta_Iva'] ?? ''));
+    if ($linkedIvaAccount !== '') {
+        return false;
+    }
+
+    $taxCode = trim((string) ($row['intCodTaxaIva'] ?? ''));
+    if ($taxCode !== '' && strcasecmp($taxCode, 'null') !== 0) {
+        return true;
+    }
+
+    $description = strtolower(trim((string) ($row['PC_Descricao'] ?? '')));
+    if ($description !== '') {
+        if (strpos($description, 'taxa normal') !== false
+            || strpos($description, 'taxa interm') !== false
+            || strpos($description, 'taxa intermedia') !== false
+            || strpos($description, 'taxa reduz') !== false) {
+            return true;
+        }
+    }
+
+    return preg_match('/^243/', $account) === 1;
+}
+
+function resolveErpLigacaoAccountCandidates(array $row): array {
+    $general = trim((string) ($row['strConta'] ?? ''));
+    $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+
+    if (isErpLigacaoDirectIvaLine($row)) {
+        if ($iva === '') {
+            $iva = $general;
+        }
+        $general = '';
+    }
+
+    return [
+        'general' => $general,
+        'iva' => $iva,
+    ];
+}
+
 function resolveErpLigacaoLineTypes(string $docType): array {
     $normalizedDocType = normalizeErpLigacaoDocType($docType);
     if ($normalizedDocType === 'NC') {
@@ -3397,8 +3443,9 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
             continue;
         }
         $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
-        $general = trim((string) ($row['strConta'] ?? ''));
-        $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+        $accountCandidates = resolveErpLigacaoAccountCandidates($row);
+        $general = $accountCandidates['general'];
+        $iva = $accountCandidates['iva'];
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
         $codFichRepart = trim((string) ($row['strCodFichRepart'] ?? ''));
         if ($tipo === $totalLineType && $general !== '') {

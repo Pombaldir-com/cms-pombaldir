@@ -1624,6 +1624,52 @@ function resolveSuggestionLigacaoRateKeyFromRow(array $row): string {
     return '';
 }
 
+function isSuggestionLigacaoDirectIvaLine(array $row): bool {
+    $account = trim((string) ($row['strConta'] ?? ''));
+    if ($account === '') {
+        return false;
+    }
+
+    $linkedIvaAccount = trim((string) ($row['strConta_Iva'] ?? ''));
+    if ($linkedIvaAccount !== '') {
+        return false;
+    }
+
+    $taxCode = trim((string) ($row['intCodTaxaIva'] ?? ''));
+    if ($taxCode !== '' && strcasecmp($taxCode, 'null') !== 0) {
+        return true;
+    }
+
+    $description = strtolower(trim((string) ($row['PC_Descricao'] ?? '')));
+    if ($description !== '') {
+        if (strpos($description, 'taxa normal') !== false
+            || strpos($description, 'taxa interm') !== false
+            || strpos($description, 'taxa intermedia') !== false
+            || strpos($description, 'taxa reduz') !== false) {
+            return true;
+        }
+    }
+
+    return preg_match('/^243/', $account) === 1;
+}
+
+function resolveSuggestionLigacaoAccountCandidates(array $row): array {
+    $general = trim((string) ($row['strConta'] ?? ''));
+    $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+
+    if (isSuggestionLigacaoDirectIvaLine($row)) {
+        if ($iva === '') {
+            $iva = $general;
+        }
+        $general = '';
+    }
+
+    return [
+        'general' => $general,
+        'iva' => $iva,
+    ];
+}
+
 function normalizePartyHintToken(string $value): string {
     $value = strtolower(trim($value));
     if ($value === '') {
@@ -2270,8 +2316,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             continue;
         }
         $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
-        $general = trim((string) ($row['strConta'] ?? ''));
-        $iva = trim((string) ($row['strConta_Iva'] ?? ''));
+        $accountCandidates = resolveSuggestionLigacaoAccountCandidates($row);
+        $general = $accountCandidates['general'];
+        $iva = $accountCandidates['iva'];
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
         if ($tipo === $ligacaoTotalLineType && $general !== '') {
             $ligacaoTotalCreditAccounts[$general] = ($ligacaoTotalCreditAccounts[$general] ?? 0) + 1;
@@ -3561,8 +3608,136 @@ if ($action === 'data') {
 
         $start = (int)($_GET['start'] ?? 0);
         $length = (int)($_GET['length'] ?? 10);
+        $searchValue = '';
+        if (isset($_GET['search']) && is_array($_GET['search'])) {
+            $searchValue = trim((string) ($_GET['search']['value'] ?? ''));
+        } else {
+            $searchValue = trim((string) ($_GET['search'] ?? ''));
+        }
         if ($length <= 0) {
             $length = 10;
+        }
+
+        $normalizeSearchToken = static function (string $value): string {
+            $value = trim($value);
+            if ($value === '') {
+                return '';
+            }
+
+            if (function_exists('mb_strtolower')) {
+                return mb_strtolower($value, 'UTF-8');
+            }
+
+            return strtolower($value);
+        };
+
+        $buildSearchTokens = static function (string $value) use ($normalizeSearchToken): array {
+            $value = trim($value);
+            if ($value === '') {
+                return [];
+            }
+
+            $normalizedWhitespace = preg_replace('/\s+/u', ' ', $value);
+            if (is_string($normalizedWhitespace)) {
+                $value = trim($normalizedWhitespace);
+            }
+
+            $tokens = preg_split('/\s+/u', $value);
+            if (!is_array($tokens)) {
+                $tokens = [$value];
+            }
+
+            $result = [];
+            foreach ($tokens as $token) {
+                $normalizedToken = $normalizeSearchToken((string) $token);
+                if ($normalizedToken !== '') {
+                    $result[] = $normalizedToken;
+                }
+            }
+
+            return array_values(array_unique($result));
+        };
+
+        $searchTokens = $buildSearchTokens($searchValue);
+        $matchRowSearch = static function (array $row) use ($searchTokens, $normalizeSearchToken): bool {
+            if (empty($searchTokens)) {
+                return true;
+            }
+
+            $haystackParts = [
+                (string) ($row['id'] ?? ''),
+                (string) ($row['account'] ?? ''),
+                (string) ($row['cost_center'] ?? ''),
+                (string) ($row['field_A'] ?? ''),
+                (string) ($row['field_B'] ?? ''),
+                (string) ($row['field_C'] ?? ''),
+                (string) ($row['field_D'] ?? ''),
+                (string) ($row['field_E'] ?? ''),
+                (string) ($row['field_F'] ?? ''),
+                (string) ($row['field_G'] ?? ''),
+                (string) ($row['field_H'] ?? ''),
+                (string) ($row['field_I1'] ?? ''),
+                (string) ($row['field_I3'] ?? ''),
+                (string) ($row['field_I4'] ?? ''),
+                (string) ($row['field_I5'] ?? ''),
+                (string) ($row['field_I6'] ?? ''),
+                (string) ($row['field_I7'] ?? ''),
+                (string) ($row['field_I8'] ?? ''),
+                (string) ($row['field_N'] ?? ''),
+                (string) ($row['field_O'] ?? ''),
+                (string) ($row['field_Q'] ?? ''),
+                (string) ($row['field_R'] ?? ''),
+                (string) ($row['filename'] ?? ''),
+                (string) ($row['emitter_display_name'] ?? ''),
+                (string) ($row['emitter_raw_value'] ?? ''),
+                (string) ($row['emitter_nif_normalized'] ?? ''),
+            ];
+
+            $haystack = $normalizeSearchToken(implode(' ', $haystackParts));
+            foreach ($searchTokens as $token) {
+                if (strpos($haystack, $token) === false) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        $searchSql = '';
+        $searchBindings = [];
+        if (!empty($searchTokens)) {
+            $searchExpr = "LOWER(CONCAT_WS(' ', "
+                . "CAST(ai.id AS CHAR), "
+                . "COALESCE(ai.account, ''), "
+                . "COALESCE(ai.cost_center, ''), "
+                . "COALESCE(ai.field_A, ''), "
+                . "COALESCE(ai.field_B, ''), "
+                . "COALESCE(ai.field_C, ''), "
+                . "COALESCE(ai.field_D, ''), "
+                . "COALESCE(ai.field_E, ''), "
+                . "COALESCE(ai.field_F, ''), "
+                . "COALESCE(ai.field_G, ''), "
+                . "COALESCE(ai.field_H, ''), "
+                . "COALESCE(ai.field_I1, ''), "
+                . "COALESCE(ai.field_I3, ''), "
+                . "COALESCE(ai.field_I4, ''), "
+                . "COALESCE(ai.field_I5, ''), "
+                . "COALESCE(ai.field_I6, ''), "
+                . "COALESCE(ai.field_I7, ''), "
+                . "COALESCE(ai.field_I8, ''), "
+                . "COALESCE(ai.field_N, ''), "
+                . "COALESCE(ai.field_O, ''), "
+                . "COALESCE(ai.field_Q, ''), "
+                . "COALESCE(ai.field_R, ''), "
+                . "COALESCE(ai.filename, '')"
+                . "))";
+            $searchClauses = [];
+            foreach ($searchTokens as $index => $token) {
+                $paramName = ':search_' . $index;
+                $searchClauses[] = $searchExpr . ' LIKE ' . $paramName;
+                $searchBindings[$paramName] = '%' . $token . '%';
+            }
+            $searchSql = ' AND ' . implode(' AND ', $searchClauses);
         }
 
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
@@ -3579,7 +3754,10 @@ if ($action === 'data') {
             unset($row);
             $rows = array_values(array_filter($rows, static fn(array $row): bool => isImportReadyRow($row)));
             $totalCount = count($rows);
-            $filteredCount = $totalCount;
+            if (!empty($searchTokens)) {
+                $rows = array_values(array_filter($rows, $matchRowSearch));
+            }
+            $filteredCount = count($rows);
             $rows = array_slice($rows, $start, $length);
         } else {
             $countSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql;
@@ -3587,13 +3765,30 @@ if ($action === 'data') {
             $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
             $countStmt->execute();
             $totalCount = (int)$countStmt->fetchColumn();
-            $filteredCount = $totalCount;
 
-            $sql = $baseSql . ' ORDER BY id LIMIT :start, :length';
+            if ($searchSql !== '') {
+                $filteredCountSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')'
+                    . $visibilitySql
+                    . $searchSql;
+                $filteredCountStmt = $pdo->prepare($filteredCountSql);
+                $filteredCountStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+                foreach ($searchBindings as $paramName => $paramValue) {
+                    $filteredCountStmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
+                }
+                $filteredCountStmt->execute();
+                $filteredCount = (int) $filteredCountStmt->fetchColumn();
+            } else {
+                $filteredCount = $totalCount;
+            }
+
+            $sql = $baseSql . $searchSql . ' ORDER BY id LIMIT :start, :length';
             $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            foreach ($searchBindings as $paramName => $paramValue) {
+                $stmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
+            }
             $stmt->bindValue(':start', $start, PDO::PARAM_INT);
             $stmt->bindValue(':length', $length, PDO::PARAM_INT);
-            $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rows as &$row) {
