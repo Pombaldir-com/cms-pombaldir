@@ -230,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $accountingBaseCompany = trim($_POST['accounting_base_company'] ?? '');
         $accountingDiary = trim($_POST['accounting_diary'] ?? '');
         $accountingPostingDateMode = trim((string) ($_POST['accounting_posting_date_mode'] ?? 'document'));
+        $accountingFuelRubricCodes = trim((string) ($_POST['accounting_fuel_rubric_codes'] ?? ''));
         if (!in_array($accountingPostingDateMode, ['document', 'month_end'], true)) {
             $accountingPostingDateMode = 'document';
         }
@@ -237,10 +238,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting('accounting_base_company', $accountingBaseCompany);
             setSetting('accounting_diary', $accountingDiary);
             setSetting('accounting_posting_date_mode', $accountingPostingDateMode);
+            setSetting('accounting_fuel_rubric_codes', $accountingFuelRubricCodes);
         } else {
             setSetting('accounting_base_company', '');
             setSetting('accounting_diary', '');
             setSetting('accounting_posting_date_mode', 'document');
+            setSetting('accounting_fuel_rubric_codes', '');
         }
 
         if (in_array('compras', $selectedModules, true)) {
@@ -310,6 +313,7 @@ $currentApiToken = getSetting('api_token', '');
 $currentAccountingBaseCompany = getSetting('accounting_base_company', '');
 $currentAccountingDiary = getSetting('accounting_diary', '');
 $currentAccountingPostingDateMode = getSetting('accounting_posting_date_mode', 'document');
+$currentAccountingFuelRubricCodes = getSetting('accounting_fuel_rubric_codes', '');
 $contentTypes = getContentTypes();
 $contentTypeApi = [];
 foreach ($contentTypes as $type) {
@@ -732,6 +736,11 @@ require_once __DIR__ . '/header.php';
                                                 <option value="document" <?= $currentAccountingPostingDateMode === 'document' ? 'selected' : ''; ?>>Data do documento</option>
                                                 <option value="month_end" <?= $currentAccountingPostingDateMode === 'month_end' ? 'selected' : ''; ?>>Ultimo dia do mes</option>
                                             </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label for="accounting_fuel_rubric_codes" class="form-label">Rúbricas combustíveis</label>
+                                            <textarea class="form-control" id="accounting_fuel_rubric_codes" name="accounting_fuel_rubric_codes" rows="2" <?= $accountingActive ? '' : 'disabled'; ?>><?= htmlspecialchars($currentAccountingFuelRubricCodes); ?></textarea>
+                                            <div class="text-muted small mt-1">Inserir os códigos ERP separados por vírgulas. Exemplo: <code>GASÓLEO 50% CD, GASÓLEO 50% CC</code>.</div>
                                         </div>
                                     </div>
                                 </div>

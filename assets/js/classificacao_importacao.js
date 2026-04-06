@@ -3443,6 +3443,191 @@ window.addEventListener('load', function() {
         return data;
     }
 
+    function copyRateHiddenMetadata(target, source) {
+        if (!target || typeof target !== 'object' || !source || typeof source !== 'object') {
+            return;
+        }
+        var rubricCode = String(source.erp_rubric_code || source.rubric_code || '').trim();
+        if (rubricCode) {
+            target.erp_rubric_code = rubricCode;
+        }
+        var adjustedFlag = String(source.vat_amounts_adjusted || '').trim().toLowerCase();
+        if (adjustedFlag === '1' || adjustedFlag === 'true') {
+            target.vat_amounts_adjusted = '1';
+        }
+    }
+
+    function isAdjustedVatRateEntry(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return false;
+        }
+        var adjustedFlag = String(entry.vat_amounts_adjusted || '').trim().toLowerCase();
+        return adjustedFlag === '1' || adjustedFlag === 'true';
+    }
+
+    function preserveAdjustedDisplayRates(targetRates, sourceRates) {
+        if (!targetRates || typeof targetRates !== 'object' || !sourceRates || typeof sourceRates !== 'object') {
+            return;
+        }
+        Object.keys(sourceRates).forEach(function(rate) {
+            var sourceEntry = sourceRates[rate];
+            if (!isAdjustedVatRateEntry(sourceEntry)) {
+                return;
+            }
+            if (!targetRates[rate] || typeof targetRates[rate] !== 'object') {
+                targetRates[rate] = {};
+            }
+            var targetEntry = targetRates[rate];
+            if (!isAdjustedVatRateEntry(targetEntry)) {
+                var baseValue = getEntryAmount(sourceEntry, 'base');
+                if (baseValue !== null && baseValue !== undefined) {
+                    targetEntry.base = String(baseValue);
+                    targetEntry.base_value = String(baseValue);
+                }
+                var ivaValue = getEntryAmount(sourceEntry, 'iva');
+                if (ivaValue !== null && ivaValue !== undefined) {
+                    targetEntry.iva = String(ivaValue);
+                    targetEntry.iva_value = String(ivaValue);
+                }
+            }
+            copyRateHiddenMetadata(targetEntry, sourceEntry);
+        });
+    }
+
+    function preserveAdjustedOriginalRates(originalRates, sourceRates) {
+        var result = originalRates && typeof originalRates === 'object' ? originalRates : {};
+        if (!sourceRates || typeof sourceRates !== 'object') {
+            return result;
+        }
+        Object.keys(sourceRates).forEach(function(rate) {
+            var sourceEntry = sourceRates[rate];
+            if (!isAdjustedVatRateEntry(sourceEntry)) {
+                return;
+            }
+            var baseValue = getEntryAmount(sourceEntry, 'base');
+            var ivaValue = getEntryAmount(sourceEntry, 'iva');
+            result[String(rate)] = {
+                base: baseValue !== null && baseValue !== undefined ? String(baseValue) : '',
+                iva: ivaValue !== null && ivaValue !== undefined ? String(ivaValue) : ''
+            };
+        });
+        return result;
+    }
+
+    function getResolvedRateAccountValue(rate, field) {
+        var info = rateInputs[rate] || null;
+        var inputEl = null;
+        if (field === 'general_account') {
+            inputEl = info ? info.generalAccount : null;
+        } else if (field === 'iva_account') {
+            inputEl = info ? info.ivaAccount : null;
+        }
+        if (inputEl && String(inputEl.value || '').trim() !== '') {
+            return String(inputEl.value || '').trim();
+        }
+
+        var rateData = ensureRateData(rate);
+        if (String(rateData[field] || '').trim() !== '') {
+            return String(rateData[field] || '').trim();
+        }
+        if (storedRowRates[rate] && String(storedRowRates[rate][field] || '').trim() !== '') {
+            return String(storedRowRates[rate][field] || '').trim();
+        }
+        if (storedDefaultRates[rate] && String(storedDefaultRates[rate][field] || '').trim() !== '') {
+            return String(storedDefaultRates[rate][field] || '').trim();
+        }
+
+        return '';
+    }
+
+    function isCompletedAccountingAccountValue(value) {
+        return /^\d{3,}$/.test(String(value || '').trim());
+    }
+
+    function shouldApplyFuelRubricAdjustmentForRate(rate) {
+        var normalizedRate = normalizeRateToken(rate);
+        if (normalizedRate !== null && Math.abs(normalizedRate) < 0.00001) {
+            return false;
+        }
+
+        var percentage = getRatePercentage(rate);
+        if (percentage === null || Math.abs(percentage) < 0.00001) {
+            return false;
+        }
+
+        var rateData = ensureRateData(rate);
+        var rubricCode = String(rateData.erp_rubric_code || '').trim();
+        if (!rubricCode && storedRowRates[rate]) {
+            rubricCode = String(storedRowRates[rate].erp_rubric_code || '').trim();
+        }
+        if (!rubricCode && storedDefaultRates[rate]) {
+            rubricCode = String(storedDefaultRates[rate].erp_rubric_code || '').trim();
+        }
+        if (!rubricCode) {
+            return false;
+        }
+
+        return isCompletedAccountingAccountValue(getResolvedRateAccountValue(rate, 'general_account'))
+            && isCompletedAccountingAccountValue(getResolvedRateAccountValue(rate, 'iva_account'));
+    }
+
+    function syncFuelRubricAdjustmentForRate(rate, options) {
+        var info = rateInputs[rate];
+        if (!info || !info.base) {
+            return;
+        }
+
+        var opts = options || {};
+        var rateData = ensureRateData(rate);
+        var shouldAdjust = shouldApplyFuelRubricAdjustmentForRate(rate);
+        var isAdjusted = isAdjustedVatRateEntry(rateData);
+        var percentage = getRatePercentage(rate);
+        var rawBaseValue = info.base.value !== undefined ? String(info.base.value || '').trim() : '';
+
+        if (rawBaseValue === '' || percentage === null || Math.abs(percentage) < 0.00001) {
+            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
+            recalculateVatForRate(rate, opts);
+            return;
+        }
+
+        var baseNumber = parseDecimalValue(rawBaseValue);
+        if (baseNumber === null) {
+            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
+            recalculateVatForRate(rate, opts);
+            return;
+        }
+
+        if (shouldAdjust !== isAdjusted) {
+            if (shouldAdjust) {
+                var rawIvaValue = info.iva ? parseDecimalValue(info.iva.value) : null;
+                if (rawIvaValue === null) {
+                    rawIvaValue = baseNumber * (percentage / 100);
+                }
+                var adjustedBase = baseNumber + (rawIvaValue * 0.5);
+                var formattedAdjustedBase = formatDecimalValue(adjustedBase);
+                if (info.base.value !== formattedAdjustedBase) {
+                    info.base.value = formattedAdjustedBase;
+                }
+                rateData.base = formattedAdjustedBase;
+                rateData.base_value = formattedAdjustedBase;
+                rateData.vat_amounts_adjusted = '1';
+            } else {
+                var revertedBase = baseNumber * (100 / (100 + (percentage / 2)));
+                var formattedRevertedBase = formatDecimalValue(revertedBase);
+                if (info.base.value !== formattedRevertedBase) {
+                    info.base.value = formattedRevertedBase;
+                }
+                rateData.base = formattedRevertedBase;
+                rateData.base_value = formattedRevertedBase;
+                rateData.vat_amounts_adjusted = '0';
+            }
+        } else {
+            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
+        }
+
+        recalculateVatForRate(rate, { formatBase: opts.formatBase !== false });
+    }
+
     function cloneJsonValue(value, fallback) {
         try {
             return JSON.parse(JSON.stringify(value));
@@ -3467,6 +3652,7 @@ window.addEventListener('load', function() {
                 normalizedRates[rate].base_value = '';
                 normalizedRates[rate].iva = '';
                 normalizedRates[rate].iva_value = '';
+                normalizedRates[rate].vat_amounts_adjusted = '0';
                 normalizedRates[rate].base_source_field = String(normalizedRates[rate].base_source_field || '').trim();
                 if (normalizedRates[rate].base_source_field !== '') {
                     hasExplicitBaseSource = true;
@@ -4264,6 +4450,10 @@ window.addEventListener('load', function() {
             return;
         }
         var ivaValue = baseNumber * (percentage / 100);
+        if (isAdjustedVatRateEntry(rateData)) {
+            var deductibleRate = percentage * 0.5;
+            ivaValue = baseNumber * (deductibleRate / (100 + deductibleRate));
+        }
         var formattedIva = formatDecimalValue(ivaValue);
         if (info.iva && info.iva.value !== formattedIva) {
             info.iva.value = formattedIva;
@@ -4951,6 +5141,15 @@ window.addEventListener('load', function() {
                     applied = true;
                 }
             }
+            var rubricCode = resolveSuggestionValue(suggestion, ['erp_rubric_code', 'rubric_code', 'rubrica_codigo', 'rubrica']);
+            if (rubricCode) {
+                var currentRubricCode = String((ensureRateData(resolvedKey).erp_rubric_code || '')).trim();
+                ensureRateData(resolvedKey).erp_rubric_code = rubricCode;
+                if (currentRubricCode !== rubricCode) {
+                    updated = true;
+                    applied = true;
+                }
+            }
             if (updated) {
                 populateRateRow(resolvedKey);
                 updateRowDirtyState(resolvedKey);
@@ -5068,25 +5267,49 @@ window.addEventListener('load', function() {
         if (info.ivaAccount) {
             attachPlanAutocompleteToInput(info.ivaAccount);
             info.ivaAccount.addEventListener('input', function() {
+                var rateData = ensureRateData(rate);
+                rateData.iva_account = info.ivaAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
             info.ivaAccount.addEventListener('change', function() {
+                var rateData = ensureRateData(rate);
+                rateData.iva_account = info.ivaAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
             info.ivaAccount.addEventListener('blur', function() {
+                var rateData = ensureRateData(rate);
+                rateData.iva_account = info.ivaAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
         }
         if (info.generalAccount) {
             attachPlanAutocompleteToInput(info.generalAccount);
             info.generalAccount.addEventListener('input', function() {
+                var rateData = ensureRateData(rate);
+                rateData.general_account = info.generalAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
             info.generalAccount.addEventListener('change', function() {
+                var rateData = ensureRateData(rate);
+                rateData.general_account = info.generalAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
             info.generalAccount.addEventListener('blur', function() {
+                var rateData = ensureRateData(rate);
+                rateData.general_account = info.generalAccount.value;
+                syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
                 updateCostCenterFieldMode(rate);
+                updateRowDirtyState(rate);
             });
         }
         if (info.labelInput) {
@@ -5932,6 +6155,9 @@ window.addEventListener('load', function() {
         }
         var ivaAccount = rowData.iva_account || baseData.iva_account || defaultData.iva_account || '';
         var generalAccount = rowData.general_account || baseData.general_account || defaultData.general_account || '';
+        copyRateHiddenMetadata(currentRateData[rate], defaultData);
+        copyRateHiddenMetadata(currentRateData[rate], baseData);
+        copyRateHiddenMetadata(currentRateData[rate], rowData);
         ivaAccount = sanitizeAccountCodeForRate(ivaAccount, rate);
         generalAccount = sanitizeAccountCodeForRate(generalAccount, rate);
         var normalizedRateValue = normalizeRateToken(rate);
@@ -6006,28 +6232,7 @@ window.addEventListener('load', function() {
                 info.costCenter.value = storedValue;
             }
         }
-        if (info.base && info.iva) {
-            var baseValue = info.base.value !== undefined ? String(info.base.value).trim() : '';
-            if (baseValue === '') {
-                if (info.iva.value !== '') {
-                    info.iva.value = '';
-                }
-                currentRateData[rate].iva = '';
-                currentRateData[rate].iva_value = '';
-
-            } else {
-                var baseNumber = parseDecimalValue(info.base.value);
-                var percentage = getRatePercentage(rate);
-                if (baseNumber !== null && percentage !== null) {
-                    var expectedIva = formatDecimalValue(baseNumber * (percentage / 100));
-                    if (info.iva.value !== expectedIva) {
-                        info.iva.value = expectedIva;
-                    }
-                    currentRateData[rate].iva = expectedIva;
-                    currentRateData[rate].iva_value = expectedIva;
-                }
-            }
-        }
+        syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
         updateCostCenterFieldMode(rate);
         updateRowDirtyState(rate);
     }
@@ -6751,12 +6956,14 @@ window.addEventListener('load', function() {
 
                 storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
                 storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
+                preserveAdjustedDisplayRates(storedRowRates, currentRateData);
+                preserveAdjustedDisplayRates(storedDefaultRates, currentRateData);
                 var mergedRequirements = (res.row_requirements && typeof res.row_requirements === 'object') ? res.row_requirements : (parseJsonAttribute(currentBtn, 'data-requirements') || {});
                 mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedRowRates);
                 mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedDefaultRates);
                 currentBtn.setAttribute('data-requirements', JSON.stringify(mergedRequirements));
                 removedRates = {};
-                serverOriginalRates = normalizeServerOriginalRates(res.original_rates);
+                serverOriginalRates = preserveAdjustedOriginalRates(normalizeServerOriginalRates(res.original_rates), currentRateData);
                 var rowTotalAccount = typeof res.row_total_account === 'string' ? res.row_total_account : '';
                 var classificationTotalAccount = typeof res.total_account === 'string' ? res.total_account : '';
                 var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
@@ -6806,6 +7013,7 @@ window.addEventListener('load', function() {
                         if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
+                        copyRateHiddenMetadata(currentRateData[rate], rowData);
                         if (rowData.base_source_field) {
                             currentRateData[rate].base_source_field = rowData.base_source_field;
                         }
@@ -6837,6 +7045,7 @@ window.addEventListener('load', function() {
                         if (defaultData.label) {
                             currentRateData[rate].label = defaultData.label;
                         }
+                        copyRateHiddenMetadata(currentRateData[rate], defaultData);
                     }
                 });
 
@@ -6918,6 +7127,8 @@ window.addEventListener('load', function() {
                     iva: ivaValue,
                     base_value: baseValue,
                     iva_value: ivaValue,
+                    erp_rubric_code: String(rateData.erp_rubric_code || '').trim(),
+                    vat_amounts_adjusted: isAdjustedVatRateEntry(rateData) ? '1' : '0',
                     base_source_field: (function() {
                         var rateDataSource = ensureRateData(rate);
                         var existingSource = String(rateDataSource.base_source_field || '').trim();
@@ -7072,6 +7283,7 @@ window.addEventListener('load', function() {
                         if (rowData.label) {
                             currentRateData[rate].label = rowData.label;
                         }
+                        copyRateHiddenMetadata(currentRateData[rate], rowData);
                         if (rowData.base_source_field) {
                             currentRateData[rate].base_source_field = rowData.base_source_field;
                         }
@@ -7104,6 +7316,8 @@ window.addEventListener('load', function() {
                         currentRateData[rate].iva_value = currentRateData[rate].iva;
                         currentRateData[rate].iva_account = ratesPayload[rate] ? ratesPayload[rate].iva_account : '';
                         currentRateData[rate].general_account = ratesPayload[rate] ? ratesPayload[rate].general_account : '';
+                        currentRateData[rate].erp_rubric_code = ratesPayload[rate] ? ratesPayload[rate].erp_rubric_code : '';
+                        currentRateData[rate].vat_amounts_adjusted = ratesPayload[rate] ? ratesPayload[rate].vat_amounts_adjusted : '0';
                         currentRateData[rate].base_source_field = ratesPayload[rate] ? ratesPayload[rate].base_source_field : '';
                         currentRateData[rate].label = getRateLabel(rate);
                     });

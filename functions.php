@@ -172,6 +172,63 @@ function setSetting(string $name, string $value): void {
     $stmt->execute([$name, $value]);
 }
 
+function normalizeAccountingRubricCodeValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/\s+/u', ' ', $string);
+    if (!is_string($normalized) || $normalized === '') {
+        $normalized = $string;
+    }
+
+    if (function_exists('mb_strtoupper')) {
+        return mb_strtoupper($normalized, 'UTF-8');
+    }
+
+    return strtoupper($normalized);
+}
+
+function parseAccountingRubricCodeList($value): array {
+    $tokens = [];
+    if (is_array($value)) {
+        $tokens = $value;
+    } else {
+        $tokens = preg_split('/[\r\n,;]+/u', (string) $value) ?: [];
+    }
+
+    $result = [];
+    $seen = [];
+    foreach ($tokens as $token) {
+        $normalized = normalizeAccountingRubricCodeValue($token);
+        if ($normalized === '' || isset($seen[$normalized])) {
+            continue;
+        }
+        $seen[$normalized] = true;
+        $result[] = $normalized;
+    }
+
+    return $result;
+}
+
+function getAccountingFuelRubricCodes(): array {
+    return parseAccountingRubricCodeList(getSetting('accounting_fuel_rubric_codes', ''));
+}
+
+function isAccountingFuelRubricCode($value, ?array $codes = null): bool {
+    $normalized = normalizeAccountingRubricCodeValue($value);
+    if ($normalized === '') {
+        return false;
+    }
+
+    if ($codes === null) {
+        $codes = getAccountingFuelRubricCodes();
+    }
+
+    return in_array($normalized, $codes, true);
+}
+
 /**
  * Retrieve the slug identifying the configured company.
  *

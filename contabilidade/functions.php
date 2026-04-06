@@ -2344,6 +2344,122 @@ function normalizeAccountingMetadataFlag($value): string {
     return ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
 }
 
+function resolveAccountingVatDeductionPercent(array $rateConfig): float {
+    $rubricCode = normalizeAccountingRubricCodeValue($rateConfig['erp_rubric_code'] ?? '');
+    if ($rubricCode !== '' && isAccountingFuelRubricCode($rubricCode)) {
+        return 50.0;
+    }
+
+    return 100.0;
+}
+
+function isAccountingVatAmountsAdjusted(array $rateConfig): bool {
+    return normalizeAccountingMetadataFlag($rateConfig['vat_amounts_adjusted'] ?? '0') === '1';
+}
+
+function shouldAdjustAccountingVatAmountsForDisplay(array $rateConfig): bool {
+    if (resolveAccountingVatDeductionPercent($rateConfig) >= 99.999) {
+        return false;
+    }
+
+    $generalAccount = trim((string) ($rateConfig['general_account'] ?? ''));
+    $ivaAccount = trim((string) ($rateConfig['iva_account'] ?? ''));
+
+    return preg_match('/^\d{3,}$/', $generalAccount) === 1
+        && preg_match('/^\d{3,}$/', $ivaAccount) === 1;
+}
+
+function applyAccountingVatDeductionToAmounts(?float $baseAmount, ?float $ivaAmount, array $rateConfig): array {
+    $resolvedBase = $baseAmount;
+    $resolvedIva = $ivaAmount;
+    $deductionPercent = resolveAccountingVatDeductionPercent($rateConfig);
+
+    if ($resolvedIva === null || $deductionPercent >= 99.999) {
+        return [
+            'base' => $resolvedBase,
+            'iva' => $resolvedIva,
+            'vat_deduction_percent' => $deductionPercent,
+        ];
+    }
+
+    $deductibleShare = max(0.0, min(1.0, $deductionPercent / 100));
+    $deductibleIva = round($resolvedIva * $deductibleShare, 2);
+    $nonDeductibleIva = round($resolvedIva - $deductibleIva, 2);
+
+    if ($resolvedBase === null) {
+        $resolvedBase = 0.0;
+    }
+
+    return [
+        'base' => round($resolvedBase + $nonDeductibleIva, 2),
+        'iva' => $deductibleIva,
+        'vat_deduction_percent' => $deductionPercent,
+    ];
+}
+
+function adjustAccountingRatesForDisplay(array $rates): array {
+    $sanitized = sanitizeAccountInput($rates);
+
+    foreach ($sanitized as $rate => $entry) {
+        if (!is_array($entry) || isAccountingVatAmountsAdjusted($entry)) {
+            continue;
+        }
+
+        if (!shouldAdjustAccountingVatAmountsForDisplay($entry)) {
+            continue;
+        }
+
+        $baseAmount = resolveAccountingLineAmount($entry['base'] ?? '', null);
+        $ivaAmount = resolveAccountingLineAmount($entry['iva'] ?? '', null);
+        if ($baseAmount === null && $ivaAmount === null) {
+            continue;
+        }
+
+        $adjusted = applyAccountingVatDeductionToAmounts($baseAmount, $ivaAmount, $entry);
+        if ($adjusted['base'] !== null) {
+            $sanitized[$rate]['base'] = number_format((float) $adjusted['base'], 2, '.', '');
+        }
+        if ($adjusted['iva'] !== null) {
+            $sanitized[$rate]['iva'] = number_format((float) $adjusted['iva'], 2, '.', '');
+        }
+        $sanitized[$rate]['vat_amounts_adjusted'] = '1';
+    }
+
+    return $sanitized;
+}
+
+function adjustAccountingOriginalRatesForDisplay(array $originalRates, array $accounts): array {
+    $result = normalizeOriginalRatesPayload($originalRates);
+    $normalizedAccounts = sanitizeAccountInput($accounts);
+
+    foreach ($result as $rate => $entry) {
+        $accountEntry = $normalizedAccounts[$rate] ?? null;
+        if (!is_array($accountEntry) || isAccountingVatAmountsAdjusted($accountEntry)) {
+            continue;
+        }
+
+        if (!shouldAdjustAccountingVatAmountsForDisplay($accountEntry)) {
+            continue;
+        }
+
+        $baseAmount = resolveAccountingLineAmount($entry['base'] ?? '', null);
+        $ivaAmount = resolveAccountingLineAmount($entry['iva'] ?? '', null);
+        if ($baseAmount === null && $ivaAmount === null) {
+            continue;
+        }
+
+        $adjusted = applyAccountingVatDeductionToAmounts($baseAmount, $ivaAmount, $accountEntry);
+        if ($adjusted['base'] !== null) {
+            $result[$rate]['base'] = number_format((float) $adjusted['base'], 2, '.', '');
+        }
+        if ($adjusted['iva'] !== null) {
+            $result[$rate]['iva'] = number_format((float) $adjusted['iva'], 2, '.', '');
+        }
+    }
+
+    return $result;
+}
+
 /**
  * Return the default metadata structure used alongside VAT rate mappings.
  */
@@ -2666,6 +2782,23 @@ function normalizeAccountingAccounts(?string $json): array {
                     }
                 }
 
+                $erpRubricCode = null;
+                if (array_key_exists('erp_rubric_code', $value)) {
+                    $erpRubricCode = extractStringValue($value['erp_rubric_code'], ['value', 'code', 'label', 'text']);
+                } elseif (array_key_exists('rubric_code', $value)) {
+                    $erpRubricCode = extractStringValue($value['rubric_code'], ['value', 'code', 'label', 'text']);
+                }
+                if ($erpRubricCode !== null) {
+                    $erpRubricCode = normalizeAccountingRubricCodeValue($erpRubricCode);
+                    if ($erpRubricCode !== '') {
+                        $result[$keyString]['erp_rubric_code'] = $erpRubricCode;
+                    }
+                }
+
+                if (array_key_exists('vat_amounts_adjusted', $value)) {
+                    $result[$keyString]['vat_amounts_adjusted'] = normalizeAccountingMetadataFlag($value['vat_amounts_adjusted']);
+                }
+
                 $baseValue = null;
                 if (array_key_exists('base_value', $value)) {
                     $baseValue = extractDecimalAmount($value['base_value']);
@@ -2760,6 +2893,8 @@ function sanitizeAccountInput(array $input): array {
         $label = '';
         $baseValue = '';
         $ivaValue = '';
+        $erpRubricCode = '';
+        $vatAmountsAdjusted = '0';
         $costCenterRequired = false;
         $baseSourceField = '';
 
@@ -2792,6 +2927,20 @@ function sanitizeAccountInput(array $input): array {
                 if ($labelCandidate !== null) {
                     $label = $labelCandidate;
                 }
+            }
+
+            $erpRubricCandidate = null;
+            if (array_key_exists('erp_rubric_code', $rateInput)) {
+                $erpRubricCandidate = extractStringValue($rateInput['erp_rubric_code'], ['value', 'code', 'label', 'text']);
+            } elseif (array_key_exists('rubric_code', $rateInput)) {
+                $erpRubricCandidate = extractStringValue($rateInput['rubric_code'], ['value', 'code', 'label', 'text']);
+            }
+            if ($erpRubricCandidate !== null) {
+                $erpRubricCode = normalizeAccountingRubricCodeValue($erpRubricCandidate);
+            }
+
+            if (array_key_exists('vat_amounts_adjusted', $rateInput)) {
+                $vatAmountsAdjusted = normalizeAccountingMetadataFlag($rateInput['vat_amounts_adjusted']);
             }
 
             if (array_key_exists('base_value', $rateInput)) {
@@ -2869,6 +3018,12 @@ function sanitizeAccountInput(array $input): array {
         ];
         if ($effectiveLabel !== '') {
             $result[$rate]['label'] = $effectiveLabel;
+        }
+        if ($erpRubricCode !== '') {
+            $result[$rate]['erp_rubric_code'] = $erpRubricCode;
+        }
+        if ($vatAmountsAdjusted === '1') {
+            $result[$rate]['vat_amounts_adjusted'] = '1';
         }
         if ($costCenterRequired) {
             $result[$rate]['cost_center_required'] = '1';
@@ -3021,9 +3176,15 @@ function mergeAccountingAccounts(array $base, array $override): array {
         if (isset($baseSanitized[$rate]['label'])) {
             $result[$rate]['label'] = $baseSanitized[$rate]['label'];
         }
+        if (isset($baseSanitized[$rate]['erp_rubric_code'])) {
+            $result[$rate]['erp_rubric_code'] = $baseSanitized[$rate]['erp_rubric_code'];
+        }
+        if (isset($baseSanitized[$rate]['vat_amounts_adjusted'])) {
+            $result[$rate]['vat_amounts_adjusted'] = $baseSanitized[$rate]['vat_amounts_adjusted'];
+        }
 
         if (array_key_exists($rate, $overrideSanitized)) {
-            foreach (['iva_account', 'general_account', 'base', 'iva'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted'] as $field) {
                 if (array_key_exists($field, $overrideSanitized[$rate])) {
                     $result[$rate][$field] = $overrideSanitized[$rate][$field];
                 }
@@ -3056,6 +3217,7 @@ function stripAccountingAmounts(array $rates): array {
     foreach ($sanitized as $rate => $entry) {
         $sanitized[$rate]['base'] = '';
         $sanitized[$rate]['iva'] = '';
+        unset($sanitized[$rate]['vat_amounts_adjusted']);
     }
 
     return $sanitized;
@@ -3083,6 +3245,8 @@ function filterVisibleAccountingRates(array $rates): array {
         $label = trim((string) ($entry['label'] ?? ''));
         $costCenterRequired = trim((string) ($entry['cost_center_required'] ?? ''));
         $baseSourceField = trim((string) ($entry['base_source_field'] ?? ''));
+        $erpRubricCode = normalizeAccountingRubricCodeValue($entry['erp_rubric_code'] ?? '');
+        $vatAmountsAdjusted = normalizeAccountingMetadataFlag($entry['vat_amounts_adjusted'] ?? '0');
 
         if ($general === '' && $iva === '' && $base === '' && $ivaValue === '' && $costCenterRequired === '' && $baseSourceField === '') {
             continue;
@@ -3096,6 +3260,12 @@ function filterVisibleAccountingRates(array $rates): array {
         ];
         if ($label !== '') {
             $result[(string) $rate]['label'] = $label;
+        }
+        if ($erpRubricCode !== '') {
+            $result[(string) $rate]['erp_rubric_code'] = $erpRubricCode;
+        }
+        if ($vatAmountsAdjusted === '1') {
+            $result[(string) $rate]['vat_amounts_adjusted'] = '1';
         }
         if ($costCenterRequired !== '') {
             $result[(string) $rate]['cost_center_required'] = $costCenterRequired;
@@ -3610,6 +3780,10 @@ function buildRatePayload(array $summaries, array $accounts): array {
                 $ivaDisplay = $storedIva;
             }
         }
+        $hasStoredAdjustedAmounts = (
+            trim((string) ($accountInfo['base'] ?? '')) !== ''
+            || trim((string) ($accountInfo['iva'] ?? '')) !== ''
+        );
 
         $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
         $ivaAccount = $accountInfo['iva_account'] ?? '';
@@ -3625,6 +3799,8 @@ function buildRatePayload(array $summaries, array $accounts): array {
             'iva_value' => $ivaDisplay,
             'iva_account' => $ivaAccount,
             'general_account' => $accountInfo['general_account'] ?? '',
+            'erp_rubric_code' => $accountInfo['erp_rubric_code'] ?? '',
+            'vat_amounts_adjusted' => ($hasStoredAdjustedAmounts && normalizeAccountingMetadataFlag($accountInfo['vat_amounts_adjusted'] ?? '0') === '1') ? '1' : '0',
         ];
         $requirements[$rate] = [
             'general' => !empty($info['require_general']),
@@ -3961,6 +4137,17 @@ function buildDocumentAccountingLines(array $document): array {
 
         $generalAccount = trim((string) ($config['general_account'] ?? ''));
         $baseAmount = resolveAccountingLineAmount($config['base'] ?? '', $summary['base_value'] ?? null);
+        $ivaAmount = resolveAccountingLineAmount($config['iva'] ?? '', $summary['iva_value'] ?? null);
+        if (isAccountingVatAmountsAdjusted($config)) {
+            $adjustedAmounts = [
+                'base' => $baseAmount,
+                'iva' => $ivaAmount,
+                'vat_deduction_percent' => resolveAccountingVatDeductionPercent($config),
+            ];
+        } else {
+            $adjustedAmounts = applyAccountingVatDeductionToAmounts($baseAmount, $ivaAmount, $config);
+        }
+        $baseAmount = $adjustedAmounts['base'];
         if ($generalAccount !== '' && $baseAmount !== null) {
             $baseAmount *= $documentSign;
             $description = buildAccountingLineDescription($document, $rateKey, 'Base', $label);
@@ -3976,7 +4163,7 @@ function buildDocumentAccountingLines(array $document): array {
         }
 
         $ivaAccount = trim((string) ($config['iva_account'] ?? ''));
-        $ivaAmount = resolveAccountingLineAmount($config['iva'] ?? '', $summary['iva_value'] ?? null);
+        $ivaAmount = $adjustedAmounts['iva'];
         if ($ivaAccount !== '' && $ivaAmount !== null) {
             $ivaAmount *= $documentSign;
             $description = buildAccountingLineDescription($document, $rateKey, 'IVA', $label);

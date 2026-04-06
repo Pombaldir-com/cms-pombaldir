@@ -130,7 +130,7 @@ if (!function_exists('resolveDisplayClassificationAccounts')) {
             $rowEntry = $rowSanitized[$rate] ?? [];
             $entry = $defaultEntry;
 
-            foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field', 'erp_rubric_code', 'vat_amounts_adjusted'] as $field) {
                 $rowValue = isset($rowEntry[$field]) ? trim((string) $rowEntry[$field]) : '';
                 if ($rowValue !== '') {
                     $entry[$field] = $rowValue;
@@ -151,6 +151,130 @@ if (!function_exists('resolveDisplayClassificationAccounts')) {
     }
 }
 
+if (!function_exists('resolveDocumentLigacaoRubricCodes')) {
+    function resolveDocumentLigacaoRubricCodes(PDO $pdo, array $document, array $accounts): array {
+        if (empty(getAccountingFuelRubricCodes())) {
+            return [];
+        }
+
+        $missingRates = [];
+        foreach ($accounts as $rate => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            if (normalizeAccountingRubricCodeValue($entry['erp_rubric_code'] ?? '') !== '') {
+                continue;
+            }
+            $missingRates[] = (string) $rate;
+        }
+        if (empty($missingRates)) {
+            return [];
+        }
+
+        $docType = trim((string) ($document['field_D'] ?? ''));
+        $docDate = normalizeSuggestionDocDate((string) ($document['field_F'] ?? ''));
+        $ligacaoDocType = normalizeSuggestionLigacaoDocType($docType);
+        if ($docDate === '' || $ligacaoDocType === '') {
+            return [];
+        }
+
+        $emitter = trim((string) ($document['field_A'] ?? ''));
+        $emitterNif = extractVatNumber((string) ($document['field_C'] ?? ''));
+        if ($emitterNif === '' && $emitter !== '') {
+            $emitterNif = extractVatNumber($emitter);
+        }
+        $acquirerRaw = trim((string) ($document['field_B'] ?? ''));
+        $acquirerNif = extractVatNumber($acquirerRaw);
+        if ($acquirerNif === '' && !empty($document['field_C'])) {
+            $acquirerNif = extractVatNumber((string) $document['field_C']);
+        }
+
+        $databaseCandidates = [];
+        if ($acquirerNif !== '') {
+            $entity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+            if (is_array($entity)) {
+                $databaseCandidates[] = resolveAccountingEntityDatabase($entity);
+            }
+        }
+        if ($emitterNif !== '') {
+            $entity = findAccountingEntityByType($pdo, $emitterNif, 'emitter');
+            if (is_array($entity)) {
+                $databaseCandidates[] = resolveAccountingEntityDatabase($entity);
+            }
+        }
+        $databaseCandidates[] = resolveErpDatabaseIdentifier('');
+        $databaseCandidates = array_values(array_unique(array_filter($databaseCandidates, static function ($value): bool {
+            return is_string($value) && trim($value) !== '';
+        })));
+        if (empty($databaseCandidates)) {
+            return [];
+        }
+
+        $nifCandidates = array_values(array_unique(array_filter([
+            $emitterNif,
+            extractVatNumber($emitter),
+            $acquirerNif,
+            extractVatNumber($acquirerRaw),
+        ], static function ($value): bool {
+            return is_string($value) && trim($value) !== '';
+        })));
+        if (empty($nifCandidates)) {
+            return [];
+        }
+
+        $ligacaoRows = [];
+        $ligacaoQueryBase = [
+            'datadoc' => $docDate,
+            'strTpDoc' => $ligacaoDocType,
+        ];
+        $docYear = substr($docDate, 0, 4);
+        if (preg_match('/^\d{4}$/', $docYear)) {
+            $ligacaoQueryBase['strCodExercicio'] = $docYear;
+        }
+
+        foreach ($databaseCandidates as $databaseCandidate) {
+            foreach ($nifCandidates as $nifCandidate) {
+                $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', $ligacaoQueryBase + [
+                    'strNIF' => $nifCandidate,
+                ], $databaseCandidate);
+                if (empty($ligacaoPayload)) {
+                    continue;
+                }
+                $candidateRows = extractErpRowsFromPayload($ligacaoPayload);
+                if (empty($candidateRows)) {
+                    continue;
+                }
+                $ligacaoRows = $candidateRows;
+                break 2;
+            }
+        }
+
+        if (empty($ligacaoRows)) {
+            return [];
+        }
+
+        $rateLineType = resolveSuggestionLigacaoLineTypes($docType)['rate'];
+        $result = [];
+        foreach ($ligacaoRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $tipo = strtoupper(trim((string) ($row['strTipo'] ?? '')));
+            if ($tipo !== '' && $tipo !== $rateLineType) {
+                continue;
+            }
+            $rateKey = resolveSuggestionLigacaoRateKeyFromRow($row);
+            $rubricCode = normalizeAccountingRubricCodeValue($row['Rub_Codigo'] ?? '');
+            if ($rateKey === '' || $rubricCode === '' || isset($result[$rateKey])) {
+                continue;
+            }
+            $result[$rateKey] = $rubricCode;
+        }
+
+        return $result;
+    }
+}
+
 if (!function_exists('resolveEffectiveDocumentAccountingConfiguration')) {
     function resolveEffectiveDocumentAccountingConfiguration(PDO $pdo, array $document): string {
         $rowPayload = (string) ($document['account'] ?? '');
@@ -163,25 +287,47 @@ if (!function_exists('resolveEffectiveDocumentAccountingConfiguration')) {
             (string) ($document['field_D'] ?? ''),
             $document
         );
-
-        if (trim($classificationPayload) === '') {
-            return $rowPayload;
-        }
-
-        $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
-        $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
-        $effectiveAccounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
+        $classificationAccounts = [];
+        $classificationMetadata = defaultAccountingMetadata();
+        $effectiveAccounts = $rowAccounts;
         $effectiveMetadata = $rowMetadata;
 
-        if (trim((string) ($effectiveMetadata['total_account'] ?? '')) === '') {
-            $effectiveMetadata['total_account'] = resolveClassificationTotalAccountForContext(
-                $classificationMetadata,
-                $rowMetadata['has_receipt_companion'] ?? '0'
-            );
+        if (trim($classificationPayload) !== '') {
+            $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
+            $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
+            $effectiveAccounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
+
+            if (trim((string) ($effectiveMetadata['total_account'] ?? '')) === '') {
+                $effectiveMetadata['total_account'] = resolveClassificationTotalAccountForContext(
+                    $classificationMetadata,
+                    $rowMetadata['has_receipt_companion'] ?? '0'
+                );
+            }
+
+            if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
+                $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
+            }
         }
 
-        if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
-            $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
+        $resolvedRubricCodes = resolveDocumentLigacaoRubricCodes($pdo, $document, $effectiveAccounts);
+        if (!empty($resolvedRubricCodes)) {
+            foreach ($effectiveAccounts as $rateKey => $entry) {
+                if (!is_array($entry) || normalizeAccountingRubricCodeValue($entry['erp_rubric_code'] ?? '') !== '') {
+                    continue;
+                }
+                $normalizedRateKey = normalizeSuggestionRateKey((string) $rateKey);
+                if ($normalizedRateKey === '') {
+                    $normalizedRateKey = (string) $rateKey;
+                }
+                $rubricCode = $resolvedRubricCodes[$normalizedRateKey] ?? $resolvedRubricCodes[(string) $rateKey] ?? '';
+                if ($rubricCode !== '') {
+                    $effectiveAccounts[$rateKey]['erp_rubric_code'] = $rubricCode;
+                }
+            }
+        }
+
+        if (trim($classificationPayload) === '' && $effectiveAccounts === $rowAccounts) {
+            return $rowPayload;
         }
 
         return serializeAccountingAccounts($effectiveAccounts, $effectiveMetadata, $rowMetadata);
@@ -1056,30 +1202,16 @@ function prepareImportRow(array $row): array {
         $row['emitter_nif_normalized'] = $normalizedEmitterNif;
     }
 
-    $rowAccounts = normalizeAccountingAccounts($row['account'] ?? '');
+    $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfiguration($pdo, $row);
+    $accounts = normalizeAccountingAccounts($effectiveAccountConfig);
+    $accountMetadata = normalizeAccountingMetadata($effectiveAccountConfig);
     $rowMetadata = normalizeAccountingMetadata($row['account'] ?? '');
-    $classificationPayload = fetchClassificationAccountPayload(
-        $pdo,
-        (string) ($row['field_A'] ?? ''),
-        (string) ($row['field_B'] ?? ''),
-        (string) ($row['field_D'] ?? ''),
-        $row
-    );
-    $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
-    $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
-    $accounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
-    $accountMetadata = $rowMetadata;
-    if (trim((string) ($accountMetadata['total_account'] ?? '')) === '') {
-        $accountMetadata['total_account'] = resolveClassificationTotalAccountForContext(
-            $classificationMetadata,
-            $rowMetadata['has_receipt_companion'] ?? '0'
-        );
-    }
     $summaries = computeImportRateSummaries($row);
     [$payload, $requirements] = buildClassificationRequirements($summaries, $accounts, $accountMetadata);
     if (($accountMetadata['ignore_detected_rates'] ?? '0') === '1') {
         $payload = filterVisibleAccountingRates($accounts);
     }
+    $payload = adjustAccountingRatesForDisplay($payload);
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');

@@ -2518,13 +2518,17 @@ function extractAccountsFromPayload(string $json): array {
         }
         $iva = trim((string) ($value['iva_account'] ?? $value['iva'] ?? ''));
         $general = trim((string) ($value['general_account'] ?? $value['general'] ?? ''));
-        if ($iva === '' && $general === '') {
+        $rubricCode = normalizeAccountingRubricCodeValue($value['erp_rubric_code'] ?? ($value['rubric_code'] ?? ''));
+        if ($iva === '' && $general === '' && $rubricCode === '') {
             continue;
         }
         $rates[$rateKey] = [
             'iva_account' => $iva,
             'general_account' => $general,
         ];
+        if ($rubricCode !== '') {
+            $rates[$rateKey]['erp_rubric_code'] = $rubricCode;
+        }
     }
     return $rates;
 }
@@ -2538,15 +2542,20 @@ function buildSuggestedAccounts(array $examples): array {
                 $tally[$rateKey] = [
                     'iva' => [],
                     'general' => [],
+                    'rubric' => [],
                 ];
             }
             $iva = trim((string) ($accounts['iva_account'] ?? ''));
             $general = trim((string) ($accounts['general_account'] ?? ''));
+            $rubricCode = normalizeAccountingRubricCodeValue($accounts['erp_rubric_code'] ?? '');
             if ($iva !== '') {
                 $tally[$rateKey]['iva'][$iva] = ($tally[$rateKey]['iva'][$iva] ?? 0) + 1;
             }
             if ($general !== '') {
                 $tally[$rateKey]['general'][$general] = ($tally[$rateKey]['general'][$general] ?? 0) + 1;
+            }
+            if ($rubricCode !== '') {
+                $tally[$rateKey]['rubric'][$rubricCode] = ($tally[$rateKey]['rubric'][$rubricCode] ?? 0) + 1;
             }
         }
     }
@@ -2554,6 +2563,7 @@ function buildSuggestedAccounts(array $examples): array {
     foreach ($tally as $rateKey => $counts) {
         $iva = '';
         $general = '';
+        $rubricCode = '';
         if (!empty($counts['iva'])) {
             arsort($counts['iva']);
             $iva = (string) array_key_first($counts['iva']);
@@ -2562,11 +2572,18 @@ function buildSuggestedAccounts(array $examples): array {
             arsort($counts['general']);
             $general = (string) array_key_first($counts['general']);
         }
-        if ($iva !== '' || $general !== '') {
+        if (!empty($counts['rubric'])) {
+            arsort($counts['rubric']);
+            $rubricCode = (string) array_key_first($counts['rubric']);
+        }
+        if ($iva !== '' || $general !== '' || $rubricCode !== '') {
             $suggested[$rateKey] = [
                 'iva_account' => $iva,
                 'general_account' => $general,
             ];
+            if ($rubricCode !== '') {
+                $suggested[$rateKey]['erp_rubric_code'] = $rubricCode;
+            }
         }
     }
     return $suggested;
@@ -2580,7 +2597,7 @@ function resolveAccountByRateKey(array $suggested, string $rateKey): array {
     if ($normalized !== '' && isset($suggested[$normalized])) {
         return $suggested[$normalized];
     }
-    return ['iva_account' => '', 'general_account' => ''];
+    return ['iva_account' => '', 'general_account' => '', 'erp_rubric_code' => ''];
 }
 
 function mergeSuggestedAccounts(array $primary, array $fallback): array {
@@ -2595,6 +2612,9 @@ function mergeSuggestedAccounts(array $primary, array $fallback): array {
         }
         if (($result[$rate]['general_account'] ?? '') === '' && ($accounts['general_account'] ?? '') !== '') {
             $result[$rate]['general_account'] = $accounts['general_account'];
+        }
+        if (($result[$rate]['erp_rubric_code'] ?? '') === '' && ($accounts['erp_rubric_code'] ?? '') !== '') {
+            $result[$rate]['erp_rubric_code'] = $accounts['erp_rubric_code'];
         }
     }
     return $result;
@@ -3295,6 +3315,10 @@ function resolveErpLigacaoAccountCandidates(array $row): array {
     ];
 }
 
+function resolveErpLigacaoRubricCode(array $row): string {
+    return normalizeAccountingRubricCodeValue($row['Rub_Codigo'] ?? '');
+}
+
 function resolveErpLigacaoLineTypes(string $docType): array {
     $normalizedDocType = normalizeErpLigacaoDocType($docType);
     if ($normalizedDocType === 'NC') {
@@ -3344,14 +3368,14 @@ function scoreErpLigacaoRows(array $rows, string $docType = ''): int {
 
 function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate): array {
     if ($baseUrl === '' || $token === '' || $db === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'rubric_codes' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $docTypeCandidates = buildErpLigacaoDocTypeCandidates($docType);
     $acquirerNif = extractVatLikeValue($acquirerNif);
     $isoDocDate = normalizeErpLigacaoDocDate($docDate);
     if (empty($docTypeCandidates) || $acquirerNif === '' || $isoDocDate === '') {
-        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'rubric_codes' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $exerciseCandidates = buildErpLigacaoExerciseCandidates($isoDocDate);
@@ -3429,7 +3453,7 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'first_row' => $firstRow,
     ]);
     if (empty($rows)) {
-        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+        return ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'rubric_codes' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
 
     $generalCounts = [];
@@ -3437,6 +3461,7 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
     $totalCreditCounts = [];
     $totalEntityCounts = [];
     $perRate = [];
+    $rubricCodeCounts = [];
     $requiredCostCenterAccounts = [];
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -3459,8 +3484,9 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         }
         $rateKey = resolveLigacaoRateKeyFromRow($row);
         if ($rateKey !== '' && !isset($perRate[$rateKey])) {
-            $perRate[$rateKey] = ['general' => [], 'iva' => []];
+            $perRate[$rateKey] = ['general' => [], 'iva' => [], 'rubric_code' => []];
         }
+        $rubricCode = resolveErpLigacaoRubricCode($row);
         if ($general !== '') {
             $generalCounts[$general] = ($generalCounts[$general] ?? 0) + 1;
             if ($rateKey !== '') {
@@ -3473,6 +3499,12 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
                 $perRate[$rateKey]['iva'][$iva] = ($perRate[$rateKey]['iva'][$iva] ?? 0) + 1;
             }
         }
+        if ($rubricCode !== '') {
+            $rubricCodeCounts[$rubricCode] = ($rubricCodeCounts[$rubricCode] ?? 0) + 1;
+            if ($rateKey !== '') {
+                $perRate[$rateKey]['rubric_code'][$rubricCode] = ($perRate[$rateKey]['rubric_code'][$rubricCode] ?? 0) + 1;
+            }
+        }
         if ($codFichRepart === '?' && $general !== '') {
             $requiredCostCenterAccounts[$general] = true;
         }
@@ -3482,12 +3514,15 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
     arsort($ivaCounts);
     arsort($totalCreditCounts);
     arsort($totalEntityCounts);
+    arsort($rubricCodeCounts);
     foreach ($perRate as $rateKey => $entry) {
         arsort($entry['general']);
         arsort($entry['iva']);
+        arsort($entry['rubric_code']);
         $perRate[$rateKey] = [
             'general' => array_slice(array_keys($entry['general']), 0, 8),
             'iva' => array_slice(array_keys($entry['iva']), 0, 8),
+            'rubric_code' => array_slice(array_keys($entry['rubric_code']), 0, 8),
         ];
     }
     $totalCounts = !empty($totalCreditCounts) ? $totalCreditCounts : $totalEntityCounts;
@@ -3497,6 +3532,7 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         'iva' => array_slice(array_keys($ivaCounts), 0, 8),
         'total' => array_slice(array_keys($totalCounts), 0, 8),
         'per_rate' => $perRate,
+        'rubric_codes' => array_slice(array_keys($rubricCodeCounts), 0, 8),
         'required_cost_center_accounts' => array_values(array_keys($requiredCostCenterAccounts)),
         'count' => is_array($rows) ? count($rows) : 0,
     ];
@@ -3968,7 +4004,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     $planDb = '';
     $planYear = date('Y');
     $preferPlanAsLastOption = false;
-    $ligacaoHints = ['general' => [], 'iva' => [], 'total' => [], 'required_cost_center_accounts' => [], 'count' => 0];
+    $ligacaoHints = ['general' => [], 'iva' => [], 'total' => [], 'per_rate' => [], 'rubric_codes' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     $movementHints = ['general' => [], 'iva' => [], 'count' => 0];
     $ligacaoNifUsed = '';
     $ligacaoLookupAttempted = false;
@@ -4140,6 +4176,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         $ligacaoGeneral = is_array($ligacaoHints['general']) ? $ligacaoHints['general'] : [];
         $ligacaoIva = is_array($ligacaoHints['iva']) ? $ligacaoHints['iva'] : [];
         $ligacaoPerRate = is_array($ligacaoHints['per_rate'] ?? null) ? $ligacaoHints['per_rate'] : [];
+        $ligacaoRubricCodes = is_array($ligacaoHints['rubric_codes'] ?? null) ? $ligacaoHints['rubric_codes'] : [];
         foreach ($rateItems as $rateInfo) {
             $rateKey = (string) ($rateInfo['key'] ?? '');
             if ($rateKey === '') {
@@ -4152,6 +4189,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             $perRateEntry = $ligacaoPerRate[$normalizedRateKey] ?? $ligacaoPerRate[$rateKey] ?? [];
             $perRateGeneral = is_array($perRateEntry['general'] ?? null) ? $perRateEntry['general'] : [];
             $perRateIva = is_array($perRateEntry['iva'] ?? null) ? $perRateEntry['iva'] : [];
+            $perRateRubricCodes = is_array($perRateEntry['rubric_code'] ?? null) ? $perRateEntry['rubric_code'] : [];
             $generalCandidates = !empty($perRateGeneral) ? $perRateGeneral : $ligacaoGeneral;
             $ivaCandidates = !empty($perRateIva) ? $perRateIva : $ligacaoIva;
             $trustUnscopedLigacaoCandidates = count($rateItems) === 1 && empty($perRateGeneral) && empty($perRateIva);
@@ -4178,6 +4216,15 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                 }
                 if ($matchedIva !== '') {
                     $finalSuggested[$rateKey]['iva_account'] = $matchedIva;
+                }
+            }
+            $rubricCodeCandidates = !empty($perRateRubricCodes)
+                ? $perRateRubricCodes
+                : ($trustUnscopedLigacaoCandidates ? $ligacaoRubricCodes : []);
+            if (!empty($rubricCodeCandidates)) {
+                $matchedRubricCode = trim((string) pickFirstAccountCandidate($rubricCodeCandidates));
+                if ($matchedRubricCode !== '') {
+                    $finalSuggested[$rateKey]['erp_rubric_code'] = $matchedRubricCode;
                 }
             }
             if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '' && $planAccounts) {
