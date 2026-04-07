@@ -2353,6 +2353,71 @@ function resolveAccountingVatDeductionPercent(array $rateConfig): float {
     return 100.0;
 }
 
+function reverseAccountingVatDeductionToGrossAmounts(?float $baseAmount, ?float $ivaAmount, string $rate): array {
+    $resolvedBase = $baseAmount;
+    $resolvedIva = $ivaAmount;
+    $normalizedRate = normalizeAccountingRateKey($rate);
+    if ($normalizedRate === '' || !is_numeric($normalizedRate)) {
+        return [
+            'base' => $resolvedBase,
+            'iva' => $resolvedIva,
+        ];
+    }
+
+    $ratePercent = (float) $normalizedRate;
+    if (!is_finite($ratePercent) || $ratePercent <= 0.00001) {
+        return [
+            'base' => $resolvedBase,
+            'iva' => $resolvedIva,
+        ];
+    }
+
+    if ($resolvedBase !== null) {
+        $resolvedBase = round($resolvedBase * (100 / (100 + ($ratePercent / 2))), 2);
+    } elseif ($resolvedIva !== null) {
+        $resolvedBase = round(($resolvedIva * 200) / $ratePercent, 2);
+    }
+
+    if ($resolvedIva !== null) {
+        $resolvedIva = round($resolvedIva * 2, 2);
+    } elseif ($resolvedBase !== null) {
+        $resolvedIva = round($resolvedBase * ($ratePercent / 100), 2);
+    }
+
+    return [
+        'base' => $resolvedBase,
+        'iva' => $resolvedIva,
+    ];
+}
+
+function normalizeAccountingVatAdjustmentState(string $rate, array $entry): array {
+    $isAdjusted = normalizeAccountingMetadataFlag($entry['vat_amounts_adjusted'] ?? '0') === '1';
+    if (!$isAdjusted) {
+        unset($entry['vat_amounts_adjusted']);
+        return $entry;
+    }
+
+    if (resolveAccountingVatDeductionPercent($entry) < 99.999) {
+        $entry['vat_amounts_adjusted'] = '1';
+        return $entry;
+    }
+
+    $baseAmount = resolveAccountingLineAmount($entry['base'] ?? '', null);
+    $ivaAmount = resolveAccountingLineAmount($entry['iva'] ?? '', null);
+    $reverted = reverseAccountingVatDeductionToGrossAmounts($baseAmount, $ivaAmount, $rate);
+
+    if ($reverted['base'] !== null) {
+        $entry['base'] = number_format((float) $reverted['base'], 2, '.', '');
+    }
+    if ($reverted['iva'] !== null) {
+        $entry['iva'] = number_format((float) $reverted['iva'], 2, '.', '');
+    }
+
+    unset($entry['vat_amounts_adjusted']);
+
+    return $entry;
+}
+
 function isAccountingVatAmountsAdjusted(array $rateConfig): bool {
     return normalizeAccountingMetadataFlag($rateConfig['vat_amounts_adjusted'] ?? '0') === '1';
 }
@@ -2858,6 +2923,13 @@ function normalizeAccountingAccounts(?string $json): array {
         }
     }
 
+    foreach ($result as $rate => $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $result[$rate] = normalizeAccountingVatAdjustmentState((string) $rate, $entry);
+    }
+
     return $result;
 }
 
@@ -3031,6 +3103,8 @@ function sanitizeAccountInput(array $input): array {
         if (!empty($baseSourceField)) {
             $result[$rate]['base_source_field'] = $baseSourceField;
         }
+
+        $result[$rate] = normalizeAccountingVatAdjustmentState((string) $rate, $result[$rate]);
     }
 
     return $result;

@@ -438,8 +438,31 @@ window.addEventListener('load', function() {
     var erpBaseCompany = window.erpBaseCompany ? String(window.erpBaseCompany).trim() : '';
     var erpDefaultDatabase = window.erpDefaultDatabase ? String(window.erpDefaultDatabase).trim() : '';
     var classificacaoImportDebugMode = window.classificacaoImportDebugMode === true;
+    var accountingFuelRubricCodeMap = {};
     var currentCostCenterOptions = [];
     var currentCostCenterContextKey = '';
+
+    function normalizeAccountingRubricCodeValue(value) {
+        var string = String(value || '').trim();
+        if (!string) {
+            return '';
+        }
+        return string.replace(/\s+/g, ' ').toLocaleUpperCase();
+    }
+
+    if (Array.isArray(window.accountingFuelRubricCodes)) {
+        window.accountingFuelRubricCodes.forEach(function(code) {
+            var normalized = normalizeAccountingRubricCodeValue(code);
+            if (normalized) {
+                accountingFuelRubricCodeMap[normalized] = true;
+            }
+        });
+    }
+
+    function isFuelRubricCode(code) {
+        var normalized = normalizeAccountingRubricCodeValue(code);
+        return normalized !== '' && Object.prototype.hasOwnProperty.call(accountingFuelRubricCodeMap, normalized);
+    }
 
     function updateCsrfTokenFromResponse(res) {
         if (res && res.csrf_token && csrfInput) {
@@ -3564,6 +3587,9 @@ window.addEventListener('load', function() {
             rubricCode = String(storedDefaultRates[rate].erp_rubric_code || '').trim();
         }
         if (!rubricCode) {
+            return false;
+        }
+        if (!isFuelRubricCode(rubricCode)) {
             return false;
         }
 
