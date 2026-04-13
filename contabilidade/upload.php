@@ -696,14 +696,17 @@ function summarizeEfaturaRatesForUpload(array $payload): array {
     ];
 }
 
-function buildUploadRowFromEfaturaDocument(array $document): array {
-    $payload = [];
-    if (!empty($document['raw_payload_json']) && is_string($document['raw_payload_json'])) {
-        $decoded = json_decode($document['raw_payload_json'], true);
-        if (is_array($decoded)) {
-            $payload = $decoded;
-        }
+function decodeUploadEfaturaPayload(array $document): array {
+    if (empty($document['raw_payload_json']) || !is_string($document['raw_payload_json'])) {
+        return [];
     }
+
+    $decoded = json_decode($document['raw_payload_json'], true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function buildUploadRowFromEfaturaDocument(array $document): array {
+    $payload = decodeUploadEfaturaPayload($document);
 
     $rawRow = is_array($payload['raw_row'] ?? null) ? $payload['raw_row'] : [];
     $issuerVat = trim((string) ($payload['issuer_vat'] ?? $document['issuer_vat'] ?? ''));
@@ -769,6 +772,8 @@ function searchEfaturaDocumentsForUpload(PDO $pdo, string $term, int $limit = 20
         $params[] = '%' . $normalizedDigits . '%';
         $where[] = 'REPLACE(REPLACE(REPLACE(TRIM(customer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') LIKE ?';
         $params[] = '%' . $normalizedDigits . '%';
+        $where[] = 'raw_payload_json LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
     }
     if ($searchTerm !== '') {
         $where[] = 'issuer_name LIKE ?';
@@ -779,6 +784,8 @@ function searchEfaturaDocumentsForUpload(PDO $pdo, string $term, int $limit = 20
         $params[] = '%' . $searchTerm . '%';
         $where[] = 'source_hash LIKE ?';
         $params[] = '%' . $searchTerm . '%';
+        $where[] = 'raw_payload_json LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
     }
     if ($where) {
         $sql .= ' WHERE ' . implode(' OR ', $where);
@@ -788,6 +795,222 @@ function searchEfaturaDocumentsForUpload(PDO $pdo, string $term, int $limit = 20
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function fetchUploadAcquirerCompanies(PDO $pdo): array {
+    if (!hasTable('accounting_entities')) {
+        return [];
+    }
+
+    $sql = "SELECT id, name, nif
+            FROM accounting_entities
+            WHERE entity_type = 'acquirer'
+            ORDER BY name ASC, nif ASC, id ASC";
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $companies = [];
+    foreach ($rows as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        $nif = extractVatNumber((string) ($row['nif'] ?? ''));
+        if ($id <= 0 || $nif === '') {
+            continue;
+        }
+        $name = trim((string) ($row['name'] ?? ''));
+        $label = $name !== '' && $name !== $nif ? ($name . ' - ' . $nif) : $nif;
+        $companies[] = [
+            'id' => $id,
+            'nif' => $nif,
+            'name' => $name,
+            'label' => $label,
+        ];
+    }
+
+    return $companies;
+}
+
+function resolveUploadSelectedAcquirerCompanyId(array $companies): int {
+    if (!$companies) {
+        return 0;
+    }
+
+    $allowedIds = [];
+    foreach ($companies as $company) {
+        $id = (int) ($company['id'] ?? 0);
+        if ($id > 0) {
+            $allowedIds[$id] = true;
+        }
+    }
+
+    $sessionKeyCandidates = [
+        'efatura_selected_entity_id',
+    ];
+
+    foreach ($sessionKeyCandidates as $sessionKey) {
+        $candidateId = (int) ($_SESSION[$sessionKey] ?? 0);
+        if ($candidateId > 0 && isset($allowedIds[$candidateId])) {
+            return $candidateId;
+        }
+    }
+
+    return 0;
+}
+
+function searchEfaturaDocumentsForUploadFiltered(PDO $pdo, string $term, int $limit = 20, int $acquirerEntityId = 0, string $acquirerNif = ''): array {
+    $limit = max(1, min(50, $limit));
+    $normalizedDigits = preg_replace('/\D+/', '', $term) ?? '';
+    $searchTerm = trim($term);
+    $normalizedAcquirerNif = extractVatNumber($acquirerNif);
+
+    if (!hasTable('efatura_documents')) {
+        return [];
+    }
+
+    $sql = 'SELECT id, entity_id, issuer_vat, issuer_name, customer_vat, invoice_no, atcud, invoice_date, invoice_type, document_status, tax_payable, net_total, gross_total, source_hash, raw_payload_json
+            FROM efatura_documents';
+    $filters = [];
+    $params = [];
+    if ($acquirerEntityId > 0) {
+        $filters[] = 'entity_id = ?';
+        $params[] = $acquirerEntityId;
+    } elseif ($normalizedAcquirerNif !== '') {
+        $filters[] = 'REPLACE(REPLACE(REPLACE(TRIM(customer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') = ?';
+        $params[] = $normalizedAcquirerNif;
+    }
+
+    $where = [];
+    if ($normalizedDigits !== '') {
+        $where[] = 'REPLACE(REPLACE(REPLACE(TRIM(issuer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
+        $where[] = 'REPLACE(REPLACE(REPLACE(TRIM(customer_vat), \' \', \'\'), \'-\', \'\'), \'.\', \'\') LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
+        $where[] = 'raw_payload_json LIKE ?';
+        $params[] = '%' . $normalizedDigits . '%';
+    }
+    if ($searchTerm !== '') {
+        $where[] = 'issuer_name LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'invoice_no LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'atcud LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'source_hash LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+        $where[] = 'raw_payload_json LIKE ?';
+        $params[] = '%' . $searchTerm . '%';
+    }
+
+    $sqlFilters = [];
+    if ($filters) {
+        $sqlFilters[] = implode(' AND ', $filters);
+    }
+    if ($where) {
+        $sqlFilters[] = '(' . implode(' OR ', $where) . ')';
+    }
+    if ($sqlFilters) {
+        $sql .= ' WHERE ' . implode(' AND ', $sqlFilters);
+    }
+    $sql .= ' ORDER BY invoice_date DESC, id DESC LIMIT ' . (int) $limit;
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function extractUploadVatCandidatesFromText(string $text): array {
+    if (trim($text) === '') {
+        return [];
+    }
+
+    preg_match_all('/(?<![A-Z0-9])(?:PT\s*)?(\d{9})(?!\d)/i', $text, $matches);
+    $values = [];
+    foreach (($matches[1] ?? []) as $candidate) {
+        $nif = extractVatNumber((string) $candidate);
+        if ($nif !== '') {
+            $values[$nif] = true;
+        }
+    }
+
+    return array_keys($values);
+}
+
+function suggestUploadAcquirerCompanyFromOcr(string $absoluteFile, array $companies): array {
+    if (!is_file($absoluteFile) || !$companies) {
+        return ['ok' => true, 'match' => null, 'matches' => [], 'nifs' => []];
+    }
+
+    $text = '';
+    $pdftotextBin = trim((string) shell_exec('command -v pdftotext 2>/dev/null'));
+    if ($pdftotextBin !== '') {
+        $command = escapeshellarg($pdftotextBin)
+            . ' -f 1 -l 1 -layout '
+            . escapeshellarg($absoluteFile)
+            . ' - 2>/dev/null';
+        $pdfText = shell_exec($command);
+        if (is_string($pdfText) && trim($pdfText) !== '') {
+            $text = trim($pdfText);
+        }
+    }
+
+    if ($text === '') {
+        $preview = renderAccountingUploadPreview($absoluteFile, 1);
+        if (empty($preview['ok']) || empty($preview['preview_file'])) {
+            return ['ok' => false, 'error' => $preview['error'] ?? 'Falha ao gerar preview OCR.'];
+        }
+
+        $previewPath = dirname(__DIR__) . '/' . ltrim((string) $preview['preview_file'], '/');
+        if (!is_file($previewPath)) {
+            return ['ok' => false, 'error' => 'Preview OCR indisponível.'];
+        }
+
+        try {
+            $text = extractOcrTextFromImage($previewPath, 'por');
+        } catch (Throwable $e) {
+            logOcrMessage('Falha OCR upload/acquirer: ' . $e->getMessage());
+            return ['ok' => false, 'error' => 'Falha ao executar OCR na primeira página.'];
+        }
+    }
+
+    $candidateNifs = extractUploadVatCandidatesFromText($text);
+    if (!$candidateNifs) {
+        return ['ok' => true, 'match' => null, 'matches' => [], 'nifs' => []];
+    }
+
+    $companiesByNif = [];
+    foreach ($companies as $company) {
+        $nif = extractVatNumber((string) ($company['nif'] ?? ''));
+        if ($nif !== '') {
+            $companiesByNif[$nif] = $company;
+        }
+    }
+
+    $matches = [];
+    foreach ($candidateNifs as $candidateNif) {
+        if (isset($companiesByNif[$candidateNif])) {
+            $matches[$candidateNif] = $companiesByNif[$candidateNif];
+        }
+    }
+
+    $matchList = array_values($matches);
+    return [
+        'ok' => true,
+        'match' => count($matchList) === 1 ? $matchList[0] : null,
+        'matches' => $matchList,
+        'nifs' => $candidateNifs,
+    ];
+}
+
+function collectUploadPartyCandidatesFromFirstPage(string $absoluteFile, array $companies): array {
+    $suggestion = suggestUploadAcquirerCompanyFromOcr($absoluteFile, $companies);
+    if (!empty($suggestion['ok'])) {
+        return $suggestion;
+    }
+
+    return [
+        'ok' => false,
+        'match' => null,
+        'matches' => [],
+        'nifs' => [],
+        'error' => $suggestion['error'] ?? 'Falha ao analisar parties por OCR.',
+    ];
 }
 
 function runQrToolCommand(array $arguments): array {
@@ -962,18 +1185,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'efatura-search') {
     }
 
     $term = trim((string) ($_GET['q'] ?? ''));
+    $acquirerEntityId = (int) ($_GET['acquirer_entity_id'] ?? 0);
+    $acquirerNif = trim((string) ($_GET['acquirer_nif'] ?? ''));
     $pdo = getPDO();
-    $documents = searchEfaturaDocumentsForUpload($pdo, $term, 30);
+    $documents = searchEfaturaDocumentsForUploadFiltered($pdo, $term, 30, $acquirerEntityId, $acquirerNif);
     $results = [];
     foreach ($documents as $document) {
-        $issuerVat = trim((string) ($document['issuer_vat'] ?? ''));
-        $issuerName = trim((string) ($document['issuer_name'] ?? ''));
-        $invoiceNo = trim((string) ($document['invoice_no'] ?? ''));
-        $invoiceDate = trim((string) ($document['invoice_date'] ?? ''));
+        $payload = decodeUploadEfaturaPayload($document);
+        $rawRow = is_array($payload['raw_row'] ?? null) ? $payload['raw_row'] : [];
+        $issuerVat = trim((string) ($document['issuer_vat'] ?? $payload['issuer_vat'] ?? $rawRow['nifEmitente'] ?? ''));
+        $issuerName = trim((string) ($document['issuer_name'] ?? $payload['issuer_name'] ?? $rawRow['nomeEmitente'] ?? ''));
+        $customerVat = trim((string) ($document['customer_vat'] ?? $payload['customer_vat'] ?? $rawRow['nifAdquirente'] ?? ''));
+        $invoiceNo = trim((string) ($document['invoice_no'] ?? $payload['invoice_no'] ?? $rawRow['numerodocumento'] ?? ''));
+        $invoiceDate = trim((string) ($document['invoice_date'] ?? $payload['invoice_date'] ?? $rawRow['dataEmissaoDocumento'] ?? ''));
+        $invoiceType = trim((string) ($document['invoice_type'] ?? $payload['invoice_type'] ?? $rawRow['tipoDocumento'] ?? ''));
         $grossTotal = normalizeUploadMoneyValue($document['gross_total'] ?? '');
         $labelParts = [trim($issuerVat . ' - ' . $issuerName)];
         if ($invoiceNo !== '') {
             $labelParts[] = $invoiceNo;
+        }
+        if ($invoiceType !== '') {
+            $labelParts[] = $invoiceType;
         }
         if ($invoiceDate !== '') {
             $labelParts[] = $invoiceDate;
@@ -988,10 +1220,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'efatura-search') {
             }))),
             'issuer_vat' => $issuerVat,
             'issuer_name' => $issuerName,
-            'customer_vat' => trim((string) ($document['customer_vat'] ?? '')),
+            'customer_vat' => $customerVat,
             'invoice_no' => $invoiceNo,
             'invoice_date' => $invoiceDate,
-            'invoice_type' => trim((string) ($document['invoice_type'] ?? '')),
+            'invoice_type' => $invoiceType,
             'gross_total' => $grossTotal,
             'mapped_row' => buildUploadRowFromEfaturaDocument($document),
         ];
@@ -1035,6 +1267,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'preview-page') {
         'preview_height' => (int) $preview['preview_height'],
         'page' => (int) $preview['page'],
         'page_count' => (int) $preview['page_count'],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'suggest-acquirer-ocr') {
+    header('Content-Type: application/json');
+
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Sessão inválida']);
+        exit;
+    }
+
+    $file = trim((string) ($_GET['file'] ?? ''));
+    $resolved = resolveAccountingUploadPath($file);
+    if (empty($resolved['ok'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => $resolved['error'] ?? 'Ficheiro inválido.']);
+        exit;
+    }
+
+    $pdo = getPDO();
+    $companies = fetchUploadAcquirerCompanies($pdo);
+    $suggestion = suggestUploadAcquirerCompanyFromOcr((string) $resolved['absolute'], $companies);
+    if (empty($suggestion['ok'])) {
+        logOcrMessage('OCR adquirente ignorado: ' . (string) ($suggestion['error'] ?? 'erro desconhecido'));
+        echo json_encode([
+            'success' => true,
+            'company' => null,
+            'matches' => [],
+            'candidate_nifs' => [],
+            'ocr_error' => $suggestion['error'] ?? 'Falha ao sugerir adquirente por OCR.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'company' => $suggestion['match'],
+        'matches' => $suggestion['matches'],
+        'candidate_nifs' => $suggestion['nifs'],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'suggest-emitter-ocr') {
+    header('Content-Type: application/json');
+
+    if (!isLoggedIn()) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Sessão inválida']);
+        exit;
+    }
+
+    $file = trim((string) ($_GET['file'] ?? ''));
+    $acquirerNif = extractVatNumber((string) ($_GET['acquirer_nif'] ?? ''));
+    $resolved = resolveAccountingUploadPath($file);
+    if (empty($resolved['ok'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => $resolved['error'] ?? 'Ficheiro inválido.']);
+        exit;
+    }
+
+    $pdo = getPDO();
+    $companies = fetchUploadAcquirerCompanies($pdo);
+    $parties = collectUploadPartyCandidatesFromFirstPage((string) $resolved['absolute'], $companies);
+    if (empty($parties['ok'])) {
+        logOcrMessage('OCR emitente ignorado: ' . (string) ($parties['error'] ?? 'erro desconhecido'));
+        echo json_encode([
+            'success' => true,
+            'emitter_nif' => '',
+            'candidate_nifs' => [],
+            'ocr_error' => $parties['error'] ?? 'Falha ao sugerir emitente por OCR.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $candidateNifs = array_values(array_filter((array) ($parties['nifs'] ?? []), static function ($nif) use ($acquirerNif): bool {
+        $normalized = extractVatNumber((string) $nif);
+        return $normalized !== '' && $normalized !== $acquirerNif;
+    }));
+
+    echo json_encode([
+        'success' => true,
+        'emitter_nif' => (string) ($candidateNifs[0] ?? ''),
+        'candidate_nifs' => $candidateNifs,
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -1474,6 +1792,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $useDropzone = true;
 $useDataTables = true;
 $useSelect2 = true;
+$pdo = getPDO();
+$uploadAcquirerCompanies = fetchUploadAcquirerCompanies($pdo);
+$selectedUploadAcquirerCompanyId = resolveUploadSelectedAcquirerCompanyId($uploadAcquirerCompanies);
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 $erpDatabase = trim((string) getSetting('erp_database', ''));
@@ -1620,15 +1941,26 @@ if ($qrParallelUploads > 6) {
                         <p class="text-muted">
                             Se o QR nao for detetado, pesquise pelo NIF ou nome do emitente e associe um documento importado do E-fatura a este ficheiro.
                         </p>
-                        <div class="row">
-                            <div class="col-md-8 col-sm-12">
+                        <div class="row manual-efatura-row">
+                            <div class="col-md-4 col-sm-12 manual-efatura-col">
+                                <label for="manualQrAcquirerSelect" class="form-label">Empresa</label>
+                                <select id="manualQrAcquirerSelect" class="form-control">
+                                    <option value="">Selecionar empresa...</option>
+<?php foreach ($uploadAcquirerCompanies as $company): ?>
+                                    <option value="<?= (int) $company['id']; ?>" data-nif="<?= htmlspecialchars((string) $company['nif'], ENT_QUOTES, 'UTF-8'); ?>" <?= $selectedUploadAcquirerCompanyId === (int) $company['id'] ? 'selected' : ''; ?>>
+                                        <?= htmlspecialchars((string) $company['label'], ENT_QUOTES, 'UTF-8'); ?>
+                                    </option>
+<?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="col-md-6 col-sm-12 manual-efatura-col">
                                 <label for="manualQrEfaturaSelect" class="form-label">Documento E-fatura</label>
                                 <select id="manualQrEfaturaSelect" class="form-control"></select>
                             </div>
-                            <div class="col-md-4 col-sm-12">
+                            <div class="col-md-2 col-sm-12 manual-efatura-col manual-efatura-action">
                                 <label class="form-label d-block">&nbsp;</label>
-                                <button type="button" class="btn btn-primary" id="manualQrApplyEfaturaBtn">
-                                    <i class="fa fa-link"></i> Associar documento
+                                <button type="button" class="btn btn-primary manual-efatura-apply-btn" id="manualQrApplyEfaturaBtn">
+                                    <i class="fa fa-link"></i> Associar
                                 </button>
                             </div>
                         </div>
@@ -1652,6 +1984,34 @@ if ($qrParallelUploads > 6) {
                 <button type="button" class="btn btn-default" id="manualQrClearBtn"><i class="fa fa-eraser"></i> Limpar seleção</button>
                 <button type="button" class="btn btn-primary" id="manualQrDecodeBtn"><i class="fa fa-qrcode"></i> Ler QR selecionado</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="manualQrEmitterModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="manualQrEmitterForm">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fa fa-building-o"></i> Importar assim</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Indique o NIF do emitente para enviar o documento para Classificação com emitente e adquirente preenchidos.</p>
+                    <div class="mb-3">
+                        <label for="manualQrEmitterNifInput" class="form-label">NIF do emitente</label>
+                        <input type="text" class="form-control" id="manualQrEmitterNifInput" inputmode="numeric" placeholder="Ex: 980669545" maxlength="20" required>
+                    </div>
+                    <div id="manualQrEmitterHint" class="text-muted small d-none"></div>
+                    <div id="manualQrEmitterError" class="alert alert-danger d-none mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="manualQrEmitterConfirmBtn">
+                        <i class="fa fa-share"></i> Continuar
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -1702,6 +2062,32 @@ if ($qrParallelUploads > 6) {
 .manual-efatura-panel {
     margin-bottom: 15px;
 }
+
+.manual-efatura-row {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.manual-efatura-col {
+    margin-bottom: 10px;
+}
+
+.manual-efatura-action {
+    display: flex;
+    flex-direction: column;
+}
+
+.manual-efatura-apply-btn {
+    width: 100%;
+    white-space: nowrap;
+}
+
+@media (max-width: 991px) {
+    .manual-efatura-row {
+        display: block;
+    }
+}
 </style>
 
 <?php
@@ -1709,7 +2095,11 @@ $pageScripts = "window.erpDatabase = " . json_encode($erpDatabase, JSON_UNESCAPE
     . "window.accountingUploadPreviewUrl = " . json_encode((string) (BASE_URL . 'upload?action=preview-page'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadManualQrUrl = " . json_encode((string) (BASE_URL . 'upload?action=manual-qr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadEfaturaSearchUrl = " . json_encode((string) (BASE_URL . 'upload?action=efatura-search'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadOcrAcquirerUrl = " . json_encode((string) (BASE_URL . 'upload?action=suggest-acquirer-ocr'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadOcrEmitterUrl = " . json_encode((string) (BASE_URL . 'upload?action=suggest-emitter-ocr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDeleteUrl = " . json_encode((string) (BASE_URL . 'upload?action=delete'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadAcquirerCompanies = " . json_encode($uploadAcquirerCompanies, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ";\n"
+    . "window.accountingUploadSelectedAcquirerId = " . json_encode($selectedUploadAcquirerCompanyId, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadParallelUploads = " . json_encode($qrParallelUploads, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDebug = " . json_encode(getSetting('debug_mode', '0') === '1', JSON_UNESCAPED_UNICODE) . ";\n";
 ?>

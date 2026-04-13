@@ -1226,7 +1226,16 @@ function prepareImportRow(array $row): array {
             break;
         }
     }
-    $row['show_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$hasDocumentIdentity) ? '1' : '0';
+    $hasEmitterAndAcquirerOnly = trim((string) ($row['field_A'] ?? '')) !== ''
+        && trim((string) ($row['field_B'] ?? '')) !== ''
+        && trim((string) ($row['field_D'] ?? '')) === ''
+        && trim((string) ($row['field_F'] ?? '')) === ''
+        && trim((string) ($row['field_G'] ?? '')) === ''
+        && trim((string) ($row['field_H'] ?? '')) === ''
+        && trim((string) ($row['field_R'] ?? '')) === ''
+        && trim((string) ($row['field_N'] ?? '')) === ''
+        && trim((string) ($row['field_O'] ?? '')) === '';
+    $row['show_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$hasDocumentIdentity || $hasEmitterAndAcquirerOnly) ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
     $row['total_account'] = $accountMetadata['total_account'] ?? '';
     $row['line_btn_class'] = 'btn-info';

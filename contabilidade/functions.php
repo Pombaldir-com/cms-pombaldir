@@ -2123,6 +2123,49 @@ function parseInvoiceLineImage(string $imagePath): array {
 }
 
 /**
+ * Extract raw OCR text from an image using Tesseract.
+ *
+ * @param string $imagePath Path to the image file.
+ * @param string $language OCR language code.
+ * @return string
+ */
+function extractOcrTextFromImage(string $imagePath, string $language = 'por'): string {
+    if (!is_file($imagePath)) {
+        throw new RuntimeException('Imagem OCR inválida.');
+    }
+
+    if (class_exists(TesseractOCR::class)) {
+        $ocr = new TesseractOCR($imagePath);
+        if (trim($language) !== '') {
+            $ocr->lang($language);
+        }
+
+        return trim((string) $ocr->run());
+    }
+
+    $tesseractBin = trim((string) shell_exec('command -v tesseract 2>/dev/null'));
+    if ($tesseractBin === '') {
+        throw new RuntimeException('Tesseract não disponível.');
+    }
+
+    $command = escapeshellarg($tesseractBin)
+        . ' ' . escapeshellarg($imagePath)
+        . ' stdout';
+
+    if (trim($language) !== '') {
+        $command .= ' -l ' . escapeshellarg($language);
+    }
+
+    $command .= ' 2>/dev/null';
+    $output = shell_exec($command);
+    if (!is_string($output)) {
+        throw new RuntimeException('Falha ao executar Tesseract CLI.');
+    }
+
+    return trim($output);
+}
+
+/**
  * Extract invoice lines using AWS Textract via a Python helper script.
  * Returns an array of line items with the same structure as
  * parseInvoiceLineText along with the raw text.

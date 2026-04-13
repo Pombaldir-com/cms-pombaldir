@@ -101,7 +101,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
     }
 
     .classify-modal-vat-table .col-cost-center {
-        width: 11%;
+        width: 9%;
     }
 
     .classify-modal-vat-table .col-actions {
@@ -118,21 +118,33 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         width: 100%;
     }
 
-    .classify-modal-vat-table .actions-cell .btn {
-        width: auto;
+    .classify-modal-vat-table .actions-cell {
+        text-align: center;
+        overflow: hidden;
     }
 
-    .classify-modal-vat-table .actions-cell {
-        display: flex;
+    .classify-modal-vat-table .actions-cell-content {
+        display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
         flex-wrap: nowrap;
+        max-width: 100%;
+    }
+
+    .classify-modal-vat-table .actions-cell .btn {
+        width: auto;
+        flex: 0 0 auto;
     }
 
     .classify-modal-vat-table .actions-cell .restore-base-btn.d-none {
         display: inline-flex !important;
         visibility: hidden;
+        opacity: 0;
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+        pointer-events: none;
     }
 
     .classify-modal-vat-table .rate-label-field {
@@ -140,19 +152,29 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
     }
 
     .classify-modal-vat-table .cost-center-distribution-wrap {
-        display: flex;
+        display: inline-flex;
         flex-direction: column;
         gap: 0.25rem;
         align-items: center;
         justify-content: center;
-        min-height: 100%;
+        width: 42px;
+        max-width: 42px;
+        margin: 0 auto;
+        overflow: hidden;
+        vertical-align: middle;
     }
 
     .classify-modal-vat-table .cost-center-distribution-btn {
-        width: auto;
-        min-width: 3rem;
-        padding-left: 0.65rem;
-        padding-right: 0.65rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        min-width: 42px;
+        height: 34px;
+        padding: 0;
+        overflow: hidden;
+        border-radius: 4px;
+        box-sizing: border-box;
     }
 
     .classify-modal-vat-table tr[data-custom-rate="1"] .cost-center-distribution-btn {
@@ -168,6 +190,17 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
 
     .classify-modal-vat-table .cost-center-cell {
         text-align: center;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .classify-modal-vat-table .cost-center-cell-content {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
     }
 
     .classify-modal-vat-table .cost-center-cell .cost-center-distribution-summary:empty {
@@ -214,6 +247,16 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
 
     .classify-document-field-input {
         width: 100%;
+    }
+
+    .classify-manual-values-switch {
+        min-width: 170px;
+        margin-bottom: 0;
+        padding-bottom: 0.15rem;
+    }
+
+    .classify-manual-values-switch .form-check-label {
+        font-weight: 600;
     }
 
     .classify-modal-header-content {
@@ -350,7 +393,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                 </div>
                                 <div class="x_content">
                                     <p class="text-muted small classify-document-fields-note">
-                                        Complete ou corrija os campos do documento quando a linha entrou por <strong>Importar assim</strong>. Os valores monetarios sao calculados a partir das linhas de classificacao, para reduzir o preenchimento manual.
+                                        Complete ou corrija os campos do documento.
                                     </p>
                                     <div id="classifyDocumentFieldsGrid" class="row"></div>
                                 </div>
@@ -377,7 +420,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                             <?php if ($classifyModalImportType === 1): ?>
                             <div class="mt-3">
                                 <label for="totalAccountInput" class="form-label mb-1 classify-modal-section-label">Valor Total</label>
-                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <div class="d-flex align-items-center gap-3 flex-wrap">
                                     <input
                                         type="text"
                                         class="form-control form-control-sm w-auto"
@@ -385,7 +428,10 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                         placeholder="Conta para o valor total"
                                         style="min-width: 160px; max-width: 220px;"
                                     >
-                                    <small class="text-muted">Será enviada como última linha, com o total do documento e NIF.</small>
+                                    <div class="form-check form-switch classify-manual-values-switch">
+                                        <input class="form-check-input" type="checkbox" id="toggleDocumentFieldsSwitch" value="1">
+                                        <label class="form-check-label" for="toggleDocumentFieldsSwitch">Editar Valores</label>
+                                    </div>
                                 </div>
                             </div>
                             <?php endif; ?>
@@ -427,26 +473,30 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         <td class="col-general-account"><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($classifyModalImportType === 1): ?>
         <td class="align-middle col-cost-center cost-center-cell">
-            <select class="form-control form-control-sm cost-center-field">
-                <option value="">Selecione o centro de custo</option>
-            </select>
-            <div class="cost-center-distribution-wrap">
-                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
-                <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+            <div class="cost-center-cell-content">
+                <select class="form-control form-control-sm cost-center-field">
+                    <option value="">Selecione o centro de custo</option>
+                </select>
+                <div class="cost-center-distribution-wrap">
+                    <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
+                    <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+                </div>
             </div>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle actions-cell col-actions">
-            <button
-                type="button"
-                class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
-                title="Repor base original"
-            >
-                <i class="fa fa-undo"></i>
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
-                <i class="fa fa-trash"></i>
-            </button>
+            <div class="actions-cell-content">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
+                    title="Repor base original"
+                >
+                    <i class="fa fa-undo"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
+                    <i class="fa fa-trash"></i>
+                </button>
+            </div>
         </td>
     </tr>
 </template>
@@ -461,26 +511,30 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         <td class="col-general-account"><input type="text" class="form-control form-control-sm general-account-field"></td>
         <?php if ($classifyModalImportType === 1): ?>
         <td class="align-middle col-cost-center cost-center-cell">
-            <select class="form-control form-control-sm cost-center-field">
-                <option value="">Selecione o centro de custo</option>
-            </select>
-            <div class="cost-center-distribution-wrap">
-                <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
-                <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+            <div class="cost-center-cell-content">
+                <select class="form-control form-control-sm cost-center-field">
+                    <option value="">Selecione o centro de custo</option>
+                </select>
+                <div class="cost-center-distribution-wrap">
+                    <button type="button" class="btn btn-sm btn-default cost-center-distribution-btn"><i class="fa fa-building"></i></button>
+                    <div class="cost-center-distribution-summary text-muted small mt-1"></div>
+                </div>
             </div>
         </td>
         <?php endif; ?>
         <td class="text-center align-middle actions-cell col-actions">
-            <button
-                type="button"
-                class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
-                title="Repor base original"
-            >
-                <i class="fa fa-undo"></i>
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
-                <i class="fa fa-trash"></i>
-            </button>
+            <div class="actions-cell-content">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary me-1 restore-base-btn d-none"
+                    title="Repor base original"
+                >
+                    <i class="fa fa-undo"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger remove-rate-row" title="Remover linha">
+                    <i class="fa fa-trash"></i>
+                </button>
+            </div>
         </td>
     </tr>
 </template>

@@ -12,7 +12,11 @@ window.addEventListener('load', function() {
     var previewUrl = window.accountingUploadPreviewUrl || 'contabilidade/upload.php?action=preview-page';
     var manualQrUrl = window.accountingUploadManualQrUrl || 'contabilidade/upload.php?action=manual-qr';
     var efaturaSearchUrl = window.accountingUploadEfaturaSearchUrl || 'contabilidade/upload.php?action=efatura-search';
+    var ocrAcquirerUrl = window.accountingUploadOcrAcquirerUrl || 'contabilidade/upload.php?action=suggest-acquirer-ocr';
+    var ocrEmitterUrl = window.accountingUploadOcrEmitterUrl || 'contabilidade/upload.php?action=suggest-emitter-ocr';
     var deleteUrl = window.accountingUploadDeleteUrl || 'contabilidade/upload.php?action=delete';
+    var acquirerCompanies = Array.isArray(window.accountingUploadAcquirerCompanies) ? window.accountingUploadAcquirerCompanies : [];
+    var selectedAcquirerId = parseInt(window.accountingUploadSelectedAcquirerId, 10) || 0;
     var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
     var debugEnabled = window.accountingUploadDebug === true;
     var navigationGuardEnabled = true;
@@ -55,12 +59,26 @@ window.addEventListener('load', function() {
     var manualError = document.getElementById('manualQrError');
     var manualLoading = document.getElementById('manualQrLoading');
     var manualOpenFileBtn = document.getElementById('manualQrOpenFileBtn');
+    var manualAcquirerSelect = document.getElementById('manualQrAcquirerSelect');
     var manualEfaturaSelect = document.getElementById('manualQrEfaturaSelect');
     var manualEfaturaApplyBtn = document.getElementById('manualQrApplyEfaturaBtn');
     var manualEfaturaInfo = document.getElementById('manualQrEfaturaInfo');
     var manualEfaturaError = document.getElementById('manualQrEfaturaError');
+    var manualEmitterModalEl = document.getElementById('manualQrEmitterModal');
+    var manualEmitterModal = (manualEmitterModalEl && window.bootstrap && typeof window.bootstrap.Modal === 'function')
+        ? new window.bootstrap.Modal(manualEmitterModalEl, { backdrop: 'static', keyboard: false })
+        : null;
+    var manualEmitterForm = document.getElementById('manualQrEmitterForm');
+    var manualEmitterInput = document.getElementById('manualQrEmitterNifInput');
+    var manualEmitterHint = document.getElementById('manualQrEmitterHint');
+    var manualEmitterError = document.getElementById('manualQrEmitterError');
+    var manualEmitterConfirmBtn = document.getElementById('manualQrEmitterConfirmBtn');
     var manualSelectedEfaturaDocument = null;
+    var manualSelectedAcquirer = null;
     var manualImportAsIsPending = false;
+    var manualAcquirerOcrRequest = 0;
+    var manualCloseMode = 'finish';
+    var manualOcrCandidateNifs = [];
     var qrKeys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
 
     var manualQueue = [];
@@ -280,6 +298,34 @@ window.addEventListener('load', function() {
         manualEfaturaError.classList.toggle('d-none', !message);
     }
 
+    function setManualEmitterError(message) {
+        if (!manualEmitterError) {
+            if (message) {
+                showAlert(message);
+            }
+            return;
+        }
+        manualEmitterError.textContent = message || '';
+        manualEmitterError.classList.toggle('d-none', !message);
+    }
+
+    function setManualEmitterHint(message) {
+        if (!manualEmitterHint) {
+            return;
+        }
+        manualEmitterHint.textContent = message || '';
+        manualEmitterHint.classList.toggle('d-none', !message);
+    }
+
+    function setManualEmitterBusy(busy) {
+        if (manualEmitterInput) {
+            manualEmitterInput.disabled = !!busy;
+        }
+        if (manualEmitterConfirmBtn) {
+            manualEmitterConfirmBtn.disabled = !!busy;
+        }
+    }
+
     function renderManualEfaturaInfo(doc) {
         if (!manualEfaturaInfo) {
             return;
@@ -315,6 +361,178 @@ window.addEventListener('load', function() {
         } else if (manualEfaturaSelect) {
             manualEfaturaSelect.value = '';
         }
+    }
+
+    function findAcquirerCompanyById(id) {
+        var numericId = parseInt(id, 10) || 0;
+        if (!numericId) {
+            return null;
+        }
+        for (var i = 0; i < acquirerCompanies.length; i += 1) {
+            if ((parseInt(acquirerCompanies[i].id, 10) || 0) === numericId) {
+                return acquirerCompanies[i];
+            }
+        }
+        return null;
+    }
+
+    function findAcquirerCompanyByNif(nif) {
+        var normalized = String(nif || '').replace(/\D+/g, '');
+        if (!normalized) {
+            return null;
+        }
+        for (var i = 0; i < acquirerCompanies.length; i += 1) {
+            if (String(acquirerCompanies[i].nif || '').replace(/\D+/g, '') === normalized) {
+                return acquirerCompanies[i];
+            }
+        }
+        return null;
+    }
+
+    function resolveTopbarAcquirerSelection() {
+        var topbarSelect = document.getElementById('efatura-top-empresa');
+        if (!topbarSelect) {
+            return null;
+        }
+
+        var selectedOption = topbarSelect.options && topbarSelect.selectedIndex >= 0
+            ? topbarSelect.options[topbarSelect.selectedIndex]
+            : null;
+        var topbarValue = topbarSelect.value || '';
+        var byId = findAcquirerCompanyById(topbarValue);
+        if (byId) {
+            return byId;
+        }
+
+        var optionNif = selectedOption && selectedOption.getAttribute ? selectedOption.getAttribute('data-nif') : '';
+        var byOptionNif = findAcquirerCompanyByNif(optionNif || '');
+        if (byOptionNif) {
+            return byOptionNif;
+        }
+
+        var optionText = selectedOption && selectedOption.text ? selectedOption.text : '';
+        var nifMatch = optionText.match(/(\d{9})/);
+        if (nifMatch && nifMatch[1]) {
+            return findAcquirerCompanyByNif(nifMatch[1]);
+        }
+
+        return null;
+    }
+
+    function syncManualAcquirerFromSelect() {
+        if (!manualAcquirerSelect) {
+            manualSelectedAcquirer = null;
+            return;
+        }
+        manualSelectedAcquirer = findAcquirerCompanyById(manualAcquirerSelect.value);
+    }
+
+    function applyManualAcquirerSelection(company, triggerChange) {
+        manualSelectedAcquirer = company || null;
+        selectedAcquirerId = company && company.id ? (parseInt(company.id, 10) || 0) : 0;
+        if (!manualAcquirerSelect) {
+            return;
+        }
+
+        var nextValue = company && company.id ? String(company.id) : '';
+        if (window.jQuery && jQuery.fn.select2) {
+            jQuery(manualAcquirerSelect).val(nextValue).trigger(triggerChange ? 'change' : 'change.select2');
+        } else {
+            manualAcquirerSelect.value = nextValue;
+            if (triggerChange) {
+                var event = document.createEvent('HTMLEvents');
+                event.initEvent('change', true, false);
+                manualAcquirerSelect.dispatchEvent(event);
+            } else {
+                syncManualAcquirerFromSelect();
+            }
+        }
+    }
+
+    function getDefaultManualAcquirerCompany() {
+        var topbarCompany = resolveTopbarAcquirerSelection();
+        if (topbarCompany) {
+            return topbarCompany;
+        }
+        if (selectedAcquirerId > 0) {
+            return findAcquirerCompanyById(selectedAcquirerId);
+        }
+        return null;
+    }
+
+    function updateManualEfaturaSelectAvailability() {
+        var hasCompany = !!(manualSelectedAcquirer && manualSelectedAcquirer.id);
+        if (manualEfaturaSelect) {
+            manualEfaturaSelect.disabled = !hasCompany;
+        }
+        if (manualEfaturaApplyBtn) {
+            manualEfaturaApplyBtn.disabled = !hasCompany;
+        }
+        if (hasCompany && !manualSelectedEfaturaDocument) {
+            setManualEfaturaError('');
+        }
+    }
+
+    function runManualAcquirerOcrSuggestion() {
+        if (!manualActive || !manualActive.file || !ocrAcquirerUrl) {
+            applyManualAcquirerSelection(null, false);
+            updateManualEfaturaSelectAvailability();
+            return;
+        }
+
+        var requestId = manualAcquirerOcrRequest + 1;
+        manualAcquirerOcrRequest = requestId;
+
+        fetch(ocrAcquirerUrl + '&file=' + encodeURIComponent(manualActive.file), {
+            credentials: 'same-origin'
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            if (requestId !== manualAcquirerOcrRequest || !manualActive) {
+                return;
+            }
+            manualOcrCandidateNifs = Array.isArray(res && res.candidate_nifs) ? res.candidate_nifs : [];
+            if (!res || !res.success || !res.company || !res.company.id) {
+                applyManualAcquirerSelection(null, false);
+                updateManualEfaturaSelectAvailability();
+                return;
+            }
+
+            var currentId = manualSelectedAcquirer && manualSelectedAcquirer.id
+                ? (parseInt(manualSelectedAcquirer.id, 10) || 0)
+                : 0;
+            var nextCompany = findAcquirerCompanyById(res.company.id) || res.company;
+            if (!nextCompany || !nextCompany.id) {
+                return;
+            }
+            if (currentId === (parseInt(nextCompany.id, 10) || 0)) {
+                return;
+            }
+
+            applyManualAcquirerSelection(nextCompany, true);
+        })
+        .catch(function() {
+            manualOcrCandidateNifs = [];
+            applyManualAcquirerSelection(null, false);
+            updateManualEfaturaSelectAvailability();
+            // OCR suggestion is best-effort only.
+        });
+    }
+
+    function openManualEmitterPrompt(prefillNif) {
+        if (!manualEmitterInput) {
+            return;
+        }
+        setManualEmitterError('');
+        setManualEmitterHint(manualOcrCandidateNifs.length ? ('Sugestões OCR: ' + manualOcrCandidateNifs.join(', ')) : '');
+        manualEmitterInput.value = prefillNif || '';
+        if (manualEmitterModal) {
+            manualEmitterModal.show();
+        }
+        window.setTimeout(function() {
+            manualEmitterInput.focus();
+            manualEmitterInput.select();
+        }, 150);
     }
 
     function setManualLoading(loading) {
@@ -1103,6 +1321,7 @@ window.addEventListener('load', function() {
             return;
         }
         manualActive = manualQueue.shift();
+        manualCloseMode = 'discard';
         if (manualSequence <= 0 || manualQueue.length + 1 > manualTotal) {
             manualTotal = manualQueue.length + 1;
             manualSequence = 0;
@@ -1113,11 +1332,15 @@ window.addEventListener('load', function() {
         applyManualZoom(1);
         resetManualSelection();
         setManualError('');
+        resetManualEfaturaSelection();
+        applyManualAcquirerSelection(null, false);
+        updateManualEfaturaSelectAvailability();
         updateManualPageLabel();
         updateManualQueueInfo();
         if (manualModal) {
             manualModal.show();
         }
+        runManualAcquirerOcrSuggestion();
         loadManualPreview(1);
     }
 
@@ -1138,7 +1361,10 @@ window.addEventListener('load', function() {
     }
 
     function finishManualQueueItem() {
+        manualCloseMode = 'finish';
         setManualImportAsIsBusy(false);
+        setManualEmitterBusy(false);
+        manualOcrCandidateNifs = [];
         manualActive = null;
         manualPage = 1;
         manualPageCount = 1;
@@ -1165,6 +1391,7 @@ window.addEventListener('load', function() {
         if (!manualActive || manualImportAsIsPending) {
             return;
         }
+        manualCloseMode = 'finish';
         var filePath = manualActive.file;
         if (debugEnabled && manualActive.dropzoneFile) {
             ensureDebugFile(manualActive.dropzoneFile).state = 'manual_discarded';
@@ -1205,17 +1432,78 @@ window.addEventListener('load', function() {
             return;
         }
 
-        var filePath = manualActive.file;
-        if (!filePath) {
-            setManualError('Ficheiro inválido para importar.');
+        if (!manualSelectedAcquirer || !manualSelectedAcquirer.nif) {
+            setManualEfaturaError('Selecione primeiro a empresa/adquirente.');
             return;
         }
 
+        var prefillEmitterNif = '';
+        for (var i = 0; i < manualOcrCandidateNifs.length; i += 1) {
+            var candidate = String(manualOcrCandidateNifs[i] || '').replace(/\D+/g, '');
+            if (candidate && candidate !== String(manualSelectedAcquirer.nif || '').replace(/\D+/g, '')) {
+                prefillEmitterNif = candidate;
+                break;
+            }
+        }
+
+        if (prefillEmitterNif) {
+            openManualEmitterPrompt(prefillEmitterNif);
+            return;
+        }
+
+        if (!manualActive.file || !ocrEmitterUrl) {
+            openManualEmitterPrompt('');
+            return;
+        }
+
+        setManualEmitterBusy(true);
+        fetch(ocrEmitterUrl + '&file=' + encodeURIComponent(manualActive.file) + '&acquirer_nif=' + encodeURIComponent(manualSelectedAcquirer.nif || ''), {
+            credentials: 'same-origin'
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(res) {
+            manualOcrCandidateNifs = Array.isArray(res && res.candidate_nifs) ? res.candidate_nifs : manualOcrCandidateNifs;
+            openManualEmitterPrompt((res && res.emitter_nif) ? res.emitter_nif : '');
+        })
+        .catch(function() {
+            openManualEmitterPrompt('');
+        })
+        .finally(function() {
+            setManualEmitterBusy(false);
+        });
+    }
+
+    function confirmManualImportAsIs() {
+        if (!manualActive || manualImportAsIsPending || !manualSelectedAcquirer || !manualSelectedAcquirer.nif) {
+            return;
+        }
+
+        var emitterNif = String((manualEmitterInput && manualEmitterInput.value) || '').replace(/\D+/g, '');
+        if (!emitterNif) {
+            setManualEmitterError('Indique o NIF do emitente.');
+            return;
+        }
+
+        var filePath = manualActive.file;
+        if (!filePath) {
+            setManualEmitterError('Ficheiro inválido para importar.');
+            return;
+        }
+
+        setManualEmitterError('');
         setManualError('');
         setManualImportAsIsBusy(true);
+        setManualEmitterBusy(true);
 
-        submitImportRows([{ filename: filePath }], 1)
+        submitImportRows([{
+            filename: filePath,
+            A: emitterNif,
+            B: String(manualSelectedAcquirer.nif || '').replace(/\D+/g, '')
+        }], 1)
             .then(function() {
+                if (manualEmitterModal) {
+                    manualEmitterModal.hide();
+                }
                 if (manualActive && manualActive.dropzoneFile) {
                     removeDropzoneFileByServerPath(filePath);
                     if (debugEnabled) {
@@ -1231,6 +1519,7 @@ window.addEventListener('load', function() {
                 }
                 refreshUploadActionState();
                 notifySuccess('Documento enviado para Classificação.');
+                manualCloseMode = 'finish';
                 if (manualModal) {
                     manualModal.hide();
                 } else {
@@ -1238,8 +1527,9 @@ window.addEventListener('load', function() {
                 }
             })
             .catch(function(err) {
-                setManualError((err && err.message) ? err.message : 'Falha ao enviar o documento para Classificação.');
+                setManualEmitterError((err && err.message) ? err.message : 'Falha ao enviar o documento para Classificação.');
                 setManualImportAsIsBusy(false);
+                setManualEmitterBusy(false);
             });
     }
 
@@ -1268,6 +1558,13 @@ window.addEventListener('load', function() {
     if (manualImportAsIsBtn) {
         manualImportAsIsBtn.addEventListener('click', function() {
             importManualActiveFileAsIs();
+        });
+    }
+
+    if (manualEmitterForm) {
+        manualEmitterForm.addEventListener('submit', function(ev) {
+            ev.preventDefault();
+            confirmManualImportAsIs();
         });
     }
 
@@ -1354,6 +1651,7 @@ window.addEventListener('load', function() {
                 }
                 }
                 notifySuccess('QR Code lido manualmente com sucesso.');
+                manualCloseMode = 'finish';
                 if (manualModal) {
                     manualModal.hide();
                 } else {
@@ -1369,6 +1667,33 @@ window.addEventListener('load', function() {
         });
     }
 
+    if (window.jQuery && jQuery.fn.select2 && manualAcquirerSelect) {
+        jQuery(manualAcquirerSelect).select2({
+            width: '100%',
+            dropdownParent: manualModalEl ? jQuery(manualModalEl) : null,
+            placeholder: 'Selecionar empresa',
+            allowClear: true
+        });
+
+        jQuery(manualAcquirerSelect).on('change', function() {
+            syncManualAcquirerFromSelect();
+            selectedAcquirerId = manualSelectedAcquirer && manualSelectedAcquirer.id
+                ? (parseInt(manualSelectedAcquirer.id, 10) || 0)
+                : 0;
+            resetManualEfaturaSelection();
+            updateManualEfaturaSelectAvailability();
+        });
+    } else if (manualAcquirerSelect) {
+        manualAcquirerSelect.addEventListener('change', function() {
+            syncManualAcquirerFromSelect();
+            selectedAcquirerId = manualSelectedAcquirer && manualSelectedAcquirer.id
+                ? (parseInt(manualSelectedAcquirer.id, 10) || 0)
+                : 0;
+            resetManualEfaturaSelection();
+            updateManualEfaturaSelectAvailability();
+        });
+    }
+
     if (window.jQuery && jQuery.fn.select2 && manualEfaturaSelect) {
         jQuery(manualEfaturaSelect).select2({
             width: '100%',
@@ -1381,7 +1706,14 @@ window.addEventListener('load', function() {
                 dataType: 'json',
                 delay: 250,
                 data: function(params) {
-                    return { q: params.term || '' };
+                    var payload = { q: params.term || '' };
+                    if (manualSelectedAcquirer && manualSelectedAcquirer.id) {
+                        payload.acquirer_entity_id = manualSelectedAcquirer.id;
+                    }
+                    if (manualSelectedAcquirer && manualSelectedAcquirer.nif) {
+                        payload.acquirer_nif = manualSelectedAcquirer.nif;
+                    }
+                    return payload;
                 },
                 processResults: function(data) {
                     return { results: (data && data.results) ? data.results : [] };
@@ -1402,9 +1734,16 @@ window.addEventListener('load', function() {
         });
     }
 
+    syncManualAcquirerFromSelect();
+    updateManualEfaturaSelectAvailability();
+
     if (manualEfaturaApplyBtn) {
         manualEfaturaApplyBtn.addEventListener('click', function() {
             if (!manualActive || manualImportAsIsPending) {
+                return;
+            }
+            if (!manualSelectedAcquirer || !manualSelectedAcquirer.id) {
+                setManualEfaturaError('Selecione primeiro a empresa/adquirente.');
                 return;
             }
             if (!manualSelectedEfaturaDocument || !manualSelectedEfaturaDocument.mapped_row) {
@@ -1428,6 +1767,7 @@ window.addEventListener('load', function() {
                 }
             }
             notifySuccess('Documento associado a partir do E-fatura com sucesso.');
+            manualCloseMode = 'finish';
             if (manualModal) {
                 manualModal.hide();
             } else {
@@ -1438,6 +1778,21 @@ window.addEventListener('load', function() {
 
     if (manualModalEl) {
         manualModalEl.addEventListener('hidden.bs.modal', function() {
+            if (manualActive && manualCloseMode === 'discard') {
+                var filePath = manualActive.file;
+                if (debugEnabled && manualActive.dropzoneFile) {
+                    ensureDebugFile(manualActive.dropzoneFile).state = 'manual_discarded';
+                    debugStats.manualDiscarded += 1;
+                }
+                manualCloseMode = 'finish';
+                removeUploadedFile(filePath, function(success) {
+                    if (success) {
+                        removeDropzoneFileByServerPath(filePath);
+                    }
+                    finishManualQueueItem();
+                });
+                return;
+            }
             finishManualQueueItem();
         });
     }

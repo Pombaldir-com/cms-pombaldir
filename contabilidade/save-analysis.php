@@ -1134,6 +1134,7 @@ if ($action === 'get') {
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         if (!empty($importRow)) {
+            $rawImportRow = $importRow;
             applyDefaultEditableAccountingImportFields($importRow);
             $a = (string) ($importRow['field_A'] ?? $a);
             $b = (string) ($importRow['field_B'] ?? $b);
@@ -1146,12 +1147,21 @@ if ($action === 'get') {
         }
         $rowHasDocumentIdentity = false;
         foreach (['field_A', 'field_B', 'field_D', 'field_F', 'field_G', 'field_H', 'field_R'] as $identityField) {
-            if (trim((string) ($importRow[$identityField] ?? '')) !== '') {
+            if (trim((string) (($rawImportRow[$identityField] ?? $importRow[$identityField] ?? ''))) !== '') {
                 $rowHasDocumentIdentity = true;
                 break;
             }
         }
-        $rowMetadata['manual_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHasDocumentIdentity) ? '1' : '0';
+        $rowHasEmitterAndAcquirerOnly = trim((string) (($rawImportRow['field_A'] ?? $importRow['field_A'] ?? ''))) !== ''
+            && trim((string) (($rawImportRow['field_B'] ?? $importRow['field_B'] ?? ''))) !== ''
+            && trim((string) (($rawImportRow['field_D'] ?? $importRow['field_D'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_F'] ?? $importRow['field_F'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_G'] ?? $importRow['field_G'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_H'] ?? $importRow['field_H'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_R'] ?? $importRow['field_R'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_N'] ?? $importRow['field_N'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_O'] ?? $importRow['field_O'] ?? ''))) === '';
+        $rowMetadata['manual_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHasDocumentIdentity || $rowHasEmitterAndAcquirerOnly) ? '1' : '0';
         $rowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
         $rowCostCenterBreakdowns = normalizeCostCenterBreakdowns($importRow['cost_center'] ?? '');
         $summaries = computeImportRateSummaries($importRow);
@@ -1347,6 +1357,8 @@ if ($action === 'get') {
         $selectedModelName = sanitizeClassificationModelName($_POST['classification_model_name'] ?? '');
         $saveModelName = sanitizeClassificationModelName($_POST['save_model_name'] ?? '');
         $ignoreDetectedRates = trim((string) ($_POST['ignore_detected_rates'] ?? '0'));
+        $manualDocumentFieldsProvided = array_key_exists('manual_document_fields', $_POST);
+        $manualDocumentFieldsValue = ($manualDocumentFieldsProvided && trim((string) ($_POST['manual_document_fields'] ?? '')) === '1') ? '1' : '0';
         $documentFieldsJson = $_POST['document_fields'] ?? '{}';
         $decodedDocumentFields = json_decode($documentFieldsJson, true);
         $submittedDocumentFields = normalizeSubmittedEditableAccountingImportFields($decodedDocumentFields);
@@ -1372,6 +1384,7 @@ if ($action === 'get') {
         foreach ($submittedDocumentFields as $fieldName => $fieldValue) {
             $importRow[$fieldName] = $fieldValue;
         }
+        $rawImportRow = $importRow;
         applyDefaultEditableAccountingImportFields($importRow);
         $a = (string) ($importRow['field_A'] ?? $a);
         $b = (string) ($importRow['field_B'] ?? $b);
@@ -1394,9 +1407,20 @@ if ($action === 'get') {
         $existingRowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
         $existingRowMetadata['manual_review_required'] = (($existingRowMetadata['manual_review_required'] ?? '0') === '1') ? '1' : '0';
         $existingRowMetadata['has_receipt_companion'] = (($existingRowMetadata['has_receipt_companion'] ?? '0') === '1') ? '1' : '0';
-        $existingRowMetadata['manual_document_fields'] = (($existingRowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHadDocumentIdentity) ? '1' : '0';
+        $rowHadEmitterAndAcquirerOnly = trim((string) (($rawImportRow['field_A'] ?? $importRow['field_A'] ?? ''))) !== ''
+            && trim((string) (($rawImportRow['field_B'] ?? $importRow['field_B'] ?? ''))) !== ''
+            && trim((string) (($rawImportRow['field_D'] ?? $importRow['field_D'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_F'] ?? $importRow['field_F'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_G'] ?? $importRow['field_G'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_H'] ?? $importRow['field_H'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_R'] ?? $importRow['field_R'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_N'] ?? $importRow['field_N'] ?? ''))) === ''
+            && trim((string) (($rawImportRow['field_O'] ?? $importRow['field_O'] ?? ''))) === '';
+        $existingRowMetadata['manual_document_fields'] = (($existingRowMetadata['manual_document_fields'] ?? '0') === '1' || !$rowHadDocumentIdentity || $rowHadEmitterAndAcquirerOnly) ? '1' : '0';
         $submittedMetadata['has_receipt_companion'] = $existingRowMetadata['has_receipt_companion'];
-        $submittedMetadata['manual_document_fields'] = $existingRowMetadata['manual_document_fields'];
+        $submittedMetadata['manual_document_fields'] = $manualDocumentFieldsProvided
+            ? $manualDocumentFieldsValue
+            : $existingRowMetadata['manual_document_fields'];
 
         $existingOriginalRaw = [];
         if (array_key_exists('account_original', $importRow) && $importRow['account_original'] !== null) {

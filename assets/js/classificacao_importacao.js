@@ -2325,6 +2325,7 @@ window.addEventListener('load', function() {
     var currentDocumentFieldValues = {};
     var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
     var documentFieldsPanelEl = document.getElementById('classifyDocumentFieldsPanel');
+    var toggleDocumentFieldsSwitch = document.getElementById('toggleDocumentFieldsSwitch');
     var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
     var classificationModelSelect = document.getElementById('classificationModelSelect');
@@ -3937,6 +3938,9 @@ window.addEventListener('load', function() {
             return;
         }
         documentFieldsPanelEl.classList.toggle('d-none', !visible);
+        if (toggleDocumentFieldsSwitch) {
+            toggleDocumentFieldsSwitch.checked = !!visible;
+        }
     }
 
     function getDocumentFieldLabel(fieldName) {
@@ -4076,6 +4080,16 @@ window.addEventListener('load', function() {
             target.value = normalizeDocumentFieldValue(fieldName, target.value);
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
+        });
+    }
+
+    if (toggleDocumentFieldsSwitch) {
+        toggleDocumentFieldsSwitch.addEventListener('change', function() {
+            var visible = !!toggleDocumentFieldsSwitch.checked;
+            updateDocumentFieldsPanelVisibility(visible);
+            if (currentBtn) {
+                currentBtn.setAttribute('data-show-document-fields', visible ? '1' : '0');
+            }
         });
     }
 
@@ -7224,6 +7238,7 @@ window.addEventListener('load', function() {
                     ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
                     classification_model_name: currentClassificationModelName,
                     save_model_name: saveModelName,
+                    manual_document_fields: (toggleDocumentFieldsSwitch && toggleDocumentFieldsSwitch.checked) ? '1' : '0',
                     document_fields: JSON.stringify(currentDocumentFieldValues),
                     csrf_token: csrfInput.value
                 });
