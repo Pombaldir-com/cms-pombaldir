@@ -212,6 +212,22 @@ window.addEventListener('load', function() {
         });
     }
 
+    function removePendingRowsForFile(filePath, fallbackRow) {
+        var targetFile = String(filePath || '').trim();
+        var matchingNodes = targetFile ? getPendingRowNodes().filter(function(node) {
+            return getRowFilePath(node) === targetFile;
+        }) : [];
+
+        if (matchingNodes.length) {
+            table.rows(matchingNodes).remove().draw(false);
+            return;
+        }
+
+        if (fallbackRow) {
+            fallbackRow.remove().draw(false);
+        }
+    }
+
     function getRowHasReceiptCompanion(node) {
         var source = $(node).find('.delete-row');
         if (!source.length) {
@@ -1908,7 +1924,7 @@ window.addEventListener('load', function() {
             $.ajax({
                 type: 'POST',
                 url: 'contabilidade/upload-handler.php',
-                data: { csrf_token: csrfInput.value },
+                data: { action: 'refresh_csrf', csrf_token: csrfInput.value },
                 dataType: 'json',
                 success: function(res) { updateCsrfToken(res); },
                 error: function(xhrObj) {
@@ -1953,7 +1969,7 @@ window.addEventListener('load', function() {
                 showAlert((res && res.error) ? res.error : 'Erro ao eliminar ficheiro');
                 return;
             }
-            row.remove().draw();
+            removePendingRowsForFile(filePath, row);
             removeDropzoneFileByServerPath(filePath);
             refreshUploadActionState();
         });

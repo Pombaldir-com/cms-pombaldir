@@ -11,6 +11,7 @@ set_time_limit(300);
 startSession();
 
 header('Content-Type: application/json');
+header('X-Upload-Handler-Version: 20260420-csrf-refresh');
 
 if (!isLoggedIn()) {
     http_response_code(403);
@@ -107,6 +108,33 @@ function describeUploadErrorCode(int $errorCode): string {
     }
 
     return 'Ficheiro não enviado';
+}
+
+$isCsrfRefreshRequest = ($_POST['action'] ?? '') === 'refresh_csrf'
+    || (
+        empty($_FILES)
+        && isset($_POST['csrf_token'])
+        && count($_POST) === 1
+        && stripos((string) ($_SERVER['CONTENT_TYPE'] ?? ''), 'application/x-www-form-urlencoded') !== false
+    );
+if ($isCsrfRefreshRequest) {
+    $csrfToken = trim((string) ($_POST['csrf_token'] ?? ''));
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken, false)) {
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'Token CSRF inválido',
+            'csrf_token' => generateCsrfToken(true),
+            'handler_version' => '20260420-csrf-refresh',
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'csrf_token' => generateCsrfToken(),
+        'handler_version' => '20260420-csrf-refresh',
+    ]);
+    exit;
 }
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['file']['tmp_name'])) {

@@ -443,6 +443,59 @@ function resolveAccountingUploadPath(string $relativeFile): array {
     ];
 }
 
+function resolveAccountingUploadDeletePath(string $relativeFile): array {
+    $relativeFile = trim(str_replace('\\', '/', $relativeFile));
+    if ($relativeFile === '' || strpos($relativeFile, "\0") !== false) {
+        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    }
+
+    $slug = getCompanySlug();
+    if (!$slug) {
+        return ['ok' => false, 'error' => 'Empresa não selecionada.'];
+    }
+
+    $projectRoot = realpath(dirname(__DIR__));
+    $baseDir = realpath(dirname(__DIR__) . '/uploads/' . $slug . '/accounting/');
+    if ($projectRoot === false || $baseDir === false) {
+        return ['ok' => false, 'error' => 'Diretório de uploads indisponível.'];
+    }
+
+    $candidate = $projectRoot . '/' . ltrim($relativeFile, '/');
+    $basePrefix = rtrim(str_replace('\\', '/', $baseDir), '/') . '/';
+    $fullPath = realpath($candidate);
+    if ($fullPath !== false) {
+        $normalizedFullPath = str_replace('\\', '/', $fullPath);
+        if (strpos($normalizedFullPath, $basePrefix) !== 0 || !is_file($fullPath)) {
+            return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+        }
+
+        return [
+            'ok' => true,
+            'relative' => ltrim($relativeFile, '/'),
+            'absolute' => $fullPath,
+            'exists' => true,
+        ];
+    }
+
+    $parentDir = realpath(dirname($candidate));
+    $basename = basename($candidate);
+    if ($parentDir === false || $basename === '' || $basename === '.' || $basename === '..') {
+        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    }
+
+    $normalizedParentDir = rtrim(str_replace('\\', '/', $parentDir), '/') . '/';
+    if (strpos($normalizedParentDir, $basePrefix) !== 0) {
+        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    }
+
+    return [
+        'ok' => true,
+        'relative' => ltrim($relativeFile, '/'),
+        'absolute' => $parentDir . DIRECTORY_SEPARATOR . $basename,
+        'exists' => false,
+    ];
+}
+
 function normalizeUploadImportDocType(string $value): string {
     $normalized = strtoupper(trim($value));
     if ($normalized === '') {
@@ -1757,23 +1810,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     } elseif ($action === 'delete') {
         $file = $_POST['file'] ?? '';
-        $slug = getCompanySlug();
-        $baseDir = realpath(dirname(__DIR__) . '/uploads/' . $slug . '/accounting/');
-
-        if ($file === '' || !$baseDir) {
+        $resolved = resolveAccountingUploadDeletePath((string) $file);
+        if (empty($resolved['ok'])) {
             http_response_code(400);
-            echo json_encode(['error' => 'Ficheiro inválido', 'csrf_token' => $newToken]);
+            echo json_encode(['error' => $resolved['error'] ?? 'Ficheiro inválido', 'csrf_token' => $newToken]);
             exit;
         }
 
-        $fullPath = realpath(dirname(__DIR__) . '/' . ltrim($file, '/'));
-        if ($fullPath === false || strpos($fullPath, $baseDir) !== 0) {
-            http_response_code(400);
-            echo json_encode(['error' => 'Ficheiro inválido', 'csrf_token' => $newToken]);
+        if (empty($resolved['exists'])) {
+            echo json_encode(['success' => true, 'already_deleted' => true, 'csrf_token' => $newToken]);
             exit;
         }
 
-        $success = file_exists($fullPath) && unlink($fullPath);
+        $success = unlink((string) $resolved['absolute']);
         if ($success) {
             echo json_encode(['success' => true, 'csrf_token' => $newToken]);
         } else {
