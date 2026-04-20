@@ -3998,12 +3998,14 @@ if ($action === 'data') {
             'field_G',
             'field_H',
             'field_I1',
+            'field_I2',
             'field_I3',
             'field_I4',
             'field_I5',
             'field_I6',
             'field_I7',
             'field_I8',
+            'field_M',
             'field_N',
             'field_O',
             'field_Q',
@@ -4126,12 +4128,14 @@ if ($action === 'data') {
                 . "COALESCE(ai.field_G, ''), "
                 . "COALESCE(ai.field_H, ''), "
                 . "COALESCE(ai.field_I1, ''), "
+                . "COALESCE(ai.field_I2, ''), "
                 . "COALESCE(ai.field_I3, ''), "
                 . "COALESCE(ai.field_I4, ''), "
                 . "COALESCE(ai.field_I5, ''), "
                 . "COALESCE(ai.field_I6, ''), "
                 . "COALESCE(ai.field_I7, ''), "
                 . "COALESCE(ai.field_I8, ''), "
+                . "COALESCE(ai.field_M, ''), "
                 . "COALESCE(ai.field_N, ''), "
                 . "COALESCE(ai.field_O, ''), "
                 . "COALESCE(ai.field_Q, ''), "
@@ -4288,8 +4292,6 @@ if ($action === 'data') {
                 htmlspecialchars($row['field_I8'] ?? ''),
                 htmlspecialchars($row['field_N'] ?? ''),
                 htmlspecialchars($row['field_O'] ?? ''),
-                htmlspecialchars($row['field_Q'] ?? ''),
-                htmlspecialchars($row['field_R'] ?? ''),
                 $pdfLink,
                 $actions
             ];
@@ -4390,8 +4392,6 @@ require_once __DIR__ . '/../header.php';
                     <th width="6%">IVA 23%</th>
                     <th width="5%">Total IVA</th>
                     <th width="5%">Total</th>
-                    <th></th>
-                    <th></th>
                     <th data-orderable="false" class="text-center">PDF</th>
                     <th data-orderable="false" width="14%" class="text-center">Ação</th>
                 </tr>
@@ -4428,8 +4428,6 @@ require_once __DIR__ . '/../header.php';
                     <td><?= htmlspecialchars($row['field_I8'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_N'] ?? ''); ?></td>
                     <td><?= htmlspecialchars($row['field_O'] ?? ''); ?></td>
-                    <td><?= htmlspecialchars($row['field_Q'] ?? ''); ?></td>
-                    <td><?= htmlspecialchars($row['field_R'] ?? ''); ?></td>
                     <td class="text-center"><a href="<?= htmlspecialchars($row['filename'] ?? ''); ?>" target="_blank" class="btn btn-xs btn-secondary"><i class="fa fa-file-pdf-o"></i></a></td>
                     <?php
                         $ratesAttr = htmlspecialchars(json_encode($row['rate_payload'], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
@@ -4598,6 +4596,7 @@ require __DIR__ . '/partials/classify-modal.php';
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
 </script>
+<?php $classificationImportScriptVersion = @filemtime(__DIR__ . '/../assets/js/classificacao_importacao.js'); ?>
 <script src="assets/js/pnotify_theme_adapter.js"></script>
-<script src="assets/js/classificacao_importacao.js"></script>
+<script src="assets/js/classificacao_importacao.js<?= $classificationImportScriptVersion ? '?v=' . rawurlencode((string) $classificationImportScriptVersion) : ''; ?>"></script>
 <?php require_once __DIR__ . '/../footer.php'; ?>

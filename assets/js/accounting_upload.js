@@ -79,7 +79,7 @@ window.addEventListener('load', function() {
     var manualAcquirerOcrRequest = 0;
     var manualCloseMode = 'finish';
     var manualOcrCandidateNifs = [];
-    var qrKeys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
+    var qrKeys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'M', 'N', 'O', 'Q', 'R'];
 
     var manualQueue = [];
     var manualActive = null;
@@ -791,9 +791,9 @@ window.addEventListener('load', function() {
             orderCellsTop: true,
             language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
             columnDefs: [
-                { targets: [2, 4, 7, 8, 17, 18], visible: false },
+                { targets: [2, 4, 7, 8, 9, 16, 19, 20], visible: false },
                 { targets: [0, 1], className: 'text-start' },
-                { targets: [9, 10, 11, 12, 13, 14, 15, 16], orderable: false },
+                { targets: [10, 11, 12, 13, 14, 15, 17, 18], orderable: false },
                 { targets: [-1], orderable: false, searchable: false }
             ]
         });

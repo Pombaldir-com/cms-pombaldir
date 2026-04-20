@@ -82,7 +82,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             } 
             if (data.qr_texts && data.qr_texts.length) {
-                var keys = ['A','B','C','D','E','F','G','H','I1','I3','I4','I5','I6','I7','I8','N','O','Q','R'];
+                var keys = ['A','B','C','D','E','F','G','H','I1','I2','I3','I4','I5','I6','I7','I8','M','N','O','Q','R'];
                 var added = 0;
                 var syncEntity = function(value, type, acquirerValue) {
                     var entityValue = (value || '').trim();

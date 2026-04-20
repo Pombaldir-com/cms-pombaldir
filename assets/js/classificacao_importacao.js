@@ -640,7 +640,7 @@ window.addEventListener('load', function() {
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         columnDefs: [
-            { targets: [ 2, 4, 7, 8, 17, 18 ], visible: false },
+            { targets: [ 2, 4, 7, 8 ], visible: false },
             { targets: [0, 1], className: 'text-start' },
             { targets: [9, 10, 11, 12, 13, 14, 15, 16], orderable: false },
             { targets: [ -1, -2 ], orderable: false, searchable: false }
@@ -2424,7 +2424,7 @@ window.addEventListener('load', function() {
         '23': '23%'
     };
     var defaultRates = Object.keys(defaultRateLabels);
-    var qrFieldMatchPriority = ['FIELD_O', 'FIELD_N', 'FIELD_I8', 'FIELD_I7', 'FIELD_I6', 'FIELD_I5', 'FIELD_I4', 'FIELD_I3', 'FIELD_R', 'FIELD_Q', 'FIELD_I1'];
+    var qrFieldMatchPriority = ['FIELD_O', 'FIELD_N', 'FIELD_M', 'FIELD_I8', 'FIELD_I7', 'FIELD_I6', 'FIELD_I5', 'FIELD_I4', 'FIELD_I3', 'FIELD_R', 'FIELD_Q', 'FIELD_I2', 'FIELD_I1'];
 
     function clampCostCenterDistributionDialogPosition(left, top) {
         if (!costCenterDistributionModalEl || !costCenterDistributionDialogEl) {

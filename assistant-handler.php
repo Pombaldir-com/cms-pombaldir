@@ -1685,7 +1685,7 @@ function buildAccountingRowFromReaderResult(array $readerResult, array $attachme
     $qr = isset($readerResult['qr']) && is_array($readerResult['qr']) ? $readerResult['qr'] : [];
     $payload = isset($qr['payload']) && is_array($qr['payload']) ? $qr['payload'] : [];
 
-    $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'N', 'O', 'Q', 'R'];
+    $keys = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8', 'M', 'N', 'O', 'Q', 'R'];
     $row = [];
     foreach ($keys as $key) {
         $row[$key] = trim((string) ($payload[$key] ?? ''));
@@ -1772,7 +1772,7 @@ function importAssistantAccountingRow(array $row, int $importType = 1): array {
         }
     }
 
-    $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    $insert = $pdo->prepare('INSERT INTO accounting_imports (field_A, field_B, field_C, field_D, field_E, field_F, field_G, field_H, field_I1, field_I2, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_M, field_N, field_O, field_Q, field_R, account, filename, import_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     $insert->execute([
         (string) ($row['A'] ?? ''),
         (string) ($row['B'] ?? ''),
@@ -1783,12 +1783,14 @@ function importAssistantAccountingRow(array $row, int $importType = 1): array {
         (string) ($row['G'] ?? ''),
         $fieldH,
         (string) ($row['I1'] ?? ''),
+        (string) ($row['I2'] ?? ''),
         (string) ($row['I3'] ?? ''),
         (string) ($row['I4'] ?? ''),
         (string) ($row['I5'] ?? ''),
         (string) ($row['I6'] ?? ''),
         (string) ($row['I7'] ?? ''),
         (string) ($row['I8'] ?? ''),
+        (string) ($row['M'] ?? ''),
         (string) ($row['N'] ?? ''),
         (string) ($row['O'] ?? ''),
         (string) ($row['Q'] ?? ''),
