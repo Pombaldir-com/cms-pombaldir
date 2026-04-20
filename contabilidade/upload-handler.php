@@ -50,13 +50,94 @@ if ($qrRetryMaxAttempts <= 0) {
     $qrRetryMaxAttempts = 12;
 }
 
+function uploadSizeToBytes(string $value): int {
+    $value = trim($value);
+    if ($value === '') {
+        return 0;
+    }
+
+    $unit = strtolower(substr($value, -1));
+    $number = (float) $value;
+    switch ($unit) {
+        case 'g':
+            $number *= 1024;
+            // no break
+        case 'm':
+            $number *= 1024;
+            // no break
+        case 'k':
+            $number *= 1024;
+            break;
+    }
+
+    return (int) $number;
+}
+
+function formatUploadBytes(int $bytes): string {
+    if ($bytes <= 0) {
+        return '0 B';
+    }
+
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $value = (float) $bytes;
+    $index = 0;
+    while ($value >= 1024 && $index < count($units) - 1) {
+        $value /= 1024;
+        $index++;
+    }
+
+    return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . ' ' . $units[$index];
+}
+
+function describeUploadErrorCode(int $errorCode): string {
+    switch ($errorCode) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'Ficheiro excede o tamanho máximo permitido';
+        case UPLOAD_ERR_PARTIAL:
+            return 'Upload incompleto. Volte a enviar o ficheiro.';
+        case UPLOAD_ERR_NO_FILE:
+            return 'Ficheiro não enviado';
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return 'Diretório temporário de upload indisponível no servidor';
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Falha ao gravar o upload no servidor';
+        case UPLOAD_ERR_EXTENSION:
+            return 'Upload bloqueado por uma extensão PHP';
+    }
+
+    return 'Ficheiro não enviado';
+}
+
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['file']['tmp_name'])) {
-    $errorMessage = 'Ficheiro não enviado';
-    if (isset($_FILES['file']['error']) && in_array($_FILES['file']['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
-        $errorMessage = 'Ficheiro excede o tamanho máximo permitido';
+    $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+    $postMaxSize = (string) ini_get('post_max_size');
+    $uploadMaxFilesize = (string) ini_get('upload_max_filesize');
+    $postMaxBytes = uploadSizeToBytes($postMaxSize);
+    $errorCode = isset($_FILES['file']['error']) ? (int) $_FILES['file']['error'] : null;
+    $errorMessage = $errorCode !== null ? describeUploadErrorCode($errorCode) : 'Ficheiro não enviado';
+
+    if ($errorCode === null && $postMaxBytes > 0 && $contentLength > $postMaxBytes) {
+        $errorMessage = 'Ficheiro excede o tamanho máximo permitido pelo servidor'
+            . ' (pedido: ' . formatUploadBytes($contentLength)
+            . ', limite: ' . $postMaxSize . ').';
+    }
+
+    $response = ['error' => $errorMessage, 'csrf_token' => $newToken];
+    if ($debugEnabled) {
+        $response['upload_debug'] = [
+            'content_length' => $contentLength,
+            'content_length_human' => formatUploadBytes($contentLength),
+            'post_max_size' => $postMaxSize,
+            'upload_max_filesize' => $uploadMaxFilesize,
+            'file_error' => $errorCode,
+            'files_keys' => array_keys($_FILES),
+            'post_keys' => array_keys($_POST),
+            'content_type' => (string) ($_SERVER['CONTENT_TYPE'] ?? ''),
+        ];
     }
     http_response_code(400);
-    echo json_encode(['error' => $errorMessage, 'csrf_token' => $newToken]);
+    echo json_encode($response);
     exit;
 }
 

@@ -1113,6 +1113,9 @@ if ($action === 'get') {
     $d = $_GET['D'] ?? '';
     $id = $_GET['id'] ?? '';
     $tenantKey = $_GET['tenant_key'] ?? ($_GET['acquirer_database'] ?? '');
+    $documentFieldsJson = $_GET['document_fields'] ?? '{}';
+    $decodedDocumentFields = json_decode((string) $documentFieldsJson, true);
+    $submittedDocumentFields = normalizeSubmittedEditableAccountingImportFields($decodedDocumentFields);
     try {
         $pdo = getPDO();
     } catch (RuntimeException $e) {
@@ -1134,6 +1137,9 @@ if ($action === 'get') {
         $stmtRow->execute([$id]);
         $importRow = $stmtRow->fetch(PDO::FETCH_ASSOC) ?: [];
         if (!empty($importRow)) {
+            foreach ($submittedDocumentFields as $fieldName => $fieldValue) {
+                $importRow[$fieldName] = $fieldValue;
+            }
             $rawImportRow = $importRow;
             applyDefaultEditableAccountingImportFields($importRow);
             $a = (string) ($importRow['field_A'] ?? $a);
@@ -1175,6 +1181,12 @@ if ($action === 'get') {
             }
         }
         $originalSnapshot = mergeOriginalRateSnapshot($decodedOriginal, $summaries);
+    } elseif (!empty($submittedDocumentFields)) {
+        $importRow = $submittedDocumentFields;
+        applyDefaultEditableAccountingImportFields($importRow);
+        $a = (string) ($importRow['field_A'] ?? $a);
+        $b = (string) ($importRow['field_B'] ?? $b);
+        $d = (string) ($importRow['field_D'] ?? $d);
     }
 
     ensureAccountingEntity($pdo, (string) ($importRow['field_A'] ?? $a));

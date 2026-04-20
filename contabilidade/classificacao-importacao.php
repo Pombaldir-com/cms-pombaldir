@@ -382,6 +382,7 @@ if (hasTable('accounting_entities')) {
                 'nif' => $nif,
                 'name' => $name,
                 'label' => $label,
+                'erp_database' => $databaseRef,
                 'company_code' => $companyCode,
                 'company_sort' => $companySort,
             ];

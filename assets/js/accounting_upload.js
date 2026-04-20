@@ -1799,8 +1799,11 @@ window.addEventListener('load', function() {
 
     var dz = new Dropzone('#multi-upload', {
         url: 'contabilidade/upload-handler.php',
+        paramName: 'file',
         acceptedFiles: 'application/pdf',
+        maxFilesize: 20,
         parallelUploads: parallelUploads,
+        dictFileTooBig: 'O ficheiro excede o tamanho máximo permitido (20 MB).',
         dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
     });
 

@@ -51,6 +51,8 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 
 ## ERP API knowledge
 - This system uses the ERPSINC API; use the updated OpenAPI file at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt/erpsync-api.yaml` as the primary reference when working on integrations, together with the local repo at `/Users/nelsonsantos/Sites2026/api.erpsinc.pt`.
+- When there is doubt about the real SQL Server schema behind the ERP webservice (column length, type, nullability), do not guess from PHP alone. Prefer confirming it directly on `api.erpsinc.pt` with a temporary probe that queries `INFORMATION_SCHEMA.COLUMNS`, then remove that probe immediately after use.
+- This was already confirmed for `Movimentos_Ctb_Cab.strNum_Doc`, whose real SQL Server type is `varchar(30)`.
 
 ## Multi-DB & tenants
 - The system can use multiple databases per company; tenant selection is required for company-scoped data.

@@ -3489,6 +3489,38 @@ window.addEventListener('load', function() {
         return adjustedFlag === '1' || adjustedFlag === 'true';
     }
 
+    function resolveRateRubricCode(baseData, rowData, defaultData) {
+        var candidates = [rowData, defaultData, baseData];
+        for (var i = 0; i < candidates.length; i += 1) {
+            var candidate = candidates[i];
+            if (!candidate || typeof candidate !== 'object') {
+                continue;
+            }
+            var rubricCode = String(candidate.erp_rubric_code || candidate.rubric_code || '').trim();
+            if (rubricCode !== '') {
+                return rubricCode;
+            }
+        }
+        return '';
+    }
+
+    function resolveRateAdjustedFlag(baseData, rowData, defaultData, rubricCode) {
+        if (!isFuelRubricCode(rubricCode)) {
+            return '0';
+        }
+        var candidates = [rowData, defaultData, baseData];
+        for (var i = 0; i < candidates.length; i += 1) {
+            var candidate = candidates[i];
+            if (!candidate || typeof candidate !== 'object') {
+                continue;
+            }
+            if (isAdjustedVatRateEntry(candidate)) {
+                return '1';
+            }
+        }
+        return '0';
+    }
+
     function preserveAdjustedDisplayRates(targetRates, sourceRates) {
         if (!targetRates || typeof targetRates !== 'object' || !sourceRates || typeof sourceRates !== 'object') {
             return;
@@ -3856,6 +3888,23 @@ window.addEventListener('load', function() {
         return html;
     }
 
+    function findClassificationAcquirerOptionByNif(value) {
+        var normalizedValue = String(value || '').trim();
+        if (!normalizedValue) {
+            return null;
+        }
+        for (var i = 0; i < classificationAcquirerOptions.length; i += 1) {
+            var option = classificationAcquirerOptions[i];
+            if (!option || typeof option !== 'object') {
+                continue;
+            }
+            if (String(option.nif || option.value || '').trim() === normalizedValue) {
+                return option;
+            }
+        }
+        return null;
+    }
+
     function isNumericDocumentField(fieldName) {
         return fieldName === 'FIELD_I3'
             || fieldName === 'FIELD_I4'
@@ -3931,6 +3980,217 @@ window.addEventListener('load', function() {
         getRateKeys().forEach(function(rate) {
             populateRateRow(rate);
         });
+    }
+
+    var documentFieldClassificationRefreshTimer = null;
+    var documentFieldClassificationRefreshRequestId = 0;
+
+    function shouldRefreshClassificationFromDocumentField(fieldName) {
+        return fieldName === 'FIELD_A' || fieldName === 'FIELD_B' || fieldName === 'FIELD_D';
+    }
+
+    function applyClassificationContextResponse(res, options) {
+        var response = res && typeof res === 'object' ? res : {};
+        var applyOptions = options || {};
+        var currentDocumentFieldsVisible = !!(documentFieldsPanelEl && !documentFieldsPanelEl.classList.contains('d-none'));
+
+        if (response.csrf_token) {
+            csrfInput.value = response.csrf_token;
+        }
+
+        storedRowRates = (response.row_rates && typeof response.row_rates === 'object') ? response.row_rates : {};
+        storedDefaultRates = (response.rates && typeof response.rates === 'object') ? response.rates : {};
+        preserveAdjustedDisplayRates(storedRowRates, currentRateData);
+        preserveAdjustedDisplayRates(storedDefaultRates, currentRateData);
+        var mergedRequirements = (response.row_requirements && typeof response.row_requirements === 'object')
+            ? response.row_requirements
+            : (parseJsonAttribute(currentBtn, 'data-requirements') || {});
+        mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedRowRates);
+        mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedDefaultRates);
+        currentBtn.setAttribute('data-requirements', JSON.stringify(mergedRequirements));
+        removedRates = {};
+        serverOriginalRates = preserveAdjustedOriginalRates(normalizeServerOriginalRates(response.original_rates), currentRateData);
+        var rowTotalAccount = typeof response.row_total_account === 'string' ? response.row_total_account : '';
+        var classificationTotalAccount = typeof response.total_account === 'string' ? response.total_account : '';
+        var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
+        var effectiveTotalAccount = (rowTotalAccount || classificationTotalAccount || buttonTotalAccount || '').trim();
+        currentTotalAccount = effectiveTotalAccount || '';
+        if (currentBtn) {
+            currentBtn.setAttribute('data-total-account', currentTotalAccount);
+        }
+        if (Object.prototype.hasOwnProperty.call(response, 'has_receipt_companion') && currentBtn) {
+            currentBtn.setAttribute('data-has-receipt-companion', String(response.has_receipt_companion || '').trim() === '1' ? '1' : '0');
+        }
+        if (totalAccountInput) {
+            totalAccountInput.value = currentTotalAccount;
+            updatePlanInputTitle(totalAccountInput);
+        }
+        currentIgnoreDetectedRates = String(response.ignore_detected_rates || '').trim() === '1';
+        currentClassificationModelName = String(response.classification_model_name || '').trim();
+        classificationModels = normalizeClassificationModelList(response.classification_models);
+        if (response.document_fields && typeof response.document_fields === 'object') {
+            currentDocumentFieldValues = normalizeDocumentFieldMap(response.document_fields);
+            renderDocumentFieldInputs();
+            updateButtonDocumentFields(currentBtn, currentDocumentFieldValues);
+        }
+        if (Object.prototype.hasOwnProperty.call(response, 'show_document_fields')) {
+            var showFieldsFlag = String(response.show_document_fields || '').trim() === '1';
+            if (applyOptions.preserveDocumentFieldsVisibility && currentDocumentFieldsVisible) {
+                showFieldsFlag = true;
+            }
+            updateDocumentFieldsPanelVisibility(showFieldsFlag);
+            if (currentBtn) {
+                currentBtn.setAttribute('data-show-document-fields', showFieldsFlag ? '1' : '0');
+            }
+        }
+        inheritBaseSourceFieldsFromModel(storedRowRates, currentClassificationModelName);
+        inheritBaseSourceFieldsFromModel(storedDefaultRates, currentClassificationModelName);
+        inheritBaseSourceFieldsFromModel(currentRateData, currentClassificationModelName);
+        renderClassificationModelOptions(currentClassificationModelName);
+
+        Object.keys(storedRowRates).forEach(function(rate) {
+            if (!currentRateData[rate]) {
+                currentRateData[rate] = {};
+            }
+            var rowData = storedRowRates[rate];
+            if (rowData && typeof rowData === 'object') {
+                if (rowData.iva_account) {
+                    currentRateData[rate].iva_account = rowData.iva_account;
+                }
+                if (rowData.general_account) {
+                    currentRateData[rate].general_account = rowData.general_account;
+                }
+                if (rowData.label) {
+                    currentRateData[rate].label = rowData.label;
+                }
+                copyRateHiddenMetadata(currentRateData[rate], rowData);
+                if (rowData.base_source_field) {
+                    currentRateData[rate].base_source_field = rowData.base_source_field;
+                }
+                var rowBase = getEntryAmount(rowData, 'base');
+                if (rowBase !== null && rowBase !== undefined) {
+                    currentRateData[rate].base = String(rowBase);
+                    currentRateData[rate].base_value = String(rowBase);
+                }
+                var rowIva = getEntryAmount(rowData, 'iva');
+                if (rowIva !== null && rowIva !== undefined) {
+                    currentRateData[rate].iva = String(rowIva);
+                    currentRateData[rate].iva_value = String(rowIva);
+                }
+            }
+        });
+
+        Object.keys(storedDefaultRates).forEach(function(rate) {
+            if (!currentRateData[rate]) {
+                currentRateData[rate] = {};
+            }
+            var defaultData = storedDefaultRates[rate];
+            if (defaultData && typeof defaultData === 'object') {
+                if (defaultData.iva_account) {
+                    currentRateData[rate].iva_account = defaultData.iva_account;
+                }
+                if (defaultData.general_account) {
+                    currentRateData[rate].general_account = defaultData.general_account;
+                }
+                if (defaultData.label) {
+                    currentRateData[rate].label = defaultData.label;
+                }
+                copyRateHiddenMetadata(currentRateData[rate], defaultData);
+            }
+        });
+
+        var serverCostCenters = null;
+        if (Object.prototype.hasOwnProperty.call(response, 'cost_centers')) {
+            serverCostCenters = response.cost_centers;
+        } else if (Object.prototype.hasOwnProperty.call(response, 'cost_center')) {
+            serverCostCenters = response.cost_center;
+        }
+        if (serverCostCenters !== null && serverCostCenters !== undefined) {
+            if (!hasAnyCostCenterValue()) {
+                applyCostCenterValues(serverCostCenters, { skipEnsure: true });
+            }
+        }
+        if (response.cost_center_breakdowns && typeof response.cost_center_breakdowns === 'object') {
+            applyCostCenterBreakdownValues(response.cost_center_breakdowns);
+            currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
+        }
+
+        var restored = restoreSavedRates();
+        rebuildRequirementsForCurrentButton();
+        getRateKeys().forEach(function(rate) {
+            populateRateRow(rate);
+        });
+        if (currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+        }
+        captureOriginalRateValues({ initialize: true });
+        currentCostCenters = getCostCenterValues();
+        refreshCostCenterFieldModes();
+
+        if (applyOptions.focusRestored !== false && restored.length > 0) {
+            focusRateInput(rateInputs[restored[0]]);
+        }
+    }
+
+    function refreshClassificationFromDocumentFields() {
+        if (!currentBtn) {
+            return Promise.resolve(null);
+        }
+
+        currentDocumentFieldValues = collectDocumentFieldInputs();
+        updateButtonDocumentFields(currentBtn, currentDocumentFieldValues);
+        updateCurrentPlanContextFromButton(currentBtn);
+
+        var emitter = String(currentBtn.getAttribute('data-emitter') || '').trim();
+        var acquirer = String(currentBtn.getAttribute('data-acquirer') || '').trim();
+        var docType = String(currentBtn.getAttribute('data-doctype') || '').trim();
+        if (emitter === '' || acquirer === '' || docType === '') {
+            return Promise.resolve(null);
+        }
+
+        var requestId = ++documentFieldClassificationRefreshRequestId;
+        var requestBtn = currentBtn;
+        var params = new URLSearchParams({
+            action: 'get',
+            id: currentBtn.getAttribute('data-id') || '',
+            A: emitter,
+            B: acquirer,
+            D: docType,
+            tenant_key: currentBtn.getAttribute('data-acquirer-db') || erpDefaultDatabase || '',
+            document_fields: JSON.stringify(currentDocumentFieldValues),
+            csrf_token: csrfInput.value
+        });
+
+        return fetchJson('contabilidade/save-analysis.php?' + params.toString())
+            .then(function(res) {
+                if (requestId !== documentFieldClassificationRefreshRequestId || requestBtn !== currentBtn) {
+                    return null;
+                }
+                applyClassificationContextResponse(res, {
+                    focusRestored: false,
+                    preserveDocumentFieldsVisibility: true
+                });
+                return res;
+            })
+            .catch(function(err) {
+                if (requestId === documentFieldClassificationRefreshRequestId) {
+                    console.warn('Falha ao atualizar classificacao por campos do documento:', err);
+                }
+                return null;
+            });
+    }
+
+    function scheduleClassificationRefreshFromDocumentFields(fieldName) {
+        if (!shouldRefreshClassificationFromDocumentField(fieldName)) {
+            return;
+        }
+        if (documentFieldClassificationRefreshTimer) {
+            window.clearTimeout(documentFieldClassificationRefreshTimer);
+        }
+        documentFieldClassificationRefreshTimer = window.setTimeout(function() {
+            documentFieldClassificationRefreshTimer = null;
+            refreshClassificationFromDocumentFields();
+        }, fieldName === 'FIELD_A' ? 280 : 80);
     }
 
     function updateDocumentFieldsPanelVisibility(visible) {
@@ -4066,6 +4326,7 @@ window.addEventListener('load', function() {
             target.value = normalizeDocumentFieldValue(fieldName, target.value);
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
+            scheduleClassificationRefreshFromDocumentFields(fieldName);
         });
 
         documentFieldsGridEl.addEventListener('change', function(ev) {
@@ -4080,6 +4341,7 @@ window.addEventListener('load', function() {
             target.value = normalizeDocumentFieldValue(fieldName, target.value);
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
+            scheduleClassificationRefreshFromDocumentFields(fieldName);
         });
     }
 
@@ -4119,6 +4381,10 @@ window.addEventListener('load', function() {
         btn.setAttribute('data-emitter-display', String(normalizedMap.FIELD_A || '').trim());
         btn.setAttribute('data-emitter-nif', emitterVat);
         btn.setAttribute('data-acquirer', String(normalizedMap.FIELD_B || '').trim());
+        var acquirerOption = findClassificationAcquirerOptionByNif(normalizedMap.FIELD_B || '');
+        if (acquirerOption && String(acquirerOption.erp_database || '').trim() !== '') {
+            btn.setAttribute('data-acquirer-db', String(acquirerOption.erp_database || '').trim());
+        }
         btn.setAttribute('data-doctype', String(normalizedMap.FIELD_D || '').trim());
         btn.setAttribute('data-docdate', String(normalizedMap.FIELD_F || '').trim());
         btn.setAttribute('data-doc-number', String(normalizedMap.FIELD_G || '').trim());
@@ -6195,9 +6461,18 @@ window.addEventListener('load', function() {
         }
         var ivaAccount = rowData.iva_account || baseData.iva_account || defaultData.iva_account || '';
         var generalAccount = rowData.general_account || baseData.general_account || defaultData.general_account || '';
-        copyRateHiddenMetadata(currentRateData[rate], defaultData);
-        copyRateHiddenMetadata(currentRateData[rate], baseData);
-        copyRateHiddenMetadata(currentRateData[rate], rowData);
+        var resolvedRubricCode = resolveRateRubricCode(baseData, rowData, defaultData);
+        var resolvedAdjustedFlag = resolveRateAdjustedFlag(baseData, rowData, defaultData, resolvedRubricCode);
+        if (resolvedRubricCode !== '') {
+            currentRateData[rate].erp_rubric_code = resolvedRubricCode;
+        } else {
+            delete currentRateData[rate].erp_rubric_code;
+        }
+        if (resolvedAdjustedFlag === '1') {
+            currentRateData[rate].vat_amounts_adjusted = '1';
+        } else {
+            delete currentRateData[rate].vat_amounts_adjusted;
+        }
         ivaAccount = sanitizeAccountCodeForRate(ivaAccount, rate);
         generalAccount = sanitizeAccountCodeForRate(generalAccount, rate);
         var normalizedRateValue = normalizeRateToken(rate);
@@ -6749,6 +7024,11 @@ window.addEventListener('load', function() {
             }
         });
         classifyModalEl.addEventListener('hidden.bs.modal', function() {
+            if (documentFieldClassificationRefreshTimer) {
+                window.clearTimeout(documentFieldClassificationRefreshTimer);
+                documentFieldClassificationRefreshTimer = null;
+            }
+            documentFieldClassificationRefreshRequestId += 1;
             if (modalTitleEl) {
                 modalTitleEl.textContent = defaultModalTitle || 'Classificar';
             }
@@ -6988,140 +7268,9 @@ window.addEventListener('load', function() {
         });
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {
-                if (res.csrf_token) {
-                    csrfInput.value = res.csrf_token;
-                }
-
                 debugJson('resposta save-analysis', res);
-
-                storedRowRates = (res.row_rates && typeof res.row_rates === 'object') ? res.row_rates : {};
-                storedDefaultRates = (res.rates && typeof res.rates === 'object') ? res.rates : {};
-                preserveAdjustedDisplayRates(storedRowRates, currentRateData);
-                preserveAdjustedDisplayRates(storedDefaultRates, currentRateData);
-                var mergedRequirements = (res.row_requirements && typeof res.row_requirements === 'object') ? res.row_requirements : (parseJsonAttribute(currentBtn, 'data-requirements') || {});
-                mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedRowRates);
-                mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedDefaultRates);
-                currentBtn.setAttribute('data-requirements', JSON.stringify(mergedRequirements));
-                removedRates = {};
-                serverOriginalRates = preserveAdjustedOriginalRates(normalizeServerOriginalRates(res.original_rates), currentRateData);
-                var rowTotalAccount = typeof res.row_total_account === 'string' ? res.row_total_account : '';
-                var classificationTotalAccount = typeof res.total_account === 'string' ? res.total_account : '';
-                var buttonTotalAccount = currentBtn ? currentBtn.getAttribute('data-total-account') : '';
-                var effectiveTotalAccount = (rowTotalAccount || classificationTotalAccount || buttonTotalAccount || '').trim();
-                currentTotalAccount = effectiveTotalAccount || '';
-                if (currentBtn) {
-                    currentBtn.setAttribute('data-total-account', currentTotalAccount);
-                }
-                if (Object.prototype.hasOwnProperty.call(res, 'has_receipt_companion') && currentBtn) {
-                    currentBtn.setAttribute('data-has-receipt-companion', String(res.has_receipt_companion || '').trim() === '1' ? '1' : '0');
-                }
-                if (totalAccountInput) {
-                    totalAccountInput.value = currentTotalAccount;
-                    updatePlanInputTitle(totalAccountInput);
-                }
-                currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
-                currentClassificationModelName = String(res.classification_model_name || '').trim();
-                classificationModels = normalizeClassificationModelList(res.classification_models);
-                if (res.document_fields && typeof res.document_fields === 'object') {
-                    currentDocumentFieldValues = normalizeDocumentFieldMap(res.document_fields);
-                    renderDocumentFieldInputs();
-                }
-                if (Object.prototype.hasOwnProperty.call(res, 'show_document_fields')) {
-                    var showFieldsFlag = String(res.show_document_fields || '').trim() === '1';
-                    updateDocumentFieldsPanelVisibility(showFieldsFlag);
-                    if (currentBtn) {
-                        currentBtn.setAttribute('data-show-document-fields', showFieldsFlag ? '1' : '0');
-                    }
-                }
-                inheritBaseSourceFieldsFromModel(storedRowRates, currentClassificationModelName);
-                inheritBaseSourceFieldsFromModel(storedDefaultRates, currentClassificationModelName);
-                inheritBaseSourceFieldsFromModel(currentRateData, currentClassificationModelName);
-                renderClassificationModelOptions(currentClassificationModelName);
-
-                Object.keys(storedRowRates).forEach(function(rate) {
-                    if (!currentRateData[rate]) {
-                        currentRateData[rate] = {};
-                    }
-                    var rowData = storedRowRates[rate];
-                    if (rowData && typeof rowData === 'object') {
-                        if (rowData.iva_account) {
-                            currentRateData[rate].iva_account = rowData.iva_account;
-                        }
-                        if (rowData.general_account) {
-                            currentRateData[rate].general_account = rowData.general_account;
-                        }
-                        if (rowData.label) {
-                            currentRateData[rate].label = rowData.label;
-                        }
-                        copyRateHiddenMetadata(currentRateData[rate], rowData);
-                        if (rowData.base_source_field) {
-                            currentRateData[rate].base_source_field = rowData.base_source_field;
-                        }
-                        var rowBase = getEntryAmount(rowData, 'base');
-                        if (rowBase !== null && rowBase !== undefined) {
-                            currentRateData[rate].base = String(rowBase);
-                            currentRateData[rate].base_value = String(rowBase);
-                        }
-                        var rowIva = getEntryAmount(rowData, 'iva');
-                        if (rowIva !== null && rowIva !== undefined) {
-                            currentRateData[rate].iva = String(rowIva);
-                            currentRateData[rate].iva_value = String(rowIva);
-                        }
-                    }
-                });
-
-                Object.keys(storedDefaultRates).forEach(function(rate) {
-                    if (!currentRateData[rate]) {
-                        currentRateData[rate] = {};
-                    }
-                    var defaultData = storedDefaultRates[rate];
-                    if (defaultData && typeof defaultData === 'object') {
-                        if (defaultData.iva_account) {
-                            currentRateData[rate].iva_account = defaultData.iva_account;
-                        }
-                        if (defaultData.general_account) {
-                            currentRateData[rate].general_account = defaultData.general_account;
-                        }
-                        if (defaultData.label) {
-                            currentRateData[rate].label = defaultData.label;
-                        }
-                        copyRateHiddenMetadata(currentRateData[rate], defaultData);
-                    }
-                });
-
-                var serverCostCenters = null;
-                if (Object.prototype.hasOwnProperty.call(res, 'cost_centers')) {
-                    serverCostCenters = res.cost_centers;
-                } else if (Object.prototype.hasOwnProperty.call(res, 'cost_center')) {
-                    serverCostCenters = res.cost_center;
-                }
-                if (serverCostCenters !== null && serverCostCenters !== undefined) {
-                    if (!hasAnyCostCenterValue()) {
-                        applyCostCenterValues(serverCostCenters, { skipEnsure: true });
-                    }
-                }
-                if (res.cost_center_breakdowns && typeof res.cost_center_breakdowns === 'object') {
-                    applyCostCenterBreakdownValues(res.cost_center_breakdowns);
-                    currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
-                }
                 debugJson('dados de taxas após merge', currentRateData);
-
-                var restored = restoreSavedRates();
-                rebuildRequirementsForCurrentButton();
-                getRateKeys().forEach(function(rate) {
-                    populateRateRow(rate);
-                });
-                if (currentBtn) {
-                    currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
-                }
-                captureOriginalRateValues({ initialize: true });
-                currentCostCenters = getCostCenterValues();
-                refreshCostCenterFieldModes();
-
-                if (restored.length > 0) {
-                    focusRateInput(rateInputs[restored[0]]);
-                }
-
+                applyClassificationContextResponse(res, { focusRestored: true });
                 classifyModal.show();
 
             })
