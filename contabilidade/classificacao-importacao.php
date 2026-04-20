@@ -619,6 +619,248 @@ function buildCabIdAssignments(mixed $cabIdsPayload, array $documentIds): array 
     return $assignments;
 }
 
+function normalizeExistingMovementLabel(string $label): string {
+    $label = trim($label);
+    if ($label === '') {
+        return '';
+    }
+
+    $label = strtr($label, [
+        'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'Ç' => 'C', 'ç' => 'c',
+        'Ñ' => 'N', 'ñ' => 'n',
+        'º' => 'o', 'ª' => 'a',
+    ]);
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label);
+    if (is_string($converted) && $converted !== '') {
+        $label = $converted;
+    }
+    $label = strtolower($label);
+    $label = preg_replace('/[^a-z0-9]+/', '_', $label);
+    return trim((string) $label, '_');
+}
+
+function parseExistingMovementEntry(mixed $entry): array {
+    if (is_array($entry)) {
+        return $entry;
+    }
+
+    $text = trim((string) $entry);
+    if ($text === '') {
+        return [];
+    }
+
+    $result = ['raw' => $text];
+    $parts = preg_split('/,\s*/u', $text);
+    if (!is_array($parts)) {
+        $parts = [$text];
+    }
+
+    $labelMap = [
+        'documento' => 'document',
+        'document' => 'document',
+        'doc' => 'document',
+        'documento_externo' => 'external_doc',
+        'external_doc' => 'external_doc',
+        'strnum_doc' => 'external_doc',
+        'field_g' => 'external_doc',
+        'exercicio' => 'exercise',
+        'exercise' => 'exercise',
+        'strcodexercicio' => 'exercise',
+        'diario' => 'diary',
+        'journal' => 'diary',
+        'intcoddiario' => 'diary',
+        'mes' => 'month',
+        'month' => 'month',
+        'intmes' => 'month',
+        'n_diario' => 'diary_no',
+        'no_diario' => 'diary_no',
+        'num_diario' => 'diary_no',
+        'numero_diario' => 'diary_no',
+        'intnum_diario' => 'diary_no',
+        'bd' => 'database',
+        'db' => 'database',
+        'database' => 'database',
+        'id' => 'id',
+        'cab_id' => 'id',
+    ];
+
+    foreach ($parts as $part) {
+        $segments = explode(':', (string) $part, 2);
+        if (count($segments) !== 2) {
+            continue;
+        }
+
+        $label = normalizeExistingMovementLabel($segments[0]);
+        $value = trim($segments[1]);
+        if ($label === '' || $value === '') {
+            continue;
+        }
+
+        $key = $labelMap[$label] ?? $label;
+        $result[$key] = $value;
+    }
+
+    return $result;
+}
+
+function buildExistingMovementCabId(array $entry): ?string {
+    foreach (['id', 'Id', 'cab_id', 'cabId'] as $idKey) {
+        if (isset($entry[$idKey]) && trim((string) $entry[$idKey]) !== '') {
+            return normalizeCabIdValue($entry[$idKey]);
+        }
+    }
+
+    $database = trim((string) ($entry['database'] ?? $entry['BD'] ?? $entry['db'] ?? ''));
+    $exercise = trim((string) ($entry['exercise'] ?? $entry['strCodExercicio'] ?? ''));
+    $diary = trim((string) ($entry['diary'] ?? $entry['intCodDiario'] ?? ''));
+    $month = trim((string) ($entry['month'] ?? $entry['intMes'] ?? ''));
+    $diaryNo = trim((string) ($entry['diary_no'] ?? $entry['intNum_Diario'] ?? $entry['intNumDiario'] ?? ''));
+
+    $parts = array_filter([$database, $exercise, $diary, $month, $diaryNo], static function ($value): bool {
+        return trim((string) $value) !== '';
+    });
+
+    if (empty($parts)) {
+        return null;
+    }
+
+    return normalizeCabIdValue('existing|' . implode('|', $parts));
+}
+
+function normalizeDocumentReferenceKey(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = preg_replace('/\s+/u', ' ', $value);
+    return strtolower((string) $value);
+}
+
+function persistExistingMovementCabIds(PDO $pdo, array $documentIds, mixed $existingPayload): array {
+    $docIds = array_values(array_unique(array_map('intval', $documentIds)));
+    $docIds = array_values(array_filter($docIds, static fn(int $id): bool => $id > 0));
+    if (empty($docIds)) {
+        return [];
+    }
+
+    if (is_string($existingPayload)) {
+        $decoded = json_decode($existingPayload, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $existingPayload = $decoded;
+        }
+    }
+
+    if (!is_array($existingPayload)) {
+        $existingPayload = [$existingPayload];
+    }
+
+    $docIdsByExternalRef = [];
+    try {
+        $placeholders = implode(',', array_fill(0, count($docIds), '?'));
+        $stmt = $pdo->prepare(
+            'SELECT id, field_G FROM accounting_imports WHERE id IN (' . $placeholders . ')'
+        );
+        $stmt->execute($docIds);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $docId = (int) ($row['id'] ?? 0);
+            if ($docId <= 0) {
+                continue;
+            }
+            $externalRef = normalizeDocumentReferenceKey((string) ($row['field_G'] ?? ''));
+            if ($externalRef !== '') {
+                if (!isset($docIdsByExternalRef[$externalRef])) {
+                    $docIdsByExternalRef[$externalRef] = [];
+                }
+                $docIdsByExternalRef[$externalRef][] = $docId;
+            }
+        }
+    } catch (Throwable $throwable) {
+        logErpMessage('Falha ao obter dados dos documentos já lançados: ' . $throwable->getMessage());
+    }
+
+    $remainingDocIds = array_values(array_filter($docIds, static fn(int $id): bool => $id > 0));
+    $assignments = [];
+    $docIdHints = ['document_id', 'doc_id', 'documentId', 'docId'];
+
+    foreach ($existingPayload as $entry) {
+        $parsed = parseExistingMovementEntry($entry);
+        if (empty($parsed)) {
+            continue;
+        }
+
+        $cabId = buildExistingMovementCabId($parsed);
+        if ($cabId === null) {
+            continue;
+        }
+
+        $targetDocId = null;
+        foreach ($docIdHints as $hintKey) {
+            if (isset($parsed[$hintKey]) && (int) $parsed[$hintKey] > 0 && in_array((int) $parsed[$hintKey], $remainingDocIds, true)) {
+                $targetDocId = (int) $parsed[$hintKey];
+                break;
+            }
+        }
+
+        if ($targetDocId === null) {
+            $externalRef = normalizeDocumentReferenceKey((string) ($parsed['external_doc'] ?? $parsed['strNum_Doc'] ?? $parsed['field_G'] ?? ''));
+            if ($externalRef !== '' && !empty($docIdsByExternalRef[$externalRef])) {
+                foreach ($docIdsByExternalRef[$externalRef] as $candidateDocId) {
+                    if (in_array($candidateDocId, $remainingDocIds, true)) {
+                        $targetDocId = $candidateDocId;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($targetDocId === null && count($remainingDocIds) === 1) {
+            $targetDocId = (int) $remainingDocIds[0];
+        }
+
+        if ($targetDocId === null) {
+            continue;
+        }
+
+        $assignments[$targetDocId] = $cabId;
+        $remainingDocIds = array_values(array_filter($remainingDocIds, static fn(int $id): bool => $id !== $targetDocId));
+    }
+
+    if (empty($assignments)) {
+        return [];
+    }
+
+    $stmt = $pdo->prepare('UPDATE accounting_imports SET cab_id = :cab_id WHERE id = :id');
+    $saved = [];
+    foreach ($assignments as $docId => $cabId) {
+        try {
+            $stmt->execute([
+                ':cab_id' => $cabId,
+                ':id' => $docId,
+            ]);
+            $saved[$docId] = $cabId;
+            logErpMessage('Importação CTB marcada como já lançada. Documento ' . $docId . ' -> cab_id ' . $cabId . '.');
+            logAuditAction('import_ctb_existing', 'accounting_imports', (int) $docId, [
+                'cab_id' => $cabId,
+            ]);
+        } catch (Throwable $throwable) {
+            logErpMessage('Falha ao guardar cab_id de documento já lançado ' . $docId . ': ' . $throwable->getMessage());
+        }
+    }
+
+    return $saved;
+}
+
 function persistCabIds(PDO $pdo, array $documentIds, mixed $cabIdsPayload): array {
     $assignments = buildCabIdAssignments($cabIdsPayload, $documentIds);
     if (empty($assignments)) {
@@ -1113,6 +1355,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
             $result['success'] = true;
         }
 
+        $savedCabIds = [];
         if (array_key_exists('cab_ids', $decodedResponse)) {
             $savedCabIds = persistCabIds($pdo, $ids, $decodedResponse['cab_ids']);
             if (!empty($savedCabIds)) {
@@ -1121,6 +1364,28 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
                 $logMessage = is_string($logPayload) ? $logPayload : '';
                 if ($logMessage !== '') {
                     logErpMessage('IDs de cabeçalho associados aos documentos: ' . $logMessage);
+                }
+            }
+        }
+
+        $existingPayload = null;
+        if (isset($decodedResponse['recs']) && is_array($decodedResponse['recs']) && array_key_exists('exist', $decodedResponse['recs'])) {
+            $existingPayload = $decodedResponse['recs']['exist'];
+        } elseif (array_key_exists('exist', $decodedResponse)) {
+            $existingPayload = $decodedResponse['exist'];
+        }
+
+        if ($existingPayload !== null) {
+            $remainingIds = array_values(array_filter(array_map('intval', $ids), static function (int $id) use ($savedCabIds): bool {
+                return $id > 0 && !array_key_exists($id, $savedCabIds);
+            }));
+            $existingCabIds = persistExistingMovementCabIds($pdo, $remainingIds, $existingPayload);
+            if (!empty($existingCabIds)) {
+                $result['cab_id_map'] = array_replace($result['cab_id_map'] ?? [], $existingCabIds);
+                $logPayload = json_encode($existingCabIds, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $logMessage = is_string($logPayload) ? $logPayload : '';
+                if ($logMessage !== '') {
+                    logErpMessage('Documentos CTB já lançados associados localmente: ' . $logMessage);
                 }
             }
         }
@@ -4060,32 +4325,8 @@ if ($action === 'data') {
     }
     exit;
 }
-$initialVisibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '';
-$stmt = $pdo->prepare('SELECT * FROM accounting_imports ai WHERE import_type = :type AND (cab_id IS NULL OR cab_id = \'\')' . $initialVisibilitySql);
-$stmt->execute([':type' => $importType]);
-
-$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-foreach ($rows as &$row) {
-    $row = prepareImportRow($row);
-}
-unset($row);
-if ($isImportOnlyView) {
-    $rows = array_values(array_filter($rows, static fn(array $row): bool => isImportReadyRow($row)));
-}
-
+$rows = [];
 $initialReadyCount = 0;
-foreach ($rows as $row) {
-    if ($importType === 2) {
-        if (trim((string) ($row['line_btn_class'] ?? '')) === 'btn-success') {
-            $initialReadyCount++;
-        }
-        continue;
-    }
-
-    if (isImportReadyRow($row)) {
-        $initialReadyCount++;
-    }
-}
 
 $csrfToken = generateCsrfToken();
 $showImportButton = ($importType === 1) || ($importType === 2);

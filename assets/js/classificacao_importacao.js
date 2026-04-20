@@ -647,13 +647,6 @@ window.addEventListener('load', function() {
         ]
     });
 
-    if (table && table.state && typeof table.state.clear === 'function') {
-        table.state.clear();
-    }
-    if (table && typeof table.page === 'function') {
-        table.page('first').draw('page');
-    }
-
     function hideImportButtonWrapper() {
         if (importCtbWrapper.length) {
             importCtbWrapper.addClass('d-none').attr('aria-hidden', 'true');
@@ -1800,8 +1793,6 @@ window.addEventListener('load', function() {
 
     });
 
-    moveImportButtonToFilter();
-    updateImportButtonState();
     moveImportButtonToFilter();
 
     function decodeHtmlEntities(value) {
