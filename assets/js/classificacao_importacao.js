@@ -4765,7 +4765,10 @@ window.addEventListener('load', function() {
         var result = {
             interest: 0,
             commission: 0,
-            matched: false
+            matched: false,
+            hasInterest: false,
+            hasCommission: false,
+            singleLine: true
         };
         if (!Array.isArray(lines)) {
             return result;
@@ -4779,6 +4782,7 @@ window.addEventListener('load', function() {
             if (description.indexOf('juro') !== -1) {
                 result.interest += net;
                 result.matched = true;
+                result.hasInterest = true;
                 return;
             }
             if (
@@ -4789,8 +4793,34 @@ window.addEventListener('load', function() {
             ) {
                 result.commission += net;
                 result.matched = true;
+                result.hasCommission = true;
             }
         });
+        if (!result.hasInterest || !result.hasCommission) {
+            return {
+                interest: totalGross,
+                commission: 0,
+                matched: true,
+                hasInterest: result.hasInterest,
+                hasCommission: result.hasCommission,
+                singleLine: true
+            };
+        }
+        if (
+            result.matched
+            && Math.abs(result.interest) < 0.00001
+            && exemptBase > 0
+            && result.commission >= (exemptBase * 0.75)
+        ) {
+            return {
+                interest: totalGross,
+                commission: 0,
+                matched: true,
+                hasInterest: result.hasInterest,
+                hasCommission: result.hasCommission,
+                singleLine: true
+            };
+        }
         if (result.matched && Math.abs(result.interest) < 0.00001 && exemptBase > result.commission) {
             result.interest = exemptBase - result.commission;
         }
@@ -4806,15 +4836,29 @@ window.addEventListener('load', function() {
                 result.interest = Math.round((totalGross - commissionGross) * 100) / 100;
             }
         }
+        if (result.matched && result.commission >= (totalGross - 0.03) && result.interest <= 0.03) {
+            return {
+                interest: totalGross,
+                commission: 0,
+                matched: true,
+                hasInterest: result.hasInterest,
+                hasCommission: result.hasCommission,
+                singleLine: true
+            };
+        }
+        result.singleLine = false;
         return result;
     }
 
     function buildFallbackBankLoanAmounts(totalGross) {
         var commission = Math.min(1, Math.max(totalGross, 0));
         return {
-            interest: Math.max(totalGross - commission, 0),
-            commission: commission,
-            matched: false
+            interest: totalGross,
+            commission: 0,
+            matched: false,
+            hasInterest: false,
+            hasCommission: false,
+            singleLine: true
         };
     }
 
@@ -5017,7 +5061,9 @@ window.addEventListener('load', function() {
 
         clearClassificationRowsForBankLoanConversion();
         setBankLoanRate('0', '0%', amounts.interest, '');
-        setBankLoanRate('bank_loan_commission', '0', amounts.commission, '');
+        if (!amounts.singleLine) {
+            setBankLoanRate('bank_loan_commission', '0', amounts.commission, '');
+        }
         currentIgnoreDetectedRates = true;
         currentBankLoanConversionActive = true;
         currentClassificationModelName = '';

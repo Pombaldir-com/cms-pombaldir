@@ -3447,6 +3447,202 @@ function filterVisibleAccountingRates(array $rates): array {
     return $result;
 }
 
+function accountingRatesContainBankLoanConversion(array $rates): bool {
+    $sanitized = sanitizeAccountInput($rates);
+    foreach ($sanitized as $entry) {
+        if (is_array($entry) && normalizeAccountingMetadataFlag($entry['bank_loan_conversion'] ?? '0') === '1') {
+            return true;
+        }
+    }
+    return false;
+}
+
+function parseAccountingBankLoanAmount($value): ?float {
+    $amount = extractDecimalAmount($value);
+    if ($amount === null || $amount === '') {
+        return null;
+    }
+    $number = (float) $amount;
+    return is_finite($number) ? $number : null;
+}
+
+function getAccountingBankLoanLineDescription(array $line): string {
+    $parts = [];
+    foreach (['ITEM', 'DESCRIPTION', 'DESCRICAO', 'PRODUCT_CODE', 'CODE'] as $key) {
+        if (array_key_exists($key, $line)) {
+            $parts[] = trim((string) $line[$key]);
+        }
+    }
+    if (isset($line['ITEM_QUANTITY_UNIT_PRICE']) && is_array($line['ITEM_QUANTITY_UNIT_PRICE'])) {
+        $parts[] = trim((string) ($line['ITEM_QUANTITY_UNIT_PRICE']['ITEM'] ?? ''));
+    }
+    $description = implode(' ', array_filter($parts, static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    }));
+    $description = strtr($description, [
+        'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'Ç' => 'C', 'ç' => 'c',
+    ]);
+    return strtolower($description);
+}
+
+function getAccountingBankLoanLineNetAmount(array $line): ?float {
+    $net = parseAccountingBankLoanAmount($line['PRICE'] ?? null);
+    if ($net === null && isset($line['ITEM_QUANTITY_UNIT_PRICE']) && is_array($line['ITEM_QUANTITY_UNIT_PRICE'])) {
+        $net = parseAccountingBankLoanAmount($line['ITEM_QUANTITY_UNIT_PRICE']['PRICE'] ?? null);
+    }
+    if ($net === null) {
+        $net = parseAccountingBankLoanAmount($line['TOTAL'] ?? null);
+    }
+    return $net;
+}
+
+function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
+    $qrTotal = parseAccountingBankLoanAmount($document['field_O'] ?? null);
+    $qrBase = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
+    $qrStamp = parseAccountingBankLoanAmount($document['field_M'] ?? null);
+    $totalGross = $qrTotal !== null ? $qrTotal : (($qrBase ?? 0.0) + ($qrStamp ?? 0.0));
+    if ($totalGross <= 0) {
+        return null;
+    }
+
+    $interest = 0.0;
+    $commission = 0.0;
+    $matched = false;
+    $hasInterest = false;
+    $hasCommission = false;
+    $lines = json_decode((string) ($document['line_items'] ?? ''), true);
+    if (is_array($lines)) {
+        foreach ($lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $description = getAccountingBankLoanLineDescription($line);
+            $net = getAccountingBankLoanLineNetAmount($line);
+            if ($net === null || abs($net) < 0.00001) {
+                continue;
+            }
+            if (strpos($description, 'juro') !== false) {
+                $interest += $net;
+                $matched = true;
+                $hasInterest = true;
+                continue;
+            }
+            if (
+                strpos($description, 'com') !== false
+                || strpos($description, 'comiss') !== false
+                || strpos($description, 'gestao') !== false
+                || strpos($description, 'prestacao fn') !== false
+            ) {
+                $commission += $net;
+                $matched = true;
+                $hasCommission = true;
+            }
+        }
+    }
+
+    if (!$hasInterest || !$hasCommission) {
+        return [
+            'interest' => round($totalGross, 2),
+            'commission' => 0.0,
+            'single_line' => true,
+        ];
+    }
+
+    if ($matched && abs($interest) < 0.00001 && ($qrBase ?? 0.0) > 0 && $commission >= (($qrBase ?? 0.0) * 0.75)) {
+        return [
+            'interest' => round($totalGross, 2),
+            'commission' => 0.0,
+            'single_line' => true,
+        ];
+    }
+
+    if ($matched) {
+        $baseAmount = $qrBase ?? 0.0;
+        if (abs($interest) < 0.00001 && $baseAmount > $commission) {
+            $interest = $baseAmount - $commission;
+        }
+        if (abs($commission) < 0.00001 && $baseAmount > $interest) {
+            $commission = $baseAmount - $interest;
+        }
+        $netTotal = $interest + $commission;
+        $stampAmount = $qrStamp ?? 0.0;
+        if ($netTotal > 0 && $stampAmount > 0) {
+            $commissionStamp = round($stampAmount * ($commission / $netTotal), 2);
+            $commission = round($commission + $commissionStamp, 2);
+            $interest = round($totalGross - $commission, 2);
+        }
+    }
+
+    if ($matched && $commission >= ($totalGross - 0.03) && $interest <= 0.03) {
+        return [
+            'interest' => round($totalGross, 2),
+            'commission' => 0.0,
+            'single_line' => true,
+        ];
+    }
+
+    if (abs(($interest + $commission) - $totalGross) >= 0.03) {
+        $interest = $totalGross - $commission;
+    }
+    if ($interest < 0) {
+        $interest = 0.0;
+    }
+    if ($commission < 0) {
+        $commission = 0.0;
+    }
+
+    return [
+        'interest' => round($interest, 2),
+        'commission' => round($commission, 2),
+        'single_line' => false,
+    ];
+}
+
+function applyBankLoanConversionAmountsFromDocument(array $accounts, array $document): array {
+    $sanitized = sanitizeAccountInput($accounts);
+    if (!accountingRatesContainBankLoanConversion($sanitized)) {
+        return $accounts;
+    }
+
+    $amounts = resolveAccountingBankLoanAmountsFromDocument($document);
+    if ($amounts === null) {
+        return $accounts;
+    }
+
+    foreach ($sanitized as $rate => $entry) {
+        if (!is_array($entry) || normalizeAccountingMetadataFlag($entry['bank_loan_conversion'] ?? '0') !== '1') {
+            continue;
+        }
+        $normalizedRate = normalizeAccountingRateKey((string) $rate);
+        if (!empty($amounts['single_line']) && (string) $rate === 'bank_loan_commission') {
+            unset($sanitized[$rate]);
+            continue;
+        }
+        $amount = ((string) $rate === 'bank_loan_commission')
+            ? (float) $amounts['commission']
+            : (float) $amounts['interest'];
+        if ((string) $rate !== 'bank_loan_commission' && $normalizedRate !== '0' && count($sanitized) > 1) {
+            continue;
+        }
+        $sanitized[$rate]['base'] = number_format($amount, 2, '.', '');
+        $sanitized[$rate]['iva'] = '';
+        $sanitized[$rate]['iva_account'] = '';
+        $sanitized[$rate]['bank_loan_conversion'] = '1';
+    }
+
+    return $sanitized;
+}
+
 /**
  * Serialize normalized account information as JSON.
  *
@@ -4040,7 +4236,7 @@ function buildManualClassificationRequirements(array $payload): array {
 function buildClassificationRequirements(array $summaries, array $accounts, array $metadata = []): array {
     [$payload, $requirements] = buildRatePayload($summaries, $accounts);
 
-    if (($metadata['ignore_detected_rates'] ?? '0') === '1') {
+    if (($metadata['ignore_detected_rates'] ?? '0') === '1' || accountingRatesContainBankLoanConversion($accounts)) {
         $payload = filterVisibleAccountingRates($accounts);
         $manualRequirements = buildManualClassificationRequirements($payload);
         if (!empty($manualRequirements)) {
