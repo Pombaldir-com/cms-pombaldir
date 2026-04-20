@@ -130,7 +130,7 @@ if (!function_exists('resolveDisplayClassificationAccounts')) {
             $rowEntry = $rowSanitized[$rate] ?? [];
             $entry = $defaultEntry;
 
-            foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field', 'erp_rubric_code', 'vat_amounts_adjusted'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion'] as $field) {
                 $rowValue = isset($rowEntry[$field]) ? trim((string) $rowEntry[$field]) : '';
                 if ($rowValue !== '') {
                     $entry[$field] = $rowValue;
@@ -2592,6 +2592,232 @@ function buildSuggestionTallyFromRules(PDO $pdo, string $docType, string $emitte
     return ['samples' => $samples, 'rates' => $rates, 'totals' => $totals];
 }
 
+function normalizeBackofficeInstructionText(string $value): string {
+    $value = strtr($value, [
+        'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'Ç' => 'C', 'ç' => 'c',
+    ]);
+    $value = strtolower(trim($value));
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? '';
+    return trim(preg_replace('/\s+/', ' ', $value) ?? '');
+}
+
+function extractBackofficeAccountingInstructionSection(): string {
+    $prompt = trim((string) getSetting('ai_prompt_extra', ''));
+    if ($prompt === '') {
+        return '';
+    }
+
+    $lines = preg_split('/\R/u', $prompt) ?: [];
+    $capturing = false;
+    $section = [];
+    foreach ($lines as $line) {
+        $normalizedLine = normalizeBackofficeInstructionText((string) $line);
+        if (!$capturing && strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false) {
+            $capturing = true;
+            continue;
+        }
+        if ($capturing) {
+            $section[] = (string) $line;
+        }
+    }
+
+    return trim(implode("\n", $section));
+}
+
+function cleanBackofficeInstructionAccountCode(string $value): string {
+    $digits = preg_replace('/\D+/', '', $value) ?? '';
+    $length = strlen($digits);
+    return ($length >= 3 && $length <= 30) ? $digits : '';
+}
+
+function extractBackofficeInstructionAccountValue(string $line, array $labelPatterns): ?string {
+    if (!$labelPatterns) {
+        return null;
+    }
+    $pattern = '/(?:' . implode('|', $labelPatterns) . ')\s*(?:=|:|->|-)?\s*(\(?\s*vazio\s*\)?|[0-9][0-9 .\/-]{2,})/iu';
+    if (!preg_match($pattern, $line, $match)) {
+        return null;
+    }
+    $rawValue = trim((string) ($match[1] ?? ''));
+    if (strpos(normalizeBackofficeInstructionText($rawValue), 'vazio') !== false) {
+        return '';
+    }
+    $account = cleanBackofficeInstructionAccountCode($rawValue);
+    return $account !== '' ? $account : null;
+}
+
+function splitBackofficeInstructionAccountClauses(string $line): array {
+    $pattern = '/(?:na\s+)?(?:primeira|segunda|terceira|quarta)\s+linha\b|(?:na\s+)?linha\s+(?:n\.?\s*)?\d+\b/iu';
+    if (!preg_match_all($pattern, $line, $matches, PREG_OFFSET_CAPTURE) || count($matches[0]) <= 1) {
+        return [$line];
+    }
+
+    $clauses = [];
+    $count = count($matches[0]);
+    for ($index = 0; $index < $count; $index++) {
+        $start = (int) ($matches[0][$index][1] ?? 0);
+        $end = $index + 1 < $count ? (int) ($matches[0][$index + 1][1] ?? strlen($line)) : strlen($line);
+        $clause = trim(substr($line, $start, max(0, $end - $start)));
+        if ($clause !== '') {
+            $clauses[] = $clause;
+        }
+    }
+
+    return $clauses ?: [$line];
+}
+
+function backofficeInstructionLineMatchesContext(string $line, array $context): bool {
+    $contextNifs = array_values(array_unique(array_filter([
+        extractVatNumber((string) ($context['emitter_nif'] ?? '')),
+        extractVatNumber((string) ($context['emitter'] ?? '')),
+        extractVatNumber((string) ($context['acquirer_nif'] ?? '')),
+        extractVatNumber((string) ($context['acquirer_raw'] ?? '')),
+    ], static function ($value): bool {
+        return is_string($value) && $value !== '';
+    })));
+
+    if (preg_match_all('/\b\d{9}\b/', $line, $matches)) {
+        foreach ($matches[0] as $nif) {
+            if (in_array((string) $nif, $contextNifs, true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (preg_match_all('/["“”]([^"“”]{2,120})["“”]/u', $line, $nameMatches)) {
+        $contextNames = array_values(array_filter([
+            normalizeBackofficeInstructionText((string) ($context['emitter'] ?? '')),
+            normalizeBackofficeInstructionText((string) ($context['acquirer_raw'] ?? '')),
+        ], static function ($value): bool {
+            return is_string($value) && $value !== '';
+        }));
+        foreach ($nameMatches[1] as $quotedName) {
+            $normalizedName = normalizeBackofficeInstructionText((string) $quotedName);
+            foreach ($contextNames as $contextName) {
+                if ($normalizedName !== '' && (strpos($contextName, $normalizedName) !== false || strpos($normalizedName, $contextName) !== false)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    return true;
+}
+
+function resolveBackofficeInstructionRateKey(string $line, array $rateItems): string {
+    $normalizedLine = normalizeBackofficeInstructionText($line);
+    $orderedRateKeys = [];
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = trim((string) ($rateInfo['key'] ?? ''));
+        if ($rateKey !== '') {
+            $orderedRateKeys[] = $rateKey;
+        }
+    }
+    if (!$orderedRateKeys) {
+        return '';
+    }
+
+    $ordinalIndexes = [
+        0 => ['primeira linha', 'linha primeira', '1 linha'],
+        1 => ['segunda linha', 'linha segunda', '2 linha'],
+        2 => ['terceira linha', 'linha terceira', '3 linha'],
+        3 => ['quarta linha', 'linha quarta', '4 linha'],
+    ];
+    foreach ($ordinalIndexes as $index => $tokens) {
+        foreach ($tokens as $token) {
+            if (strpos($normalizedLine, $token) !== false && isset($orderedRateKeys[$index])) {
+                return $orderedRateKeys[$index];
+            }
+        }
+    }
+    if (preg_match('/\blinha\s+(?:n\s+)?(\d+)\b/', $normalizedLine, $match)) {
+        $index = max(0, ((int) $match[1]) - 1);
+        if (isset($orderedRateKeys[$index])) {
+            return $orderedRateKeys[$index];
+        }
+    }
+
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = trim((string) ($rateInfo['key'] ?? ''));
+        if ($rateKey === '') {
+            continue;
+        }
+        $normalizedRateKey = normalizeSuggestionRateKey($rateKey);
+        $label = normalizeBackofficeInstructionText((string) ($rateInfo['label'] ?? ''));
+        if ($label !== '' && strpos($normalizedLine, $label) !== false) {
+            return $rateKey;
+        }
+        if ($normalizedRateKey !== '' && preg_match('/\b(?:taxa|iva)\s+' . preg_quote($normalizedRateKey, '/') . '\b/', $normalizedLine)) {
+            return $rateKey;
+        }
+    }
+
+    return count($orderedRateKeys) === 1 ? (string) $orderedRateKeys[0] : '';
+}
+
+function buildBackofficeInstructionSuggestionsForExplanation(array $rateItems, array $context): array {
+    $section = extractBackofficeAccountingInstructionSection();
+    if ($section === '') {
+        return ['rates' => [], 'total_account' => null, 'count' => 0];
+    }
+
+    $generalPatterns = ['conta\s+geral', 'general[_\s-]*account', 'conta\s+de\s+gastos?', 'gastos?'];
+    $ivaPatterns = ['conta\s+iva', 'iva[_\s-]*account'];
+    $totalPatterns = ['valor\s+total', 'conta\s+total', 'total[_\s-]*account', 'conta\s+entidade'];
+    $rates = [];
+    $totalAccount = null;
+    $count = 0;
+
+    foreach (preg_split('/\R/u', $section) ?: [] as $line) {
+        $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
+        if ($line === '' || !backofficeInstructionLineMatchesContext($line, $context)) {
+            continue;
+        }
+        foreach (splitBackofficeInstructionAccountClauses($line) as $clause) {
+            $targetRateKey = resolveBackofficeInstructionRateKey($clause, $rateItems);
+            $generalAccount = extractBackofficeInstructionAccountValue($clause, $generalPatterns);
+            $ivaAccount = extractBackofficeInstructionAccountValue($clause, $ivaPatterns);
+            $lineTotalAccount = extractBackofficeInstructionAccountValue($clause, $totalPatterns);
+            $applied = false;
+
+            if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
+                if (!isset($rates[$targetRateKey])) {
+                    $rates[$targetRateKey] = ['general_account' => null, 'iva_account' => null];
+                }
+                if ($generalAccount !== null) {
+                    $rates[$targetRateKey]['general_account'] = $generalAccount;
+                    $applied = true;
+                }
+                if ($ivaAccount !== null) {
+                    $rates[$targetRateKey]['iva_account'] = $ivaAccount;
+                    $applied = true;
+                }
+            }
+            if ($lineTotalAccount !== null) {
+                $totalAccount = $lineTotalAccount;
+                $applied = true;
+            }
+            if ($applied) {
+                $count++;
+            }
+        }
+    }
+
+    return ['rates' => $rates, 'total_account' => $totalAccount, 'count' => $count];
+}
+
 if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
@@ -2637,6 +2863,15 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $historyTally = buildSuggestionTallyFromHistory($pdo, $acquirerNif, $docType, $emitter);
     $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
     $hasReceiptCompanion = trim((string) ($args['has_receipt_companion'] ?? '0')) === '1';
+    $suggestionSources = is_array($args['suggestion_sources'] ?? null) ? $args['suggestion_sources'] : [];
+    $backofficeInstructionSourceActive = in_array('ai_prompt_extra_classification_rules', $suggestionSources, true);
+    $backofficeInstructions = buildBackofficeInstructionSuggestionsForExplanation($rateItems, [
+        'emitter' => $emitter,
+        'emitter_nif' => $emitterNif,
+        'acquirer_nif' => $acquirerNif,
+        'acquirer_raw' => $acquirerRaw,
+    ]);
+    $backofficeInstructionRates = is_array($backofficeInstructions['rates'] ?? null) ? $backofficeInstructions['rates'] : [];
 
     $database = trim((string) ($args['db'] ?? $args['database'] ?? ''));
     $emitterDatabase = '';
@@ -2872,6 +3107,22 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             }
             $reasons[] = $line;
         }
+        $backofficeRate = $backofficeInstructionRates[$rawRateKey] ?? ($backofficeInstructionRates[$rateKey] ?? null);
+        if (is_array($backofficeRate)) {
+            $backofficeParts = [];
+            if (array_key_exists('general_account', $backofficeRate) && $backofficeRate['general_account'] !== null) {
+                $value = trim((string) $backofficeRate['general_account']);
+                $backofficeParts[] = 'conta geral ' . ($value !== '' ? $value : 'vazia');
+            }
+            if (array_key_exists('iva_account', $backofficeRate) && $backofficeRate['iva_account'] !== null) {
+                $value = trim((string) $backofficeRate['iva_account']);
+                $backofficeParts[] = 'conta IVA ' . ($value !== '' ? $value : 'vazia');
+            }
+            if (!empty($backofficeParts)) {
+                $reasons[] = ($backofficeInstructionSourceActive ? 'Origem da sugestão' : 'Regra encontrada')
+                    . ': Instruções do backoffice - ' . implode(', ', $backofficeParts) . '.';
+            }
+        }
 
         if (!empty($movementAccounts)) {
             $movementHits = [];
@@ -3020,6 +3271,11 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         }
         $totalReasons[] = $line;
     }
+    if (array_key_exists('total_account', $backofficeInstructions) && $backofficeInstructions['total_account'] !== null) {
+        $value = trim((string) $backofficeInstructions['total_account']);
+        $totalReasons[] = ($backofficeInstructionSourceActive ? 'Origem da sugestão' : 'Regra encontrada')
+            . ': Instruções do backoffice - conta de valor total ' . ($value !== '' ? $value : 'vazia') . '.';
+    }
     if (!empty($movementAccounts)) {
         $occurrences = $suggestedTotalAccount !== '' ? (int) ($movementAccounts[$suggestedTotalAccount] ?? 0) : 0;
         $totalReasons[] = 'Movimentos ERP analisados (' . count($movementRows) . ' linhas): conta total '
@@ -3057,6 +3313,8 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         'summary' => [
             'history_samples' => (int) ($historyTally['samples'] ?? 0),
             'rule_samples' => (int) ($ruleTally['samples'] ?? 0),
+            'backoffice_instruction_rules' => (int) ($backofficeInstructions['count'] ?? 0),
+            'backoffice_instruction_source' => $backofficeInstructionSourceActive ? 1 : 0,
             'erp_ligacao_rows' => count($ligacaoRows),
             'erp_movement_rows' => count($movementRows),
             'erp_plan_rows' => count($planRows),

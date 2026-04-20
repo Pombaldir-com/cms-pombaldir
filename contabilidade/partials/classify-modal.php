@@ -454,6 +454,11 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                     <button type="button" class="btn btn-sm btn-outline-primary" id="addVatLineBtn">
                         <i class="fa fa-plus"></i> Adicionar linha de IVA
                     </button>
+                    <?php if ($classifyModalImportType === 1): ?>
+                    <button type="button" class="btn btn-sm btn-warning d-none" id="bankLoanConversionBtn">
+                        <i class="fa fa-university"></i> Empréstimo bancário
+                    </button>
+                    <?php endif; ?>
                     <?= $classifyModalFooterRightHtml; ?>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Guardar</button>

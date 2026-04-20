@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS accounting_entities (
     name VARCHAR(255) NOT NULL,
     erp_database VARCHAR(255) DEFAULT '',
     erp_client_code VARCHAR(50) DEFAULT '',
+    is_bank_entity TINYINT(1) NOT NULL DEFAULT 0,
     entity_type VARCHAR(50) NOT NULL DEFAULT 'adquirente',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_accounting_entity_nif (nif)

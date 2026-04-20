@@ -2996,6 +2996,330 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
     return array_slice($examples, 0, $limit);
 }
 
+function hasStoredClassificationSuggestionForContext(string $docType, string $emitter, string $acquirer, array $context = []): bool {
+    if (!hasTable('accounting_classifications')) {
+        return false;
+    }
+
+    $docType = trim($docType);
+    if ($docType === '') {
+        return false;
+    }
+    $docTypeCandidates = array_values(array_unique(array_filter([
+        $docType,
+        strtoupper($docType),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+
+    $emitterCandidates = array_values(array_unique(array_filter([
+        extractVatLikeValue((string) ($context['emitter_nif'] ?? '')),
+        extractVatLikeValue((string) ($context['emitter_raw'] ?? '')),
+        extractVatLikeValue($emitter),
+        trim((string) ($context['emitter_raw'] ?? '')),
+        trim($emitter),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    $acquirerCandidates = array_values(array_unique(array_filter([
+        extractVatLikeValue((string) ($context['acquirer_nif'] ?? '')),
+        extractVatLikeValue((string) ($context['acquirer_raw'] ?? '')),
+        extractVatLikeValue($acquirer),
+        trim((string) ($context['acquirer_raw'] ?? '')),
+        trim($acquirer),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    if (!$emitterCandidates || !$acquirerCandidates) {
+        return false;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+    );
+    foreach ($emitterCandidates as $emitterCandidate) {
+        foreach ($acquirerCandidates as $acquirerCandidate) {
+            foreach ($docTypeCandidates as $docTypeCandidate) {
+                $stmt->execute([$emitterCandidate, $acquirerCandidate, $docTypeCandidate]);
+                $accountPayload = $stmt->fetchColumn();
+                if (!is_string($accountPayload) || trim($accountPayload) === '') {
+                    continue;
+                }
+                $rates = extractAccountsFromPayload($accountPayload);
+                $totalAccount = extractTotalAccountFromPayload($accountPayload, normalizeSuggestionReceiptCompanionFlag($context['has_receipt_companion'] ?? '0'));
+                if ($rates || trim($totalAccount) !== '') {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+function normalizeAiInstructionComparable(string $value): string {
+    $value = strtr($value, [
+        'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'Ç' => 'C', 'ç' => 'c',
+    ]);
+    $value = strtolower(trim($value));
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? '';
+    return trim(preg_replace('/\s+/', ' ', $value) ?? '');
+}
+
+function extractAiAccountingInstructionSection(): string {
+    $prompt = trim((string) getSetting('ai_prompt_extra', ''));
+    if ($prompt === '') {
+        return '';
+    }
+
+    $lines = preg_split('/\R/u', $prompt) ?: [];
+    $capturing = false;
+    $section = [];
+    foreach ($lines as $line) {
+        $normalizedLine = normalizeAiInstructionComparable((string) $line);
+        if (!$capturing && strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false) {
+            $capturing = true;
+            continue;
+        }
+        if ($capturing) {
+            $section[] = (string) $line;
+        }
+    }
+
+    return trim(implode("\n", $section));
+}
+
+function cleanAiInstructionAccountCode(string $value): string {
+    $digits = preg_replace('/\D+/', '', $value) ?? '';
+    $length = strlen($digits);
+    if ($length < 3 || $length > 30) {
+        return '';
+    }
+    return $digits;
+}
+
+function extractAiInstructionAccountCode(string $line, array $labelPatterns): string {
+    if (!$labelPatterns) {
+        return '';
+    }
+    $pattern = '/(?:' . implode('|', $labelPatterns) . ')\s*(?:=|:|->|-)?\s*([0-9][0-9 .\/-]{2,})/iu';
+    if (preg_match($pattern, $line, $match)) {
+        return cleanAiInstructionAccountCode((string) ($match[1] ?? ''));
+    }
+    return '';
+}
+
+function extractAiInstructionAccountValue(string $line, array $labelPatterns): ?string {
+    if (!$labelPatterns) {
+        return null;
+    }
+    $pattern = '/(?:' . implode('|', $labelPatterns) . ')\s*(?:=|:|->|-)?\s*(\(?\s*vazio\s*\)?|[0-9][0-9 .\/-]{2,})/iu';
+    if (!preg_match($pattern, $line, $match)) {
+        return null;
+    }
+    $rawValue = trim((string) ($match[1] ?? ''));
+    if (strpos(normalizeAiInstructionComparable($rawValue), 'vazio') !== false) {
+        return '';
+    }
+    $account = cleanAiInstructionAccountCode($rawValue);
+    return $account !== '' ? $account : null;
+}
+
+function splitAiInstructionAccountClauses(string $line): array {
+    $pattern = '/(?:na\s+)?(?:primeira|segunda|terceira|quarta)\s+linha\b|(?:na\s+)?linha\s+(?:n\.?\s*)?\d+\b/iu';
+    if (!preg_match_all($pattern, $line, $matches, PREG_OFFSET_CAPTURE) || count($matches[0]) <= 1) {
+        return [$line];
+    }
+
+    $clauses = [];
+    $count = count($matches[0]);
+    for ($index = 0; $index < $count; $index++) {
+        $start = (int) ($matches[0][$index][1] ?? 0);
+        $end = $index + 1 < $count ? (int) ($matches[0][$index + 1][1] ?? strlen($line)) : strlen($line);
+        $clause = trim(substr($line, $start, max(0, $end - $start)));
+        if ($clause !== '') {
+            $clauses[] = $clause;
+        }
+    }
+
+    return $clauses ?: [$line];
+}
+
+function aiInstructionLineMatchesContext(string $line, array $context): bool {
+    $contextNifs = array_values(array_unique(array_filter([
+        extractVatLikeValue((string) ($context['emitter_nif'] ?? '')),
+        extractVatLikeValue((string) ($context['emitter'] ?? '')),
+        extractVatLikeValue((string) ($context['emitter_raw'] ?? '')),
+        extractVatLikeValue((string) ($context['acquirer_nif'] ?? '')),
+        extractVatLikeValue((string) ($context['acquirer_raw'] ?? '')),
+    ], static function ($value): bool {
+        return is_string($value) && $value !== '';
+    })));
+
+    if (preg_match_all('/\b\d{9}\b/', $line, $matches)) {
+        foreach ($matches[0] as $nif) {
+            if (in_array((string) $nif, $contextNifs, true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (preg_match_all('/["“”]([^"“”]{2,120})["“”]/u', $line, $nameMatches)) {
+        $contextNames = array_values(array_filter([
+            normalizeAiInstructionComparable((string) ($context['emitter'] ?? '')),
+            normalizeAiInstructionComparable((string) ($context['emitter_raw'] ?? '')),
+            normalizeAiInstructionComparable((string) ($context['acquirer_raw'] ?? '')),
+        ], static function ($value): bool {
+            return is_string($value) && $value !== '';
+        }));
+        foreach ($nameMatches[1] as $quotedName) {
+            $normalizedName = normalizeAiInstructionComparable((string) $quotedName);
+            if ($normalizedName === '') {
+                continue;
+            }
+            foreach ($contextNames as $contextName) {
+                if (strpos($contextName, $normalizedName) !== false || strpos($normalizedName, $contextName) !== false) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    return true;
+}
+
+function resolveAiInstructionTargetRateKey(string $line, array $rateItems): string {
+    $normalizedLine = normalizeAiInstructionComparable($line);
+    $orderedRateKeys = [];
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = trim((string) ($rateInfo['key'] ?? ''));
+        if ($rateKey !== '') {
+            $orderedRateKeys[] = $rateKey;
+        }
+    }
+    if (!$orderedRateKeys) {
+        return '';
+    }
+
+    $ordinalIndexes = [
+        0 => ['primeira linha', 'linha primeira', '1 linha'],
+        1 => ['segunda linha', 'linha segunda', '2 linha'],
+        2 => ['terceira linha', 'linha terceira', '3 linha'],
+        3 => ['quarta linha', 'linha quarta', '4 linha'],
+    ];
+    foreach ($ordinalIndexes as $index => $tokens) {
+        foreach ($tokens as $token) {
+            if (strpos($normalizedLine, $token) !== false && isset($orderedRateKeys[$index])) {
+                return $orderedRateKeys[$index];
+            }
+        }
+    }
+    if (preg_match('/\blinha\s+(?:n\s+)?(\d+)\b/', $normalizedLine, $match)) {
+        $index = max(0, ((int) $match[1]) - 1);
+        if (isset($orderedRateKeys[$index])) {
+            return $orderedRateKeys[$index];
+        }
+    }
+
+    if ((strpos($normalizedLine, 'comissao') !== false || strpos($normalizedLine, 'imposto selo') !== false || strpos($normalizedLine, 'selo') !== false)
+        && in_array('bank_loan_commission', $orderedRateKeys, true)) {
+        return 'bank_loan_commission';
+    }
+    if (strpos($normalizedLine, 'juros') !== false && in_array('0', $orderedRateKeys, true)) {
+        return '0';
+    }
+
+    foreach ($rateItems as $rateInfo) {
+        $rateKey = trim((string) ($rateInfo['key'] ?? ''));
+        if ($rateKey === '') {
+            continue;
+        }
+        $normalizedRateKey = normalizeRateKey($rateKey);
+        $label = normalizeAiInstructionComparable((string) ($rateInfo['label'] ?? ''));
+        if ($label !== '' && strpos($normalizedLine, $label) !== false) {
+            return $rateKey;
+        }
+        if ($normalizedRateKey !== '' && preg_match('/\b(?:taxa|iva)\s+' . preg_quote($normalizedRateKey, '/') . '\b/', $normalizedLine)) {
+            return $rateKey;
+        }
+        if ($normalizedRateKey !== '' && strpos($normalizedLine, $normalizedRateKey . ' por cento') !== false) {
+            return $rateKey;
+        }
+    }
+
+    return count($orderedRateKeys) === 1 ? (string) $orderedRateKeys[0] : '';
+}
+
+function buildAiInstructionAccountSuggestions(array $rateItems, array $context): array {
+    $section = extractAiAccountingInstructionSection();
+    if ($section === '') {
+        return ['rates' => [], 'total_account' => '', 'count' => 0];
+    }
+
+    $generalPatterns = ['conta\s+geral', 'general[_\s-]*account', 'conta\s+de\s+gastos?', 'gastos?'];
+    $ivaPatterns = ['conta\s+iva', 'iva[_\s-]*account'];
+    $totalPatterns = ['valor\s+total', 'conta\s+total', 'total[_\s-]*account', 'conta\s+entidade'];
+    $suggested = [];
+    $totalAccount = '';
+    $matchedLines = 0;
+    $lines = preg_split('/\R/u', $section) ?: [];
+
+    foreach ($lines as $line) {
+        $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
+        if ($line === '' || !aiInstructionLineMatchesContext($line, $context)) {
+            continue;
+        }
+
+        foreach (splitAiInstructionAccountClauses($line) as $clause) {
+            $generalAccount = extractAiInstructionAccountValue($clause, $generalPatterns);
+            $ivaAccount = extractAiInstructionAccountValue($clause, $ivaPatterns);
+            $lineTotalAccount = extractAiInstructionAccountValue($clause, $totalPatterns);
+            $targetRateKey = resolveAiInstructionTargetRateKey($clause, $rateItems);
+            $lineApplied = false;
+
+            if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
+                if (!isset($suggested[$targetRateKey])) {
+                    $suggested[$targetRateKey] = ['iva_account' => '', 'general_account' => ''];
+                }
+                if ($generalAccount !== null) {
+                    $suggested[$targetRateKey]['general_account'] = $generalAccount;
+                    $suggested[$targetRateKey]['general_account_explicit'] = '1';
+                    $lineApplied = true;
+                }
+                if ($ivaAccount !== null && normalizeRateKey($targetRateKey) !== '0') {
+                    $suggested[$targetRateKey]['iva_account'] = $ivaAccount;
+                    $suggested[$targetRateKey]['iva_account_explicit'] = '1';
+                    $lineApplied = true;
+                }
+            }
+
+            if ($lineTotalAccount !== null && $totalAccount === '') {
+                $totalAccount = $lineTotalAccount;
+                $lineApplied = true;
+            }
+
+            if ($lineApplied) {
+                $matchedLines++;
+            }
+        }
+    }
+
+    return ['rates' => $suggested, 'total_account' => $totalAccount, 'count' => $matchedLines];
+}
+
 function buildExpectedLinesFromExamples(array $examples, array $context = []): array {
     $rateTally = [];
     $totalTally = [];
@@ -3954,13 +4278,19 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
     }
     $context = [
         'emitter' => $emitter,
+        'emitter_raw' => $emitterRaw,
         'emitter_nif' => $emitterNif,
+        'acquirer_nif' => $acquirerNif,
         'acquirer_raw' => $acquirerRaw,
         'has_receipt_companion' => normalizeSuggestionReceiptCompanionFlag($args['has_receipt_companion'] ?? '0'),
     ];
     $limit = 18;
     $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
     $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12, $context);
+    $hasStoredClassificationSuggestion = hasStoredClassificationSuggestionForContext($docType, $emitter, $acquirerRaw, $context);
+    $aiInstructionSuggestions = !$hasStoredClassificationSuggestion
+        ? buildAiInstructionAccountSuggestions($rateItems, $context)
+        : ['rates' => [], 'total_account' => '', 'count' => 0];
     $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples), $context);
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
     if (!empty($ruleExamples)) {
@@ -4453,6 +4783,37 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
         }
     }
+
+    $aiInstructionApplied = 0;
+    $aiInstructionRates = is_array($aiInstructionSuggestions['rates'] ?? null) ? $aiInstructionSuggestions['rates'] : [];
+    if ($aiInstructionRates) {
+        foreach ($aiInstructionRates as $rateKey => $accounts) {
+            $rateKey = (string) $rateKey;
+            if ($rateKey === '' || !is_array($accounts)) {
+                continue;
+            }
+            if (!isset($finalSuggested[$rateKey])) {
+                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
+            }
+            $general = trim((string) ($accounts['general_account'] ?? ''));
+            $iva = trim((string) ($accounts['iva_account'] ?? ''));
+            $hasGeneralInstruction = !empty($accounts['general_account_explicit']);
+            $hasIvaInstruction = !empty($accounts['iva_account_explicit']);
+            if ($hasGeneralInstruction && trim((string) ($finalSuggested[$rateKey]['general_account'] ?? '')) !== $general) {
+                $finalSuggested[$rateKey]['general_account'] = $general;
+                $aiInstructionApplied++;
+            }
+            if ($hasIvaInstruction && normalizeRateKey($rateKey) !== '0' && trim((string) ($finalSuggested[$rateKey]['iva_account'] ?? '')) !== $iva) {
+                $finalSuggested[$rateKey]['iva_account'] = $iva;
+                $aiInstructionApplied++;
+            }
+        }
+    }
+    $aiInstructionTotalAccount = trim((string) ($aiInstructionSuggestions['total_account'] ?? ''));
+    if ($aiInstructionTotalAccount !== '' && trim((string) ($expectedLines['total_account'] ?? '')) !== $aiInstructionTotalAccount) {
+        $expectedLines['total_account'] = $aiInstructionTotalAccount;
+        $aiInstructionApplied++;
+    }
     $costCenterRequiredRates = buildCostCenterRequiredRates(
         $rateItems,
         $finalSuggested,
@@ -4471,6 +4832,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'erp_ligacao_total_account' => $ligacaoTotalAccount,
         'cost_center_required_rates' => $costCenterRequiredRates,
         'erp_movement_rows' => (int) ($movementHints['count'] ?? 0),
+        'ai_instruction_rule_count' => $aiInstructionApplied > 0 ? (int) ($aiInstructionSuggestions['count'] ?? 0) : 0,
     ];
 }
 
@@ -4635,6 +4997,9 @@ if ($action === 'suggest_accounts') {
     if (!empty($result['rule_count'])) {
         $sources[] = 'mysql_classification_rules';
     }
+    if (!empty($result['ai_instruction_rule_count'])) {
+        $sources[] = 'ai_prompt_extra_classification_rules';
+    }
     if (!empty($result['plan_db'])) {
         $sources[] = 'erp_planocontas';
     }
@@ -4662,6 +5027,7 @@ if ($action === 'suggest_accounts') {
                 'type' => 'suggest_accounts',
                 'history' => $result['history_count'] ?? 0,
                 'rules' => $result['rule_count'] ?? 0,
+                'ai_instruction_rules' => $result['ai_instruction_rule_count'] ?? 0,
                 'plan_db' => $result['plan_db'] ?? '',
                 'erp_ligacao' => $result['erp_ligacao_rows'] ?? 0,
                 'erp_movimentos' => $result['erp_movement_rows'] ?? 0,
@@ -5156,6 +5522,7 @@ do {
                         'type' => 'suggest_accounts',
                         'history' => $toolResult['history_count'] ?? 0,
                         'rules' => $toolResult['rule_count'] ?? 0,
+                        'ai_instruction_rules' => $toolResult['ai_instruction_rule_count'] ?? 0,
                         'plan_db' => $toolResult['plan_db'] ?? '',
                         'erp_movimentos' => $toolResult['erp_movement_rows'] ?? 0,
                     ];

@@ -521,6 +521,38 @@ function shouldPersistSharedClassification(array $requirements, array $payload, 
     return determineClassificationButtonClass($requirements, $payload, $metadata, $costCenters) === 'btn-success';
 }
 
+function markAccountingEntityAsBankEntity(PDO $pdo, string $entityFieldValue): void {
+    if (!hasColumn('accounting_entities', 'is_bank_entity')) {
+        return;
+    }
+
+    $nif = extractVatNumber($entityFieldValue);
+    if ($nif === '') {
+        return;
+    }
+
+    $existing = findAccountingEntity($pdo, $nif);
+    $name = trim((string) ($existing['name'] ?? ''));
+    if ($name === '' || isPlaceholderAccountingEntityName($name, $nif)) {
+        $efaturaName = findAccountingEntityNameFromEfatura($pdo, $nif);
+        $name = $efaturaName !== '' ? $efaturaName : deriveEntityNameFromField($entityFieldValue, $nif);
+    }
+
+    saveAccountingEntity($pdo, [
+        'nif' => $nif,
+        'name' => $name,
+        'erp_database' => trim((string) ($existing['erp_database'] ?? '')),
+        'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
+        'entity_type' => trim((string) ($existing['entity_type'] ?? '')) !== ''
+            ? trim((string) ($existing['entity_type'] ?? ''))
+            : 'emitter',
+        'qr_doc_type_mappings' => array_key_exists('qr_doc_type_mappings', (array) $existing)
+            ? (string) ($existing['qr_doc_type_mappings'] ?? '')
+            : '',
+        'is_bank_entity' => '1',
+    ]);
+}
+
 function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
     $normalizedFlag = trim($receiptCompanionFlag) === '1' ? '1' : '0';
     if ($normalizedFlag === '1') {
@@ -1027,7 +1059,7 @@ if ($action === 'lines') {
     }
     $idValue = is_numeric($id) ? (int) $id : 0;
     requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
-    $stmt = $pdo->prepare('SELECT id, filename, line_items, field_A, field_B FROM accounting_imports WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, filename, line_items, field_A, field_B, field_D FROM accounting_imports WHERE id = ?');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (! $row) {
@@ -1321,6 +1353,16 @@ if ($action === 'get') {
         if (!is_array($ratesData)) {
             $ratesData = [];
         }
+        $bankLoanConversionSubmitted = false;
+        foreach ($ratesData as $rateData) {
+            if (!is_array($rateData)) {
+                continue;
+            }
+            if (trim((string) ($rateData['bank_loan_conversion'] ?? '')) === '1') {
+                $bankLoanConversionSubmitted = true;
+                break;
+            }
+        }
         $submittedRates = sanitizeAccountInput($ratesData);
 
         $originalJson = $_POST['original_rates'] ?? '[]';
@@ -1404,6 +1446,9 @@ if ($action === 'get') {
         $b = (string) ($importRow['field_B'] ?? $b);
         $d = (string) ($importRow['field_D'] ?? $d);
         ensureAccountingEntity($pdo, (string) $a);
+        if ($bankLoanConversionSubmitted) {
+            markAccountingEntityAsBankEntity($pdo, (string) $a);
+        }
         [$classificationEmitter, $classificationAcquirer, $classificationDocType] = resolveClassificationStorageIdentifiers($a, $b, $d, $importRow);
         $existingClassRaw = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
         $existingClass = normalizeAccountingAccounts($existingClassRaw);

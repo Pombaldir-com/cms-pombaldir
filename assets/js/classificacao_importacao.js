@@ -2069,6 +2069,50 @@ window.addEventListener('load', function() {
         return false;
     }
 
+    function hasBankLoanConversionRates(rateData) {
+        if (!rateData || typeof rateData !== 'object') {
+            return false;
+        }
+        return Object.keys(rateData).some(function(rate) {
+            var entry = rateData[rate];
+            if (!entry || typeof entry !== 'object') {
+                return false;
+            }
+            var flag = String(entry.bank_loan_conversion || '').trim().toLowerCase();
+            return flag === '1' || flag === 'true';
+        });
+    }
+
+    function isBankLoanConversionRate(rate, entry) {
+        var sources = [
+            entry,
+            currentRateData && currentRateData[rate],
+            storedRowRates && storedRowRates[rate],
+            storedDefaultRates && storedDefaultRates[rate]
+        ];
+        return sources.some(function(source) {
+            if (!source || typeof source !== 'object') {
+                return false;
+            }
+            var flag = String(source.bank_loan_conversion || '').trim().toLowerCase();
+            return flag === '1' || flag === 'true';
+        });
+    }
+
+    function clearBankLoanVatForRate(rate) {
+        var info = rateInputs[rate] || null;
+        var rateData = ensureRateData(rate);
+        if (info && info.iva) {
+            info.iva.value = '';
+        }
+        if (info && info.ivaAccount) {
+            info.ivaAccount.value = '';
+        }
+        rateData.iva = '';
+        rateData.iva_value = '';
+        rateData.iva_account = '';
+        rateData.bank_loan_conversion = '1';
+    }
 
     function updateButtonClass(btn) {
         var rateData = parseJsonAttribute(btn, 'data-rates') || {};
@@ -2086,6 +2130,7 @@ window.addEventListener('load', function() {
             var data = rateData[rate] || {};
             var normalizedRate = normalizeRateToken(rate);
             var isZeroRate = normalizedRate !== null && Math.abs(normalizedRate) < 0.00001;
+            var isBankLoanRate = String(data.bank_loan_conversion || '').trim() === '1';
             var hasRelevantConfiguration = false;
             if (req.general) {
                 requires = true;
@@ -2097,7 +2142,7 @@ window.addEventListener('load', function() {
                     hasAny = true;
                 }
             }
-            if (req.iva && !isZeroRate) {
+            if (req.iva && !isZeroRate && !isBankLoanRate) {
                 requires = true;
                 hasRelevantConfiguration = true;
                 var iva = (data.iva_account || '').trim();
@@ -2119,7 +2164,7 @@ window.addEventListener('load', function() {
             }
             if (!hasRelevantConfiguration) {
                 hasRelevantConfiguration = String(data.general_account || '').trim() !== ''
-                    || (!isZeroRate && String(data.iva_account || '').trim() !== '')
+                    || (!isZeroRate && !isBankLoanRate && String(data.iva_account || '').trim() !== '')
                     || String(costCenters[rate] || '').trim() !== '';
             }
             if (hasRelevantConfiguration) {
@@ -2241,9 +2286,10 @@ window.addEventListener('load', function() {
             }
             var normalizedRate = normalizeRateToken(rate);
             var isZeroRate = normalizedRate !== null && Math.abs(normalizedRate) < 0.00001;
+            var isBankLoanRate = String(entry.bank_loan_conversion || '').trim() === '1';
             requirements[rate] = {
                 general: true,
-                iva: !isZeroRate,
+                iva: !isZeroRate && !isBankLoanRate,
                 cost_center: String(entry.cost_center_required || '').trim() === '1'
             };
         });
@@ -2301,6 +2347,7 @@ window.addEventListener('load', function() {
     }
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
+    var bankLoanConversionBtn = document.getElementById('bankLoanConversionBtn');
     var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
     var aiSuggestionExplainBtn = document.getElementById('aiSuggestionExplainBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
@@ -2311,6 +2358,7 @@ window.addEventListener('load', function() {
     var currentCostCenterBreakdowns = {};
     var currentTotalAccount = '';
     var currentIgnoreDetectedRates = false;
+    var currentBankLoanConversionActive = false;
     var currentClassificationModelName = '';
     var classificationModels = [];
     var currentDocumentFieldValues = {};
@@ -3470,6 +3518,10 @@ window.addEventListener('load', function() {
         if (adjustedFlag === '1' || adjustedFlag === 'true') {
             target.vat_amounts_adjusted = '1';
         }
+        var bankLoanFlag = String(source.bank_loan_conversion || '').trim().toLowerCase();
+        if (bankLoanFlag === '1' || bankLoanFlag === 'true') {
+            target.bank_loan_conversion = '1';
+        }
     }
 
     function isAdjustedVatRateEntry(entry) {
@@ -4317,6 +4369,7 @@ window.addEventListener('load', function() {
             target.value = normalizeDocumentFieldValue(fieldName, target.value);
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
+            updateBankLoanConversionVisibility();
             scheduleClassificationRefreshFromDocumentFields(fieldName);
         });
 
@@ -4332,6 +4385,7 @@ window.addEventListener('load', function() {
             target.value = normalizeDocumentFieldValue(fieldName, target.value);
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
+            updateBankLoanConversionVisibility();
             scheduleClassificationRefreshFromDocumentFields(fieldName);
         });
     }
@@ -4642,6 +4696,353 @@ window.addEventListener('load', function() {
         return value.toFixed(2);
     }
 
+    function getDocumentFieldNumber(fieldName) {
+        return parseDecimalValue(getDocumentFieldRawValue(fieldName));
+    }
+
+    function hasBankLoanStampValues() {
+        var exemptBase = getDocumentFieldNumber('FIELD_I2');
+        var stampTax = getDocumentFieldNumber('FIELD_M');
+        var total = getDocumentFieldNumber('FIELD_O');
+        return exemptBase !== null
+            && stampTax !== null
+            && total !== null
+            && exemptBase > 0
+            && stampTax > 0
+            && Math.abs((exemptBase + stampTax) - total) < 0.03;
+    }
+
+    function updateBankLoanConversionVisibility() {
+        if (!bankLoanConversionBtn) {
+            return;
+        }
+        bankLoanConversionBtn.classList.toggle('d-none', !hasBankLoanStampValues());
+    }
+
+    function getLineDescriptionText(line) {
+        if (!line || typeof line !== 'object') {
+            return '';
+        }
+        var parts = [
+            line.ITEM,
+            line.DESCRIPTION,
+            line.DESCRICAO,
+            line.PRODUCT_CODE,
+            line.CODE
+        ];
+        if (line.ITEM_QUANTITY_UNIT_PRICE && typeof line.ITEM_QUANTITY_UNIT_PRICE === 'object') {
+            parts.push(line.ITEM_QUANTITY_UNIT_PRICE.ITEM);
+        }
+        return parts.map(function(value) {
+            return String(value || '').trim();
+        }).filter(function(value) {
+            return value !== '';
+        }).join(' ');
+    }
+
+    function normalizeLoanLineDescription(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    }
+
+    function getLineNetAmount(line) {
+        if (!line || typeof line !== 'object') {
+            return null;
+        }
+        var net = parseDecimalValue(line.PRICE);
+        if (net === null && line.ITEM_QUANTITY_UNIT_PRICE && typeof line.ITEM_QUANTITY_UNIT_PRICE === 'object') {
+            net = parseDecimalValue(line.ITEM_QUANTITY_UNIT_PRICE.PRICE);
+        }
+        if (net === null) {
+            net = parseDecimalValue(line.TOTAL);
+        }
+        return net;
+    }
+
+    function buildBankLoanAmountsFromLines(lines, exemptBase, stampTax, totalGross) {
+        var result = {
+            interest: 0,
+            commission: 0,
+            matched: false
+        };
+        if (!Array.isArray(lines)) {
+            return result;
+        }
+        lines.forEach(function(line) {
+            var description = normalizeLoanLineDescription(getLineDescriptionText(line));
+            var net = getLineNetAmount(line);
+            if (net === null || Math.abs(net) < 0.00001) {
+                return;
+            }
+            if (description.indexOf('juro') !== -1) {
+                result.interest += net;
+                result.matched = true;
+                return;
+            }
+            if (
+                description.indexOf('com') !== -1
+                || description.indexOf('comiss') !== -1
+                || description.indexOf('gestao') !== -1
+                || description.indexOf('prestacao fn') !== -1
+            ) {
+                result.commission += net;
+                result.matched = true;
+            }
+        });
+        if (result.matched && Math.abs(result.interest) < 0.00001 && exemptBase > result.commission) {
+            result.interest = exemptBase - result.commission;
+        }
+        if (result.matched && Math.abs(result.commission) < 0.00001 && exemptBase > result.interest) {
+            result.commission = exemptBase - result.interest;
+        }
+        if (result.matched) {
+            var netTotal = result.interest + result.commission;
+            if (netTotal > 0 && stampTax > 0) {
+                var commissionStamp = Math.round((stampTax * (result.commission / netTotal)) * 100) / 100;
+                var commissionGross = Math.round((result.commission + commissionStamp) * 100) / 100;
+                result.commission = commissionGross;
+                result.interest = Math.round((totalGross - commissionGross) * 100) / 100;
+            }
+        }
+        return result;
+    }
+
+    function buildFallbackBankLoanAmounts(totalGross) {
+        var commission = Math.min(1, Math.max(totalGross, 0));
+        return {
+            interest: Math.max(totalGross - commission, 0),
+            commission: commission,
+            matched: false
+        };
+    }
+
+    function fetchBankLoanLines() {
+        if (!currentBtn || !csrfInput) {
+            return Promise.resolve([]);
+        }
+        var params = new URLSearchParams({
+            action: 'lines',
+            id: currentBtn.getAttribute('data-id') || '',
+            csrf_token: csrfInput.value
+        });
+        return fetchJson('contabilidade/save-analysis.php?' + params.toString())
+            .then(function(res) {
+                if (res && res.csrf_token) {
+                    csrfInput.value = res.csrf_token;
+                }
+                return Array.isArray(res && res.lines) ? res.lines : [];
+            })
+            .catch(function() {
+                return [];
+            });
+    }
+
+    function clearClassificationRowsForBankLoanConversion() {
+        Object.keys(currentRateData || {}).forEach(function(rate) {
+            removedRates[rate] = true;
+        });
+        defaultRates.forEach(function(rate) {
+            removedRates[rate] = true;
+        });
+        Object.keys(rateInputs).forEach(function(rate) {
+            removedRates[rate] = true;
+            removeRateRow(rate);
+        });
+        Object.keys(storedRowRates || {}).forEach(function(rate) {
+            removedRates[rate] = true;
+        });
+        Object.keys(storedDefaultRates || {}).forEach(function(rate) {
+            removedRates[rate] = true;
+        });
+        currentRateData = {};
+        currentCostCenters = {};
+        currentCostCenterBreakdowns = {};
+    }
+
+    function setBankLoanRate(rate, label, baseValue, generalAccount) {
+        var formattedBase = formatDecimalValue(baseValue);
+        var resolvedGeneralAccount = String(generalAccount || '').trim();
+        var ratePayload = {
+            label: label,
+            base: formattedBase,
+            base_value: formattedBase,
+            iva: '',
+            iva_value: '',
+            iva_account: '',
+            general_account: resolvedGeneralAccount,
+            bank_loan_conversion: '1'
+        };
+        currentRateData[rate] = Object.assign({}, ratePayload);
+        var info = rate === '0'
+            ? addVatRowForRate(rate)
+            : createDynamicRateRow(rate, label);
+        if (Object.prototype.hasOwnProperty.call(removedRates, rate)) {
+            delete removedRates[rate];
+        }
+        if (info) {
+            currentRateData[rate] = Object.assign({}, ratePayload);
+            populateRateRow(rate);
+            if (info.base) {
+                info.base.value = formattedBase;
+            }
+            if (info.iva) {
+                info.iva.value = '';
+            }
+            if (info.ivaAccount) {
+                info.ivaAccount.value = '';
+            }
+            if (info.generalAccount) {
+                info.generalAccount.value = resolvedGeneralAccount;
+                updatePlanInputTitle(info.generalAccount);
+            }
+            currentRateData[rate].base = formattedBase;
+            currentRateData[rate].base_value = formattedBase;
+            currentRateData[rate].iva = '';
+            currentRateData[rate].iva_value = '';
+            currentRateData[rate].general_account = resolvedGeneralAccount;
+            currentRateData[rate].bank_loan_conversion = '1';
+        }
+    }
+
+    function requestAccountSuggestionsForCurrentRows(options) {
+        var opts = options || {};
+        if (!currentBtn) {
+            return Promise.resolve(false);
+        }
+        var prompt = buildAiSuggestionPrompt();
+        var rateLines = buildRateLines();
+        if (!prompt) {
+            return Promise.resolve(false);
+        }
+
+        return postAssistantRequest({
+            action: 'suggest_accounts',
+            payload: {
+                acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
+                emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                emitter_raw: currentBtn.getAttribute('data-emitter') || '',
+                emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                db: currentBtn.getAttribute('data-acquirer-db') || '',
+                doc_type: currentBtn.getAttribute('data-doctype') || '',
+                doc_date: currentBtn.getAttribute('data-docdate') || '',
+                has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
+                rates: rateLines
+            },
+            message: prompt,
+            session_id: opts.session_id || 'ai_suggest_accounts'
+        }).then(function(res) {
+            var message = '';
+            if (res) {
+                message = res.message || res.error || res.details || '';
+            }
+            debugJson('IA resposta', res);
+            window.aiExpectedLines = (res && res.expected_lines && typeof res.expected_lines === 'object') ? res.expected_lines : null;
+
+            var parsed = null;
+            if (res && typeof res === 'object' && res.rates && typeof res.rates === 'object') {
+                parsed = {
+                    rates: res.rates,
+                    total_account: (typeof res.total_account === 'string' ? res.total_account : '')
+                };
+            }
+            if (!parsed) {
+                parsed = extractJsonFromText(message);
+            }
+            if (!parsed || !applyAiSuggestions(parsed, res)) {
+                return false;
+            }
+
+            if (res) {
+                window.aiSuggestionLogId = res.log_id || null;
+                window.aiSuggestedAccounts = parsed.rates || null;
+                window.aiSuggestionSources = [];
+                if (Array.isArray(res.actions)) {
+                    res.actions.forEach(function(action) {
+                        if (action && action.type === 'suggest_accounts') {
+                            if (action.history && parseInt(action.history, 10) > 0) {
+                                window.aiSuggestionSources.push('mysql_history');
+                            }
+                            if (action.plan_db) {
+                                window.aiSuggestionSources.push('erp_planocontas');
+                            }
+                            if (action.erp_ligacao && parseInt(action.erp_ligacao, 10) > 0) {
+                                window.aiSuggestionSources.push('erp_ligacao_cte_tipo_doc');
+                            }
+                            if (action.rules && parseInt(action.rules, 10) > 0) {
+                                window.aiSuggestionSources.push('mysql_classification_rules');
+                            }
+                            if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0) {
+                                window.aiSuggestionSources.push('ai_prompt_extra_classification_rules');
+                            }
+                            if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0) {
+                                window.aiSuggestionSources.push('erp_movimentos');
+                            }
+                        }
+                    });
+                }
+            }
+
+            return true;
+        }).catch(function() {
+            return false;
+        });
+    }
+
+    function applyBankLoanConversionFromLines(lines) {
+        var qrTotal = getDocumentFieldNumber('FIELD_O');
+        var qrBase = getDocumentFieldNumber('FIELD_I2');
+        var qrStamp = getDocumentFieldNumber('FIELD_M');
+        var totalGross = qrTotal !== null ? qrTotal : ((qrBase || 0) + (qrStamp || 0));
+        if (!totalGross || totalGross <= 0) {
+            showError('Não foi possível obter o total do documento a partir do QR.');
+            return;
+        }
+
+        var amounts = buildBankLoanAmountsFromLines(lines, qrBase || 0, qrStamp || 0, totalGross);
+        if (!amounts.matched) {
+            amounts = buildFallbackBankLoanAmounts(totalGross);
+        }
+        if (Math.abs((amounts.interest + amounts.commission) - totalGross) >= 0.03) {
+            amounts.interest = totalGross - amounts.commission;
+        }
+        if (amounts.interest < 0) {
+            amounts.interest = 0;
+        }
+        if (amounts.commission < 0) {
+            amounts.commission = 0;
+        }
+
+        clearClassificationRowsForBankLoanConversion();
+        setBankLoanRate('0', '0%', amounts.interest, '');
+        setBankLoanRate('bank_loan_commission', '0', amounts.commission, '');
+        currentIgnoreDetectedRates = true;
+        currentBankLoanConversionActive = true;
+        currentClassificationModelName = '';
+        if (currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            updateButtonClass(currentBtn);
+        }
+        rebuildRequirementsForCurrentButton();
+        refreshCostCenterFieldModes();
+        captureOriginalRateValues({ initialize: false, refresh: false, allowCreate: false });
+        return requestAccountSuggestionsForCurrentRows({ session_id: 'ai_suggest_accounts' })
+            .then(function(applied) {
+                refreshCostCenterFieldModes();
+                refreshAllDirtyStates();
+                if (currentBtn) {
+                    currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+                    updateButtonClass(currentBtn);
+                }
+                showSuccess(applied
+                    ? 'Lançamento de empréstimo bancário preparado com sugestões de contas. Confirme e grave a classificação.'
+                    : 'Lançamento de empréstimo bancário preparado. Preencha as contas em falta e grave a classificação.'
+                );
+            });
+    }
+
     function formatNumberValue(value) {
         var num = typeof value === 'number' ? value : parseDecimalValue(value);
         if (num === null || !isFinite(num)) {
@@ -4732,6 +5133,18 @@ window.addEventListener('load', function() {
         rateData.base = rawBaseValue;
         rateData.base_value = rawBaseValue;
         var baseNumber = parseDecimalValue(rawBaseValue);
+        if (isBankLoanConversionRate(rate, rateData)) {
+            clearBankLoanVatForRate(rate);
+            if (opts.formatBase && baseNumber !== null) {
+                var formattedBankLoanBase = formatDecimalValue(baseNumber);
+                if (info.base.value !== formattedBankLoanBase) {
+                    info.base.value = formattedBankLoanBase;
+                }
+                rateData.base = info.base.value;
+                rateData.base_value = info.base.value;
+            }
+            return;
+        }
         var percentage = getRatePercentage(rate);
         if (rawBaseValue.trim() === '' || baseNumber === null || percentage === null) {
             if (info.iva) {
@@ -6539,6 +6952,9 @@ window.addEventListener('load', function() {
             }
         }
         syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
+        if (isBankLoanConversionRate(rate, currentRateData[rate])) {
+            clearBankLoanVatForRate(rate);
+        }
         updateCostCenterFieldMode(rate);
         updateRowDirtyState(rate);
     }
@@ -6639,6 +7055,23 @@ window.addEventListener('load', function() {
                 populateRateRow(customInfo.key);
                 focusRateInput(customInfo);
             }
+        });
+    }
+
+    if (bankLoanConversionBtn) {
+        bankLoanConversionBtn.addEventListener('click', function() {
+            if (!hasBankLoanStampValues()) {
+                showNotice('warning', 'Este documento não tem os campos QR esperados para a conversão de empréstimo bancário.');
+                return;
+            }
+            bankLoanConversionBtn.disabled = true;
+            fetchBankLoanLines()
+                .then(function(lines) {
+                    return applyBankLoanConversionFromLines(lines);
+                })
+                .finally(function() {
+                    bankLoanConversionBtn.disabled = false;
+                });
         });
     }
 
@@ -6770,6 +7203,9 @@ window.addEventListener('load', function() {
                                     if (action.rules && parseInt(action.rules, 10) > 0) {
                                         window.aiSuggestionSources.push('mysql_classification_rules');
                                     }
+                                    if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0) {
+                                        window.aiSuggestionSources.push('ai_prompt_extra_classification_rules');
+                                    }
                                     if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0) {
                                         window.aiSuggestionSources.push('erp_movimentos');
                                     }
@@ -6795,6 +7231,9 @@ window.addEventListener('load', function() {
                             }
                             if (action.rules && parseInt(action.rules, 10) > 0 && sourceLabel.indexOf('Regras') === -1) {
                                 sourceLabel = sourceLabel === 'IA' ? 'Regras' : (sourceLabel + ' + Regras');
+                            }
+                            if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0 && sourceLabel.indexOf('Instruções') === -1) {
+                                sourceLabel = sourceLabel === 'IA' ? 'Instruções AI' : (sourceLabel + ' + Instruções AI');
                             }
                             if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0 && sourceLabel.indexOf('Movimentos') === -1) {
                                 sourceLabel = sourceLabel === 'IA' ? 'Movimentos ERP' : (sourceLabel + ' + Movimentos ERP');
@@ -6837,10 +7276,16 @@ window.addEventListener('load', function() {
             html += '<div class="mb-2"><small class="text-muted">'
                 + 'Histórico: ' + escapeHtml(String(summary.history_samples || 0))
                 + ' | Regras: ' + escapeHtml(String(summary.rule_samples || 0))
+                + ' | Instruções BO: ' + escapeHtml(String(summary.backoffice_instruction_rules || 0))
                 + ' | Ligação ERP: ' + escapeHtml(String(summary.erp_ligacao_rows || 0))
                 + ' | Movimentos ERP: ' + escapeHtml(String(summary.erp_movement_rows || 0))
                 + ' | Plano ERP: ' + escapeHtml(String(summary.erp_plan_rows || 0))
                 + '</small></div>';
+            if (String(summary.backoffice_instruction_source || '0') === '1') {
+                html += '<div class="alert alert-info py-2 mb-3">'
+                    + 'A sugestão aplicada inclui regras lidas nas Instruções adicionais do backoffice.'
+                    + '</div>';
+            }
         }
 
         var ratesPayload = response.rates || {};
@@ -6985,6 +7430,7 @@ window.addEventListener('load', function() {
                         doc_date: currentBtn.getAttribute('data-docdate') || '',
                         has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                         total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
+                        suggestion_sources: window.aiSuggestionSources || [],
                         rates: rates
                     }
                 })
@@ -7027,6 +7473,7 @@ window.addEventListener('load', function() {
             updateDocumentFieldsPanelVisibility(true);
             currentDocumentFieldValues = {};
             renderDocumentFieldInputs();
+            updateBankLoanConversionVisibility();
             resetClassifyDocumentPreview();
             invalidateReadyImportIdsCache();
             table.ajax.reload(null, false);
@@ -7035,6 +7482,7 @@ window.addEventListener('load', function() {
             currentOriginalRatesKey = null;
             currentTotalAccount = '';
             currentCostCenterDistributionRate = '';
+            currentBankLoanConversionActive = false;
             if (totalAccountInput) {
                 totalAccountInput.value = '';
             }
@@ -7169,11 +7617,18 @@ window.addEventListener('load', function() {
         removedRates = {};
         currentTotalAccount = (btn.getAttribute('data-total-account') || '').trim();
         currentIgnoreDetectedRates = false;
+        currentBankLoanConversionActive = false;
         currentClassificationModelName = '';
         classificationModels = [];
         currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
         renderDocumentFieldInputs();
         updateButtonDocumentFields(btn, currentDocumentFieldValues);
+        updateBankLoanConversionVisibility();
+        var buttonRatesPayload = parseJsonAttribute(btn, 'data-rates') || {};
+        currentBankLoanConversionActive = !!(
+            buttonRatesPayload
+            && hasBankLoanConversionRates(buttonRatesPayload)
+        );
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
             updatePlanInputTitle(totalAccountInput);
@@ -7186,7 +7641,7 @@ window.addEventListener('load', function() {
             toggleClassificationModelSaveFields();
         }
 
-        currentRateData = parseJsonAttribute(btn, 'data-rates') || {};
+        currentRateData = buttonRatesPayload;
         if (!currentRateData || typeof currentRateData !== 'object') {
             currentRateData = {};
         }
@@ -7281,6 +7736,9 @@ window.addEventListener('load', function() {
 
             getRateKeys().forEach(function(rate) {
                 recalculateVatForRate(rate, { formatBase: true });
+                if (isBankLoanConversionRate(rate, ensureRateData(rate))) {
+                    clearBankLoanVatForRate(rate);
+                }
                 updateRowDirtyState(rate);
             });
 
@@ -7309,6 +7767,7 @@ window.addEventListener('load', function() {
                     iva_value: ivaValue,
                     erp_rubric_code: String(rateData.erp_rubric_code || '').trim(),
                     vat_amounts_adjusted: isAdjustedVatRateEntry(rateData) ? '1' : '0',
+                    bank_loan_conversion: String(rateData.bank_loan_conversion || '').trim() === '1' ? '1' : '0',
                     base_source_field: (function() {
                         var rateDataSource = ensureRateData(rate);
                         var existingSource = String(rateDataSource.base_source_field || '').trim();
@@ -7320,6 +7779,30 @@ window.addEventListener('load', function() {
                     cost_center_required: costCenterRequired ? '1' : '0'
                 };
             });
+
+            if (currentBankLoanConversionActive) {
+                Object.keys(ratesPayload).forEach(function(rate) {
+                    if (rate !== '0' && rate !== 'bank_loan_commission') {
+                        delete ratesPayload[rate];
+                        removedRates[rate] = true;
+                        if (rateInputs[rate]) {
+                            removeRateRow(rate);
+                        }
+                    }
+                });
+                ['0', 'bank_loan_commission'].forEach(function(rate) {
+                    if (!ratesPayload[rate]) {
+                        return;
+                    }
+                    ratesPayload[rate].iva = '';
+                    ratesPayload[rate].iva_value = '';
+                    ratesPayload[rate].iva_account = '';
+                    ratesPayload[rate].bank_loan_conversion = '1';
+                    if (Object.prototype.hasOwnProperty.call(removedRates, rate)) {
+                        delete removedRates[rate];
+                    }
+                });
+            }
 
             var removedPayload = Object.keys(removedRates).filter(function(rate) {
                 return removedRates[rate];
@@ -7453,6 +7936,28 @@ window.addEventListener('load', function() {
                 }
 
                 if (res.row_rates && typeof res.row_rates === 'object') {
+                    if (currentBankLoanConversionActive) {
+                        Object.keys(res.row_rates).forEach(function(rate) {
+                            if (rate !== '0' && rate !== 'bank_loan_commission') {
+                                delete res.row_rates[rate];
+                            }
+                        });
+                        ['0', 'bank_loan_commission'].forEach(function(rate) {
+                            if (!res.row_rates[rate]) {
+                                return;
+                            }
+                            res.row_rates[rate].iva = '';
+                            res.row_rates[rate].iva_value = '';
+                            res.row_rates[rate].iva_account = '';
+                            res.row_rates[rate].bank_loan_conversion = '1';
+                        });
+                        Object.keys(rateInputs).forEach(function(rate) {
+                            if (rate === '0' || rate === 'bank_loan_commission') {
+                                return;
+                            }
+                            removeRateRow(rate);
+                        });
+                    }
                     storedRowRates = res.row_rates;
                     Object.keys(res.row_rates).forEach(function(rate) {
                         if (!currentRateData[rate]) {
@@ -7480,6 +7985,9 @@ window.addEventListener('load', function() {
                         }
                         if (rateInputs[rate]) {
                             populateRateRow(rate);
+                            if (isBankLoanConversionRate(rate, currentRateData[rate])) {
+                                clearBankLoanVatForRate(rate);
+                            }
                         }
                     });
                 } else {

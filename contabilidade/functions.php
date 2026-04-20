@@ -1695,7 +1695,11 @@ function resolveErpAccountingDocumentTypeAbbreviation(string $documentType, stri
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
-    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at FROM accounting_entities WHERE nif = ? LIMIT 1');
+    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'is_bank_entity')) {
+        $selectColumns .= ', is_bank_entity';
+    }
+    $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
@@ -1714,7 +1718,11 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     if ($normalizedType === '') {
         return findAccountingEntity($pdo, $nif);
     }
-    $stmt = $pdo->prepare('SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
+    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'is_bank_entity')) {
+        $selectColumns .= ', is_bank_entity';
+    }
+    $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
     $stmt->execute([$nif, $normalizedType]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
@@ -1751,6 +1759,11 @@ function normalizeAccountingEntityStoragePayload(array $data): array {
     $data['entity_type'] = $entityType;
     $data['erp_database'] = $erpDatabase;
     $data['erp_client_code'] = $erpClientCode;
+    $isBankEntityRaw = $data['is_bank_entity'] ?? '0';
+    $data['is_bank_entity'] = (
+        trim((string) $isBankEntityRaw) === '1'
+        || $isBankEntityRaw === true
+    ) ? '1' : '0';
 
     return $data;
 }
@@ -1761,8 +1774,12 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
         return null;
     }
 
+    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'is_bank_entity')) {
+        $selectColumns .= ', is_bank_entity';
+    }
     $stmt = $pdo->prepare(
-        'SELECT id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at
+        'SELECT ' . $selectColumns . '
          FROM accounting_entities
          WHERE entity_type = ?
            AND erp_database = ?
@@ -1786,12 +1803,15 @@ function resolveAccountingEntityDatabase(array $entity): string {
  * @return void
  */
 function saveAccountingEntity(PDO $pdo, array $data): void {
+    $hasSubmittedBankEntity = array_key_exists('is_bank_entity', $data);
     $data = normalizeAccountingEntityStoragePayload($data);
     $nif = trim((string) ($data['nif'] ?? ''));
     $name = trim((string) ($data['name'] ?? ''));
     $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($data['erp_database'] ?? ''));
     $entityType = trim((string) ($data['entity_type'] ?? ''));
     $erpClientCode = trim((string) ($data['erp_client_code'] ?? ''));
+    $isBankEntity = (trim((string) ($data['is_bank_entity'] ?? '0')) === '1') ? '1' : '0';
+    $hasBankEntityColumn = hasColumn('accounting_entities', 'is_bank_entity');
 
     if ($nif === '') {
         throw new InvalidArgumentException('NIF inválido para guardar entidade contabilística.');
@@ -1809,23 +1829,38 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
         $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
             ? (string) $data['qr_doc_type_mappings']
             : (string) ($existing['qr_doc_type_mappings'] ?? '');
-        $stmt = $pdo->prepare(
-            'UPDATE accounting_entities SET name = ?, erp_database = ?, entity_type = ?, erp_client_code = ?, qr_doc_type_mappings = ? WHERE id = ?'
-        );
-        $stmt->execute([
+        $updateSql = 'UPDATE accounting_entities SET name = ?, erp_database = ?, entity_type = ?, erp_client_code = ?, qr_doc_type_mappings = ?';
+        $updateValues = [
             $name,
             $erpDatabase,
             $entityType,
             $erpClientCode,
             $qrDocTypeMappings,
-            (int) $existing['id'],
-        ]);
+        ];
+        if ($hasBankEntityColumn) {
+            $updateSql .= ', is_bank_entity = ?';
+            $updateValues[] = $hasSubmittedBankEntity
+                ? $isBankEntity
+                : (trim((string) ($existing['is_bank_entity'] ?? '0')) === '1' ? '1' : '0');
+        }
+        $updateSql .= ' WHERE id = ?';
+        $updateValues[] = (int) $existing['id'];
+        $stmt = $pdo->prepare($updateSql);
+        $stmt->execute($updateValues);
         return;
     }
 
     $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
         ? (string) $data['qr_doc_type_mappings']
         : '';
+    if ($hasBankEntityColumn) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, is_bank_entity, qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode, $isBankEntity, $qrDocTypeMappings]);
+        return;
+    }
+
     $stmt = $pdo->prepare(
         'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?)'
     );
@@ -2906,6 +2941,9 @@ function normalizeAccountingAccounts(?string $json): array {
                 if (array_key_exists('vat_amounts_adjusted', $value)) {
                     $result[$keyString]['vat_amounts_adjusted'] = normalizeAccountingMetadataFlag($value['vat_amounts_adjusted']);
                 }
+                if (array_key_exists('bank_loan_conversion', $value)) {
+                    $result[$keyString]['bank_loan_conversion'] = normalizeAccountingMetadataFlag($value['bank_loan_conversion']);
+                }
 
                 $baseValue = null;
                 if (array_key_exists('base_value', $value)) {
@@ -3010,6 +3048,7 @@ function sanitizeAccountInput(array $input): array {
         $ivaValue = '';
         $erpRubricCode = '';
         $vatAmountsAdjusted = '0';
+        $bankLoanConversion = '0';
         $costCenterRequired = false;
         $baseSourceField = '';
 
@@ -3056,6 +3095,9 @@ function sanitizeAccountInput(array $input): array {
 
             if (array_key_exists('vat_amounts_adjusted', $rateInput)) {
                 $vatAmountsAdjusted = normalizeAccountingMetadataFlag($rateInput['vat_amounts_adjusted']);
+            }
+            if (array_key_exists('bank_loan_conversion', $rateInput)) {
+                $bankLoanConversion = normalizeAccountingMetadataFlag($rateInput['bank_loan_conversion']);
             }
 
             if (array_key_exists('base_value', $rateInput)) {
@@ -3139,6 +3181,9 @@ function sanitizeAccountInput(array $input): array {
         }
         if ($vatAmountsAdjusted === '1') {
             $result[$rate]['vat_amounts_adjusted'] = '1';
+        }
+        if ($bankLoanConversion === '1') {
+            $result[$rate]['bank_loan_conversion'] = '1';
         }
         if ($costCenterRequired) {
             $result[$rate]['cost_center_required'] = '1';
@@ -3299,9 +3344,12 @@ function mergeAccountingAccounts(array $base, array $override): array {
         if (isset($baseSanitized[$rate]['vat_amounts_adjusted'])) {
             $result[$rate]['vat_amounts_adjusted'] = $baseSanitized[$rate]['vat_amounts_adjusted'];
         }
+        if (isset($baseSanitized[$rate]['bank_loan_conversion'])) {
+            $result[$rate]['bank_loan_conversion'] = $baseSanitized[$rate]['bank_loan_conversion'];
+        }
 
         if (array_key_exists($rate, $overrideSanitized)) {
-            foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion'] as $field) {
                 if (array_key_exists($field, $overrideSanitized[$rate])) {
                     $result[$rate][$field] = $overrideSanitized[$rate][$field];
                 }
@@ -3364,6 +3412,7 @@ function filterVisibleAccountingRates(array $rates): array {
         $baseSourceField = trim((string) ($entry['base_source_field'] ?? ''));
         $erpRubricCode = normalizeAccountingRubricCodeValue($entry['erp_rubric_code'] ?? '');
         $vatAmountsAdjusted = normalizeAccountingMetadataFlag($entry['vat_amounts_adjusted'] ?? '0');
+        $bankLoanConversion = normalizeAccountingMetadataFlag($entry['bank_loan_conversion'] ?? '0');
 
         if ($general === '' && $iva === '' && $base === '' && $ivaValue === '' && $costCenterRequired === '' && $baseSourceField === '') {
             continue;
@@ -3383,6 +3432,9 @@ function filterVisibleAccountingRates(array $rates): array {
         }
         if ($vatAmountsAdjusted === '1') {
             $result[(string) $rate]['vat_amounts_adjusted'] = '1';
+        }
+        if ($bankLoanConversion === '1') {
+            $result[(string) $rate]['bank_loan_conversion'] = '1';
         }
         if ($costCenterRequired !== '') {
             $result[(string) $rate]['cost_center_required'] = $costCenterRequired;
@@ -3904,8 +3956,12 @@ function buildRatePayload(array $summaries, array $accounts): array {
 
         $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
         $ivaAccount = $accountInfo['iva_account'] ?? '';
-        if ($normalizedRateKey === '0') {
+        $isBankLoanConversionRate = normalizeAccountingMetadataFlag($accountInfo['bank_loan_conversion'] ?? '0') === '1';
+        if ($normalizedRateKey === '0' || $isBankLoanConversionRate) {
             $ivaAccount = '';
+        }
+        if ($isBankLoanConversionRate) {
+            $ivaDisplay = '';
         }
 
         $payload[$rate] = [
@@ -3919,9 +3975,12 @@ function buildRatePayload(array $summaries, array $accounts): array {
             'erp_rubric_code' => $accountInfo['erp_rubric_code'] ?? '',
             'vat_amounts_adjusted' => ($hasStoredAdjustedAmounts && normalizeAccountingMetadataFlag($accountInfo['vat_amounts_adjusted'] ?? '0') === '1') ? '1' : '0',
         ];
+        if ($isBankLoanConversionRate) {
+            $payload[$rate]['bank_loan_conversion'] = '1';
+        }
         $requirements[$rate] = [
             'general' => !empty($info['require_general']),
-            'iva' => ($normalizedRateKey !== '0' && !empty($info['require_iva'])),
+            'iva' => ($normalizedRateKey !== '0' && !$isBankLoanConversionRate && !empty($info['require_iva'])),
             'cost_center' => (trim((string) ($accountInfo['cost_center_required'] ?? '')) === '1'),
         ];
     }
@@ -3949,9 +4008,10 @@ function buildManualClassificationRequirements(array $payload): array {
         $base = trim((string) ($data['base'] ?? $data['base_value'] ?? ''));
         $ivaValue = trim((string) ($data['iva'] ?? $data['iva_value'] ?? ''));
         $costCenterRequired = trim((string) ($data['cost_center_required'] ?? '')) === '1';
+        $isBankLoanConversionRate = normalizeAccountingMetadataFlag($data['bank_loan_conversion'] ?? '0') === '1';
         $normalizedRateKey = normalizeAccountingRateKey($rateKey);
 
-        if ($normalizedRateKey === '0') {
+        if ($normalizedRateKey === '0' || $isBankLoanConversionRate) {
             $iva = '';
         }
 
@@ -3961,7 +4021,7 @@ function buildManualClassificationRequirements(array $payload): array {
 
         $requirements[$rateKey] = [
             'general' => true,
-            'iva' => ($normalizedRateKey !== '0'),
+            'iva' => ($normalizedRateKey !== '0' && !$isBankLoanConversionRate),
             'cost_center' => $costCenterRequired,
         ];
     }
@@ -4008,6 +4068,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
     foreach ($requirements as $rate => $req) {
         $data = $payload[$rate] ?? [];
         $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
+        $isBankLoanConversionRate = normalizeAccountingMetadataFlag($data['bank_loan_conversion'] ?? '0') === '1';
         $hasRelevantConfiguration = false;
         if (!empty($req['general'])) {
             $requires = true;
@@ -4019,7 +4080,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
                 $hasAny = true;
             }
         }
-        if ($normalizedRateKey !== '0' && !empty($req['iva'])) {
+        if ($normalizedRateKey !== '0' && !$isBankLoanConversionRate && !empty($req['iva'])) {
             $requires = true;
             $hasRelevantConfiguration = true;
             $iva = trim((string) ($data['iva_account'] ?? ''));
@@ -4041,7 +4102,7 @@ function determineClassificationButtonClass(array $requirements, array $payload,
         }
         if (!$hasRelevantConfiguration) {
             $general = trim((string) ($data['general_account'] ?? ''));
-            $iva = $normalizedRateKey === '0' ? '' : trim((string) ($data['iva_account'] ?? ''));
+            $iva = ($normalizedRateKey === '0' || $isBankLoanConversionRate) ? '' : trim((string) ($data['iva_account'] ?? ''));
             $costCenterValue = trim((string) ($costCenters[$rate] ?? ''));
             $hasRelevantConfiguration = ($general !== '' || $iva !== '' || $costCenterValue !== '');
         }

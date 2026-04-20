@@ -15,6 +15,7 @@ $useDataTables = true;
 $useSwitchery = true;
 
 $pdo = getPDO();
+$hasBankEntityColumn = hasColumn('accounting_entities', 'is_bank_entity');
 $user = currentUser();
 $isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
@@ -35,6 +36,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = trim((string) ($_POST['action'] ?? ''));
+    if ($action === 'toggle-bank-entity') {
+        if (!$hasBankEntityColumn) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Coluna de entidade bancaria em falta.'));
+            exit;
+        }
+
+        $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
+        $isBankEntity = trim((string) ($_POST['is_bank_entity'] ?? '0')) === '1' ? 1 : 0;
+        if ($entityId <= 0) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade invalida.'));
+            exit;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, nif, name, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $stmt->execute([$entityId]);
+        $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entity) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade nao encontrada.'));
+            exit;
+        }
+
+        if (($entity['entity_type'] ?? '') !== $entityType) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Tipo de entidade invalido.'));
+            exit;
+        }
+
+        $stmt = $pdo->prepare('UPDATE accounting_entities SET is_bank_entity = ? WHERE id = ?');
+        $stmt->execute([$isBankEntity, $entityId]);
+        logAuditAction(
+            'update',
+            'accounting_entity',
+            $entityId,
+            [
+                'field' => 'is_bank_entity',
+                'value' => $isBankEntity,
+                'nif' => trim((string) ($entity['nif'] ?? '')),
+                'entity_type' => $entityType,
+            ]
+        );
+
+        header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=success&msg=' . rawurlencode('Entidade bancaria atualizada.'));
+        exit;
+    }
+
     if ($action === 'delete-entity') {
         if (!$isSuperAdmin) {
             http_response_code(403);
@@ -204,8 +249,12 @@ if ($consultId > 0 && !$consultEntity && $erpError === '') {
     $erpError = 'Entidade não encontrada.';
 }
 
+$entitySelectColumns = 'id, nif, name, erp_database, erp_client_code';
+if ($hasBankEntityColumn) {
+    $entitySelectColumns .= ', is_bank_entity';
+}
 $stmt = $pdo->prepare(
-    "SELECT id, nif, name, erp_database, erp_client_code FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
+    "SELECT $entitySelectColumns FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
 );
 $stmt->execute([$entityType]);
 $entities = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -463,6 +512,9 @@ require_once __DIR__ . '/../header.php';
                             <th>NIF</th>
                             <th>Nome</th>
                             <th>ERP Database</th>
+                            <?php if ($hasBankEntityColumn): ?>
+                                <th data-orderable="false">Banco</th>
+                            <?php endif; ?>
                             <th data-orderable="false" class="text-right">Acoes</th>
                         </tr>
                     </thead>
@@ -472,6 +524,17 @@ require_once __DIR__ . '/../header.php';
                             <td><?= htmlspecialchars($entity['nif'] ?? ''); ?></td>
                             <td><?= htmlspecialchars($entity['name'] ?? ''); ?></td>
                             <td><?= htmlspecialchars(resolveAccountingEntityDatabase($entity)); ?></td>
+                            <?php if ($hasBankEntityColumn): ?>
+                                <td>
+                                    <form method="post" style="margin: 0;">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="toggle-bank-entity">
+                                        <input type="hidden" name="entity_id" value="<?= (int) $entity['id']; ?>">
+                                        <input type="hidden" name="is_bank_entity" value="<?= !empty($entity['is_bank_entity']) ? '0' : '1'; ?>">
+                                        <input type="checkbox" class="js-switch" <?= !empty($entity['is_bank_entity']) ? 'checked' : ''; ?> onchange="this.form.submit();">
+                                    </form>
+                                </td>
+                            <?php endif; ?>
                             <td class="text-right">
                                 <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>" class="btn btn-xs btn-primary">
                                     <i class="fa fa-search"></i> Consulta
