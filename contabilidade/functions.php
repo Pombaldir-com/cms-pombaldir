@@ -455,8 +455,11 @@ function resolveErpDatabaseIdentifier(string $database = ''): string {
  * compatibility with legacy endpoints.
  */
 function buildErpCompanyQueryParams(string $database = ''): array {
-    $database = trim($database);
-    $emp = getErpDefaultCompanyIdentifier();
+    $database = normalizeAccountingEntityDatabaseKey(trim($database));
+    $emp = trim(getErpDefaultCompanyIdentifier());
+    if ($database === '' && $emp !== '') {
+        $database = normalizeAccountingEntityDatabaseKey($emp);
+    }
     if ($emp === '' && $database !== '') {
         $emp = $database;
     }
@@ -1732,6 +1735,10 @@ function normalizeAccountingEntityDatabaseKey(string $value): string {
     $value = trim($value);
     if ($value === '') {
         return '';
+    }
+
+    if (preg_match('/^\d+$/', $value)) {
+        return 'emp_' . $value;
     }
 
     if (preg_match('/^emp[_-]?(\d+)$/i', $value, $matches)) {

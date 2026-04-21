@@ -4972,6 +4972,8 @@ window.addEventListener('load', function() {
                 db: currentBtn.getAttribute('data-acquirer-db') || '',
                 doc_type: currentBtn.getAttribute('data-doctype') || '',
                 doc_date: currentBtn.getAttribute('data-docdate') || '',
+                doc_number: currentBtn.getAttribute('data-doc-number') || '',
+                document_fields: getCurrentDocumentFieldsPayload(),
                 has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                 rates: rateLines
             },
@@ -5020,6 +5022,9 @@ window.addEventListener('load', function() {
                             }
                             if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0) {
                                 window.aiSuggestionSources.push('ai_prompt_extra_classification_rules');
+                            }
+                            if (action.instruction_operations && parseInt(action.instruction_operations, 10) > 0) {
+                                window.aiSuggestionSources.push('entity_pair_ai_instructions');
                             }
                             if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0) {
                                 window.aiSuggestionSources.push('erp_movimentos');
@@ -5087,6 +5092,16 @@ window.addEventListener('load', function() {
                     : 'Lançamento de empréstimo bancário preparado. Preencha as contas em falta e grave a classificação.'
                 );
             });
+    }
+
+    function getCurrentDocumentFieldsPayload() {
+        if (currentDocumentFieldValues && typeof currentDocumentFieldValues === 'object') {
+            return cloneJsonValue(currentDocumentFieldValues, {});
+        }
+        if (currentBtn) {
+            return cloneJsonValue(parseJsonAttribute(currentBtn, 'data-qr-fields') || {}, {});
+        }
+        return {};
     }
 
     function formatNumberValue(value) {
@@ -5840,11 +5855,136 @@ window.addEventListener('load', function() {
         return null;
     }
 
+    function getInstructionOperationsFromResponse(response) {
+        if (!response || typeof response !== 'object') {
+            return null;
+        }
+        if (response.instruction_operations && typeof response.instruction_operations === 'object') {
+            return response.instruction_operations;
+        }
+        if (response.operations && typeof response.operations === 'object') {
+            return response.operations;
+        }
+        if (Array.isArray(response.actions)) {
+            for (var i = 0; i < response.actions.length; i += 1) {
+                var action = response.actions[i];
+                if (action && action.instruction_operations && typeof action.instruction_operations === 'object') {
+                    return action.instruction_operations;
+                }
+            }
+        }
+        return null;
+    }
+
+    function applyInstructionOperations(response) {
+        var operations = getInstructionOperationsFromResponse(response);
+        if (!operations || typeof operations !== 'object') {
+            return false;
+        }
+
+        var applied = false;
+        if (operations.ignore_detected_rates === true) {
+            currentIgnoreDetectedRates = true;
+            applied = true;
+        }
+
+        if (Array.isArray(operations.remove_rates)) {
+            operations.remove_rates.forEach(function(rate) {
+                rate = String(rate || '').trim();
+                if (rate && rateInputs[rate]) {
+                    removeRateRow(rate);
+                    applied = true;
+                }
+            });
+        }
+
+        var rates = operations.rates && typeof operations.rates === 'object' ? operations.rates : {};
+        Object.keys(rates).forEach(function(rateKey) {
+            var entry = rates[rateKey];
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+            var resolvedKey = rateInputs[rateKey] ? rateKey : (findRateKeyByToken(rateKey) || rateKey);
+            var info = ensureRateRow(resolvedKey, entry, { allowCreate: true });
+            if (!info) {
+                return;
+            }
+            var data = ensureRateData(resolvedKey);
+            if (typeof entry.label === 'string' && entry.label.trim() !== '') {
+                data.label = entry.label.trim();
+                if (info.labelInput) {
+                    info.labelInput.value = data.label;
+                } else if (info.labelText) {
+                    info.labelText.textContent = data.label;
+                }
+            }
+            if (entry.base !== undefined || entry.base_value !== undefined) {
+                var instructionBase = String(entry.base !== undefined ? entry.base : entry.base_value).trim();
+                if (instructionBase !== '') {
+                    data.base = instructionBase;
+                    data.base_value = data.base;
+                }
+            }
+            if (entry.iva !== undefined || entry.iva_value !== undefined) {
+                var instructionIva = String(entry.iva !== undefined ? entry.iva : entry.iva_value).trim();
+                if (instructionIva !== '') {
+                    data.iva = instructionIva;
+                    data.iva_value = data.iva;
+                }
+            }
+            if (entry.general_account !== undefined && String(entry.general_account || '').trim() !== '') {
+                data.general_account = sanitizeAccountCodeForRate(String(entry.general_account || '').trim(), resolvedKey);
+            }
+            if (entry.iva_account !== undefined && String(entry.iva_account || '').trim() !== '') {
+                data.iva_account = sanitizeAccountCodeForRate(String(entry.iva_account || '').trim(), resolvedKey);
+            }
+            if (entry.erp_rubric_code !== undefined && String(entry.erp_rubric_code || '').trim() !== '') {
+                data.erp_rubric_code = String(entry.erp_rubric_code || '').trim();
+            }
+            if (entry.cost_center !== undefined && String(entry.cost_center || '').trim() !== '') {
+                currentCostCenters[resolvedKey] = String(entry.cost_center || '').trim();
+            }
+            if (String(entry.bank_loan_conversion || '').trim() === '1') {
+                data.bank_loan_conversion = '1';
+                currentBankLoanConversionActive = true;
+            }
+            populateRateRow(resolvedKey);
+            if ((entry.iva === undefined && entry.iva_value === undefined) && data.base) {
+                recalculateVatForRate(resolvedKey, { formatBase: true });
+            }
+            updateCostCenterFieldMode(resolvedKey);
+            updateRowDirtyState(resolvedKey);
+            applied = true;
+        });
+
+        if (typeof operations.total_account === 'string' && operations.total_account.trim() !== '' && totalAccountInput) {
+            currentTotalAccount = operations.total_account.trim();
+            totalAccountInput.value = currentTotalAccount;
+            updatePlanInputTitle(totalAccountInput);
+            if (currentBtn) {
+                currentBtn.setAttribute('data-total-account', currentTotalAccount);
+            }
+            applied = true;
+        }
+
+        if (applied && currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            currentBtn.setAttribute('data-cost-centers', JSON.stringify(currentCostCenters));
+            rebuildRequirementsForCurrentButton();
+            updateButtonClass(currentBtn);
+            refreshCostCenterFieldModes();
+            refreshAllDirtyStates();
+        }
+
+        return applied;
+    }
+
     function applyAiSuggestions(payload, assistantResponse) {
         var ratesPayload = normalizeAiRatesPayload(payload);
         var expectedLines = window.aiExpectedLines && typeof window.aiExpectedLines === 'object' ? window.aiExpectedLines : {};
         var totalAccountSuggested = resolveTotalAccountSuggestion(payload, expectedLines, assistantResponse);
-        if (!ratesPayload && !totalAccountSuggested) {
+        var instructionOperations = getInstructionOperationsFromResponse(assistantResponse);
+        if (!ratesPayload && !totalAccountSuggested && !instructionOperations) {
             return false;
         }
         var applied = false;
@@ -5940,6 +6080,9 @@ window.addEventListener('load', function() {
         }
         if (requiredRates) {
             applyCostCenterRequirementMap(requiredRates);
+        }
+        if (applyInstructionOperations(assistantResponse)) {
+            applied = true;
         }
         return applied;
     }
@@ -7207,6 +7350,8 @@ window.addEventListener('load', function() {
                     db: currentBtn.getAttribute('data-acquirer-db') || '',
                     doc_type: currentBtn.getAttribute('data-doctype') || '',
                     doc_date: currentBtn.getAttribute('data-docdate') || '',
+                    doc_number: currentBtn.getAttribute('data-doc-number') || '',
+                    document_fields: getCurrentDocumentFieldsPayload(),
                     has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                     rates: rateLines
                 },
@@ -7252,6 +7397,9 @@ window.addEventListener('load', function() {
                                     if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0) {
                                         window.aiSuggestionSources.push('ai_prompt_extra_classification_rules');
                                     }
+                                    if (action.instruction_operations && parseInt(action.instruction_operations, 10) > 0) {
+                                        window.aiSuggestionSources.push('entity_pair_ai_instructions');
+                                    }
                                     if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0) {
                                         window.aiSuggestionSources.push('erp_movimentos');
                                     }
@@ -7279,6 +7427,9 @@ window.addEventListener('load', function() {
                                 sourceLabel = sourceLabel === 'IA' ? 'Regras' : (sourceLabel + ' + Regras');
                             }
                             if (action.ai_instruction_rules && parseInt(action.ai_instruction_rules, 10) > 0 && sourceLabel.indexOf('Instruções') === -1) {
+                                sourceLabel = sourceLabel === 'IA' ? 'Instruções AI' : (sourceLabel + ' + Instruções AI');
+                            }
+                            if (action.instruction_operations && parseInt(action.instruction_operations, 10) > 0 && sourceLabel.indexOf('Instruções') === -1) {
                                 sourceLabel = sourceLabel === 'IA' ? 'Instruções AI' : (sourceLabel + ' + Instruções AI');
                             }
                             if (action.erp_movimentos && parseInt(action.erp_movimentos, 10) > 0 && sourceLabel.indexOf('Movimentos') === -1) {

@@ -2639,6 +2639,36 @@ function extractBackofficeAccountingInstructionSection(): string {
     return trim(implode("\n", $section));
 }
 
+function fetchEntityPairBackofficeInstructionSection(array $context): string {
+    if (!hasTable('accounting_entity_ai_instructions')) {
+        return '';
+    }
+
+    $acquirerNif = extractVatNumber((string) ($context['acquirer_nif'] ?? ''));
+    if ($acquirerNif === '') {
+        $acquirerNif = extractVatNumber((string) ($context['acquirer_raw'] ?? ''));
+    }
+    $emitterNif = extractVatNumber((string) ($context['emitter_nif'] ?? ''));
+    if ($emitterNif === '') {
+        $emitterNif = extractVatNumber((string) ($context['emitter'] ?? ''));
+    }
+    if ($acquirerNif === '' || $emitterNif === '') {
+        return '';
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT instructions
+         FROM accounting_entity_ai_instructions
+         WHERE acquirer_nif = ? AND emitter_nif = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$acquirerNif, $emitterNif]);
+    $instructions = $stmt->fetchColumn();
+
+    return is_string($instructions) ? trim($instructions) : '';
+}
+
 function cleanBackofficeInstructionAccountCode(string $value): string {
     $digits = preg_replace('/\D+/', '', $value) ?? '';
     $length = strlen($digits);
@@ -2774,6 +2804,10 @@ function resolveBackofficeInstructionRateKey(string $line, array $rateItems): st
 
 function buildBackofficeInstructionSuggestionsForExplanation(array $rateItems, array $context): array {
     $section = extractBackofficeAccountingInstructionSection();
+    $pairInstructions = fetchEntityPairBackofficeInstructionSection($context);
+    if ($pairInstructions !== '') {
+        $section = trim($section . "\n" . $pairInstructions);
+    }
     if ($section === '') {
         return ['rates' => [], 'total_account' => null, 'count' => 0];
     }

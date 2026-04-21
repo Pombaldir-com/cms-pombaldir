@@ -3100,6 +3100,39 @@ function extractAiAccountingInstructionSection(): string {
     return trim(implode("\n", $section));
 }
 
+function fetchEntityPairAiInstructions(array $context): string {
+    if (!hasTable('accounting_entity_ai_instructions')) {
+        return '';
+    }
+
+    $acquirerNif = extractVatLikeValue((string) ($context['acquirer_nif'] ?? ''));
+    if ($acquirerNif === '') {
+        $acquirerNif = extractVatLikeValue((string) ($context['acquirer_raw'] ?? ''));
+    }
+    $emitterNif = extractVatLikeValue((string) ($context['emitter_nif'] ?? ''));
+    if ($emitterNif === '') {
+        $emitterNif = extractVatLikeValue((string) ($context['emitter_raw'] ?? ''));
+    }
+    if ($emitterNif === '') {
+        $emitterNif = extractVatLikeValue((string) ($context['emitter'] ?? ''));
+    }
+    if ($acquirerNif === '' || $emitterNif === '') {
+        return '';
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT instructions
+         FROM accounting_entity_ai_instructions
+         WHERE acquirer_nif = ? AND emitter_nif = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$acquirerNif, $emitterNif]);
+    $instructions = $stmt->fetchColumn();
+
+    return is_string($instructions) ? trim($instructions) : '';
+}
+
 function cleanAiInstructionAccountCode(string $value): string {
     $digits = preg_replace('/\D+/', '', $value) ?? '';
     $length = strlen($digits);
@@ -3263,8 +3296,21 @@ function resolveAiInstructionTargetRateKey(string $line, array $rateItems): stri
     return count($orderedRateKeys) === 1 ? (string) $orderedRateKeys[0] : '';
 }
 
-function buildAiInstructionAccountSuggestions(array $rateItems, array $context): array {
-    $section = extractAiAccountingInstructionSection();
+function buildAiInstructionAccountSuggestions(array $rateItems, array $context, bool $includeGlobal = true, bool $includePair = true): array {
+    $sections = [];
+    if ($includeGlobal) {
+        $globalSection = extractAiAccountingInstructionSection();
+        if ($globalSection !== '') {
+            $sections[] = $globalSection;
+        }
+    }
+    if ($includePair) {
+        $pairInstructions = fetchEntityPairAiInstructions($context);
+        if ($pairInstructions !== '') {
+            $sections[] = $pairInstructions;
+        }
+    }
+    $section = trim(implode("\n", $sections));
     if ($section === '') {
         return ['rates' => [], 'total_account' => '', 'count' => 0];
     }
@@ -4259,7 +4305,198 @@ function buildSuggestionsFromExamples(array $examples, array $rates): array {
     return $result;
 }
 
-function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl, string $erpToken): array {
+function sanitizeAiInstructionOperationRateKey(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    $value = preg_replace('/[^A-Za-z0-9_.-]+/', '_', $value) ?? '';
+    return substr($value, 0, 64);
+}
+
+function sanitizeAiInstructionOperationString($value, int $maxLength = 120): string {
+    $value = trim((string) $value);
+    if ($value === '') {
+        return '';
+    }
+    if (function_exists('mb_substr')) {
+        return mb_substr($value, 0, $maxLength, 'UTF-8');
+    }
+    return substr($value, 0, $maxLength);
+}
+
+function sanitizeAiInstructionOperations($value): array {
+    if (!is_array($value)) {
+        return ['rates' => [], 'remove_rates' => [], 'total_account' => '', 'ignore_detected_rates' => null, 'notes' => []];
+    }
+
+    $rates = [];
+    $sourceRates = is_array($value['rates'] ?? null) ? $value['rates'] : [];
+    foreach ($sourceRates as $rateKey => $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $cleanKey = sanitizeAiInstructionOperationRateKey((string) $rateKey);
+        if ($cleanKey === '') {
+            continue;
+        }
+        $cleanEntry = [];
+        foreach ([
+            'label',
+            'base',
+            'base_value',
+            'iva',
+            'iva_value',
+            'general_account',
+            'iva_account',
+            'erp_rubric_code',
+            'cost_center',
+            'bank_loan_conversion',
+        ] as $field) {
+            if (!array_key_exists($field, $entry)) {
+                continue;
+            }
+            $maxLength = in_array($field, ['label', 'cost_center'], true) ? 160 : 80;
+            $cleanValue = sanitizeAiInstructionOperationString($entry[$field], $maxLength);
+            if ($cleanValue === '') {
+                continue;
+            }
+            if ($field === 'bank_loan_conversion' && $cleanValue !== '1') {
+                continue;
+            }
+            $cleanEntry[$field] = $cleanValue;
+        }
+        if ($cleanEntry) {
+            $rates[$cleanKey] = $cleanEntry;
+        }
+    }
+
+    $removeRates = [];
+    $sourceRemoveRates = is_array($value['remove_rates'] ?? null) ? $value['remove_rates'] : [];
+    foreach ($sourceRemoveRates as $rateKey) {
+        $cleanKey = sanitizeAiInstructionOperationRateKey((string) $rateKey);
+        if ($cleanKey !== '') {
+            $removeRates[] = $cleanKey;
+        }
+    }
+
+    $ignoreDetectedRates = null;
+    if (array_key_exists('ignore_detected_rates', $value)) {
+        $rawFlag = $value['ignore_detected_rates'];
+        if ($rawFlag === true || $rawFlag === 1 || $rawFlag === '1' || $rawFlag === 'true') {
+            $ignoreDetectedRates = true;
+        } elseif ($rawFlag === false || $rawFlag === 0 || $rawFlag === '0' || $rawFlag === 'false') {
+            $ignoreDetectedRates = false;
+        }
+    }
+
+    $notes = [];
+    $sourceNotes = is_array($value['notes'] ?? null) ? $value['notes'] : [];
+    foreach ($sourceNotes as $note) {
+        $cleanNote = sanitizeAiInstructionOperationString($note, 180);
+        if ($cleanNote !== '') {
+            $notes[] = $cleanNote;
+        }
+    }
+
+    return [
+        'rates' => $rates,
+        'remove_rates' => array_values(array_unique($removeRates)),
+        'total_account' => sanitizeAiInstructionOperationString($value['total_account'] ?? '', 80),
+        'ignore_detected_rates' => $ignoreDetectedRates,
+        'notes' => $notes,
+    ];
+}
+
+function countAiInstructionOperations(array $operations): int {
+    $count = count(is_array($operations['rates'] ?? null) ? $operations['rates'] : []);
+    $count += count(is_array($operations['remove_rates'] ?? null) ? $operations['remove_rates'] : []);
+    if (trim((string) ($operations['total_account'] ?? '')) !== '') {
+        $count++;
+    }
+    if (($operations['ignore_detected_rates'] ?? null) !== null) {
+        $count++;
+    }
+    return $count;
+}
+
+function buildAiInstructionOperationPlan(array $args, array $context, array $rateItems, array $suggested, array $expectedLines, string $pairInstructions, string $apiKey, string $model): array {
+    $pairInstructions = trim($pairInstructions);
+    if ($pairInstructions === '' || $apiKey === '') {
+        return ['operations' => sanitizeAiInstructionOperations([]), 'count' => 0];
+    }
+
+    $documentFields = is_array($args['document_fields'] ?? null) ? $args['document_fields'] : [];
+    $docContext = [
+        'emitter' => $context['emitter'] ?? '',
+        'emitter_nif' => $context['emitter_nif'] ?? '',
+        'acquirer_nif' => $context['acquirer_nif'] ?? '',
+        'acquirer_raw' => $context['acquirer_raw'] ?? '',
+        'doc_type' => $args['doc_type'] ?? '',
+        'doc_date' => $args['doc_date'] ?? '',
+        'doc_number' => $args['doc_number'] ?? '',
+        'rates' => $rateItems,
+        'document_fields' => $documentFields,
+        'suggested_accounts' => $suggested,
+        'expected_lines' => $expectedLines,
+    ];
+
+    $messages = [
+        [
+            'role' => 'system',
+            'content' => "Converte instrucoes contabilisticas adicionais num plano JSON para uma classificacao.\n"
+                . "Mantem as sugestoes de contas existentes salvo instrucao explicita em contrario.\n"
+                . "Podes criar linhas adicionais, remover linhas e aplicar calculos usando apenas os campos do documento e taxas fornecidos.\n"
+                . "Nao inventes contas contabilisticas. So preenches general_account, iva_account, total_account ou erp_rubric_code se estiverem nas instrucoes ou nas sugestoes fornecidas.\n"
+                . "Responde apenas JSON valido com esta estrutura: {\"rates\":{\"<rate_key>\":{\"label\":\"\",\"base\":\"\",\"iva\":\"\",\"general_account\":\"\",\"iva_account\":\"\",\"erp_rubric_code\":\"\",\"cost_center\":\"\",\"bank_loan_conversion\":\"0\"}},\"remove_rates\":[],\"total_account\":\"\",\"ignore_detected_rates\":null,\"notes\":[]}.\n"
+                . "Usa chaves existentes quando estiveres a alterar uma linha; para linhas novas usa custom_1, custom_2, etc. Valores monetarios devem ser strings com duas casas decimais.",
+        ],
+        [
+            'role' => 'user',
+            'content' => "Instrucoes adicionais especificas deste fornecedor/adquirente:\n"
+                . $pairInstructions
+                . "\n\nContexto do documento:\n"
+                . json_encode($docContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ],
+    ];
+
+    $payload = [
+        'model' => $model !== '' ? $model : 'gpt-4.1-mini',
+        'messages' => $messages,
+        'temperature' => 0.1,
+        'response_format' => ['type' => 'json_object'],
+    ];
+    $response = callOpenAi($payload, $apiKey);
+    if (empty($response['ok'])) {
+        logAiDebug([
+            'type' => 'ai_instruction_operations_error',
+            'status' => $response['status'] ?? 0,
+            'error' => $response['error'] ?? '',
+        ]);
+        return ['operations' => sanitizeAiInstructionOperations([]), 'count' => 0];
+    }
+
+    $content = trim((string) ($response['data']['choices'][0]['message']['content'] ?? ''));
+    $decoded = json_decode($content, true);
+    if (is_array($decoded) && is_array($decoded['instruction_operations'] ?? null)) {
+        $decoded = $decoded['instruction_operations'];
+    } elseif (is_array($decoded) && is_array($decoded['operations'] ?? null)) {
+        $decoded = $decoded['operations'];
+    }
+    $operations = sanitizeAiInstructionOperations(is_array($decoded) ? $decoded : []);
+    $count = countAiInstructionOperations($operations);
+    logAiDebug([
+        'type' => 'ai_instruction_operations',
+        'acquirer_nif' => $context['acquirer_nif'] ?? '',
+        'emitter_nif' => $context['emitter_nif'] ?? '',
+        'operation_count' => $count,
+        'rate_keys' => array_keys($operations['rates'] ?? []),
+    ]);
+
+    return ['operations' => $operations, 'count' => $count];
+}
+
+function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl, string $erpToken, string $openAiKey = '', string $openAiModel = ''): array {
     if (!$canSuggestVat) {
         return ['ok' => false, 'error' => 'Sem permissao para sugerir contas.'];
     }
@@ -4284,13 +4521,12 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'acquirer_raw' => $acquirerRaw,
         'has_receipt_companion' => normalizeSuggestionReceiptCompanionFlag($args['has_receipt_companion'] ?? '0'),
     ];
+    $pairInstructions = fetchEntityPairAiInstructions($context);
     $limit = 18;
     $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
     $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12, $context);
     $hasStoredClassificationSuggestion = hasStoredClassificationSuggestionForContext($docType, $emitter, $acquirerRaw, $context);
-    $aiInstructionSuggestions = !$hasStoredClassificationSuggestion
-        ? buildAiInstructionAccountSuggestions($rateItems, $context)
-        : ['rates' => [], 'total_account' => '', 'count' => 0];
+    $aiInstructionSuggestions = buildAiInstructionAccountSuggestions($rateItems, $context, !$hasStoredClassificationSuggestion, true);
     $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples), $context);
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
     if (!empty($ruleExamples)) {
@@ -4819,6 +5055,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         $finalSuggested,
         is_array($ligacaoHints['required_cost_center_accounts'] ?? null) ? $ligacaoHints['required_cost_center_accounts'] : []
     );
+    $instructionPlan = buildAiInstructionOperationPlan($args, $context, $rateItems, $finalSuggested, $expectedLines, $pairInstructions, $openAiKey, $openAiModel);
 
     return [
         'ok' => true,
@@ -4833,6 +5070,8 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'cost_center_required_rates' => $costCenterRequiredRates,
         'erp_movement_rows' => (int) ($movementHints['count'] ?? 0),
         'ai_instruction_rule_count' => $aiInstructionApplied > 0 ? (int) ($aiInstructionSuggestions['count'] ?? 0) : 0,
+        'instruction_operations' => $instructionPlan['operations'] ?? sanitizeAiInstructionOperations([]),
+        'instruction_operation_count' => (int) ($instructionPlan['count'] ?? 0),
     ];
 }
 
@@ -4983,7 +5222,7 @@ if ($action === 'upload_attachment') {
 
 if ($action === 'suggest_accounts') {
     $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
-    $result = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken);
+    $result = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken, $openAiKey, $openAiModel);
     if (!$result['ok']) {
         http_response_code(400);
         echo json_encode(['message' => $result['error'] ?? 'Erro ao sugerir contas.', 'csrf_token' => generateCsrfToken(true)]);
@@ -4999,6 +5238,9 @@ if ($action === 'suggest_accounts') {
     }
     if (!empty($result['ai_instruction_rule_count'])) {
         $sources[] = 'ai_prompt_extra_classification_rules';
+    }
+    if (!empty($result['instruction_operation_count'])) {
+        $sources[] = 'entity_pair_ai_instructions';
     }
     if (!empty($result['plan_db'])) {
         $sources[] = 'erp_planocontas';
@@ -5022,12 +5264,14 @@ if ($action === 'suggest_accounts') {
         'expected_lines' => $expectedLines,
         'total_account' => $totalAccountSuggestion,
         'cost_center_required_rates' => is_array($result['cost_center_required_rates'] ?? null) ? $result['cost_center_required_rates'] : [],
+        'instruction_operations' => is_array($result['instruction_operations'] ?? null) ? $result['instruction_operations'] : sanitizeAiInstructionOperations([]),
         'actions' => [
             [
                 'type' => 'suggest_accounts',
                 'history' => $result['history_count'] ?? 0,
                 'rules' => $result['rule_count'] ?? 0,
                 'ai_instruction_rules' => $result['ai_instruction_rule_count'] ?? 0,
+                'instruction_operations' => $result['instruction_operation_count'] ?? 0,
                 'plan_db' => $result['plan_db'] ?? '',
                 'erp_ligacao' => $result['erp_ligacao_rows'] ?? 0,
                 'erp_movimentos' => $result['erp_movement_rows'] ?? 0,
@@ -5516,13 +5760,14 @@ do {
                 break;
 
             case 'suggest_accounts':
-                $toolResult = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken);
+                $toolResult = runSuggestAccounts($args, $canSuggestVat, $erpBaseUrl, $erpToken, $openAiKey, $openAiModel);
                 if ($toolResult['ok']) {
                     $actions[] = [
                         'type' => 'suggest_accounts',
                         'history' => $toolResult['history_count'] ?? 0,
                         'rules' => $toolResult['rule_count'] ?? 0,
                         'ai_instruction_rules' => $toolResult['ai_instruction_rule_count'] ?? 0,
+                        'instruction_operations' => $toolResult['instruction_operation_count'] ?? 0,
                         'plan_db' => $toolResult['plan_db'] ?? '',
                         'erp_movimentos' => $toolResult['erp_movement_rows'] ?? 0,
                     ];

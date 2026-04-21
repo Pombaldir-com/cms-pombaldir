@@ -98,6 +98,7 @@ if ($.fn.dataTable) {
 function normalizeMenuUrl(url) {
     var cleanUrl = (url || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
     if (cleanUrl !== '' && cleanUrl.indexOf('/contabilidade/entidades/') !== -1) {
+        cleanUrl = cleanUrl.replace(/\/contabilidade\/entidades\/[^\/]+\/\d+\/fornecedores$/i, '/contabilidade/entidades/empresas');
         return cleanUrl.replace(/\/contabilidade\/entidades\/[^\/]+\/\d+$/i, '/contabilidade/entidades/empresas');
     }
     return cleanUrl;
@@ -624,6 +625,94 @@ $(document).ready(function() {
             }
         });
     }
+});
+
+$(document).ready(function() {
+    var config = window.accountingEntityAiConfig || null;
+    var modalEl = document.getElementById('accountingEntityAiModal');
+    var form = document.getElementById('accountingEntityAiForm');
+    if (!config || !modalEl || !form) {
+        return;
+    }
+
+    var emitterInput = document.getElementById('accountingEntityAiEmitterNif');
+    var contextInput = document.getElementById('accountingEntityAiContext');
+    var instructionsInput = document.getElementById('accountingEntityAiInstructions');
+    var errorBox = document.getElementById('accountingEntityAiError');
+    var successBox = document.getElementById('accountingEntityAiSuccess');
+    var modal = typeof bootstrap !== 'undefined' ? bootstrap.Modal.getOrCreateInstance(modalEl) : null;
+
+    function setAlert(box, message) {
+        if (!box) {
+            return;
+        }
+        box.textContent = message || '';
+        box.classList.toggle('d-none', !message);
+    }
+
+    document.addEventListener('click', function(event) {
+        var button = event.target.closest ? event.target.closest('.accounting-entity-ai-btn') : null;
+        if (!button) {
+            return;
+        }
+
+        var emitterNif = button.getAttribute('data-emitter-nif') || '';
+        var emitterName = button.getAttribute('data-emitter-name') || emitterNif;
+        if (emitterInput) {
+            emitterInput.value = emitterNif;
+        }
+        if (contextInput) {
+            contextInput.value = emitterName + ' (' + emitterNif + ') / ' + (config.acquirerName || '') + ' (' + (config.acquirerNif || '') + ')';
+        }
+        if (instructionsInput) {
+            instructionsInput.value = (config.instructions && config.instructions[emitterNif]) ? config.instructions[emitterNif] : '';
+        }
+        setAlert(errorBox, '');
+        setAlert(successBox, '');
+        if (modal) {
+            modal.show();
+        }
+    });
+
+    form.addEventListener('submit', function(event) {
+        event.preventDefault();
+        setAlert(errorBox, '');
+        setAlert(successBox, '');
+
+        var body = new URLSearchParams(new FormData(form));
+        body.set('csrf_token', config.csrfToken || body.get('csrf_token') || '');
+
+        fetch(window.location.href, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: body.toString()
+        })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok || !data || data.success !== true) {
+                        throw new Error((data && data.error) || 'Nao foi possivel guardar as instrucoes.');
+                    }
+                    return data;
+                });
+            })
+            .then(function(data) {
+                var emitterNif = emitterInput ? emitterInput.value : '';
+                config.csrfToken = data.csrf_token || config.csrfToken || '';
+                if (config.instructions && emitterNif) {
+                    config.instructions[emitterNif] = data.instructions || '';
+                }
+                form.querySelectorAll('input[name="csrf_token"]').forEach(function(input) {
+                    input.value = config.csrfToken;
+                });
+                setAlert(successBox, data.message || 'Instrucoes IA guardadas.');
+            })
+            .catch(function(error) {
+                setAlert(errorBox, error && error.message ? error.message : 'Nao foi possivel guardar as instrucoes.');
+            });
+    });
 });
 
 $(document).ready(function() {
