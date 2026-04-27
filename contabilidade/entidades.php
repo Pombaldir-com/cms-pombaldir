@@ -4,7 +4,6 @@ require_once __DIR__ . '/functions.php';
 
 startSession();
 requireLogin();
-requireRole(2);
 
 if (!isModuleActive('contabilidade')) {
     http_response_code(404);
@@ -19,6 +18,8 @@ $emitterTypeColumn = getAccountingEmitterTypeColumn();
 $hasEmitterTypeColumn = $emitterTypeColumn !== '';
 $user = currentUser();
 $isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
+$canManageEntityAiInstructions = ((int) ($user['role'] ?? 3)) <= 2;
+$canManageEmitterType = ((int) ($user['role'] ?? 3)) <= 2;
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
 $entityTypeMap = [
@@ -41,6 +42,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
     if ($action === 'save-ai-instructions') {
         header('Content-Type: application/json; charset=utf-8');
+
+        if (!$canManageEntityAiInstructions) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Sem permissoes para guardar instrucoes IA.', 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
 
         if (!$isSupplierList) {
             http_response_code(400);
@@ -94,6 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
+        if (!$canManageEmitterType) {
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Sem permissoes para alterar o tipo de emitente.'));
+            exit;
+        }
+
         if (!$hasEmitterTypeColumn) {
             header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Coluna de tipo de emitente em falta.'));
             exit;
@@ -613,7 +625,9 @@ require_once __DIR__ . '/../header.php';
                             <?php if ($hasEmitterTypeColumn): ?>
                                 <th data-orderable="false">Tipo</th>
                             <?php endif; ?>
-                            <th data-orderable="false" class="text-right">IA</th>
+                            <?php if ($canManageEntityAiInstructions): ?>
+                                <th data-orderable="false" class="text-right">IA</th>
+                            <?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
@@ -625,78 +639,84 @@ require_once __DIR__ . '/../header.php';
                                 <td>
                                     <?php if (!empty($supplier['id'])): ?>
                                         <?php $supplierEmitterType = trim((string) ($supplier['emitter_type'] ?? '0')); ?>
-                                        <form method="post" style="margin: 0;">
-                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                            <input type="hidden" name="action" value="update-emitter-type">
-                                            <input type="hidden" name="entity_id" value="<?= (int) $supplier['id']; ?>">
-                                            <select name="emitter_type" class="form-control input-sm" onchange="this.form.submit();" style="min-width: 130px;">
-                                                <option value="0" <?= $supplierEmitterType === '0' || $supplierEmitterType === '' ? 'selected' : ''; ?>>Normal</option>
-                                                <option value="1" <?= $supplierEmitterType === '1' ? 'selected' : ''; ?>>Banco</option>
-                                                <option value="2" <?= $supplierEmitterType === '2' ? 'selected' : ''; ?>>Seguradora</option>
-                                            </select>
-                                        </form>
+                                        <?php
+                                            $supplierEmitterTypeLabel = 'Normal';
+                                            $supplierEmitterTypeClass = 'label-default';
+                                            if ($supplierEmitterType === '1') {
+                                                $supplierEmitterTypeLabel = 'Banco';
+                                                $supplierEmitterTypeClass = 'label-info';
+                                            } elseif ($supplierEmitterType === '2') {
+                                                $supplierEmitterTypeLabel = 'Seguradora';
+                                                $supplierEmitterTypeClass = 'label-warning';
+                                            }
+                                        ?>
+                                        <span class="label <?= htmlspecialchars($supplierEmitterTypeClass); ?>"><?= htmlspecialchars($supplierEmitterTypeLabel); ?></span>
                                     <?php else: ?>
                                         <span class="label label-default">Sem ficha local</span>
                                     <?php endif; ?>
                                 </td>
                             <?php endif; ?>
-                            <td class="text-right">
-                                <button type="button"
-                                        class="btn btn-xs btn-primary accounting-entity-ai-btn"
-                                        data-emitter-nif="<?= htmlspecialchars((string) ($supplier['nif'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
-                                        data-emitter-name="<?= htmlspecialchars((string) ($supplier['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
-                                        title="Instrucoes IA">
-                                    <i class="fa fa-android" aria-hidden="true"></i> IA
-                                </button>
-                            </td>
+                            <?php if ($canManageEntityAiInstructions): ?>
+                                <td class="text-right">
+                                    <button type="button"
+                                            class="btn btn-xs btn-primary accounting-entity-ai-btn"
+                                            data-emitter-nif="<?= htmlspecialchars((string) ($supplier['nif'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                            data-emitter-name="<?= htmlspecialchars((string) ($supplier['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                            title="Instrucoes IA">
+                                        <i class="fa fa-android" aria-hidden="true"></i> IA
+                                    </button>
+                                </td>
+                            <?php endif; ?>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
                 </table>
-                <div class="modal fade" id="accountingEntityAiModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog modal-lg">
-                        <div class="modal-content">
-                            <form id="accountingEntityAiForm">
-                                <div class="modal-header">
-                                    <h5 class="modal-title"><i class="fa fa-robot"></i> Instrucoes IA</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div class="alert alert-info">
-                                        Estas instrucoes aplicam-se apenas a esta combinacao de emitente/adquirente e sao lidas juntamente com as instrucoes gerais de <strong>Definicoes &gt; AI</strong>.
+                <?php if ($canManageEntityAiInstructions): ?>
+                    <div class="modal fade" id="accountingEntityAiModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <form id="accountingEntityAiForm">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fa fa-robot"></i> Instrucoes IA</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                                     </div>
-                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                    <input type="hidden" name="action" value="save-ai-instructions">
-                                    <input type="hidden" name="emitter_nif" id="accountingEntityAiEmitterNif" value="">
-                                    <div class="form-group">
-                                        <label class="control-label">Combinacao</label>
-                                        <input type="text" class="form-control" id="accountingEntityAiContext" value="" readonly>
+                                    <div class="modal-body">
+                                        <div class="alert alert-info">
+                                            Estas instrucoes aplicam-se apenas a esta combinacao de emitente/adquirente e sao lidas juntamente com as instrucoes gerais de <strong>Definicoes &gt; AI</strong>.
+                                        </div>
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="save-ai-instructions">
+                                        <input type="hidden" name="emitter_nif" id="accountingEntityAiEmitterNif" value="">
+                                        <div class="form-group">
+                                            <label class="control-label">Combinacao</label>
+                                            <input type="text" class="form-control" id="accountingEntityAiContext" value="" readonly>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="control-label" for="accountingEntityAiInstructions">Instrucoes adicionais para sugestao de classificacao</label>
+                                            <textarea class="form-control" id="accountingEntityAiInstructions" name="instructions" rows="8"></textarea>
+                                        </div>
+                                        <div class="alert alert-danger d-none" id="accountingEntityAiError" role="alert"></div>
+                                        <div class="alert alert-success d-none" id="accountingEntityAiSuccess" role="alert"></div>
                                     </div>
-                                    <div class="form-group">
-                                        <label class="control-label" for="accountingEntityAiInstructions">Instrucoes adicionais para sugestao de classificacao</label>
-                                        <textarea class="form-control" id="accountingEntityAiInstructions" name="instructions" rows="8"></textarea>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fa fa-save"></i> Guardar
+                                        </button>
                                     </div>
-                                    <div class="alert alert-danger d-none" id="accountingEntityAiError" role="alert"></div>
-                                    <div class="alert alert-success d-none" id="accountingEntityAiSuccess" role="alert"></div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="fa fa-save"></i> Guardar
-                                    </button>
-                                </div>
-                            </form>
+                                </form>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <script>
-                window.accountingEntityAiConfig = {
-                    csrfToken: <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
-                    acquirerName: <?= json_encode((string) ($supplierCompany['name'] ?? ''), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
-                    acquirerNif: <?= json_encode(extractVatNumber((string) ($supplierCompany['nif'] ?? '')), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
-                    instructions: <?= json_encode(buildAccountingEntityAiInstructionClientMap($supplierEntities), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>
-                };
-                </script>
+                    <script>
+                    window.accountingEntityAiConfig = {
+                        csrfToken: <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
+                        acquirerName: <?= json_encode((string) ($supplierCompany['name'] ?? ''), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
+                        acquirerNif: <?= json_encode(extractVatNumber((string) ($supplierCompany['nif'] ?? '')), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
+                        instructions: <?= json_encode(buildAccountingEntityAiInstructionClientMap($supplierEntities), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>
+                    };
+                    </script>
+                <?php endif; ?>
             <?php elseif (!$consultEntity): ?>
                 <table class="table table-striped datatable" data-no-sort-last="1" data-order-column="1" data-order-dir="asc">
                     <thead>

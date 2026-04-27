@@ -289,7 +289,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
-<?php if (isModuleActive('contabilidade') && ($user['role'] ?? 3) <= 2): ?>
+<?php if (isModuleActive('contabilidade')): ?>
                             <li>
                                 <a><i class="fa fa-building"></i> Entidades <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
