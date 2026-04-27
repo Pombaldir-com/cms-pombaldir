@@ -46,6 +46,18 @@ def parse_table_with_headers(rows: dict[int, dict[int, str]]) -> list[dict]:
 LINE_START_RE = re.compile(
     r"^\s*\(?(?P<iva>[A-Z])\)?\s*[-:]?\s*(?P<desc>[^\d].*?)(?:\s+(?P<price>-?\d+[.,]\d{2}(?:€)?)\s*)?$"
 )
+BANK_DETAIL_LINE_RE = re.compile(
+    r"^\s*(?P<date>\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4})\s+"
+    r"(?P<desc>.*?)\s+"
+    r"(?P<qty>\d+(?:[.,]\d+)?)\s+"
+    r"(?P<base>-?\d+[.,]\d{2})\s+"
+    r"(?:I\.?\s*S\.?|IS)\s+"
+    r"(?P<tax_rate>\d+[.,]\d+%?)\s+"
+    r"(?P<tax>-?\d+[.,]\d{2})\s+"
+    r"(?P<total>-?\d+[.,]\d{2})"
+    r"(?:\s+\w+)?\s*$",
+    re.IGNORECASE,
+)
 ITEM_MARKER_SPLIT_RE = re.compile(r"(?=\([A-Z]\))")
 QTY_LINE_RE = re.compile(r"^\s*(?P<qty>[\d.,]+)\s*[xX]\s*(?P<unit>[\d.,]+)")
 PRICE_VALUE_RE = re.compile(r"(-?\d+[.,]\d{2})")
@@ -123,43 +135,55 @@ def parse_textual_lines(text_lines: list[str]) -> list[dict]:
             if should_ignore_text_line(text):
                 finalize_current()
                 continue
-        start_match = LINE_START_RE.match(text)
-        if start_match:
-            finalize_current()
-            price = start_match.group("price") or ""
-            current = {
-                "IVA_TAXA": start_match.group("iva"),
-                "ITEM": start_match.group("desc").strip(),
-                "QUANTITY": "",
-                "UNIT_PRICE": "",
-                "PRICE": clean_numeric_string(price) if price else "",
-            }
-            continue
-        if current is None:
-            continue
-        qty_match = QTY_LINE_RE.match(text)
-        if qty_match:
-            current["QUANTITY"] = qty_match.group("qty").strip()
-            current["UNIT_PRICE"] = qty_match.group("unit").strip()
-            if not current.get("PRICE"):
-                qty_float = None
-                unit_float = None
-                try:
-                    qty_float = float(qty_match.group("qty").replace(".", "").replace(",", "."))
-                    unit_float = float(qty_match.group("unit").replace(".", "").replace(",", "."))
-                except ValueError:
-                    qty_float = None
-                if qty_float is not None and unit_float is not None:
-                    total = qty_float * unit_float
-                    current["PRICE"] = f"{total:.2f}".replace(".", ",")
-            continue
-        if not current.get("PRICE"):
-            price_candidate = parse_price_from_text(text)
-            if price_candidate:
-                current["PRICE"] = price_candidate
+            bank_match = BANK_DETAIL_LINE_RE.match(text)
+            if bank_match:
+                finalize_current()
+                items.append({
+                    "IVA_TAXA": "IS",
+                    "ITEM": bank_match.group("desc").strip(),
+                    "QUANTITY": bank_match.group("qty").strip(),
+                    "UNIT_PRICE": clean_numeric_string(bank_match.group("base")),
+                    "PRICE": clean_numeric_string(bank_match.group("total")),
+                    "TAX": clean_numeric_string(bank_match.group("tax")),
+                })
                 continue
-        # Treat as description continuation
-        current["ITEM"] = (current.get("ITEM", "") + " " + text).strip()
+            start_match = LINE_START_RE.match(text)
+            if start_match:
+                finalize_current()
+                price = start_match.group("price") or ""
+                current = {
+                    "IVA_TAXA": start_match.group("iva"),
+                    "ITEM": start_match.group("desc").strip(),
+                    "QUANTITY": "",
+                    "UNIT_PRICE": "",
+                    "PRICE": clean_numeric_string(price) if price else "",
+                }
+                continue
+            if current is None:
+                continue
+            qty_match = QTY_LINE_RE.match(text)
+            if qty_match:
+                current["QUANTITY"] = qty_match.group("qty").strip()
+                current["UNIT_PRICE"] = qty_match.group("unit").strip()
+                if not current.get("PRICE"):
+                    qty_float = None
+                    unit_float = None
+                    try:
+                        qty_float = float(qty_match.group("qty").replace(".", "").replace(",", "."))
+                        unit_float = float(qty_match.group("unit").replace(".", "").replace(",", "."))
+                    except ValueError:
+                        qty_float = None
+                    if qty_float is not None and unit_float is not None:
+                        total = qty_float * unit_float
+                        current["PRICE"] = f"{total:.2f}".replace(".", ",")
+                continue
+            if not current.get("PRICE"):
+                price_candidate = parse_price_from_text(text)
+                if price_candidate:
+                    current["PRICE"] = price_candidate
+                    continue
+            # Treat as description continuation
+            current["ITEM"] = (current.get("ITEM", "") + " " + text).strip()
 
     finalize_current()
     return items
@@ -169,14 +193,34 @@ def normalize_structured_entry(entry: dict) -> dict:
     if "Texto" in entry and len(entry) == 1:
         # handled elsewhere
         return {}
+    normalized_keys = {normalize_header_key(key): value for key, value in entry.items()}
+
+    def first_value(*keys: str) -> str:
+        for key in keys:
+            value = entry.get(key)
+            if value:
+                return value
+        return ""
+
+    def first_normalized(*keys: str) -> str:
+        for key in keys:
+            value = normalized_keys.get(key)
+            if value:
+                return value
+        return ""
+
     normalized = {
-        "ERP": entry.get("ERP", ""),
-        "IVA_TAXA": entry.get("IVA_TAXA") or entry.get("IVA") or entry.get("TAX", ""),
-        "PRODUCT_CODE": entry.get("PRODUCT_CODE") or entry.get("ITEM_CODE", ""),
-        "ITEM": entry.get("ITEM") or entry.get("ITEMDESCRIPTION") or entry.get("DESCRICAO", ""),
-        "QUANTITY": entry.get("QUANTITY") or entry.get("QTY", ""),
-        "UNIT_PRICE": entry.get("UNIT_PRICE") or entry.get("UNITPRICE") or entry.get("PRICE_UNIT", ""),
-        "PRICE": entry.get("PRICE") or entry.get("AMOUNT", ""),
+        "ERP": first_value("ERP"),
+        "IVA_TAXA": first_value("IVA_TAXA", "IVA", "TAX") or first_normalized("TIPO", "TIPOIMPOSTO", "IMPOSTO"),
+        "PRODUCT_CODE": first_value("PRODUCT_CODE", "ITEM_CODE"),
+        "ITEM": first_value("ITEM", "ITEMDESCRIPTION", "DESCRICAO", "Descrição")
+            or first_normalized("DESCRICAO", "DESCRICAOARTIGO", "ARTIGO"),
+        "QUANTITY": first_value("QUANTITY", "QTY", "Qt.", "QT")
+            or first_normalized("QT", "QTD", "QUANTIDADE"),
+        "UNIT_PRICE": first_value("UNIT_PRICE", "UNITPRICE", "PRICE_UNIT")
+            or first_normalized("BASEINCID", "BASEINCIDENCIA", "VALORBASE"),
+        "PRICE": first_value("PRICE", "AMOUNT", "Total", "TOTAL")
+            or first_normalized("TOTALMD", "TOTAL", "VALOR"),
     }
     sanitized_item = sanitize_item_label(normalized.get("ITEM", ""))
     if sanitized_item in IGNORED_KEYWORDS:
@@ -239,6 +283,11 @@ def sanitize_item_label(label: str) -> str:
     cleaned = ALPHA_ONLY_RE.sub(" ", label.upper()).strip()
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned
+
+
+def normalize_header_key(label: str) -> str:
+    cleaned = sanitize_item_label(label)
+    return cleaned.replace(" ", "")
 
 
 def merge_quantity_only_lines(lines: list[dict]) -> list[dict]:

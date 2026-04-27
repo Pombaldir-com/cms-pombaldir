@@ -2372,6 +2372,7 @@ window.addEventListener('load', function() {
     var deleteClassificationModelBtn = document.getElementById('deleteClassificationModelBtn');
     var saveClassificationModelSwitch = document.getElementById('saveClassificationModelSwitch');
     var classificationModelNameInput = document.getElementById('classificationModelNameInput');
+    var emitterTypeSelect = document.getElementById('emitterTypeSelect');
     var storedRowRates = {};
     var storedDefaultRates = {};
     var originalRateValues = {};
@@ -4071,6 +4072,10 @@ window.addEventListener('load', function() {
         currentIgnoreDetectedRates = String(response.ignore_detected_rates || '').trim() === '1';
         currentClassificationModelName = String(response.classification_model_name || '').trim();
         classificationModels = normalizeClassificationModelList(response.classification_models);
+        if (emitterTypeSelect && Object.prototype.hasOwnProperty.call(response, 'emitter_type')) {
+            emitterTypeSelect.value = String(response.emitter_type || '').trim() || 'normal';
+            updateBankLoanConversionVisibility();
+        }
         if (response.document_fields && typeof response.document_fields === 'object') {
             currentDocumentFieldValues = normalizeDocumentFieldMap(response.document_fields);
             renderDocumentFieldInputs();
@@ -4704,19 +4709,43 @@ window.addEventListener('load', function() {
         var exemptBase = getDocumentFieldNumber('FIELD_I2');
         var stampTax = getDocumentFieldNumber('FIELD_M');
         var total = getDocumentFieldNumber('FIELD_O');
+        var vatValues = [
+            getDocumentFieldNumber('FIELD_N'),
+            getDocumentFieldNumber('FIELD_I3'),
+            getDocumentFieldNumber('FIELD_I4'),
+            getDocumentFieldNumber('FIELD_I5'),
+            getDocumentFieldNumber('FIELD_I6'),
+            getDocumentFieldNumber('FIELD_I7'),
+            getDocumentFieldNumber('FIELD_I8')
+        ];
+        var hasVatAmounts = vatValues.some(function(value) {
+            return value !== null && Math.abs(value) >= 0.005;
+        });
         return exemptBase !== null
             && stampTax !== null
             && total !== null
             && exemptBase > 0
             && stampTax > 0
+            && !hasVatAmounts
             && Math.abs((exemptBase + stampTax) - total) < 0.03;
+    }
+
+    function isEmitterBankEntitySelected() {
+        return !!(emitterTypeSelect && String(emitterTypeSelect.value || '').trim() === 'bank');
+    }
+
+    function hasBankLoanConversionCandidate() {
+        if (hasBankLoanStampValues()) {
+            return true;
+        }
+        return isEmitterBankEntitySelected() && getDocumentFieldNumber('FIELD_O') !== null;
     }
 
     function updateBankLoanConversionVisibility() {
         if (!bankLoanConversionBtn) {
             return;
         }
-        bankLoanConversionBtn.classList.toggle('d-none', !hasBankLoanStampValues());
+        bankLoanConversionBtn.classList.toggle('d-none', !hasBankLoanConversionCandidate());
     }
 
     function getLineDescriptionText(line) {
@@ -4773,6 +4802,9 @@ window.addEventListener('load', function() {
         if (!Array.isArray(lines)) {
             return result;
         }
+        if (!lines.length) {
+            return result;
+        }
         lines.forEach(function(line) {
             var description = normalizeLoanLineDescription(getLineDescriptionText(line));
             var net = getLineNetAmount(line);
@@ -4796,6 +4828,9 @@ window.addEventListener('load', function() {
                 result.hasCommission = true;
             }
         });
+        if (!result.matched) {
+            return result;
+        }
         if (!result.hasInterest || !result.hasCommission) {
             return {
                 interest: totalGross,
@@ -4850,8 +4885,19 @@ window.addEventListener('load', function() {
         return result;
     }
 
-    function buildFallbackBankLoanAmounts(totalGross) {
-        var commission = Math.min(1, Math.max(totalGross, 0));
+    function buildFallbackBankLoanAmounts(totalGross, exemptBase, stampTax) {
+        var base = typeof exemptBase === 'number' && isFinite(exemptBase) ? exemptBase : 0;
+        var stamp = typeof stampTax === 'number' && isFinite(stampTax) ? stampTax : 0;
+        if (base > 0 && stamp > 0 && Math.abs((base + stamp) - totalGross) < 0.03) {
+            return {
+                interest: base,
+                commission: stamp,
+                matched: false,
+                hasInterest: false,
+                hasCommission: false,
+                singleLine: false
+            };
+        }
         return {
             interest: totalGross,
             commission: 0,
@@ -5052,7 +5098,7 @@ window.addEventListener('load', function() {
 
         var amounts = buildBankLoanAmountsFromLines(lines, qrBase || 0, qrStamp || 0, totalGross);
         if (!amounts.matched) {
-            amounts = buildFallbackBankLoanAmounts(totalGross);
+            amounts = buildFallbackBankLoanAmounts(totalGross, qrBase || 0, qrStamp || 0);
         }
         if (Math.abs((amounts.interest + amounts.commission) - totalGross) >= 0.03) {
             amounts.interest = totalGross - amounts.commission;
@@ -7249,7 +7295,7 @@ window.addEventListener('load', function() {
 
     if (bankLoanConversionBtn) {
         bankLoanConversionBtn.addEventListener('click', function() {
-            if (!hasBankLoanStampValues()) {
+            if (!hasBankLoanConversionCandidate()) {
                 showNotice('warning', 'Este documento não tem os campos QR esperados para a conversão de empréstimo bancário.');
                 return;
             }
@@ -7269,6 +7315,12 @@ window.addEventListener('load', function() {
             toggleClassificationModelSaveFields();
         });
         toggleClassificationModelSaveFields();
+    }
+
+    if (emitterTypeSelect) {
+        emitterTypeSelect.addEventListener('change', function() {
+            updateBankLoanConversionVisibility();
+        });
     }
 
     if (applyClassificationModelBtn) {
@@ -7837,6 +7889,9 @@ window.addEventListener('load', function() {
             saveClassificationModelSwitch.checked = false;
             toggleClassificationModelSaveFields();
         }
+        if (emitterTypeSelect) {
+            emitterTypeSelect.value = 'normal';
+        }
 
         currentRateData = buttonRatesPayload;
         if (!currentRateData || typeof currentRateData !== 'object') {
@@ -8058,6 +8113,7 @@ window.addEventListener('load', function() {
                     ignore_detected_rates: (currentIgnoreDetectedRates || saveModelName !== '' ? '1' : '0'),
                     classification_model_name: currentClassificationModelName,
                     save_model_name: saveModelName,
+                    emitter_type: emitterTypeSelect ? (emitterTypeSelect.value || 'normal') : 'normal',
                     manual_document_fields: (toggleDocumentFieldsSwitch && toggleDocumentFieldsSwitch.checked) ? '1' : '0',
                     document_fields: JSON.stringify(currentDocumentFieldValues),
                     csrf_token: csrfInput.value
@@ -8110,6 +8166,10 @@ window.addEventListener('load', function() {
                 currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
                 currentClassificationModelName = String(res.classification_model_name || '').trim();
                 classificationModels = normalizeClassificationModelList(res.classification_models);
+                if (emitterTypeSelect && Object.prototype.hasOwnProperty.call(res, 'emitter_type')) {
+                    emitterTypeSelect.value = String(res.emitter_type || '').trim() || 'normal';
+                    updateBankLoanConversionVisibility();
+                }
                 if (res.document_fields && typeof res.document_fields === 'object') {
                     currentDocumentFieldValues = normalizeDocumentFieldMap(res.document_fields);
                     renderDocumentFieldInputs();

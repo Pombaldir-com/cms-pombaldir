@@ -1698,10 +1698,7 @@ function resolveErpAccountingDocumentTypeAbbreviation(string $documentType, stri
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
-    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
-    if (hasColumn('accounting_entities', 'is_bank_entity')) {
-        $selectColumns .= ', is_bank_entity';
-    }
+    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1721,10 +1718,7 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     if ($normalizedType === '') {
         return findAccountingEntity($pdo, $nif);
     }
-    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
-    if (hasColumn('accounting_entities', 'is_bank_entity')) {
-        $selectColumns .= ', is_bank_entity';
-    }
+    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
     $stmt->execute([$nif, $normalizedType]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1748,6 +1742,27 @@ function normalizeAccountingEntityDatabaseKey(string $value): string {
     return $value;
 }
 
+function getAccountingEmitterTypeColumn(): string {
+    if (hasColumn('accounting_entities', 'emitter_type')) {
+        return 'emitter_type';
+    }
+    if (hasColumn('accounting_entities', 'is_bank_entity')) {
+        return 'is_bank_entity';
+    }
+    return '';
+}
+
+function appendAccountingEmitterTypeSelectColumn(string $selectColumns): string {
+    $column = getAccountingEmitterTypeColumn();
+    if ($column === '') {
+        return $selectColumns;
+    }
+    if ($column === 'emitter_type') {
+        return $selectColumns . ', emitter_type';
+    }
+    return $selectColumns . ', is_bank_entity AS emitter_type';
+}
+
 function normalizeAccountingEntityStoragePayload(array $data): array {
     $entityType = trim((string) ($data['entity_type'] ?? ''));
     if ($entityType === '') {
@@ -1766,11 +1781,16 @@ function normalizeAccountingEntityStoragePayload(array $data): array {
     $data['entity_type'] = $entityType;
     $data['erp_database'] = $erpDatabase;
     $data['erp_client_code'] = $erpClientCode;
-    $isBankEntityRaw = $data['is_bank_entity'] ?? '0';
-    $data['is_bank_entity'] = (
-        trim((string) $isBankEntityRaw) === '1'
-        || $isBankEntityRaw === true
-    ) ? '1' : '0';
+    $emitterTypeRaw = $data['emitter_type'] ?? ($data['is_bank_entity'] ?? '0');
+    $emitterTypeString = trim((string) $emitterTypeRaw);
+    if ($emitterTypeString === '2') {
+        $data['emitter_type'] = '2';
+    } else {
+        $data['emitter_type'] = (
+            $emitterTypeString === '1'
+            || $emitterTypeRaw === true
+        ) ? '1' : '0';
+    }
 
     return $data;
 }
@@ -1781,10 +1801,7 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
         return null;
     }
 
-    $selectColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
-    if (hasColumn('accounting_entities', 'is_bank_entity')) {
-        $selectColumns .= ', is_bank_entity';
-    }
+    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
     $stmt = $pdo->prepare(
         'SELECT ' . $selectColumns . '
          FROM accounting_entities
@@ -1810,15 +1827,16 @@ function resolveAccountingEntityDatabase(array $entity): string {
  * @return void
  */
 function saveAccountingEntity(PDO $pdo, array $data): void {
-    $hasSubmittedBankEntity = array_key_exists('is_bank_entity', $data);
+    $hasSubmittedEmitterType = array_key_exists('emitter_type', $data) || array_key_exists('is_bank_entity', $data);
     $data = normalizeAccountingEntityStoragePayload($data);
     $nif = trim((string) ($data['nif'] ?? ''));
     $name = trim((string) ($data['name'] ?? ''));
     $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($data['erp_database'] ?? ''));
     $entityType = trim((string) ($data['entity_type'] ?? ''));
     $erpClientCode = trim((string) ($data['erp_client_code'] ?? ''));
-    $isBankEntity = (trim((string) ($data['is_bank_entity'] ?? '0')) === '1') ? '1' : '0';
-    $hasBankEntityColumn = hasColumn('accounting_entities', 'is_bank_entity');
+    $emitterTypeValue = trim((string) ($data['emitter_type'] ?? '0'));
+    $emitterType = in_array($emitterTypeValue, ['1', '2'], true) ? $emitterTypeValue : '0';
+    $emitterTypeColumn = getAccountingEmitterTypeColumn();
 
     if ($nif === '') {
         throw new InvalidArgumentException('NIF inválido para guardar entidade contabilística.');
@@ -1844,11 +1862,12 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
             $erpClientCode,
             $qrDocTypeMappings,
         ];
-        if ($hasBankEntityColumn) {
-            $updateSql .= ', is_bank_entity = ?';
-            $updateValues[] = $hasSubmittedBankEntity
-                ? $isBankEntity
-                : (trim((string) ($existing['is_bank_entity'] ?? '0')) === '1' ? '1' : '0');
+        if ($emitterTypeColumn !== '') {
+            $updateSql .= ', ' . $emitterTypeColumn . ' = ?';
+            $existingEmitterType = trim((string) ($existing['emitter_type'] ?? '0'));
+            $updateValues[] = $hasSubmittedEmitterType
+                ? $emitterType
+                : (in_array($existingEmitterType, ['1', '2'], true) ? $existingEmitterType : '0');
         }
         $updateSql .= ' WHERE id = ?';
         $updateValues[] = (int) $existing['id'];
@@ -1860,11 +1879,11 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
     $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
         ? (string) $data['qr_doc_type_mappings']
         : '';
-    if ($hasBankEntityColumn) {
+    if ($emitterTypeColumn !== '') {
         $stmt = $pdo->prepare(
-            'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, is_bank_entity, qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, ' . $emitterTypeColumn . ', qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode, $isBankEntity, $qrDocTypeMappings]);
+        $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode, $emitterType, $qrDocTypeMappings]);
         return;
     }
 
@@ -3555,6 +3574,14 @@ function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
                 $hasCommission = true;
             }
         }
+    }
+
+    if (!$matched && ($qrBase ?? 0.0) > 0 && ($qrStamp ?? 0.0) > 0 && abs((($qrBase ?? 0.0) + ($qrStamp ?? 0.0)) - $totalGross) < 0.03) {
+        return [
+            'interest' => round((float) $qrBase, 2),
+            'commission' => round((float) $qrStamp, 2),
+            'single_line' => false,
+        ];
     }
 
     if (!$hasInterest || !$hasCommission) {

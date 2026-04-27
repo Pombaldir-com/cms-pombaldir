@@ -522,7 +522,7 @@ function shouldPersistSharedClassification(array $requirements, array $payload, 
 }
 
 function markAccountingEntityAsBankEntity(PDO $pdo, string $entityFieldValue): void {
-    if (!hasColumn('accounting_entities', 'is_bank_entity')) {
+    if (getAccountingEmitterTypeColumn() === '') {
         return;
     }
 
@@ -549,7 +549,129 @@ function markAccountingEntityAsBankEntity(PDO $pdo, string $entityFieldValue): v
         'qr_doc_type_mappings' => array_key_exists('qr_doc_type_mappings', (array) $existing)
             ? (string) ($existing['qr_doc_type_mappings'] ?? '')
             : '',
-        'is_bank_entity' => '1',
+        'emitter_type' => '1',
+    ]);
+}
+
+function normalizeEmitterTypeValue($value): string {
+    $type = strtolower(trim((string) ($value ?? '')));
+    if (in_array($type, ['normal', 'bank', 'insurance'], true)) {
+        return $type;
+    }
+    return '';
+}
+
+function isBankEmitterCandidateFromQrFields(array $document): bool {
+    $exemptBase = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
+    $stampTax = parseAccountingBankLoanAmount($document['field_M'] ?? null);
+    $total = parseAccountingBankLoanAmount($document['field_O'] ?? null);
+    if ($exemptBase === null || $stampTax === null || $total === null) {
+        return false;
+    }
+    if ($exemptBase <= 0 || $stampTax <= 0 || $total <= 0) {
+        return false;
+    }
+
+    $vatTotal = parseAccountingBankLoanAmount($document['field_N'] ?? null) ?? 0.0;
+    $vatBase6 = parseAccountingBankLoanAmount($document['field_I3'] ?? null) ?? 0.0;
+    $vatAmount6 = parseAccountingBankLoanAmount($document['field_I4'] ?? null) ?? 0.0;
+    $vatBase13 = parseAccountingBankLoanAmount($document['field_I5'] ?? null) ?? 0.0;
+    $vatAmount13 = parseAccountingBankLoanAmount($document['field_I6'] ?? null) ?? 0.0;
+    $vatBase23 = parseAccountingBankLoanAmount($document['field_I7'] ?? null) ?? 0.0;
+    $vatAmount23 = parseAccountingBankLoanAmount($document['field_I8'] ?? null) ?? 0.0;
+    $hasVatAmounts = abs($vatTotal) >= 0.005
+        || abs($vatBase6) >= 0.005
+        || abs($vatAmount6) >= 0.005
+        || abs($vatBase13) >= 0.005
+        || abs($vatAmount13) >= 0.005
+        || abs($vatBase23) >= 0.005
+        || abs($vatAmount23) >= 0.005;
+    if ($hasVatAmounts) {
+        return false;
+    }
+
+    return abs(($exemptBase + $stampTax) - $total) < 0.03;
+}
+
+function resolveEmitterTypeValue(PDO $pdo, string $entityFieldValue, array $document = []): string {
+    $emitterTypeColumn = getAccountingEmitterTypeColumn();
+    if ($emitterTypeColumn === '') {
+        return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+    }
+
+    $nif = extractVatNumber($entityFieldValue);
+    if ($nif === '') {
+        return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT " . $emitterTypeColumn . " AS emitter_type
+         FROM accounting_entities
+         WHERE nif = ?
+           AND (entity_type = 'emitter' OR entity_type = 'emitente' OR entity_type = '')
+         ORDER BY FIELD(" . $emitterTypeColumn . ", 1, 2, 0) ASC, id ASC
+         LIMIT 1"
+    );
+    $stmt->execute([$nif]);
+    $emitterRow = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (is_array($emitterRow)) {
+        $storedKind = trim((string) ($emitterRow['emitter_type'] ?? '0'));
+        if ($storedKind === '1') {
+            return 'bank';
+        }
+        if ($storedKind === '2') {
+            return 'insurance';
+        }
+    }
+
+    $existing = findAccountingEntity($pdo, $nif);
+    if (is_array($existing)) {
+        $storedKind = trim((string) ($existing['emitter_type'] ?? '0'));
+        if ($storedKind === '1') {
+            return 'bank';
+        }
+        if ($storedKind === '2') {
+            return 'insurance';
+        }
+    }
+
+    return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+}
+
+function persistEmitterTypeValue(PDO $pdo, string $entityFieldValue, string $type): void {
+    if (getAccountingEmitterTypeColumn() === '') {
+        return;
+    }
+
+    $normalizedType = normalizeEmitterTypeValue($type);
+    if ($normalizedType === '') {
+        return;
+    }
+
+    $nif = extractVatNumber($entityFieldValue);
+    if ($nif === '') {
+        return;
+    }
+
+    $existing = findAccountingEntity($pdo, $nif);
+    $name = trim((string) ($existing['name'] ?? ''));
+    if ($name === '' || isPlaceholderAccountingEntityName($name, $nif)) {
+        $efaturaName = findAccountingEntityNameFromEfatura($pdo, $nif);
+        $name = $efaturaName !== '' ? $efaturaName : deriveEntityNameFromField($entityFieldValue, $nif);
+    }
+
+    saveAccountingEntity($pdo, [
+        'nif' => $nif,
+        'name' => $name,
+        'erp_database' => trim((string) ($existing['erp_database'] ?? '')),
+        'erp_client_code' => trim((string) ($existing['erp_client_code'] ?? '')),
+        'entity_type' => trim((string) ($existing['entity_type'] ?? '')) !== ''
+            ? trim((string) ($existing['entity_type'] ?? ''))
+            : 'emitter',
+        'qr_doc_type_mappings' => array_key_exists('qr_doc_type_mappings', (array) $existing)
+            ? (string) ($existing['qr_doc_type_mappings'] ?? '')
+            : '',
+        'emitter_type' => $normalizedType === 'bank' ? '1' : ($normalizedType === 'insurance' ? '2' : '0'),
     ]);
 }
 
@@ -1090,8 +1212,10 @@ if ($action === 'lines') {
         if (!is_array($items)) {
             $items = [];
         }
-        $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
-        $respondWithLines($items);
+        if (!empty($items)) {
+            $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
+            $respondWithLines($items);
+        }
     }
 
     $path = dirname(__DIR__) . '/' . $row['filename'];
@@ -1114,9 +1238,13 @@ if ($action === 'lines') {
             $items = [];
         }
         $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
-        // Store OCR result so subsequent requests can reuse it.
-        $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
-        $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
+        // Store only useful OCR results so a transient empty parse can be retried.
+        if (!empty($items)) {
+            $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+            $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
+        } else {
+            logOcrMessage('Textract returned no line items for accounting_imports.id=' . (int) $id);
+        }
         $respondWithLines($items);
     } catch (Throwable $e) {
         logOcrMessage('Textract OCR error: ' . $e->getMessage());
@@ -1284,6 +1412,7 @@ if ($action === 'get') {
         'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
         'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
+        'emitter_type' => resolveEmitterTypeValue($pdo, (string) ($importRow['field_A'] ?? $a), $importRow),
         'original_rates' => $originalSnapshot,
         'document_fields' => extractEditableAccountingImportFields($importRow),
         'show_document_fields' => $rowMetadata['manual_document_fields'] ?? '0',
@@ -1420,6 +1549,7 @@ if ($action === 'get') {
 
         $selectedModelName = sanitizeClassificationModelName($_POST['classification_model_name'] ?? '');
         $saveModelName = sanitizeClassificationModelName($_POST['save_model_name'] ?? '');
+        $submittedEmitterType = normalizeEmitterTypeValue($_POST['emitter_type'] ?? '');
         $ignoreDetectedRates = trim((string) ($_POST['ignore_detected_rates'] ?? '0'));
         $manualDocumentFieldsProvided = array_key_exists('manual_document_fields', $_POST);
         $manualDocumentFieldsValue = ($manualDocumentFieldsProvided && trim((string) ($_POST['manual_document_fields'] ?? '')) === '1') ? '1' : '0';
@@ -1454,6 +1584,9 @@ if ($action === 'get') {
         $b = (string) ($importRow['field_B'] ?? $b);
         $d = (string) ($importRow['field_D'] ?? $d);
         ensureAccountingEntity($pdo, (string) $a);
+        if ($submittedEmitterType !== '') {
+            persistEmitterTypeValue($pdo, (string) $a, $submittedEmitterType);
+        }
         if ($bankLoanConversionSubmitted) {
             markAccountingEntityAsBankEntity($pdo, (string) $a);
         }
@@ -1678,6 +1811,7 @@ if ($action === 'get') {
             'ignore_detected_rates' => $submittedMetadata['ignore_detected_rates'] ?? '0',
             'classification_model_name' => $submittedMetadata['classification_model_name'] ?? '',
             'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
+            'emitter_type' => resolveEmitterTypeValue($pdo, (string) ($importRow['field_A'] ?? $a), $importRow),
             'document_fields' => extractEditableAccountingImportFields($importRow),
             'show_document_fields' => $submittedMetadata['manual_document_fields'] ?? '0',
             'saved_model_name' => $savedModel['name'] ?? ''

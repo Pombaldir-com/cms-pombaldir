@@ -371,9 +371,19 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                         <small class="text-muted">Modelos específicos do tenant do documento, adquirente e tipo documental, para reaproveitar classificações manuais entre emitentes.</small>
                                     </div>
                                     <div class="col-md-6">
-                                        <div class="form-check form-switch mb-2">
-                                            <input class="form-check-input" type="checkbox" id="saveClassificationModelSwitch" value="1">
-                                            <label class="form-check-label" for="saveClassificationModelSwitch">Guardar Modelo</label>
+                                        <div class="d-flex align-items-end gap-2 flex-wrap mb-2">
+                                            <div class="form-check form-switch mb-0">
+                                                <input class="form-check-input" type="checkbox" id="saveClassificationModelSwitch" value="1">
+                                                <label class="form-check-label" for="saveClassificationModelSwitch">Guardar Modelo</label>
+                                            </div>
+                                            <div>
+                                                <label for="emitterTypeSelect" class="form-label mb-1 classify-modal-section-label">Tipo de entidade</label>
+                                                <select class="form-control form-control-sm" id="emitterTypeSelect">
+                                                    <option value="normal">Normal</option>
+                                                    <option value="bank">Banco</option>
+                                                    <option value="insurance">Seguradora</option>
+                                                </select>
+                                            </div>
                                         </div>
                                         <input
                                             type="text"

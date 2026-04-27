@@ -15,7 +15,8 @@ $useDataTables = true;
 $useSwitchery = true;
 
 $pdo = getPDO();
-$hasBankEntityColumn = hasColumn('accounting_entities', 'is_bank_entity');
+$emitterTypeColumn = getAccountingEmitterTypeColumn();
+$hasEmitterTypeColumn = $emitterTypeColumn !== '';
 $user = currentUser();
 $isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
@@ -92,14 +93,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($action === 'toggle-bank-entity') {
-        if (!$hasBankEntityColumn) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Coluna de entidade bancaria em falta.'));
+    if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
+        if (!$hasEmitterTypeColumn) {
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Coluna de tipo de emitente em falta.'));
             exit;
         }
 
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
-        $isBankEntity = trim((string) ($_POST['is_bank_entity'] ?? '0')) === '1' ? 1 : 0;
+        $emitterType = trim((string) ($_POST['emitter_type'] ?? ($_POST['is_bank_entity'] ?? '0')));
+        $emitterType = in_array($emitterType, ['1', '2'], true) ? $emitterType : '0';
         if ($entityId <= 0) {
             header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Entidade invalida.'));
             exit;
@@ -119,21 +121,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $stmt = $pdo->prepare('UPDATE accounting_entities SET is_bank_entity = ? WHERE id = ?');
-        $stmt->execute([$isBankEntity, $entityId]);
+        $stmt = $pdo->prepare('UPDATE accounting_entities SET ' . $emitterTypeColumn . ' = ? WHERE id = ?');
+        $stmt->execute([$emitterType, $entityId]);
         logAuditAction(
             'update',
             'accounting_entity',
             $entityId,
             [
-                'field' => 'is_bank_entity',
-                'value' => $isBankEntity,
+                'field' => 'emitter_type',
+                'value' => $emitterType,
                 'nif' => trim((string) ($entity['nif'] ?? '')),
                 'entity_type' => $expectedBankEntityType,
             ]
         );
 
-        header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'success', 'Entidade bancaria atualizada.'));
+        header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'success', 'Tipo de emitente atualizado.'));
         exit;
     }
 
@@ -307,8 +309,8 @@ if ($consultId > 0 && !$consultEntity && $erpError === '') {
 }
 
 $entitySelectColumns = 'id, nif, name, erp_database, erp_client_code';
-if ($hasBankEntityColumn) {
-    $entitySelectColumns .= ', is_bank_entity';
+if ($hasEmitterTypeColumn) {
+    $entitySelectColumns .= ', ' . $emitterTypeColumn . ' AS emitter_type';
 }
 $stmt = $pdo->prepare(
     "SELECT $entitySelectColumns FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
@@ -320,8 +322,8 @@ $supplierCompany = null;
 $supplierEntities = [];
 if ($isSupplierList) {
     $supplierCompanyColumns = 'id, nif, name, erp_database, erp_client_code';
-    if ($hasBankEntityColumn) {
-        $supplierCompanyColumns .= ', is_bank_entity';
+    if ($hasEmitterTypeColumn) {
+        $supplierCompanyColumns .= ', ' . $emitterTypeColumn . ' AS emitter_type';
     }
     $stmt = $pdo->prepare(
         "SELECT $supplierCompanyColumns FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
@@ -329,7 +331,7 @@ if ($isSupplierList) {
     $stmt->execute([$supplierCompanyId, 'acquirer']);
     $supplierCompany = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     if ($supplierCompany) {
-        $supplierEntities = loadAccountingSupplierEntitiesForCompany($pdo, $supplierCompany, $hasBankEntityColumn);
+        $supplierEntities = loadAccountingSupplierEntitiesForCompany($pdo, $supplierCompany, $emitterTypeColumn);
     } elseif ($flashMessage === '') {
         $flashType = 'error';
         $flashMessage = 'Empresa nao encontrada.';
@@ -608,8 +610,8 @@ require_once __DIR__ . '/../header.php';
                         <tr>
                             <th>NIF</th>
                             <th>Nome</th>
-                            <?php if ($hasBankEntityColumn): ?>
-                                <th data-orderable="false">Banco</th>
+                            <?php if ($hasEmitterTypeColumn): ?>
+                                <th data-orderable="false">Tipo</th>
                             <?php endif; ?>
                             <th data-orderable="false" class="text-right">IA</th>
                         </tr>
@@ -619,15 +621,19 @@ require_once __DIR__ . '/../header.php';
                         <tr>
                             <td><?= htmlspecialchars($supplier['nif'] ?? ''); ?></td>
                             <td><?= htmlspecialchars($supplier['name'] ?? ''); ?></td>
-                            <?php if ($hasBankEntityColumn): ?>
+                            <?php if ($hasEmitterTypeColumn): ?>
                                 <td>
                                     <?php if (!empty($supplier['id'])): ?>
+                                        <?php $supplierEmitterType = trim((string) ($supplier['emitter_type'] ?? '0')); ?>
                                         <form method="post" style="margin: 0;">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                            <input type="hidden" name="action" value="toggle-bank-entity">
+                                            <input type="hidden" name="action" value="update-emitter-type">
                                             <input type="hidden" name="entity_id" value="<?= (int) $supplier['id']; ?>">
-                                            <input type="hidden" name="is_bank_entity" value="<?= !empty($supplier['is_bank_entity']) ? '0' : '1'; ?>">
-                                            <input type="checkbox" class="js-switch" <?= !empty($supplier['is_bank_entity']) ? 'checked' : ''; ?> onchange="this.form.submit();">
+                                            <select name="emitter_type" class="form-control input-sm" onchange="this.form.submit();" style="min-width: 130px;">
+                                                <option value="0" <?= $supplierEmitterType === '0' || $supplierEmitterType === '' ? 'selected' : ''; ?>>Normal</option>
+                                                <option value="1" <?= $supplierEmitterType === '1' ? 'selected' : ''; ?>>Banco</option>
+                                                <option value="2" <?= $supplierEmitterType === '2' ? 'selected' : ''; ?>>Seguradora</option>
+                                            </select>
                                         </form>
                                     <?php else: ?>
                                         <span class="label label-default">Sem ficha local</span>
@@ -819,7 +825,7 @@ function buildAccountingEntitiesReturnUrl(string $typeSlug, int $supplierCompany
     return $url;
 }
 
-function loadAccountingSupplierEntitiesForCompany(PDO $pdo, array $company, bool $hasBankEntityColumn): array {
+function loadAccountingSupplierEntitiesForCompany(PDO $pdo, array $company, string $emitterTypeColumn): array {
     $companyNif = extractVatNumber((string) ($company['nif'] ?? ''));
     $companyDatabase = resolveAccountingEntityDatabase($company);
     $supplierRefs = [];
@@ -879,8 +885,8 @@ function loadAccountingSupplierEntitiesForCompany(PDO $pdo, array $company, bool
     }
 
     $selectColumns = 'id, nif, name, erp_database, erp_client_code, entity_type';
-    if ($hasBankEntityColumn) {
-        $selectColumns .= ', is_bank_entity';
+    if ($emitterTypeColumn !== '') {
+        $selectColumns .= ', ' . $emitterTypeColumn . ' AS emitter_type';
     }
 
     $entitiesByNif = [];
@@ -932,7 +938,7 @@ function loadAccountingSupplierEntitiesForCompany(PDO $pdo, array $company, bool
                 'erp_database' => '',
                 'erp_client_code' => '',
                 'entity_type' => 'emitter',
-                'is_bank_entity' => 0,
+                'emitter_type' => 0,
                 'sources' => $ref['sources'] ?? [],
             ];
         }
