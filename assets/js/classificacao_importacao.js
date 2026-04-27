@@ -2359,10 +2359,10 @@ window.addEventListener('load', function() {
     var currentTotalAccount = '';
     var currentIgnoreDetectedRates = false;
     var currentBankLoanConversionActive = false;
-    var currentBankLoanResolvedAmounts = null;
     var currentClassificationModelName = '';
     var classificationModels = [];
     var currentDocumentFieldValues = {};
+    var currentBankLoanDocumentLines = [];
     var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
     var documentFieldsPanelEl = document.getElementById('classifyDocumentFieldsPanel');
     var toggleDocumentFieldsSwitch = document.getElementById('toggleDocumentFieldsSwitch');
@@ -4751,208 +4751,6 @@ window.addEventListener('load', function() {
         bankLoanConversionBtn.classList.toggle('d-none', !hasBankLoanConversionCandidate());
     }
 
-    function getLineDescriptionText(line) {
-        if (!line || typeof line !== 'object') {
-            return '';
-        }
-        var parts = [
-            line.ITEM,
-            line.DESCRIPTION,
-            line.DESCRICAO,
-            line.PRODUCT_CODE,
-            line.CODE
-        ];
-        if (line.ITEM_QUANTITY_UNIT_PRICE && typeof line.ITEM_QUANTITY_UNIT_PRICE === 'object') {
-            parts.push(line.ITEM_QUANTITY_UNIT_PRICE.ITEM);
-        }
-        return parts.map(function(value) {
-            return String(value || '').trim();
-        }).filter(function(value) {
-            return value !== '';
-        }).join(' ');
-    }
-
-    function normalizeLoanLineDescription(value) {
-        return String(value || '')
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase();
-    }
-
-    function getLineNetAmount(line) {
-        if (!line || typeof line !== 'object') {
-            return null;
-        }
-        var net = parseDecimalValue(line.PRICE);
-        if (net === null && line.ITEM_QUANTITY_UNIT_PRICE && typeof line.ITEM_QUANTITY_UNIT_PRICE === 'object') {
-            net = parseDecimalValue(line.ITEM_QUANTITY_UNIT_PRICE.PRICE);
-        }
-        if (net === null) {
-            net = parseDecimalValue(line.TOTAL);
-        }
-        return net;
-    }
-
-    function lineHasExplicitStampTax(line) {
-        if (!line || typeof line !== 'object') {
-            return false;
-        }
-        if (parseDecimalValue(line.TAX) !== null || parseDecimalValue(line.STAMP_TAX) !== null || parseDecimalValue(line.IMPOSTO_SELO) !== null) {
-            return true;
-        }
-        var ivaTaxa = normalizeLoanLineDescription(line.IVA_TAXA || line.TAX_RATE || '');
-        return ivaTaxa === 'is' || ivaTaxa.indexOf('i.s') !== -1 || ivaTaxa.indexOf('selo') !== -1;
-    }
-
-    function buildBankLoanAmountsFromLines(lines, exemptBase, stampTax, totalGross) {
-        var result = {
-            interest: 0,
-            commission: 0,
-            matched: false,
-            hasInterest: false,
-            hasCommission: false,
-            singleLine: true
-        };
-        var usesLineTotalsWithStamp = false;
-        if (!Array.isArray(lines)) {
-            return result;
-        }
-        if (!lines.length) {
-            return result;
-        }
-        if (lines.some(function(line) {
-            return line && String(line.BANK_QR_FALLBACK || '').trim() === '1';
-        })) {
-            lines.forEach(function(line) {
-                if (!line || String(line.BANK_QR_FALLBACK || '').trim() !== '1') {
-                    return;
-                }
-                var description = normalizeLoanLineDescription(getLineDescriptionText(line));
-                var net = getLineNetAmount(line);
-                if (net === null || Math.abs(net) < 0.00001) {
-                    return;
-                }
-                if (description.indexOf('juro') !== -1) {
-                    result.interest += net;
-                    result.hasInterest = true;
-                    result.matched = true;
-                    return;
-                }
-                result.commission += net;
-                result.hasCommission = true;
-                result.matched = true;
-            });
-            if (result.hasInterest && result.hasCommission) {
-                result.singleLine = false;
-                return result;
-            }
-        }
-        lines.forEach(function(line) {
-            var description = normalizeLoanLineDescription(getLineDescriptionText(line));
-            var net = getLineNetAmount(line);
-            if (net === null || Math.abs(net) < 0.00001) {
-                return;
-            }
-            if (lineHasExplicitStampTax(line)) {
-                usesLineTotalsWithStamp = true;
-            }
-            if (description.indexOf('juro') !== -1) {
-                result.interest += net;
-                result.matched = true;
-                result.hasInterest = true;
-                return;
-            }
-            if (
-                description.indexOf('com') !== -1
-                || description.indexOf('comiss') !== -1
-                || description.indexOf('gestao') !== -1
-                || description.indexOf('prestacao fn') !== -1
-            ) {
-                result.commission += net;
-                result.matched = true;
-                result.hasCommission = true;
-            }
-        });
-        if (!result.matched) {
-            return result;
-        }
-        if (!result.hasInterest || !result.hasCommission) {
-            return {
-                interest: totalGross,
-                commission: 0,
-                matched: true,
-                hasInterest: result.hasInterest,
-                hasCommission: result.hasCommission,
-                singleLine: true
-            };
-        }
-        if (
-            result.matched
-            && Math.abs(result.interest) < 0.00001
-            && exemptBase > 0
-            && result.commission >= (exemptBase * 0.75)
-        ) {
-            return {
-                interest: totalGross,
-                commission: 0,
-                matched: true,
-                hasInterest: result.hasInterest,
-                hasCommission: result.hasCommission,
-                singleLine: true
-            };
-        }
-        if (result.matched && Math.abs(result.interest) < 0.00001 && exemptBase > result.commission) {
-            result.interest = exemptBase - result.commission;
-        }
-        if (result.matched && Math.abs(result.commission) < 0.00001 && exemptBase > result.interest) {
-            result.commission = exemptBase - result.interest;
-        }
-        if (result.matched) {
-            var netTotal = result.interest + result.commission;
-            if (!usesLineTotalsWithStamp && netTotal > 0 && stampTax > 0) {
-                var commissionStamp = Math.round((stampTax * (result.commission / netTotal)) * 100) / 100;
-                var commissionGross = Math.round((result.commission + commissionStamp) * 100) / 100;
-                result.commission = commissionGross;
-                result.interest = Math.round((totalGross - commissionGross) * 100) / 100;
-            }
-        }
-        if (result.matched && result.commission >= (totalGross - 0.03) && result.interest <= 0.03) {
-            return {
-                interest: totalGross,
-                commission: 0,
-                matched: true,
-                hasInterest: result.hasInterest,
-                hasCommission: result.hasCommission,
-                singleLine: true
-            };
-        }
-        result.singleLine = false;
-        return result;
-    }
-
-    function buildFallbackBankLoanAmounts(totalGross, exemptBase, stampTax) {
-        var base = typeof exemptBase === 'number' && isFinite(exemptBase) ? exemptBase : 0;
-        var stamp = typeof stampTax === 'number' && isFinite(stampTax) ? stampTax : 0;
-        if (base > 0 && stamp > 0 && Math.abs((base + stamp) - totalGross) < 0.03) {
-            return {
-                interest: base,
-                commission: stamp,
-                matched: false,
-                hasInterest: false,
-                hasCommission: false,
-                singleLine: false
-            };
-        }
-        return {
-            interest: totalGross,
-            commission: 0,
-            matched: false,
-            hasInterest: false,
-            hasCommission: false,
-            singleLine: true
-        };
-    }
-
     function fetchBankLoanLines() {
         if (!currentBtn || !csrfInput) {
             return Promise.resolve([]);
@@ -4994,15 +4792,12 @@ window.addEventListener('load', function() {
         currentRateData = {};
         currentCostCenters = {};
         currentCostCenterBreakdowns = {};
-        currentBankLoanResolvedAmounts = null;
+        currentBankLoanDocumentLines = [];
     }
 
     function setBankLoanRate(rate, label, baseValue, generalAccount) {
         var formattedBase = formatDecimalValue(baseValue);
         var resolvedGeneralAccount = String(generalAccount || '').trim();
-        if (!resolvedGeneralAccount) {
-            resolvedGeneralAccount = rate === 'bank_loan_commission' ? '698812' : '6911';
-        }
         var ratePayload = {
             label: label,
             base: formattedBase,
@@ -5045,86 +4840,6 @@ window.addEventListener('load', function() {
         }
     }
 
-    function enforceBankLoanAccountRulesOnCurrentRows() {
-        var applied = false;
-        Object.keys(currentRateData || {}).forEach(function(rate) {
-            var data = currentRateData[rate] || {};
-            if (String(data.bank_loan_conversion || '').trim() !== '1') {
-                return;
-            }
-            var label = normalizeLoanLineDescription(data.label || getRateLabel(rate) || rate);
-            var targetAccount = '';
-            if (rate === 'bank_loan_commission' || label.indexOf('comiss') !== -1 || label.indexOf('gestao') !== -1) {
-                targetAccount = '698812';
-            } else {
-                targetAccount = '6911';
-            }
-            if (String(data.general_account || '').trim() !== targetAccount) {
-                data.general_account = targetAccount;
-                applied = true;
-            }
-            data.iva_account = '';
-            var info = rateInputs[rate];
-            if (info) {
-                if (info.generalAccount && String(info.generalAccount.value || '').trim() !== targetAccount) {
-                    info.generalAccount.value = targetAccount;
-                    updatePlanInputTitle(info.generalAccount);
-                }
-                if (info.ivaAccount) {
-                    info.ivaAccount.value = '';
-                }
-                updateRowDirtyState(rate);
-            }
-        });
-        if (applied && currentBtn) {
-            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
-            updateButtonClass(currentBtn);
-        }
-        return applied;
-    }
-
-    function applyBankLoanResolvedAmountsToRows(amounts) {
-        if (!amounts || typeof amounts !== 'object') {
-            return false;
-        }
-        var applied = false;
-        [
-            { rate: '0', amount: amounts.interest },
-            { rate: 'bank_loan_commission', amount: amounts.commission }
-        ].forEach(function(entry) {
-            var rate = entry.rate;
-            if (!currentRateData[rate] || String(currentRateData[rate].bank_loan_conversion || '').trim() !== '1') {
-                return;
-            }
-            if (amounts.singleLine && rate === 'bank_loan_commission') {
-                return;
-            }
-            var formatted = formatDecimalValue(entry.amount);
-            if (String(currentRateData[rate].base || '').trim() !== formatted) {
-                currentRateData[rate].base = formatted;
-                currentRateData[rate].base_value = formatted;
-                applied = true;
-            }
-            currentRateData[rate].iva = '';
-            currentRateData[rate].iva_value = '';
-            var info = rateInputs[rate];
-            if (info) {
-                if (info.base && String(info.base.value || '').trim() !== formatted) {
-                    info.base.value = formatted;
-                }
-                if (info.iva) {
-                    info.iva.value = '';
-                }
-                updateRowDirtyState(rate);
-            }
-        });
-        if (applied && currentBtn) {
-            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
-            updateButtonClass(currentBtn);
-        }
-        return applied;
-    }
-
     function requestAccountSuggestionsForCurrentRows(options) {
         var opts = options || {};
         if (!currentBtn) {
@@ -5150,6 +4865,7 @@ window.addEventListener('load', function() {
                 doc_number: currentBtn.getAttribute('data-doc-number') || '',
                 emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
                 document_fields: getCurrentDocumentFieldsPayload(),
+                document_lines: getCurrentDocumentLinesPayload(),
                 has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                 rates: rateLines
             },
@@ -5218,36 +4934,15 @@ window.addEventListener('load', function() {
 
     function applyBankLoanConversionFromLines(lines) {
         var qrTotal = getDocumentFieldNumber('FIELD_O');
-        var qrBase = getDocumentFieldNumber('FIELD_I2');
-        var qrStamp = getDocumentFieldNumber('FIELD_M');
-        if (qrBase === null && qrTotal !== null && qrStamp !== null && qrTotal > 0 && qrStamp > 0) {
-            qrBase = qrTotal - qrStamp;
-        }
-        var totalGross = qrTotal !== null ? qrTotal : ((qrBase || 0) + (qrStamp || 0));
-        if (!totalGross || totalGross <= 0) {
+        if (!qrTotal || qrTotal <= 0) {
             showError('Não foi possível obter o total do documento a partir do QR.');
             return;
         }
 
-        var amounts = buildBankLoanAmountsFromLines(lines, qrBase || 0, qrStamp || 0, totalGross);
-        if (!amounts.matched) {
-            amounts = buildFallbackBankLoanAmounts(totalGross, qrBase || 0, qrStamp || 0);
-        }
-        if (Math.abs((amounts.interest + amounts.commission) - totalGross) >= 0.03) {
-            amounts.interest = totalGross - amounts.commission;
-        }
-        if (amounts.interest < 0) {
-            amounts.interest = 0;
-        }
-        if (amounts.commission < 0) {
-            amounts.commission = 0;
-        }
         clearClassificationRowsForBankLoanConversion();
-        currentBankLoanResolvedAmounts = Object.assign({}, amounts);
-        setBankLoanRate('0', '0%', amounts.interest, '');
-        if (!amounts.singleLine) {
-            setBankLoanRate('bank_loan_commission', '0', amounts.commission, '');
-        }
+        currentBankLoanDocumentLines = Array.isArray(lines) ? cloneJsonValue(lines, []) : [];
+        setBankLoanRate('0', '0%', null, '');
+        setBankLoanRate('bank_loan_commission', '0', null, '');
         currentIgnoreDetectedRates = true;
         currentBankLoanConversionActive = true;
         currentClassificationModelName = '';
@@ -5260,8 +4955,6 @@ window.addEventListener('load', function() {
         captureOriginalRateValues({ initialize: false, refresh: false, allowCreate: false });
         return requestAccountSuggestionsForCurrentRows({ session_id: 'ai_suggest_accounts' })
             .then(function(applied) {
-                applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts);
-                enforceBankLoanAccountRulesOnCurrentRows();
                 refreshCostCenterFieldModes();
                 refreshAllDirtyStates();
                 if (currentBtn) {
@@ -5283,6 +4976,13 @@ window.addEventListener('load', function() {
             return cloneJsonValue(parseJsonAttribute(currentBtn, 'data-qr-fields') || {}, {});
         }
         return {};
+    }
+
+    function getCurrentDocumentLinesPayload() {
+        if (currentBankLoanDocumentLines && Array.isArray(currentBankLoanDocumentLines)) {
+            return cloneJsonValue(currentBankLoanDocumentLines, []);
+        }
+        return [];
     }
 
     function formatNumberValue(value) {
@@ -6271,12 +5971,6 @@ window.addEventListener('load', function() {
             applyCostCenterRequirementMap(requiredRates);
         }
         if (applyInstructionOperations(assistantResponse)) {
-            applied = true;
-        }
-        if (enforceBankLoanAccountRulesOnCurrentRows()) {
-            applied = true;
-        }
-        if (applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts)) {
             applied = true;
         }
         return applied;
@@ -7554,6 +7248,7 @@ window.addEventListener('load', function() {
                     doc_number: currentBtn.getAttribute('data-doc-number') || '',
                     emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
                     document_fields: getCurrentDocumentFieldsPayload(),
+                    document_lines: getCurrentDocumentLinesPayload(),
                     has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                     rates: rateLines
                 },
@@ -8038,6 +7733,7 @@ window.addEventListener('load', function() {
         currentClassificationModelName = '';
         classificationModels = [];
         currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
+        currentBankLoanDocumentLines = [];
         renderDocumentFieldInputs();
         updateButtonDocumentFields(btn, currentDocumentFieldValues);
         updateBankLoanConversionVisibility();

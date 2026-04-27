@@ -326,11 +326,6 @@ if (!function_exists('resolveEffectiveDocumentAccountingConfiguration')) {
             }
         }
 
-        if (accountingRatesContainBankLoanConversion($effectiveAccounts)) {
-            $effectiveAccounts = applyBankLoanConversionAmountsFromDocument($effectiveAccounts, $document);
-            $effectiveMetadata['ignore_detected_rates'] = '1';
-        }
-
         if (trim($classificationPayload) === '' && $effectiveAccounts === $rowAccounts) {
             return $rowPayload;
         }

@@ -3390,53 +3390,6 @@ function hasBankLoanConversionRates($rateItems): bool {
     return false;
 }
 
-function enforceBankLoanAccountRules(array $rateItems, array &$suggested, array &$expectedLines, int &$appliedCount): void {
-    if (!hasBankLoanConversionRates($rateItems)) {
-        return;
-    }
-
-    foreach ($rateItems as $index => $rateInfo) {
-        if (!is_array($rateInfo)) {
-            continue;
-        }
-        $rawKey = trim((string) ($rateInfo['key'] ?? ''));
-        if ($rawKey === '') {
-            continue;
-        }
-        $label = normalizeAiInstructionComparable((string) ($rateInfo['label'] ?? ''));
-        $isCommission = $rawKey === 'bank_loan_commission'
-            || strpos($label, 'comissao') !== false
-            || strpos($label, 'comissoes') !== false
-            || strpos($label, 'gestao') !== false;
-        $isInterest = !$isCommission && (
-            $rawKey === '0'
-            || strpos($label, 'juro') !== false
-            || $index === 0
-        );
-        $account = $isCommission ? '698812' : ($isInterest ? '6911' : '');
-        if ($account === '') {
-            continue;
-        }
-        foreach (array_unique([$rawKey, normalizeRateKey($rawKey)]) as $keyVariant) {
-            if ($keyVariant === '') {
-                continue;
-            }
-            if (!isset($suggested[$keyVariant]) || !is_array($suggested[$keyVariant])) {
-                $suggested[$keyVariant] = ['iva_account' => '', 'general_account' => ''];
-            }
-            if (trim((string) ($suggested[$keyVariant]['general_account'] ?? '')) !== $account) {
-                $suggested[$keyVariant]['general_account'] = $account;
-                $appliedCount++;
-            }
-            $suggested[$keyVariant]['iva_account'] = '';
-            if (isset($expectedLines['rates'][$keyVariant]) && is_array($expectedLines['rates'][$keyVariant])) {
-                $expectedLines['rates'][$keyVariant]['general_account'] = $account;
-                $expectedLines['rates'][$keyVariant]['iva_account'] = '';
-            }
-        }
-    }
-}
-
 function buildExpectedLinesFromExamples(array $examples, array $context = []): array {
     $rateTally = [];
     $totalTally = [];
@@ -4498,6 +4451,7 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
     }
 
     $documentFields = is_array($args['document_fields'] ?? null) ? $args['document_fields'] : [];
+    $documentLines = is_array($args['document_lines'] ?? null) ? $args['document_lines'] : [];
     $docContext = [
         'emitter' => $context['emitter'] ?? '',
         'emitter_nif' => $context['emitter_nif'] ?? '',
@@ -4510,6 +4464,7 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
         'bank_loan_conversion' => $context['bank_loan_conversion'] ?? '0',
         'rates' => $rateItems,
         'document_fields' => $documentFields,
+        'document_lines' => $documentLines,
         'suggested_accounts' => $suggested,
         'expected_lines' => $expectedLines,
     ];
@@ -5125,7 +5080,6 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         $expectedLines['total_account'] = $aiInstructionTotalAccount;
         $aiInstructionApplied++;
     }
-    enforceBankLoanAccountRules($rateItems, $finalSuggested, $expectedLines, $aiInstructionApplied);
     $costCenterRequiredRates = buildCostCenterRequiredRates(
         $rateItems,
         $finalSuggested,

@@ -195,6 +195,10 @@ function buildDerivedEditableAccountingImportAmountFields(array $rates): array {
     $totalIva = 0.0;
     $totalDocument = 0.0;
     $hasAnyAmount = false;
+    
+    // When dealing with bank loan conversion or multiple accounts per rate,
+    // aggregate ONLY by rate without considering general_account in aggregation.
+    // The UI displays amounts aggregated by rate only.
 
     foreach ($normalizedRates as $rate => $entry) {
         if (!is_array($entry)) {
@@ -1444,10 +1448,6 @@ if ($action === 'get') {
         }
         $rowAccounts = normalizeAccountingAccounts($importRow['account'] ?? '');
         $rowMetadata = normalizeAccountingMetadata($importRow['account'] ?? '');
-        if (accountingRatesContainBankLoanConversion($rowAccounts)) {
-            $rowAccounts = applyBankLoanConversionAmountsFromDocument($rowAccounts, $importRow);
-            $rowMetadata['ignore_detected_rates'] = '1';
-        }
         if (($rowMetadata['ignore_detected_rates'] ?? '0') === '1') {
             $rowAccounts = filterVisibleAccountingRates($rowAccounts);
         }
@@ -1493,10 +1493,6 @@ if ($action === 'get') {
     $classificationPayload = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
     $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
     $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
-    if (accountingRatesContainBankLoanConversion($classificationAccounts)) {
-        $classificationAccounts = applyBankLoanConversionAmountsFromDocument($classificationAccounts, $importRow);
-        $classificationMetadata['ignore_detected_rates'] = '1';
-    }
     if (($classificationMetadata['ignore_detected_rates'] ?? '0') === '1') {
         $classificationAccounts = filterVisibleAccountingRates($classificationAccounts);
     }
