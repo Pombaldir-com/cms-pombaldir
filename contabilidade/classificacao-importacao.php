@@ -2627,7 +2627,10 @@ function extractBackofficeAccountingInstructionSection(): string {
     $section = [];
     foreach ($lines as $line) {
         $normalizedLine = normalizeBackofficeInstructionText((string) $line);
-        if (!$capturing && strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false) {
+        if (!$capturing
+            && (strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false
+                || strpos($normalizedLine, 'regras de classificacao emprestimo bancario') !== false
+                || strpos($normalizedLine, 'regras de classificacao') !== false)) {
             $capturing = true;
             continue;
         }
@@ -2803,13 +2806,17 @@ function resolveBackofficeInstructionRateKey(string $line, array $rateItems): st
 }
 
 function buildBackofficeInstructionSuggestionsForExplanation(array $rateItems, array $context): array {
-    $section = extractBackofficeAccountingInstructionSection();
+    $globalSection = extractBackofficeAccountingInstructionSection();
     $pairInstructions = fetchEntityPairBackofficeInstructionSection($context);
-    if ($pairInstructions !== '') {
-        $section = trim($section . "\n" . $pairInstructions);
+    $sections = [];
+    if ($globalSection !== '') {
+        $sections[] = ['source' => 'global', 'label' => 'Definições', 'text' => $globalSection];
     }
-    if ($section === '') {
-        return ['rates' => [], 'total_account' => null, 'count' => 0];
+    if ($pairInstructions !== '') {
+        $sections[] = ['source' => 'entity_pair', 'label' => 'Emitente/adquirente', 'text' => $pairInstructions];
+    }
+    if (empty($sections)) {
+        return ['rates' => [], 'total_account' => null, 'count' => 0, 'operation_notes' => [], 'source_order' => []];
     }
 
     $generalPatterns = ['conta\s+geral', 'general[_\s-]*account', 'conta\s+de\s+gastos?', 'gastos?'];
@@ -2818,43 +2825,85 @@ function buildBackofficeInstructionSuggestionsForExplanation(array $rateItems, a
     $rates = [];
     $totalAccount = null;
     $count = 0;
-
-    foreach (preg_split('/\R/u', $section) ?: [] as $line) {
-        $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
-        if ($line === '' || !backofficeInstructionLineMatchesContext($line, $context)) {
+    $operationNotes = [];
+    $sourceOrder = [];
+    $isBankLoanContext = false;
+    foreach ($rateItems as $rateItem) {
+        if (!is_array($rateItem)) {
             continue;
         }
-        foreach (splitBackofficeInstructionAccountClauses($line) as $clause) {
-            $targetRateKey = resolveBackofficeInstructionRateKey($clause, $rateItems);
-            $generalAccount = extractBackofficeInstructionAccountValue($clause, $generalPatterns);
-            $ivaAccount = extractBackofficeInstructionAccountValue($clause, $ivaPatterns);
-            $lineTotalAccount = extractBackofficeInstructionAccountValue($clause, $totalPatterns);
-            $applied = false;
+        if (trim((string) ($rateItem['bank_loan_conversion'] ?? '')) === '1' || trim((string) ($rateItem['key'] ?? '')) === 'bank_loan_commission') {
+            $isBankLoanContext = true;
+            break;
+        }
+    }
+    if (!$isBankLoanContext && trim((string) ($context['emitter_type'] ?? '')) === '1') {
+        $isBankLoanContext = true;
+    }
 
-            if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
-                if (!isset($rates[$targetRateKey])) {
-                    $rates[$targetRateKey] = ['general_account' => null, 'iva_account' => null];
-                }
-                if ($generalAccount !== null) {
-                    $rates[$targetRateKey]['general_account'] = $generalAccount;
-                    $applied = true;
-                }
-                if ($ivaAccount !== null) {
-                    $rates[$targetRateKey]['iva_account'] = $ivaAccount;
-                    $applied = true;
+    foreach ($sections as $sectionInfo) {
+        $sourceLabel = (string) ($sectionInfo['label'] ?? 'Instruções');
+        $sourceOrder[] = $sourceLabel;
+        foreach (preg_split('/\R/u', (string) ($sectionInfo['text'] ?? '')) ?: [] as $line) {
+            $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
+            if ($line === '' || !backofficeInstructionLineMatchesContext($line, $context)) {
+                continue;
+            }
+            $normalizedLine = normalizeBackofficeInstructionText($line);
+            if ($isBankLoanContext
+                && (strpos($normalizedLine, 'segunda linha') !== false
+                    || strpos($normalizedLine, 'so comissao') !== false
+                    || strpos($normalizedLine, 'apenas comissoes') !== false
+                    || strpos($normalizedLine, 'apenas juros') !== false
+                    || strpos($normalizedLine, 'sem linhas ocr') !== false
+                    || strpos($normalizedLine, 'juros comissao') !== false
+                    || strpos($normalizedLine, 'nao criar') !== false
+                    || strpos($normalizedLine, 'linha unica') !== false
+                    || strpos($normalizedLine, 'nunca usar') !== false
+                    || strpos($normalizedLine, '698811') !== false)) {
+                $operationNote = $sourceLabel . ': ' . $line;
+                if (!in_array($operationNote, $operationNotes, true)) {
+                    $operationNotes[] = $operationNote;
                 }
             }
-            if ($lineTotalAccount !== null) {
-                $totalAccount = $lineTotalAccount;
-                $applied = true;
-            }
-            if ($applied) {
-                $count++;
+            foreach (splitBackofficeInstructionAccountClauses($line) as $clause) {
+                $targetRateKey = resolveBackofficeInstructionRateKey($clause, $rateItems);
+                $generalAccount = extractBackofficeInstructionAccountValue($clause, $generalPatterns);
+                $ivaAccount = extractBackofficeInstructionAccountValue($clause, $ivaPatterns);
+                $lineTotalAccount = extractBackofficeInstructionAccountValue($clause, $totalPatterns);
+                $applied = false;
+
+                if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
+                    if (!isset($rates[$targetRateKey])) {
+                        $rates[$targetRateKey] = ['general_account' => null, 'iva_account' => null];
+                    }
+                    if ($generalAccount !== null) {
+                        $rates[$targetRateKey]['general_account'] = $generalAccount;
+                        $applied = true;
+                    }
+                    if ($ivaAccount !== null) {
+                        $rates[$targetRateKey]['iva_account'] = $ivaAccount;
+                        $applied = true;
+                    }
+                }
+                if ($lineTotalAccount !== null) {
+                    $totalAccount = $lineTotalAccount;
+                    $applied = true;
+                }
+                if ($applied) {
+                    $count++;
+                }
             }
         }
     }
 
-    return ['rates' => $rates, 'total_account' => $totalAccount, 'count' => $count];
+    return [
+        'rates' => $rates,
+        'total_account' => $totalAccount,
+        'count' => $count,
+        'operation_notes' => $operationNotes,
+        'source_order' => array_values(array_unique($sourceOrder)),
+    ];
 }
 
 if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -2909,6 +2958,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         'emitter_nif' => $emitterNif,
         'acquirer_nif' => $acquirerNif,
         'acquirer_raw' => $acquirerRaw,
+        'emitter_type' => trim((string) ($args['emitter_type'] ?? '')),
     ]);
     $backofficeInstructionRates = is_array($backofficeInstructions['rates'] ?? null) ? $backofficeInstructions['rates'] : [];
 
@@ -3353,7 +3403,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'history_samples' => (int) ($historyTally['samples'] ?? 0),
             'rule_samples' => (int) ($ruleTally['samples'] ?? 0),
             'backoffice_instruction_rules' => (int) ($backofficeInstructions['count'] ?? 0),
+            'backoffice_instruction_operations' => count(is_array($backofficeInstructions['operation_notes'] ?? null) ? $backofficeInstructions['operation_notes'] : []),
             'backoffice_instruction_source' => $backofficeInstructionSourceActive ? 1 : 0,
+            'backoffice_instruction_source_order' => is_array($backofficeInstructions['source_order'] ?? null) ? $backofficeInstructions['source_order'] : [],
             'erp_ligacao_rows' => count($ligacaoRows),
             'erp_movement_rows' => count($movementRows),
             'erp_plan_rows' => count($planRows),
@@ -3363,6 +3415,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'supplier_lookup_doc_type' => $ligacaoDocType,
             'supplier_lookup_message' => $supplierNotFoundMessage,
         ],
+        'instruction_operations' => is_array($backofficeInstructions['operation_notes'] ?? null) ? $backofficeInstructions['operation_notes'] : [],
         'total_account' => [
             'suggested' => $suggestedTotalAccount,
             'top_accounts' => [

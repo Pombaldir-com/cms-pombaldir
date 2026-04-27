@@ -443,6 +443,7 @@ $tools = [
                     'acquirer_raw' => ['type' => 'string'],
                     'emitter' => ['type' => 'string'],
                     'emitter_nif' => ['type' => 'string'],
+                    'emitter_type' => ['type' => 'string'],
                     'doc_type' => ['type' => 'string'],
                     'doc_date' => ['type' => 'string', 'description' => 'Data do documento (preferencialmente do QR), formato YYYY-MM-DD'],
                     'rates' => [
@@ -454,6 +455,7 @@ $tools = [
                                 'label' => ['type' => 'string'],
                                 'base' => ['type' => 'string'],
                                 'iva' => ['type' => 'string'],
+                                'bank_loan_conversion' => ['type' => 'string'],
                             ],
                             'required' => ['key'],
                             'additionalProperties' => false,
@@ -3088,7 +3090,10 @@ function extractAiAccountingInstructionSection(): string {
     $section = [];
     foreach ($lines as $line) {
         $normalizedLine = normalizeAiInstructionComparable((string) $line);
-        if (!$capturing && strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false) {
+        if (!$capturing
+            && (strpos($normalizedLine, 'regras de classificacao de movimentos contabilisticos') !== false
+                || strpos($normalizedLine, 'regras de classificacao emprestimo bancario') !== false
+                || strpos($normalizedLine, 'regras de classificacao') !== false)) {
             $capturing = true;
             continue;
         }
@@ -3364,6 +3369,72 @@ function buildAiInstructionAccountSuggestions(array $rateItems, array $context, 
     }
 
     return ['rates' => $suggested, 'total_account' => $totalAccount, 'count' => $matchedLines];
+}
+
+function hasBankLoanConversionRates($rateItems): bool {
+    if (!is_array($rateItems)) {
+        return false;
+    }
+    foreach ($rateItems as $rateInfo) {
+        if (!is_array($rateInfo)) {
+            continue;
+        }
+        if (trim((string) ($rateInfo['bank_loan_conversion'] ?? '')) === '1') {
+            return true;
+        }
+        $key = trim((string) ($rateInfo['key'] ?? ''));
+        if ($key === 'bank_loan_commission') {
+            return true;
+        }
+    }
+    return false;
+}
+
+function enforceBankLoanAccountRules(array $rateItems, array &$suggested, array &$expectedLines, int &$appliedCount): void {
+    if (!hasBankLoanConversionRates($rateItems)) {
+        return;
+    }
+
+    foreach ($rateItems as $index => $rateInfo) {
+        if (!is_array($rateInfo)) {
+            continue;
+        }
+        $rawKey = trim((string) ($rateInfo['key'] ?? ''));
+        if ($rawKey === '') {
+            continue;
+        }
+        $label = normalizeAiInstructionComparable((string) ($rateInfo['label'] ?? ''));
+        $isCommission = $rawKey === 'bank_loan_commission'
+            || strpos($label, 'comissao') !== false
+            || strpos($label, 'comissoes') !== false
+            || strpos($label, 'gestao') !== false;
+        $isInterest = !$isCommission && (
+            $rawKey === '0'
+            || strpos($label, 'juro') !== false
+            || $index === 0
+        );
+        $account = $isCommission ? '698812' : ($isInterest ? '6911' : '');
+        if ($account === '') {
+            continue;
+        }
+        foreach (array_unique([$rawKey, normalizeRateKey($rawKey)]) as $keyVariant) {
+            if ($keyVariant === '') {
+                continue;
+            }
+            if (!isset($suggested[$keyVariant]) || !is_array($suggested[$keyVariant])) {
+                $suggested[$keyVariant] = ['iva_account' => '', 'general_account' => ''];
+            }
+            if (trim((string) ($suggested[$keyVariant]['general_account'] ?? '')) !== $account) {
+                $suggested[$keyVariant]['general_account'] = $account;
+                $appliedCount++;
+            }
+            $suggested[$keyVariant]['iva_account'] = '';
+            if (isset($expectedLines['rates'][$keyVariant]) && is_array($expectedLines['rates'][$keyVariant])) {
+                $expectedLines['rates'][$keyVariant]['general_account'] = $account;
+                $expectedLines['rates'][$keyVariant]['iva_account'] = '';
+            }
+        }
+    }
 }
 
 function buildExpectedLinesFromExamples(array $examples, array $context = []): array {
@@ -4420,9 +4491,9 @@ function countAiInstructionOperations(array $operations): int {
     return $count;
 }
 
-function buildAiInstructionOperationPlan(array $args, array $context, array $rateItems, array $suggested, array $expectedLines, string $pairInstructions, string $apiKey, string $model): array {
-    $pairInstructions = trim($pairInstructions);
-    if ($pairInstructions === '' || $apiKey === '') {
+function buildAiInstructionOperationPlan(array $args, array $context, array $rateItems, array $suggested, array $expectedLines, string $instructions, string $apiKey, string $model): array {
+    $instructions = trim($instructions);
+    if ($instructions === '' || $apiKey === '') {
         return ['operations' => sanitizeAiInstructionOperations([]), 'count' => 0];
     }
 
@@ -4435,6 +4506,8 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
         'doc_type' => $args['doc_type'] ?? '',
         'doc_date' => $args['doc_date'] ?? '',
         'doc_number' => $args['doc_number'] ?? '',
+        'emitter_type' => $context['emitter_type'] ?? '',
+        'bank_loan_conversion' => $context['bank_loan_conversion'] ?? '0',
         'rates' => $rateItems,
         'document_fields' => $documentFields,
         'suggested_accounts' => $suggested,
@@ -4453,8 +4526,8 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
         ],
         [
             'role' => 'user',
-            'content' => "Instrucoes adicionais especificas deste fornecedor/adquirente:\n"
-                . $pairInstructions
+            'content' => "Instrucoes adicionais aplicaveis (Definicoes e fornecedor/adquirente quando existirem):\n"
+                . $instructions
                 . "\n\nContexto do documento:\n"
                 . json_encode($docContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ],
@@ -4519,14 +4592,16 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'emitter_nif' => $emitterNif,
         'acquirer_nif' => $acquirerNif,
         'acquirer_raw' => $acquirerRaw,
+        'emitter_type' => trim((string) ($args['emitter_type'] ?? '')),
+        'bank_loan_conversion' => hasBankLoanConversionRates($rateItems) ? '1' : '0',
         'has_receipt_companion' => normalizeSuggestionReceiptCompanionFlag($args['has_receipt_companion'] ?? '0'),
     ];
+    $globalInstructions = extractAiAccountingInstructionSection();
     $pairInstructions = fetchEntityPairAiInstructions($context);
     $limit = 18;
     $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
     $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12, $context);
-    $hasStoredClassificationSuggestion = hasStoredClassificationSuggestionForContext($docType, $emitter, $acquirerRaw, $context);
-    $aiInstructionSuggestions = buildAiInstructionAccountSuggestions($rateItems, $context, !$hasStoredClassificationSuggestion, true);
+    $aiInstructionSuggestions = buildAiInstructionAccountSuggestions($rateItems, $context, true, true);
     $expectedLines = buildExpectedLinesFromExamples(array_merge($examples, $ruleExamples), $context);
     $suggestedFromHistory = buildSuggestionsFromExamples($examples, $rateItems);
     if (!empty($ruleExamples)) {
@@ -5050,12 +5125,14 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         $expectedLines['total_account'] = $aiInstructionTotalAccount;
         $aiInstructionApplied++;
     }
+    enforceBankLoanAccountRules($rateItems, $finalSuggested, $expectedLines, $aiInstructionApplied);
     $costCenterRequiredRates = buildCostCenterRequiredRates(
         $rateItems,
         $finalSuggested,
         is_array($ligacaoHints['required_cost_center_accounts'] ?? null) ? $ligacaoHints['required_cost_center_accounts'] : []
     );
-    $instructionPlan = buildAiInstructionOperationPlan($args, $context, $rateItems, $finalSuggested, $expectedLines, $pairInstructions, $openAiKey, $openAiModel);
+    $operationInstructions = trim($globalInstructions . "\n" . $pairInstructions);
+    $instructionPlan = buildAiInstructionOperationPlan($args, $context, $rateItems, $finalSuggested, $expectedLines, $operationInstructions, $openAiKey, $openAiModel);
 
     return [
         'ok' => true,

@@ -2359,6 +2359,7 @@ window.addEventListener('load', function() {
     var currentTotalAccount = '';
     var currentIgnoreDetectedRates = false;
     var currentBankLoanConversionActive = false;
+    var currentBankLoanResolvedAmounts = null;
     var currentClassificationModelName = '';
     var classificationModels = [];
     var currentDocumentFieldValues = {};
@@ -4710,7 +4711,6 @@ window.addEventListener('load', function() {
         var stampTax = getDocumentFieldNumber('FIELD_M');
         var total = getDocumentFieldNumber('FIELD_O');
         var vatValues = [
-            getDocumentFieldNumber('FIELD_N'),
             getDocumentFieldNumber('FIELD_I3'),
             getDocumentFieldNumber('FIELD_I4'),
             getDocumentFieldNumber('FIELD_I5'),
@@ -4721,6 +4721,9 @@ window.addEventListener('load', function() {
         var hasVatAmounts = vatValues.some(function(value) {
             return value !== null && Math.abs(value) >= 0.005;
         });
+        if (exemptBase === null && total !== null && stampTax !== null && total > 0 && stampTax > 0) {
+            exemptBase = total - stampTax;
+        }
         return exemptBase !== null
             && stampTax !== null
             && total !== null
@@ -4790,6 +4793,17 @@ window.addEventListener('load', function() {
         return net;
     }
 
+    function lineHasExplicitStampTax(line) {
+        if (!line || typeof line !== 'object') {
+            return false;
+        }
+        if (parseDecimalValue(line.TAX) !== null || parseDecimalValue(line.STAMP_TAX) !== null || parseDecimalValue(line.IMPOSTO_SELO) !== null) {
+            return true;
+        }
+        var ivaTaxa = normalizeLoanLineDescription(line.IVA_TAXA || line.TAX_RATE || '');
+        return ivaTaxa === 'is' || ivaTaxa.indexOf('i.s') !== -1 || ivaTaxa.indexOf('selo') !== -1;
+    }
+
     function buildBankLoanAmountsFromLines(lines, exemptBase, stampTax, totalGross) {
         var result = {
             interest: 0,
@@ -4799,17 +4813,48 @@ window.addEventListener('load', function() {
             hasCommission: false,
             singleLine: true
         };
+        var usesLineTotalsWithStamp = false;
         if (!Array.isArray(lines)) {
             return result;
         }
         if (!lines.length) {
             return result;
         }
+        if (lines.some(function(line) {
+            return line && String(line.BANK_QR_FALLBACK || '').trim() === '1';
+        })) {
+            lines.forEach(function(line) {
+                if (!line || String(line.BANK_QR_FALLBACK || '').trim() !== '1') {
+                    return;
+                }
+                var description = normalizeLoanLineDescription(getLineDescriptionText(line));
+                var net = getLineNetAmount(line);
+                if (net === null || Math.abs(net) < 0.00001) {
+                    return;
+                }
+                if (description.indexOf('juro') !== -1) {
+                    result.interest += net;
+                    result.hasInterest = true;
+                    result.matched = true;
+                    return;
+                }
+                result.commission += net;
+                result.hasCommission = true;
+                result.matched = true;
+            });
+            if (result.hasInterest && result.hasCommission) {
+                result.singleLine = false;
+                return result;
+            }
+        }
         lines.forEach(function(line) {
             var description = normalizeLoanLineDescription(getLineDescriptionText(line));
             var net = getLineNetAmount(line);
             if (net === null || Math.abs(net) < 0.00001) {
                 return;
+            }
+            if (lineHasExplicitStampTax(line)) {
+                usesLineTotalsWithStamp = true;
             }
             if (description.indexOf('juro') !== -1) {
                 result.interest += net;
@@ -4864,7 +4909,7 @@ window.addEventListener('load', function() {
         }
         if (result.matched) {
             var netTotal = result.interest + result.commission;
-            if (netTotal > 0 && stampTax > 0) {
+            if (!usesLineTotalsWithStamp && netTotal > 0 && stampTax > 0) {
                 var commissionStamp = Math.round((stampTax * (result.commission / netTotal)) * 100) / 100;
                 var commissionGross = Math.round((result.commission + commissionStamp) * 100) / 100;
                 result.commission = commissionGross;
@@ -4949,11 +4994,15 @@ window.addEventListener('load', function() {
         currentRateData = {};
         currentCostCenters = {};
         currentCostCenterBreakdowns = {};
+        currentBankLoanResolvedAmounts = null;
     }
 
     function setBankLoanRate(rate, label, baseValue, generalAccount) {
         var formattedBase = formatDecimalValue(baseValue);
         var resolvedGeneralAccount = String(generalAccount || '').trim();
+        if (!resolvedGeneralAccount) {
+            resolvedGeneralAccount = rate === 'bank_loan_commission' ? '698812' : '6911';
+        }
         var ratePayload = {
             label: label,
             base: formattedBase,
@@ -4996,6 +5045,86 @@ window.addEventListener('load', function() {
         }
     }
 
+    function enforceBankLoanAccountRulesOnCurrentRows() {
+        var applied = false;
+        Object.keys(currentRateData || {}).forEach(function(rate) {
+            var data = currentRateData[rate] || {};
+            if (String(data.bank_loan_conversion || '').trim() !== '1') {
+                return;
+            }
+            var label = normalizeLoanLineDescription(data.label || getRateLabel(rate) || rate);
+            var targetAccount = '';
+            if (rate === 'bank_loan_commission' || label.indexOf('comiss') !== -1 || label.indexOf('gestao') !== -1) {
+                targetAccount = '698812';
+            } else {
+                targetAccount = '6911';
+            }
+            if (String(data.general_account || '').trim() !== targetAccount) {
+                data.general_account = targetAccount;
+                applied = true;
+            }
+            data.iva_account = '';
+            var info = rateInputs[rate];
+            if (info) {
+                if (info.generalAccount && String(info.generalAccount.value || '').trim() !== targetAccount) {
+                    info.generalAccount.value = targetAccount;
+                    updatePlanInputTitle(info.generalAccount);
+                }
+                if (info.ivaAccount) {
+                    info.ivaAccount.value = '';
+                }
+                updateRowDirtyState(rate);
+            }
+        });
+        if (applied && currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            updateButtonClass(currentBtn);
+        }
+        return applied;
+    }
+
+    function applyBankLoanResolvedAmountsToRows(amounts) {
+        if (!amounts || typeof amounts !== 'object') {
+            return false;
+        }
+        var applied = false;
+        [
+            { rate: '0', amount: amounts.interest },
+            { rate: 'bank_loan_commission', amount: amounts.commission }
+        ].forEach(function(entry) {
+            var rate = entry.rate;
+            if (!currentRateData[rate] || String(currentRateData[rate].bank_loan_conversion || '').trim() !== '1') {
+                return;
+            }
+            if (amounts.singleLine && rate === 'bank_loan_commission') {
+                return;
+            }
+            var formatted = formatDecimalValue(entry.amount);
+            if (String(currentRateData[rate].base || '').trim() !== formatted) {
+                currentRateData[rate].base = formatted;
+                currentRateData[rate].base_value = formatted;
+                applied = true;
+            }
+            currentRateData[rate].iva = '';
+            currentRateData[rate].iva_value = '';
+            var info = rateInputs[rate];
+            if (info) {
+                if (info.base && String(info.base.value || '').trim() !== formatted) {
+                    info.base.value = formatted;
+                }
+                if (info.iva) {
+                    info.iva.value = '';
+                }
+                updateRowDirtyState(rate);
+            }
+        });
+        if (applied && currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            updateButtonClass(currentBtn);
+        }
+        return applied;
+    }
+
     function requestAccountSuggestionsForCurrentRows(options) {
         var opts = options || {};
         if (!currentBtn) {
@@ -5019,6 +5148,7 @@ window.addEventListener('load', function() {
                 doc_type: currentBtn.getAttribute('data-doctype') || '',
                 doc_date: currentBtn.getAttribute('data-docdate') || '',
                 doc_number: currentBtn.getAttribute('data-doc-number') || '',
+                emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
                 document_fields: getCurrentDocumentFieldsPayload(),
                 has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                 rates: rateLines
@@ -5090,6 +5220,9 @@ window.addEventListener('load', function() {
         var qrTotal = getDocumentFieldNumber('FIELD_O');
         var qrBase = getDocumentFieldNumber('FIELD_I2');
         var qrStamp = getDocumentFieldNumber('FIELD_M');
+        if (qrBase === null && qrTotal !== null && qrStamp !== null && qrTotal > 0 && qrStamp > 0) {
+            qrBase = qrTotal - qrStamp;
+        }
         var totalGross = qrTotal !== null ? qrTotal : ((qrBase || 0) + (qrStamp || 0));
         if (!totalGross || totalGross <= 0) {
             showError('Não foi possível obter o total do documento a partir do QR.');
@@ -5109,8 +5242,8 @@ window.addEventListener('load', function() {
         if (amounts.commission < 0) {
             amounts.commission = 0;
         }
-
         clearClassificationRowsForBankLoanConversion();
+        currentBankLoanResolvedAmounts = Object.assign({}, amounts);
         setBankLoanRate('0', '0%', amounts.interest, '');
         if (!amounts.singleLine) {
             setBankLoanRate('bank_loan_commission', '0', amounts.commission, '');
@@ -5127,6 +5260,8 @@ window.addEventListener('load', function() {
         captureOriginalRateValues({ initialize: false, refresh: false, allowCreate: false });
         return requestAccountSuggestionsForCurrentRows({ session_id: 'ai_suggest_accounts' })
             .then(function(applied) {
+                applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts);
+                enforceBankLoanAccountRulesOnCurrentRows();
                 refreshCostCenterFieldModes();
                 refreshAllDirtyStates();
                 if (currentBtn) {
@@ -5688,7 +5823,8 @@ window.addEventListener('load', function() {
                 key: rateKey,
                 label: label,
                 base: baseValue !== null ? String(baseValue) : '',
-                iva: ivaValue !== null ? String(ivaValue) : ''
+                iva: ivaValue !== null ? String(ivaValue) : '',
+                bank_loan_conversion: String(data.bank_loan_conversion || '').trim() === '1' ? '1' : '0'
             };
         });
     }
@@ -5716,7 +5852,8 @@ window.addEventListener('load', function() {
                 base: line.base,
                 iva: line.iva,
                 iva_account: ivaAccount,
-                general_account: generalAccount
+                general_account: generalAccount,
+                bank_loan_conversion: String((data && data.bank_loan_conversion) || '').trim() === '1' ? '1' : '0'
             };
         });
     }
@@ -5733,6 +5870,10 @@ window.addEventListener('load', function() {
         var docNumber = currentBtn.getAttribute('data-doc-number') || '';
         var hasReceiptCompanion = (currentBtn.getAttribute('data-has-receipt-companion') || '') === '1';
         var rateLines = buildRateLines();
+        var isBankLoanConversion = rateLines.some(function(line) {
+            return String(line.bank_loan_conversion || '').trim() === '1';
+        });
+        var emitterType = emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '';
 
         return [
             'Sugere contas IVA, contas gerais por taxa e conta do Valor Total.',
@@ -5749,6 +5890,8 @@ window.addEventListener('load', function() {
                 '- NIF adquirente: ' + acquirerNif,
                 '- tipo: ' + docType,
                 '- numero: ' + docNumber,
+                '- tipo de entidade: ' + emitterType,
+                '- conversao emprestimo bancario: ' + (isBankLoanConversion ? 'sim' : 'nao'),
                 '- digitalizacao conjunta com recibo RC: ' + (hasReceiptCompanion ? 'sim' : 'nao'),
                 '',
             'Taxas:',
@@ -6128,6 +6271,12 @@ window.addEventListener('load', function() {
             applyCostCenterRequirementMap(requiredRates);
         }
         if (applyInstructionOperations(assistantResponse)) {
+            applied = true;
+        }
+        if (enforceBankLoanAccountRulesOnCurrentRows()) {
+            applied = true;
+        }
+        if (applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts)) {
             applied = true;
         }
         return applied;
@@ -7403,6 +7552,7 @@ window.addEventListener('load', function() {
                     doc_type: currentBtn.getAttribute('data-doctype') || '',
                     doc_date: currentBtn.getAttribute('data-docdate') || '',
                     doc_number: currentBtn.getAttribute('data-doc-number') || '',
+                    emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
                     document_fields: getCurrentDocumentFieldsPayload(),
                     has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                     rates: rateLines
@@ -7526,15 +7676,31 @@ window.addEventListener('load', function() {
                 + 'Histórico: ' + escapeHtml(String(summary.history_samples || 0))
                 + ' | Regras: ' + escapeHtml(String(summary.rule_samples || 0))
                 + ' | Instruções BO: ' + escapeHtml(String(summary.backoffice_instruction_rules || 0))
+                + ' | Regras especiais: ' + escapeHtml(String(summary.backoffice_instruction_operations || 0))
                 + ' | Ligação ERP: ' + escapeHtml(String(summary.erp_ligacao_rows || 0))
                 + ' | Movimentos ERP: ' + escapeHtml(String(summary.erp_movement_rows || 0))
                 + ' | Plano ERP: ' + escapeHtml(String(summary.erp_plan_rows || 0))
                 + '</small></div>';
+            if (Array.isArray(summary.backoffice_instruction_source_order) && summary.backoffice_instruction_source_order.length) {
+                html += '<div class="mb-2"><small class="text-muted">Ordem das instruções: '
+                    + escapeHtml(summary.backoffice_instruction_source_order.join(' → '))
+                    + '</small></div>';
+            }
             if (String(summary.backoffice_instruction_source || '0') === '1') {
                 html += '<div class="alert alert-info py-2 mb-3">'
                     + 'A sugestão aplicada inclui regras lidas nas Instruções adicionais do backoffice.'
                     + '</div>';
             }
+        }
+
+        if (Array.isArray(response.instruction_operations) && response.instruction_operations.length) {
+            html += '<div class="alert alert-info py-2 mb-3">'
+                + '<div><strong>Regras especiais consideradas</strong></div>'
+                + '<ul class="mb-0 mt-2">';
+            response.instruction_operations.forEach(function(note) {
+                html += '<li>' + escapeHtml(String(note || '')) + '</li>';
+            });
+            html += '</ul></div>';
         }
 
         var ratesPayload = response.rates || {};
@@ -7677,6 +7843,8 @@ window.addEventListener('load', function() {
                         db: currentBtn.getAttribute('data-acquirer-db') || '',
                         doc_type: currentBtn.getAttribute('data-doctype') || '',
                         doc_date: currentBtn.getAttribute('data-docdate') || '',
+                        emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
+                        document_fields: getCurrentDocumentFieldsPayload(),
                         has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
                         total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
                         suggestion_sources: window.aiSuggestionSources || [],

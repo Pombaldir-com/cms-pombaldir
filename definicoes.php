@@ -680,7 +680,7 @@ require_once __DIR__ . '/header.php';
                                     </div>
                                     <div class="col-12">
                                         <label for="ai_prompt_extra" class="form-label">Instruções adicionais (PT-PT)</label>
-                                        <textarea class="form-control" id="ai_prompt_extra" name="ai_prompt_extra" rows="6"><?= htmlspecialchars($currentAiPromptExtra); ?></textarea>
+                                        <textarea class="form-control ai-instructions-textarea" id="ai_prompt_extra" name="ai_prompt_extra" rows="18"><?= htmlspecialchars($currentAiPromptExtra); ?></textarea>
                                         <div class="text-muted small mt-2">Texto adicional para o assistente. Este conteúdo é anexado ao prompt base.</div>
                                     </div>
                                 </div>
@@ -1096,6 +1096,17 @@ document.addEventListener('DOMContentLoaded', function () {
 .settings-help-link:focus {
     color: #1f8f7a;
     text-decoration: none;
+}
+.ai-instructions-textarea {
+    width: 100%;
+    min-height: 460px;
+    max-height: 72vh;
+    resize: vertical;
+    font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    white-space: pre;
+    overflow: auto;
 }
 .table-help-permissions code {
     font-size: 12px;

@@ -565,22 +565,23 @@ function isBankEmitterCandidateFromQrFields(array $document): bool {
     $exemptBase = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
     $stampTax = parseAccountingBankLoanAmount($document['field_M'] ?? null);
     $total = parseAccountingBankLoanAmount($document['field_O'] ?? null);
-    if ($exemptBase === null || $stampTax === null || $total === null) {
+    if ($stampTax === null || $total === null) {
         return false;
+    }
+    if ($exemptBase === null && $total > 0 && $stampTax > 0) {
+        $exemptBase = $total - $stampTax;
     }
     if ($exemptBase <= 0 || $stampTax <= 0 || $total <= 0) {
         return false;
     }
 
-    $vatTotal = parseAccountingBankLoanAmount($document['field_N'] ?? null) ?? 0.0;
     $vatBase6 = parseAccountingBankLoanAmount($document['field_I3'] ?? null) ?? 0.0;
     $vatAmount6 = parseAccountingBankLoanAmount($document['field_I4'] ?? null) ?? 0.0;
     $vatBase13 = parseAccountingBankLoanAmount($document['field_I5'] ?? null) ?? 0.0;
     $vatAmount13 = parseAccountingBankLoanAmount($document['field_I6'] ?? null) ?? 0.0;
     $vatBase23 = parseAccountingBankLoanAmount($document['field_I7'] ?? null) ?? 0.0;
     $vatAmount23 = parseAccountingBankLoanAmount($document['field_I8'] ?? null) ?? 0.0;
-    $hasVatAmounts = abs($vatTotal) >= 0.005
-        || abs($vatBase6) >= 0.005
+    $hasVatAmounts = abs($vatBase6) >= 0.005
         || abs($vatAmount6) >= 0.005
         || abs($vatBase13) >= 0.005
         || abs($vatAmount13) >= 0.005
@@ -1181,7 +1182,11 @@ if ($action === 'lines') {
     }
     $idValue = is_numeric($id) ? (int) $id : 0;
     requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
-    $stmt = $pdo->prepare('SELECT id, filename, line_items, field_A, field_B, field_D FROM accounting_imports WHERE id = ?');
+    $stmt = $pdo->prepare(
+        'SELECT id, filename, line_items, field_A, field_B, field_D, field_I2, field_M, field_O, field_N, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8
+         FROM accounting_imports
+         WHERE id = ?'
+    );
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (! $row) {
@@ -1192,19 +1197,88 @@ if ($action === 'lines') {
     $acquirerRaw = $row['field_B'] ?? '';
     $docTypeRaw = $row['field_D'] ?? '';
     $skipOcr = isOcrLinesDisabled($pdo, $emitterRaw, $acquirerRaw, $docTypeRaw);
+    $debugOcr = getSetting('debug_mode', '0') === '1';
+    $ocrDiagnostics = [
+        'id' => (int) $id,
+        'provider' => '',
+        'skip_ocr' => $skipOcr ? 1 : 0,
+        'filename' => (string) ($row['filename'] ?? ''),
+        'qr' => [
+            'field_I2' => (string) ($row['field_I2'] ?? ''),
+            'field_M' => (string) ($row['field_M'] ?? ''),
+            'field_N' => (string) ($row['field_N'] ?? ''),
+            'field_O' => (string) ($row['field_O'] ?? ''),
+        ],
+    ];
 
-    $respondWithLines = static function(array $items) use ($row, $skipOcr, $emitterRaw, $acquirerRaw, $docTypeRaw) {
+    $buildBankQrFallbackLines = static function(array $document): array {
+        if (!isBankEmitterCandidateFromQrFields($document)) {
+            return [];
+        }
+        $base = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
+        $stamp = parseAccountingBankLoanAmount($document['field_M'] ?? null);
+        $total = parseAccountingBankLoanAmount($document['field_O'] ?? null);
+        if ($stamp === null || $total === null) {
+            return [];
+        }
+        if ($base === null && $total > 0 && $stamp > 0) {
+            $base = $total - $stamp;
+        }
+        if ($base <= 0 || $stamp <= 0 || $total <= 0) {
+            return [];
+        }
+        return [
+            [
+                'ERP' => '1',
+                'IVA_TAXA' => 'IS',
+                'ITEM' => 'Juros',
+                'QUANTITY' => '1',
+                'UNIT_PRICE' => number_format($base, 2, ',', ''),
+                'PRICE' => number_format($base, 2, ',', ''),
+                'BANK_QR_FALLBACK' => '1',
+            ],
+            [
+                'ERP' => '2',
+                'IVA_TAXA' => 'IS',
+                'ITEM' => 'Comissoes / Imposto do selo',
+                'QUANTITY' => '1',
+                'UNIT_PRICE' => number_format($stamp, 2, ',', ''),
+                'PRICE' => number_format($stamp, 2, ',', ''),
+                'BANK_QR_FALLBACK' => '1',
+            ],
+        ];
+    };
+
+    $respondWithLines = static function(array $items, string $source = 'unknown') use ($row, $skipOcr, $emitterRaw, $acquirerRaw, $docTypeRaw, $debugOcr, &$ocrDiagnostics) {
         header('Content-Type: application/json');
-        echo json_encode([
+        $payload = [
             'lines' => $items,
+            'source' => $source,
             'skip_ocr' => $skipOcr,
             'emitter' => $emitterRaw,
             'emitter_display' => $row['field_A'] ?? '',
             'acquirer' => $acquirerRaw,
             'doc_type' => $docTypeRaw,
             'csrf_token' => generateCsrfToken()
-        ], JSON_UNESCAPED_UNICODE);
+        ];
+        if ($debugOcr) {
+            $ocrDiagnostics['source'] = $source;
+            $ocrDiagnostics['returned_lines'] = count($items);
+            $payload['ocr_debug'] = $ocrDiagnostics;
+        }
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
         exit;
+    };
+    $isOnlyBankQrFallbackCache = static function(array $items): bool {
+        if (empty($items)) {
+            return false;
+        }
+        foreach ($items as $item) {
+            if (!is_array($item) || trim((string) ($item['BANK_QR_FALLBACK'] ?? '')) !== '1') {
+                return false;
+            }
+        }
+        return true;
     };
     // If line items already stored, return them without invoking OCR again.
     if (!empty($row['line_items'])) {
@@ -1213,15 +1287,47 @@ if ($action === 'lines') {
             $items = [];
         }
         if (!empty($items)) {
-            $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
-            $respondWithLines($items);
+            $ocrProviderForCache = getSetting('ocr_provider', 'tesseract');
+            if (!$skipOcr && $ocrProviderForCache === 'textract' && $isOnlyBankQrFallbackCache($items)) {
+                $stmtClearFallbackCache = $pdo->prepare('UPDATE accounting_imports SET line_items = NULL WHERE id = ?');
+                $stmtClearFallbackCache->execute([$id]);
+                $ocrDiagnostics['provider'] = $ocrProviderForCache;
+                $ocrDiagnostics['ignored_cache'] = 'bank_qr_fallback';
+                logOcrMessage('Ignoring bank QR fallback cache to retry Textract for accounting_imports.id=' . (int) $id);
+            } else {
+                $items = applySupplierDocumentMappings($pdo, $row['field_A'] ?? '', $row['field_B'] ?? '', $items);
+                $respondWithLines($items, 'cache');
+            }
+        } else {
+            $stmtClearEmptyCache = $pdo->prepare('UPDATE accounting_imports SET line_items = NULL WHERE id = ?');
+            $stmtClearEmptyCache->execute([$id]);
         }
     }
 
     $path = dirname(__DIR__) . '/' . $row['filename'];
     $ocrProvider = getSetting('ocr_provider', 'tesseract');
+    $ocrDiagnostics['provider'] = $ocrProvider;
+    $ocrDiagnostics['path_exists'] = file_exists($path) ? 1 : 0;
+    $ocrDiagnostics['path_size'] = file_exists($path) ? filesize($path) : null;
+    logOcrMessage(
+        'Lines request id=' . (int) $id
+        . ' provider=' . $ocrProvider
+        . ' skip=' . ($skipOcr ? '1' : '0')
+        . ' file_exists=' . ($ocrDiagnostics['path_exists'] ? '1' : '0')
+        . ' I2=' . (string) ($row['field_I2'] ?? '')
+        . ' M=' . (string) ($row['field_M'] ?? '')
+        . ' N=' . (string) ($row['field_N'] ?? '')
+        . ' O=' . (string) ($row['field_O'] ?? '')
+    );
 
     if ($ocrProvider !== 'textract') {
+        $fallbackItems = $buildBankQrFallbackLines($row);
+        if (!empty($fallbackItems)) {
+            $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+            $stmt->execute([json_encode($fallbackItems, JSON_UNESCAPED_UNICODE), $id]);
+            logOcrMessage('Using bank QR fallback because OCR provider is ' . $ocrProvider . ' for accounting_imports.id=' . (int) $id);
+            $respondWithLines($fallbackItems, 'bank_qr_fallback_no_textract');
+        }
         http_response_code(400);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'OCR provider inválido']);
@@ -1229,11 +1335,19 @@ if ($action === 'lines') {
     }
 
     if ($skipOcr) {
-        $respondWithLines([]);
+        $fallbackItems = $buildBankQrFallbackLines($row);
+        if (!empty($fallbackItems)) {
+            $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+            $stmt->execute([json_encode($fallbackItems, JSON_UNESCAPED_UNICODE), $id]);
+            $respondWithLines($fallbackItems, 'bank_qr_fallback_skip_ocr');
+        }
+        $respondWithLines([], 'skip_ocr');
     }
 
     try {
-        $items = parseInvoiceLineTextract($path);
+        $textractDiagnostics = [];
+        $items = parseInvoiceLineTextract($path, $textractDiagnostics);
+        $ocrDiagnostics['textract'] = $textractDiagnostics;
         if (!is_array($items)) {
             $items = [];
         }
@@ -1242,15 +1356,35 @@ if ($action === 'lines') {
         if (!empty($items)) {
             $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
             $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $id]);
+            logOcrMessage('Textract stored ' . count($items) . ' line items for accounting_imports.id=' . (int) $id);
+            $respondWithLines($items, 'textract');
         } else {
-            logOcrMessage('Textract returned no line items for accounting_imports.id=' . (int) $id);
+            logOcrMessage('Textract returned no line items for accounting_imports.id=' . (int) $id . ' diagnostics=' . json_encode($textractDiagnostics, JSON_UNESCAPED_UNICODE));
+            $fallbackItems = $buildBankQrFallbackLines($row);
+            if (!empty($fallbackItems)) {
+                $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+                $stmt->execute([json_encode($fallbackItems, JSON_UNESCAPED_UNICODE), $id]);
+                $respondWithLines($fallbackItems, 'bank_qr_fallback_empty_textract');
+            }
         }
-        $respondWithLines($items);
+        $respondWithLines($items, 'textract_empty');
     } catch (Throwable $e) {
-        logOcrMessage('Textract OCR error: ' . $e->getMessage());
+        $ocrDiagnostics['textract'] = $textractDiagnostics ?? [];
+        $ocrDiagnostics['exception'] = $e->getMessage();
+        logOcrMessage('Textract OCR error: ' . $e->getMessage() . ' diagnostics=' . json_encode($ocrDiagnostics, JSON_UNESCAPED_UNICODE));
+        $fallbackItems = $buildBankQrFallbackLines($row);
+        if (!empty($fallbackItems)) {
+            $stmt = $pdo->prepare('UPDATE accounting_imports SET line_items = ? WHERE id = ?');
+            $stmt->execute([json_encode($fallbackItems, JSON_UNESCAPED_UNICODE), $id]);
+            $respondWithLines($fallbackItems, 'bank_qr_fallback_textract_error');
+        }
         http_response_code(500);
         header('Content-Type: application/json');
-        echo json_encode(['error' => 'Erro no OCR: ' . $e->getMessage()]);
+        $payload = ['error' => 'Erro no OCR: ' . $e->getMessage()];
+        if ($debugOcr) {
+            $payload['ocr_debug'] = $ocrDiagnostics;
+        }
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
         exit;
     }
 }

@@ -2235,7 +2235,7 @@ function extractOcrTextFromImage(string $imagePath, string $language = 'por'): s
  * @return array<int,array<string,mixed>> Parsed line items.
  * @throws RuntimeException When Textract fails.
  */
-function parseInvoiceLineTextract(string $filePath): array {
+function parseInvoiceLineTextract(string $filePath, ?array &$diagnostics = null): array {
     $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
     $allowedExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'tiff', 'tif'];
     if (! in_array($extension, $allowedExtensions, true)) {
@@ -2258,15 +2258,39 @@ function parseInvoiceLineTextract(string $filePath): array {
         throw new RuntimeException('Bucket S3 para Textract não configurado');
     }
 
-    $env = [
+    $env = array_filter([
+        'PATH' => getenv('PATH') ?: '/usr/local/bin:/usr/bin:/bin',
+        'HOME' => getenv('HOME') ?: null,
         'AWS_ACCESS_KEY_ID' => $key,
         'AWS_SECRET_ACCESS_KEY' => $secret,
         'AWS_REGION' => $region,
+        'AWS_DEFAULT_REGION' => $region,
         'AWS_TEXTRACT_BUCKET' => $bucket,
+    ], static function ($value): bool {
+        return $value !== null;
+    });
+    $diagnostics = [
+        'file_exists' => file_exists($filePath),
+        'file_size' => file_exists($filePath) ? filesize($filePath) : null,
+        'extension' => $extension,
+        'region' => $region,
+        'bucket_configured' => $bucket !== '',
+        'key_configured' => $key !== '',
+        'secret_configured' => $secret !== '',
+        'path_configured' => trim((string) ($env['PATH'] ?? '')) !== '',
     ];
 
+    $pythonBinary = getenv('TEXTRACT_PYTHON_BIN') ?: '';
+    if ($pythonBinary === '' && is_executable('/usr/bin/python3')) {
+        $pythonBinary = '/usr/bin/python3';
+    }
+    if ($pythonBinary === '') {
+        $pythonBinary = 'python3';
+    }
+    $diagnostics['python_binary'] = $pythonBinary;
+
     $script = __DIR__ . '/textract.py';
-    $cmd = 'python3 ' . escapeshellarg($script) . ' ' . escapeshellarg($filePath);
+    $cmd = escapeshellcmd($pythonBinary) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($filePath);
     $descriptor = [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
@@ -2282,14 +2306,28 @@ function parseInvoiceLineTextract(string $filePath): array {
     fclose($pipes[1]);
     fclose($pipes[2]);
     $status = proc_close($process);
+    $diagnostics['exit_status'] = $status;
+    $diagnostics['stderr'] = trim($error);
+    $diagnostics['stdout_length'] = strlen((string) $output);
     if ($status !== 0) {
-        logOcrMessage('Textract script error: ' . $error);
-        throw new RuntimeException('Falha no OCR Textract');
+        $errorSummary = trim((string) $error);
+        if ($errorSummary === '') {
+            $errorSummary = 'exit_status=' . (string) $status;
+        }
+        if (function_exists('mb_substr')) {
+            $errorSummary = mb_substr($errorSummary, 0, 500, 'UTF-8');
+        } else {
+            $errorSummary = substr($errorSummary, 0, 500);
+        }
+        logOcrMessage('Textract script error: ' . $errorSummary);
+        throw new RuntimeException('Falha no OCR Textract: ' . $errorSummary);
     }
     $data = json_decode($output, true);
     if (! is_array($data)) {
+        $diagnostics['json_error'] = json_last_error_msg();
         throw new RuntimeException('Saída inválida do Textract');
     }
+    $diagnostics['line_count'] = count($data);
     return $data;
 }
 
@@ -3532,6 +3570,16 @@ function getAccountingBankLoanLineNetAmount(array $line): ?float {
     return $net;
 }
 
+function accountingBankLoanLineHasExplicitStampTax(array $line): bool {
+    foreach (['TAX', 'STAMP_TAX', 'IMPOSTO_SELO'] as $key) {
+        if (parseAccountingBankLoanAmount($line[$key] ?? null) !== null) {
+            return true;
+        }
+    }
+    $taxLabel = normalizeAccountingBankLoanDescription((string) ($line['IVA_TAXA'] ?? $line['TAX_RATE'] ?? ''));
+    return $taxLabel === 'is' || strpos($taxLabel, 'i.s') !== false || strpos($taxLabel, 'selo') !== false;
+}
+
 function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
     $qrTotal = parseAccountingBankLoanAmount($document['field_O'] ?? null);
     $qrBase = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
@@ -3546,8 +3594,16 @@ function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
     $matched = false;
     $hasInterest = false;
     $hasCommission = false;
+    $usesLineTotalsWithStamp = false;
     $lines = json_decode((string) ($document['line_items'] ?? ''), true);
     if (is_array($lines)) {
+        $hasQrFallbackLines = false;
+        foreach ($lines as $line) {
+            if (is_array($line) && trim((string) ($line['BANK_QR_FALLBACK'] ?? '')) === '1') {
+                $hasQrFallbackLines = true;
+                break;
+            }
+        }
         foreach ($lines as $line) {
             if (!is_array($line)) {
                 continue;
@@ -3557,10 +3613,22 @@ function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
             if ($net === null || abs($net) < 0.00001) {
                 continue;
             }
+            if (accountingBankLoanLineHasExplicitStampTax($line)) {
+                $usesLineTotalsWithStamp = true;
+            }
+            if ($hasQrFallbackLines && trim((string) ($line['BANK_QR_FALLBACK'] ?? '')) !== '1') {
+                continue;
+            }
             if (strpos($description, 'juro') !== false) {
                 $interest += $net;
                 $matched = true;
                 $hasInterest = true;
+                continue;
+            }
+            if ($hasQrFallbackLines) {
+                $commission += $net;
+                $matched = true;
+                $hasCommission = true;
                 continue;
             }
             if (
@@ -3573,6 +3641,13 @@ function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
                 $matched = true;
                 $hasCommission = true;
             }
+        }
+        if ($hasQrFallbackLines && $hasInterest && $hasCommission) {
+            return [
+                'interest' => round($interest, 2),
+                'commission' => round($commission, 2),
+                'single_line' => false,
+            ];
         }
     }
 
@@ -3610,7 +3685,7 @@ function resolveAccountingBankLoanAmountsFromDocument(array $document): ?array {
         }
         $netTotal = $interest + $commission;
         $stampAmount = $qrStamp ?? 0.0;
-        if ($netTotal > 0 && $stampAmount > 0) {
+        if (!$usesLineTotalsWithStamp && $netTotal > 0 && $stampAmount > 0) {
             $commissionStamp = round($stampAmount * ($commission / $netTotal), 2);
             $commission = round($commission + $commissionStamp, 2);
             $interest = round($totalGross - $commission, 2);
