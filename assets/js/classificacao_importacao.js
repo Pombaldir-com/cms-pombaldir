@@ -2348,6 +2348,7 @@ window.addEventListener('load', function() {
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
     var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
+    var classifyTableOverlay = document.getElementById('classifyTableOverlay');
     var aiSuggestionExplainBtn = document.getElementById('aiSuggestionExplainBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
     var customRateRowTemplate = document.getElementById('customRateRowTemplate');
@@ -4762,6 +4763,37 @@ window.addEventListener('load', function() {
         }).join(' ');
     }
 
+    function getBankLoanLineRawText(line) {
+        if (!line || typeof line !== 'object') {
+            return '';
+        }
+        var values = [];
+        Object.keys(line).forEach(function(key) {
+            var value = line[key];
+            if (value === null || value === undefined) {
+                return;
+            }
+            if (typeof value === 'string' || typeof value === 'number') {
+                values.push(String(value).trim());
+                return;
+            }
+            if (typeof value === 'object') {
+                Object.keys(value).forEach(function(nestedKey) {
+                    var nestedValue = value[nestedKey];
+                    if (nestedValue === null || nestedValue === undefined) {
+                        return;
+                    }
+                    if (typeof nestedValue === 'string' || typeof nestedValue === 'number') {
+                        values.push(String(nestedValue).trim());
+                    }
+                });
+            }
+        });
+        return values.filter(function(value) {
+            return value !== '';
+        }).join(' ');
+    }
+
     function normalizeLoanLineDescription(value) {
         return String(value || '')
             .normalize('NFD')
@@ -4801,12 +4833,19 @@ window.addEventListener('load', function() {
             matched: false,
             hasInterest: false,
             hasCommission: false,
-            singleLine: true
+            singleLine: true,
+            primaryRate: '0'
         };
         var usesLineTotalsWithStamp = false;
         if (!Array.isArray(lines) || !lines.length) {
             return result;
         }
+
+        var combinedRawText = lines.map(function(line) {
+            return normalizeLoanLineDescription(getBankLoanLineRawText(line));
+        }).join(' ');
+        var textSuggestsOnlyCommission = combinedRawText.indexOf('comiss') !== -1
+            && combinedRawText.indexOf('juro') === -1;
 
         lines.forEach(function(line) {
             var description = normalizeLoanLineDescription(getLineDescriptionText(line));
@@ -4836,6 +4875,17 @@ window.addEventListener('load', function() {
         });
 
         if (!result.matched) {
+            if (textSuggestsOnlyCommission) {
+                return {
+                    interest: totalGross,
+                    commission: 0,
+                    matched: true,
+                    hasInterest: false,
+                    hasCommission: true,
+                    singleLine: true,
+                    primaryRate: 'bank_loan_commission'
+                };
+            }
             return result;
         }
         if (!result.hasInterest || !result.hasCommission) {
@@ -4845,7 +4895,8 @@ window.addEventListener('load', function() {
                 matched: true,
                 hasInterest: result.hasInterest,
                 hasCommission: result.hasCommission,
-                singleLine: true
+                singleLine: true,
+                primaryRate: result.hasCommission && !result.hasInterest ? 'bank_loan_commission' : '0'
             };
         }
         if (
@@ -4859,7 +4910,8 @@ window.addEventListener('load', function() {
                 matched: true,
                 hasInterest: result.hasInterest,
                 hasCommission: result.hasCommission,
-                singleLine: true
+                singleLine: true,
+                primaryRate: '0'
             };
         }
         if (Math.abs(result.interest) < 0.00001 && exemptBase > result.commission) {
@@ -4870,7 +4922,8 @@ window.addEventListener('load', function() {
         }
         if (result.matched) {
             var netTotal = result.interest + result.commission;
-            if (!usesLineTotalsWithStamp && netTotal > 0 && stampTax > 0) {
+            var linesAlreadyMatchGrossTotal = Math.abs(netTotal - totalGross) < 0.03;
+            if (!usesLineTotalsWithStamp && !linesAlreadyMatchGrossTotal && netTotal > 0 && stampTax > 0) {
                 var commissionStamp = Math.round((stampTax * (result.commission / netTotal)) * 100) / 100;
                 var commissionGross = Math.round((result.commission + commissionStamp) * 100) / 100;
                 result.commission = commissionGross;
@@ -4884,10 +4937,12 @@ window.addEventListener('load', function() {
                 matched: true,
                 hasInterest: result.hasInterest,
                 hasCommission: result.hasCommission,
-                singleLine: true
+                singleLine: true,
+                primaryRate: '0'
             };
         }
         result.singleLine = false;
+        result.primaryRate = '0';
         return result;
     }
 
@@ -4901,7 +4956,8 @@ window.addEventListener('load', function() {
                 matched: false,
                 hasInterest: false,
                 hasCommission: false,
-                singleLine: false
+                singleLine: false,
+                primaryRate: '0'
             };
         }
         return {
@@ -4910,7 +4966,8 @@ window.addEventListener('load', function() {
             matched: false,
             hasInterest: false,
             hasCommission: false,
-            singleLine: true
+            singleLine: true,
+            primaryRate: '0'
         };
     }
 
@@ -4957,6 +5014,22 @@ window.addEventListener('load', function() {
         currentCostCenterBreakdowns = {};
         currentBankLoanDocumentLines = [];
         currentBankLoanResolvedAmounts = null;
+    }
+
+    function showClassificationTableOverlay() {
+        if (!classifyTableOverlay) {
+            return;
+        }
+        classifyTableOverlay.classList.add('is-active');
+        classifyTableOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideClassificationTableOverlay() {
+        if (!classifyTableOverlay) {
+            return;
+        }
+        classifyTableOverlay.classList.remove('is-active');
+        classifyTableOverlay.setAttribute('aria-hidden', 'true');
     }
 
     function setBankLoanRate(rate, label, baseValue, generalAccount) {
@@ -5133,8 +5206,10 @@ window.addEventListener('load', function() {
         currentIgnoreDetectedRates = true;
         currentBankLoanConversionActive = true;
         currentClassificationModelName = '';
+        var primaryRateKey = String(amounts.primaryRate || '0').trim() || '0';
+        var primaryAmount = primaryRateKey === 'bank_loan_commission' ? totalGross : amounts.interest;
         var rateLinesOverride = [
-            { key: '0', label: '0', base: formatDecimalValue(amounts.interest), iva: '', bank_loan_conversion: '1' }
+            { key: primaryRateKey, label: '0', base: formatDecimalValue(primaryAmount), iva: '', bank_loan_conversion: '1' }
         ];
         if (!amounts.singleLine) {
             rateLinesOverride.push({
@@ -5151,6 +5226,7 @@ window.addEventListener('load', function() {
         })
             .then(function(applied) {
                 applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts);
+                finalizeBankLoanSingleLineResult(currentBankLoanResolvedAmounts);
                 enforceBankLoanAccountRulesOnCurrentRows();
                 refreshCostCenterFieldModes();
                 refreshAllDirtyStates();
@@ -5817,8 +5893,12 @@ window.addEventListener('load', function() {
             var preservedBankLoanDocumentLines = Array.isArray(currentBankLoanDocumentLines)
                 ? cloneJsonValue(currentBankLoanDocumentLines, [])
                 : [];
+            var preservedBankLoanResolvedAmounts = currentBankLoanResolvedAmounts && typeof currentBankLoanResolvedAmounts === 'object'
+                ? cloneJsonValue(currentBankLoanResolvedAmounts, {})
+                : null;
             clearClassificationRowsForBankLoanConversion();
             currentBankLoanDocumentLines = preservedBankLoanDocumentLines;
+            currentBankLoanResolvedAmounts = preservedBankLoanResolvedAmounts;
         }
         rateLines.forEach(function(line) {
             if (!line || typeof line !== 'object') {
@@ -5842,6 +5922,13 @@ window.addEventListener('load', function() {
 
     function enforceBankLoanAccountRulesOnCurrentRows() {
         var applied = false;
+        var singleLinePrimaryRate = (
+            currentBankLoanResolvedAmounts
+            && typeof currentBankLoanResolvedAmounts === 'object'
+            && currentBankLoanResolvedAmounts.singleLine
+        )
+            ? String(currentBankLoanResolvedAmounts.primaryRate || '').trim()
+            : '';
         Object.keys(currentRateData || {}).forEach(function(rate) {
             var data = currentRateData[rate] || {};
             if (String(data.bank_loan_conversion || '').trim() !== '1') {
@@ -5849,7 +5936,12 @@ window.addEventListener('load', function() {
             }
             var label = normalizeLoanLineDescription(data.label || getRateLabel(rate) || rate);
             var targetAccount = '';
-            if (rate === 'bank_loan_commission' || label.indexOf('comiss') !== -1 || label.indexOf('gestao') !== -1) {
+            if (
+                (singleLinePrimaryRate === 'bank_loan_commission' && rate === '0')
+                || rate === 'bank_loan_commission'
+                || label.indexOf('comiss') !== -1
+                || label.indexOf('gestao') !== -1
+            ) {
                 targetAccount = '698812';
             } else {
                 targetAccount = '6911';
@@ -5878,6 +5970,76 @@ window.addEventListener('load', function() {
         return applied;
     }
 
+    function finalizeBankLoanSingleLineResult(amounts) {
+        if (!amounts || typeof amounts !== 'object' || !amounts.singleLine) {
+            return false;
+        }
+        var sourceRate = String(amounts.primaryRate || '0').trim() || '0';
+        var targetRate = '0';
+        var targetAmount = sourceRate === 'bank_loan_commission'
+            ? (amounts.interest + amounts.commission)
+            : amounts.interest;
+        var targetAccount = sourceRate === 'bank_loan_commission' ? '698812' : '6911';
+        var changed = false;
+
+        Object.keys(rateInputs || {}).forEach(function(rate) {
+            if (rate === targetRate) {
+                return;
+            }
+            if (rateInputs[rate]) {
+                removeRateRow(rate);
+                changed = true;
+            }
+        });
+
+        if (!rateInputs[targetRate]) {
+            setBankLoanRate(targetRate, '0', targetAmount, targetAccount);
+            changed = true;
+        }
+
+        var data = ensureRateData(targetRate);
+        var formatted = formatDecimalValue(targetAmount);
+        if (String(data.base || '').trim() !== formatted) {
+            data.base = formatted;
+            data.base_value = formatted;
+            changed = true;
+        }
+        if (String(data.general_account || '').trim() !== targetAccount) {
+            data.general_account = targetAccount;
+            changed = true;
+        }
+        data.iva = '';
+        data.iva_value = '';
+        data.iva_account = '';
+        data.bank_loan_conversion = '1';
+
+        var info = rateInputs[targetRate];
+        if (info) {
+            if (info.base && String(info.base.value || '').trim() !== formatted) {
+                info.base.value = formatted;
+            }
+            if (info.generalAccount && String(info.generalAccount.value || '').trim() !== targetAccount) {
+                info.generalAccount.value = targetAccount;
+                updatePlanInputTitle(info.generalAccount);
+            }
+            if (info.iva) {
+                info.iva.value = '';
+            }
+            if (info.ivaAccount) {
+                info.ivaAccount.value = '';
+            }
+            populateRateRow(targetRate);
+            updateRowDirtyState(targetRate);
+        }
+
+        if (changed && currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            updateButtonClass(currentBtn);
+        }
+
+        return changed;
+    }
+
     function applyBankLoanResolvedAmountsToRows(amounts) {
         if (!amounts || typeof amounts !== 'object') {
             return false;
@@ -5885,13 +6047,13 @@ window.addEventListener('load', function() {
         var applied = false;
         [
             { rate: '0', amount: amounts.interest },
-            { rate: 'bank_loan_commission', amount: amounts.commission }
+            { rate: 'bank_loan_commission', amount: amounts.singleLine && String(amounts.primaryRate || '') === 'bank_loan_commission' ? (amounts.interest + amounts.commission) : amounts.commission }
         ].forEach(function(entry) {
             var rate = entry.rate;
             if (!currentRateData[rate] || String(currentRateData[rate].bank_loan_conversion || '').trim() !== '1') {
                 return;
             }
-            if (amounts.singleLine && rate === 'bank_loan_commission') {
+            if (amounts.singleLine && rate !== String(amounts.primaryRate || '0')) {
                 return;
             }
             var formatted = formatDecimalValue(entry.amount);
@@ -6086,6 +6248,77 @@ window.addEventListener('load', function() {
         return null;
     }
 
+    function getResolvedBankLoanSingleLineTargetRate() {
+        if (!currentBankLoanResolvedAmounts || typeof currentBankLoanResolvedAmounts !== 'object') {
+            return null;
+        }
+        if (!currentBankLoanResolvedAmounts.singleLine) {
+            return null;
+        }
+        return '0';
+    }
+
+    function enforceResolvedBankLoanRateShape() {
+        if (!currentBankLoanConversionActive) {
+            return false;
+        }
+
+        var singleTargetRate = getResolvedBankLoanSingleLineTargetRate();
+        var allowedRates = singleTargetRate ? [singleTargetRate] : ['0', 'bank_loan_commission'];
+        var allowedMap = {};
+        var changed = false;
+        var targetAmount = null;
+        var targetAccount = null;
+
+        allowedRates.forEach(function(rate) {
+            allowedMap[rate] = true;
+        });
+
+        Object.keys(rateInputs || {}).forEach(function(rate) {
+            if (allowedMap[rate]) {
+                return;
+            }
+            removeRateRow(rate);
+            changed = true;
+        });
+
+        if (singleTargetRate && currentBankLoanResolvedAmounts) {
+            targetAmount = String(currentBankLoanResolvedAmounts.primaryRate || '').trim() === 'bank_loan_commission'
+                ? ((currentBankLoanResolvedAmounts.interest || 0) + (currentBankLoanResolvedAmounts.commission || 0))
+                : (currentBankLoanResolvedAmounts.interest || 0);
+            targetAccount = String(currentBankLoanResolvedAmounts.primaryRate || '').trim() === 'bank_loan_commission' ? '698812' : '6911';
+            if (!rateInputs[singleTargetRate]) {
+                setBankLoanRate(singleTargetRate, '0', targetAmount, targetAccount);
+                changed = true;
+            }
+        }
+
+        allowedRates.forEach(function(rate) {
+            if (!currentRateData[rate]) {
+                return;
+            }
+            currentRateData[rate].label = '0';
+            currentRateData[rate].iva = '';
+            currentRateData[rate].iva_value = '';
+            currentRateData[rate].iva_account = '';
+            currentRateData[rate].bank_loan_conversion = '1';
+            if (rate === singleTargetRate && targetAmount !== null) {
+                currentRateData[rate].base = formatDecimalValue(targetAmount);
+                currentRateData[rate].base_value = currentRateData[rate].base;
+                currentRateData[rate].general_account = targetAccount;
+            }
+            populateRateRow(rate);
+            updateRowDirtyState(rate);
+        });
+
+        if (changed && currentBtn) {
+            currentBtn.setAttribute('data-rates', JSON.stringify(currentRateData));
+            updateButtonClass(currentBtn);
+        }
+
+        return changed;
+    }
+
     function applyInstructionOperations(response) {
         var operations = getInstructionOperationsFromResponse(response);
         if (!operations || typeof operations !== 'object') {
@@ -6122,6 +6355,9 @@ window.addEventListener('load', function() {
             var data = ensureRateData(resolvedKey);
             if (typeof entry.label === 'string' && entry.label.trim() !== '') {
                 data.label = entry.label.trim();
+                if (currentBankLoanConversionActive) {
+                    data.label = '0';
+                }
                 if (info.labelInput) {
                     info.labelInput.value = data.label;
                 } else if (info.labelText) {
@@ -6184,6 +6420,7 @@ window.addEventListener('load', function() {
             updateButtonClass(currentBtn);
             refreshCostCenterFieldModes();
             refreshAllDirtyStates();
+            enforceResolvedBankLoanRateShape();
         }
 
         return applied;
@@ -7533,6 +7770,7 @@ window.addEventListener('load', function() {
             }
             aiSuggestBtn.disabled = true;
             aiSuggestBtn.classList.add('disabled');
+            showClassificationTableOverlay();
             if (useBankLoanFlow) {
                 fetchBankLoanLines()
                     .then(function(lines) {
@@ -7544,6 +7782,7 @@ window.addEventListener('load', function() {
                     .finally(function() {
                         aiSuggestBtn.disabled = false;
                         aiSuggestBtn.classList.remove('disabled');
+                        hideClassificationTableOverlay();
                     });
                 return;
             }
@@ -7664,6 +7903,7 @@ window.addEventListener('load', function() {
             }).finally(function() {
                 aiSuggestBtn.disabled = false;
                 aiSuggestBtn.classList.remove('disabled');
+                hideClassificationTableOverlay();
             });
         });
     }

@@ -80,6 +80,42 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         width: 100%;
     }
 
+    .classify-modal-table-wrap {
+        position: relative;
+    }
+
+    .classify-modal-table-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        background: rgba(255, 255, 255, 0.82);
+        backdrop-filter: blur(1px);
+        z-index: 5;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.15s ease, visibility 0.15s ease;
+    }
+
+    .classify-modal-table-overlay.is-active {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+    }
+
+    .classify-modal-table-overlay .spinner-border {
+        width: 2rem;
+        height: 2rem;
+    }
+
+    .classify-modal-table-overlay-text {
+        font-weight: 600;
+        color: #4f6278;
+    }
+
     .classify-modal-vat-table .col-rate {
         width: 10%;
     }
@@ -409,23 +445,29 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                 </div>
                             </div>
                             <small class="text-muted d-block mb-2">Os valores apresentados na grelha correspondem ao que foi lido do QR Code ou ao que foi preenchido manualmente nos campos do documento.</small>
-                            <div class="table-responsive">
-                                <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
-                                    <thead>
-                                        <tr>
-                                            <th class="col-rate">Taxa %</th>
-                                            <th class="col-base">Base</th>
-                                            <th class="col-iva">IVA</th>
-                                            <th class="col-iva-account">Conta IVA</th>
-                                            <th class="col-general-account">Conta Geral</th>
-                                            <?php if ($classifyModalImportType === 1): ?>
-                                            <th class="col-cost-center">C Custo</th>
-                                            <?php endif; ?>
-                                            <th class="text-center col-actions">Ações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody></tbody>
-                                </table>
+                            <div class="classify-modal-table-wrap">
+                                <div id="classifyTableOverlay" class="classify-modal-table-overlay" aria-hidden="true">
+                                    <div class="spinner-border text-info" role="status" aria-hidden="true"></div>
+                                    <span class="classify-modal-table-overlay-text">A aplicar sugestão IA...</span>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-rate">Taxa %</th>
+                                                <th class="col-base">Base</th>
+                                                <th class="col-iva">IVA</th>
+                                                <th class="col-iva-account">Conta IVA</th>
+                                                <th class="col-general-account">Conta Geral</th>
+                                                <?php if ($classifyModalImportType === 1): ?>
+                                                <th class="col-cost-center">C Custo</th>
+                                                <?php endif; ?>
+                                                <th class="text-center col-actions">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
                             </div>
                             <?php if ($classifyModalImportType === 1): ?>
                             <div class="mt-3">
