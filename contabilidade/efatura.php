@@ -1818,12 +1818,18 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $data = [];
     foreach ($rows as $row) {
         $status = strtoupper(trim((string) ($row['document_status'] ?? '')));
+        $isCancelled = $status === 'A';
         $state = efaturaResolveDocumentImportState($pdo, $row, $importStatusStmt);
         $hasUpload = $state['has_upload'];
         $hasClassification = $state['has_classification'];
         $hasCtbImport = $state['has_ctb_import'];
-        $statusBadgeClass = $hasCtbImport ? 'badge-success' : ($hasClassification ? 'badge-info' : ($hasUpload ? 'badge-warning' : 'badge-secondary'));
-        $statusBadgeLabel = $hasCtbImport ? 'Importado CTB' : ($hasClassification ? 'Classificado' : ($hasUpload ? 'Por classificar' : 'Em falta'));
+        if ($isCancelled) {
+            $statusBadgeClass = 'badge-danger';
+            $statusBadgeLabel = 'Anulado';
+        } else {
+            $statusBadgeClass = $hasCtbImport ? 'badge-success' : ($hasClassification ? 'badge-info' : ($hasUpload ? 'badge-warning' : 'badge-secondary'));
+            $statusBadgeLabel = $hasCtbImport ? 'Importado CTB' : ($hasClassification ? 'Classificado' : ($hasUpload ? 'Por classificar' : 'Em falta'));
+        }
         $data[] = [
             'invoice_date' => (string) ($row['invoice_date'] ?? ''),
             'issuer_name' => (string) ($row['issuer_name'] ?? ''),
@@ -1836,7 +1842,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
             'upload_status' => '<span class="badge ' . ($hasUpload ? 'badge-success' : 'badge-secondary') . '">' . ($hasUpload ? 'Upload' : 'Sem upload') . '</span>',
             'classification_status' => '<span class="badge ' . ($hasClassification ? 'badge-info' : 'badge-secondary') . '">' . ($hasClassification ? 'Classificado' : 'Por classificar') . '</span>',
             'ctb_status' => '<span class="badge ' . $statusBadgeClass . '">' . $statusBadgeLabel . '</span>',
-            'DT_RowClass' => trim(($status === 'A' ? 'efatura-document-row-cancelled ' : '') . (!$hasUpload ? 'efatura-document-row-missing' : '')),
+            'DT_RowClass' => $isCancelled ? 'efatura-document-row-cancelled' : (!$hasUpload ? 'efatura-document-row-missing' : ''),
             'DT_RowAttr' => ['data-status' => $status, 'data-uploaded' => $hasUpload ? '1' : '0'],
         ];
     }
@@ -1969,6 +1975,9 @@ function efaturaFetchMissingDocumentsForCommunication(PDO $pdo, int $selectedEnt
     $missing = [];
 
     foreach ($rows as $row) {
+        if (strtoupper(trim((string) ($row['document_status'] ?? ''))) === 'A') {
+            continue;
+        }
         $state = efaturaResolveDocumentImportState($pdo, $row, $importStatusStmt);
         if ($state['has_upload']) {
             continue;
