@@ -2281,13 +2281,25 @@ function parseInvoiceLineTextract(string $filePath, ?array &$diagnostics = null)
     ];
 
     $pythonBinary = getenv('TEXTRACT_PYTHON_BIN') ?: '';
+    $pythonSource = 'env';
+    if ($pythonBinary === '' && function_exists('shell_exec')) {
+        $candidate = trim((string) shell_exec('command -v python3 2>/dev/null'));
+        if ($candidate !== '' && is_executable($candidate)) {
+            $pythonBinary = $candidate;
+            $pythonSource = 'command -v python3';
+        }
+    }
     if ($pythonBinary === '' && is_executable('/usr/bin/python3')) {
         $pythonBinary = '/usr/bin/python3';
+        $pythonSource = '/usr/bin/python3';
     }
     if ($pythonBinary === '') {
         $pythonBinary = 'python3';
+        $pythonSource = 'fallback python3';
     }
     $diagnostics['python_binary'] = $pythonBinary;
+    $diagnostics['python_source'] = $pythonSource;
+    logOcrMessage('Textract python selected: ' . $pythonBinary . ' (source=' . $pythonSource . ') for file ' . basename($filePath));
 
     $script = __DIR__ . '/textract.py';
     $cmd = escapeshellcmd($pythonBinary) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($filePath);

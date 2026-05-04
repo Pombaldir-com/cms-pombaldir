@@ -413,7 +413,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                 <table class="table table-sm align-middle mb-0 classify-modal-vat-table">
                                     <thead>
                                         <tr>
-                                            <th class="col-rate">Taxa</th>
+                                            <th class="col-rate">Taxa %</th>
                                             <th class="col-base">Base</th>
                                             <th class="col-iva">IVA</th>
                                             <th class="col-iva-account">Conta IVA</th>
@@ -464,11 +464,6 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                     <button type="button" class="btn btn-sm btn-outline-primary" id="addVatLineBtn">
                         <i class="fa fa-plus"></i> Adicionar linha de IVA
                     </button>
-                    <?php if ($classifyModalImportType === 1): ?>
-                    <button type="button" class="btn btn-sm btn-warning d-none" id="bankLoanConversionBtn">
-                        <i class="fa fa-university"></i> Empréstimo bancário
-                    </button>
-                    <?php endif; ?>
                     <?= $classifyModalFooterRightHtml; ?>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-primary">Guardar</button>

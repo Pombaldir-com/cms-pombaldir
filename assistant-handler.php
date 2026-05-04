@@ -3239,6 +3239,83 @@ function aiInstructionLineMatchesContext(string $line, array $context): bool {
     return true;
 }
 
+function normalizeAiInstructionEmitterTypeValue(string $value): string {
+    $value = normalizeAiInstructionComparable($value);
+    if ($value === '') {
+        return '';
+    }
+    if (in_array($value, ['1', 'bank', 'banco', 'bancario'], true)) {
+        return '1';
+    }
+    if (in_array($value, ['2', 'insurance', 'seguro', 'seguros', 'seguradora'], true)) {
+        return '2';
+    }
+    if (in_array($value, ['0', 'normal', 'geral', 'default'], true)) {
+        return '0';
+    }
+    return $value;
+}
+
+function resolveAiInstructionBlockCondition(string $line, array $context): ?bool {
+    if (!preg_match('/\b(aplicar|nao\s+aplicar|não\s+aplicar|so\s+aplicar|s[oó]\s+aplicar)\s+(?:apenas\s+)?quando\s+emitter_type\s*(?:==|=|!=)\s*["“”]?([a-z0-9_ -]+)["“”]?/iu', $line, $match)) {
+        return null;
+    }
+
+    $operator = strpos((string) $line, '!=') !== false ? '!=' : '=';
+    $prefix = normalizeAiInstructionComparable((string) ($match[1] ?? ''));
+    $expected = normalizeAiInstructionEmitterTypeValue((string) ($match[2] ?? ''));
+    $current = normalizeAiInstructionEmitterTypeValue((string) ($context['emitter_type'] ?? ''));
+    if ($expected === '') {
+        return null;
+    }
+
+    $matches = $operator === '!=' ? ($current !== $expected) : ($current === $expected);
+    if (strpos($prefix, 'nao aplicar') === 0 || strpos($prefix, 'não aplicar') === 0) {
+        return !$matches;
+    }
+
+    return $matches;
+}
+
+function filterApplicableAiInstructionText(string $text, array $context): string {
+    $text = trim($text);
+    if ($text === '') {
+        return '';
+    }
+
+    $filtered = [];
+    $lines = preg_split('/\R/u', $text) ?: [];
+    $activeBlockMatchesContext = true;
+    foreach ($lines as $line) {
+        $rawLine = rtrim((string) $line);
+        $trimmedLine = trim((string) preg_replace('/^\s*[-*]+\s*/', '', $rawLine));
+        if ($trimmedLine === '') {
+            if (!empty($filtered) && end($filtered) !== '') {
+                $filtered[] = '';
+            }
+            continue;
+        }
+
+        $blockCondition = resolveAiInstructionBlockCondition($trimmedLine, $context);
+        if ($blockCondition !== null) {
+            $activeBlockMatchesContext = $blockCondition;
+            continue;
+        }
+
+        if (!$activeBlockMatchesContext || !aiInstructionLineMatchesContext($trimmedLine, $context)) {
+            continue;
+        }
+
+        $filtered[] = $rawLine;
+    }
+
+    while (!empty($filtered) && end($filtered) === '') {
+        array_pop($filtered);
+    }
+
+    return trim(implode("\n", $filtered));
+}
+
 function resolveAiInstructionTargetRateKey(string $line, array $rateItems): string {
     $normalizedLine = normalizeAiInstructionComparable($line);
     $orderedRateKeys = [];
@@ -3315,8 +3392,7 @@ function buildAiInstructionAccountSuggestions(array $rateItems, array $context, 
             $sections[] = $pairInstructions;
         }
     }
-    $section = trim(implode("\n", $sections));
-    if ($section === '') {
+    if (empty($sections)) {
         return ['rates' => [], 'total_account' => '', 'count' => 0];
     }
 
@@ -3326,44 +3402,57 @@ function buildAiInstructionAccountSuggestions(array $rateItems, array $context, 
     $suggested = [];
     $totalAccount = '';
     $matchedLines = 0;
-    $lines = preg_split('/\R/u', $section) ?: [];
+    foreach ($sections as $section) {
+        $lines = preg_split('/\R/u', (string) $section) ?: [];
+        $activeBlockMatchesContext = true;
 
-    foreach ($lines as $line) {
-        $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
-        if ($line === '' || !aiInstructionLineMatchesContext($line, $context)) {
-            continue;
-        }
-
-        foreach (splitAiInstructionAccountClauses($line) as $clause) {
-            $generalAccount = extractAiInstructionAccountValue($clause, $generalPatterns);
-            $ivaAccount = extractAiInstructionAccountValue($clause, $ivaPatterns);
-            $lineTotalAccount = extractAiInstructionAccountValue($clause, $totalPatterns);
-            $targetRateKey = resolveAiInstructionTargetRateKey($clause, $rateItems);
-            $lineApplied = false;
-
-            if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
-                if (!isset($suggested[$targetRateKey])) {
-                    $suggested[$targetRateKey] = ['iva_account' => '', 'general_account' => ''];
-                }
-                if ($generalAccount !== null) {
-                    $suggested[$targetRateKey]['general_account'] = $generalAccount;
-                    $suggested[$targetRateKey]['general_account_explicit'] = '1';
-                    $lineApplied = true;
-                }
-                if ($ivaAccount !== null && normalizeRateKey($targetRateKey) !== '0') {
-                    $suggested[$targetRateKey]['iva_account'] = $ivaAccount;
-                    $suggested[$targetRateKey]['iva_account_explicit'] = '1';
-                    $lineApplied = true;
-                }
+        foreach ($lines as $line) {
+            $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
+            if ($line === '') {
+                continue;
             }
 
-            if ($lineTotalAccount !== null && $totalAccount === '') {
-                $totalAccount = $lineTotalAccount;
-                $lineApplied = true;
+            $blockCondition = resolveAiInstructionBlockCondition($line, $context);
+            if ($blockCondition !== null) {
+                $activeBlockMatchesContext = $blockCondition;
+                continue;
             }
 
-            if ($lineApplied) {
-                $matchedLines++;
+            if (!$activeBlockMatchesContext || !aiInstructionLineMatchesContext($line, $context)) {
+                continue;
+            }
+
+            foreach (splitAiInstructionAccountClauses($line) as $clause) {
+                $generalAccount = extractAiInstructionAccountValue($clause, $generalPatterns);
+                $ivaAccount = extractAiInstructionAccountValue($clause, $ivaPatterns);
+                $lineTotalAccount = extractAiInstructionAccountValue($clause, $totalPatterns);
+                $targetRateKey = resolveAiInstructionTargetRateKey($clause, $rateItems);
+                $lineApplied = false;
+
+                if ($targetRateKey !== '' && ($generalAccount !== null || $ivaAccount !== null)) {
+                    if (!isset($suggested[$targetRateKey])) {
+                        $suggested[$targetRateKey] = ['iva_account' => '', 'general_account' => ''];
+                    }
+                    if ($generalAccount !== null) {
+                        $suggested[$targetRateKey]['general_account'] = $generalAccount;
+                        $suggested[$targetRateKey]['general_account_explicit'] = '1';
+                        $lineApplied = true;
+                    }
+                    if ($ivaAccount !== null && normalizeRateKey($targetRateKey) !== '0') {
+                        $suggested[$targetRateKey]['iva_account'] = $ivaAccount;
+                        $suggested[$targetRateKey]['iva_account_explicit'] = '1';
+                        $lineApplied = true;
+                    }
+                }
+
+                if ($lineTotalAccount !== null && $totalAccount === '') {
+                    $totalAccount = $lineTotalAccount;
+                    $lineApplied = true;
+                }
+
+                if ($lineApplied) {
+                    $matchedLines++;
+                }
             }
         }
     }
@@ -4551,8 +4640,8 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         'bank_loan_conversion' => hasBankLoanConversionRates($rateItems) ? '1' : '0',
         'has_receipt_companion' => normalizeSuggestionReceiptCompanionFlag($args['has_receipt_companion'] ?? '0'),
     ];
-    $globalInstructions = extractAiAccountingInstructionSection();
-    $pairInstructions = fetchEntityPairAiInstructions($context);
+    $globalInstructions = filterApplicableAiInstructionText(extractAiAccountingInstructionSection(), $context);
+    $pairInstructions = filterApplicableAiInstructionText(fetchEntityPairAiInstructions($context), $context);
     $limit = 18;
     $examples = fetchHistoryExamples($acquirerNif, $docType, $limit, 'strict', $context);
     $ruleExamples = fetchClassificationRuleExamples($docType, $emitter, $acquirerRaw, 12, $context);
@@ -4685,88 +4774,6 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             $planAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, $acquirerNif);
             $hasPriorityEvidence = !empty($examples) || !empty($ruleExamples) || !empty($ligacaoHints['count']) || !empty($movementHints['count']);
             $preferPlanAsLastOption = $hasPriorityEvidence;
-            if ($planAccounts && !$preferPlanAsLastOption) {
-                $missingRates = [];
-                foreach ($rateItems as $rateInfo) {
-                    $rateKey = (string) ($rateInfo['key'] ?? '');
-                    if ($rateKey === '') {
-                        continue;
-                    }
-                    $normalizedRateKey = normalizeRateKey($rateKey);
-                    if (!isset($finalSuggested[$rateKey])) {
-                        $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
-                    }
-                    if (($finalSuggested[$rateKey]['general_account'] ?? '') === '') {
-                        $ivaForRate = $finalSuggested[$rateKey]['iva_account'] ?? '';
-                        $general = '';
-                        if ($ivaForRate !== '') {
-                            $general = pickGeneralAccountByIvaAccount($planAccounts, $ivaForRate);
-                        }
-                        if ($general === '') {
-                            $general = pickGeneralAccountFromPlan($planAccounts, $rateInfo);
-                        }
-                        if ($general !== '') {
-                            $finalSuggested[$rateKey]['general_account'] = $general;
-                        } else {
-                            $missingRates[] = $rateInfo;
-                        }
-                    }
-                    if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
-                        $iva = '';
-                        $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
-                        if ($generalSelected !== '') {
-                            $iva = findIvaAccountForGeneral($planAccounts, $generalSelected);
-                        }
-                        if ($iva === '') {
-                            $iva = findIvaAccountForRate($planAccounts, $rateInfo);
-                        }
-                        if ($iva !== '') {
-                            $finalSuggested[$rateKey]['iva_account'] = $iva;
-                        }
-                    }
-                }
-                if ($missingRates) {
-                    $globalPlanAccounts = fetchPlanAccounts($erpBaseUrl, $erpToken, $planDb, $planYear, '');
-                    if ($globalPlanAccounts) {
-                        foreach ($missingRates as $rateInfo) {
-                            $rateKey = (string) ($rateInfo['key'] ?? '');
-                            if ($rateKey === '') {
-                                continue;
-                            }
-                            $normalizedRateKey = normalizeRateKey($rateKey);
-                            if (!isset($finalSuggested[$rateKey])) {
-                                $finalSuggested[$rateKey] = ['iva_account' => '', 'general_account' => ''];
-                            }
-                            if (($finalSuggested[$rateKey]['general_account'] ?? '') === '') {
-                                $ivaForRate = $finalSuggested[$rateKey]['iva_account'] ?? '';
-                                $general = '';
-                                if ($ivaForRate !== '') {
-                                    $general = pickGeneralAccountByIvaAccount($globalPlanAccounts, $ivaForRate);
-                                }
-                                if ($general === '') {
-                                    $general = pickGeneralAccountFromPlan($globalPlanAccounts, $rateInfo);
-                                }
-                                if ($general !== '') {
-                                    $finalSuggested[$rateKey]['general_account'] = $general;
-                                }
-                            }
-                            if ($normalizedRateKey !== '0' && ($finalSuggested[$rateKey]['iva_account'] ?? '') === '') {
-                                $iva = '';
-                                $generalSelected = $finalSuggested[$rateKey]['general_account'] ?? '';
-                                if ($generalSelected !== '') {
-                                    $iva = findIvaAccountForGeneral($globalPlanAccounts, $generalSelected);
-                                }
-                                if ($iva === '') {
-                                    $iva = findIvaAccountForRate($globalPlanAccounts, $rateInfo);
-                                }
-                                if ($iva !== '') {
-                                    $finalSuggested[$rateKey]['iva_account'] = $iva;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 

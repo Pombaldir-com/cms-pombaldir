@@ -2749,6 +2749,44 @@ function backofficeInstructionLineMatchesContext(string $line, array $context): 
     return true;
 }
 
+function normalizeBackofficeInstructionEmitterTypeValue(string $value): string {
+    $value = normalizeBackofficeInstructionText($value);
+    if ($value === '') {
+        return '';
+    }
+    if (in_array($value, ['1', 'bank', 'banco', 'bancario'], true)) {
+        return '1';
+    }
+    if (in_array($value, ['2', 'insurance', 'seguro', 'seguros', 'seguradora'], true)) {
+        return '2';
+    }
+    if (in_array($value, ['0', 'normal', 'geral', 'default'], true)) {
+        return '0';
+    }
+    return $value;
+}
+
+function resolveBackofficeInstructionBlockCondition(string $line, array $context): ?bool {
+    if (!preg_match('/\b(aplicar|nao\s+aplicar|não\s+aplicar|so\s+aplicar|s[oó]\s+aplicar)\s+(?:apenas\s+)?quando\s+emitter_type\s*(?:==|=|!=)\s*["“”]?([a-z0-9_ -]+)["“”]?/iu', $line, $match)) {
+        return null;
+    }
+
+    $operator = strpos((string) $line, '!=') !== false ? '!=' : '=';
+    $prefix = normalizeBackofficeInstructionText((string) ($match[1] ?? ''));
+    $expected = normalizeBackofficeInstructionEmitterTypeValue((string) ($match[2] ?? ''));
+    $current = normalizeBackofficeInstructionEmitterTypeValue((string) ($context['emitter_type'] ?? ''));
+    if ($expected === '') {
+        return null;
+    }
+
+    $matches = $operator === '!=' ? ($current !== $expected) : ($current === $expected);
+    if (strpos($prefix, 'nao aplicar') === 0 || strpos($prefix, 'não aplicar') === 0) {
+        return !$matches;
+    }
+
+    return $matches;
+}
+
 function resolveBackofficeInstructionRateKey(string $line, array $rateItems): string {
     $normalizedLine = normalizeBackofficeInstructionText($line);
     $orderedRateKeys = [];
@@ -2835,13 +2873,23 @@ function buildBackofficeInstructionSuggestionsForExplanation(array $rateItems, a
     if (!$isBankLoanContext && trim((string) ($context['emitter_type'] ?? '')) === '1') {
         $isBankLoanContext = true;
     }
-
     foreach ($sections as $sectionInfo) {
         $sourceLabel = (string) ($sectionInfo['label'] ?? 'Instruções');
         $sourceOrder[] = $sourceLabel;
+        $activeBlockMatchesContext = true;
         foreach (preg_split('/\R/u', (string) ($sectionInfo['text'] ?? '')) ?: [] as $line) {
             $line = trim((string) preg_replace('/^\s*[-*]+\s*/', '', (string) $line));
-            if ($line === '' || !backofficeInstructionLineMatchesContext($line, $context)) {
+            if ($line === '') {
+                continue;
+            }
+
+            $blockCondition = resolveBackofficeInstructionBlockCondition($line, $context);
+            if ($blockCondition !== null) {
+                $activeBlockMatchesContext = $blockCondition;
+                continue;
+            }
+
+            if (!$activeBlockMatchesContext || !backofficeInstructionLineMatchesContext($line, $context)) {
                 continue;
             }
             $normalizedLine = normalizeBackofficeInstructionText($line);
