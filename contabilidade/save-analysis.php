@@ -598,14 +598,99 @@ function isBankEmitterCandidateFromQrFields(array $document): bool {
     return abs(($exemptBase + $stampTax) - $total) < 0.03;
 }
 
+function normalizeEmitterTypeDetectionText(string $value): string {
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (function_exists('iconv')) {
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if (is_string($converted) && $converted !== '') {
+            $value = $converted;
+        }
+    }
+    $value = strtolower($value);
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? $value;
+    return trim($value);
+}
+
+function flattenAccountingValueForDetection($value, array &$parts): void {
+    if ($value === null) {
+        return;
+    }
+    if (is_array($value)) {
+        foreach ($value as $nestedKey => $nestedValue) {
+            if (is_string($nestedKey)) {
+                $parts[] = $nestedKey;
+            }
+            flattenAccountingValueForDetection($nestedValue, $parts);
+        }
+        return;
+    }
+    if (is_scalar($value)) {
+        $parts[] = (string) $value;
+    }
+}
+
+function isInsuranceEmitterCandidateFromDocumentText(array $document): bool {
+    $parts = [];
+    foreach (['field_A', 'field_D', 'field_G', 'field_H', 'field_Q', 'field_R'] as $field) {
+        if (isset($document[$field])) {
+            $parts[] = (string) $document[$field];
+        }
+    }
+
+    if (!empty($document['line_items'])) {
+        $lineItems = is_array($document['line_items'])
+            ? $document['line_items']
+            : json_decode((string) $document['line_items'], true);
+        if (is_array($lineItems)) {
+            flattenAccountingValueForDetection($lineItems, $parts);
+        }
+    }
+
+    $text = normalizeEmitterTypeDetectionText(implode(' ', $parts));
+    if ($text === '') {
+        return false;
+    }
+
+    foreach ([
+        'apolice',
+        'seguro',
+        'seguros',
+        'segurado',
+        'tomador',
+        'corretor',
+        'mediador',
+        'premio comercial',
+        'premio total',
+        'premio',
+        'sinistro',
+        'ramo',
+        'companhia de seguros',
+    ] as $needle) {
+        if (strpos($text, $needle) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function resolveEmitterTypeValue(PDO $pdo, string $entityFieldValue, array $document = []): string {
     $emitterTypeColumn = getAccountingEmitterTypeColumn();
     if ($emitterTypeColumn === '') {
+        if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+            return 'insurance';
+        }
         return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
     }
 
     $nif = extractVatNumber($entityFieldValue);
     if ($nif === '') {
+        if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+            return 'insurance';
+        }
         return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
     }
 
@@ -638,6 +723,10 @@ function resolveEmitterTypeValue(PDO $pdo, string $entityFieldValue, array $docu
         if ($storedKind === '2') {
             return 'insurance';
         }
+    }
+
+    if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+        return 'insurance';
     }
 
     return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';

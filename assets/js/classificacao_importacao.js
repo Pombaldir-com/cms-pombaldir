@@ -4735,7 +4735,14 @@ window.addEventListener('load', function() {
         return !!(emitterTypeSelect && String(emitterTypeSelect.value || '').trim() === 'bank');
     }
 
+    function isEmitterInsuranceEntitySelected() {
+        return !!(emitterTypeSelect && String(emitterTypeSelect.value || '').trim() === 'insurance');
+    }
+
     function hasBankLoanConversionCandidate() {
+        if (isEmitterInsuranceEntitySelected()) {
+            return false;
+        }
         if (hasBankLoanStampValues()) {
             return true;
         }
@@ -4799,6 +4806,47 @@ window.addEventListener('load', function() {
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .toLowerCase();
+    }
+
+    function bankLoanLinesSuggestInsurance(lines) {
+        if (!Array.isArray(lines) || !lines.length) {
+            return false;
+        }
+        var text = lines.map(function(line) {
+            return normalizeLoanLineDescription(getBankLoanLineRawText(line));
+        }).join(' ');
+        if (!text) {
+            return false;
+        }
+        return [
+            'apolice',
+            'seguro',
+            'seguros',
+            'segurado',
+            'tomador',
+            'corretor',
+            'mediador',
+            'premio comercial',
+            'premio total',
+            'premio',
+            'sinistro',
+            'ramo',
+            'companhia de seguros'
+        ].some(function(needle) {
+            return text.indexOf(needle) !== -1;
+        });
+    }
+
+    function applyInsuranceDetectionFromLines(lines) {
+        if (!bankLoanLinesSuggestInsurance(lines)) {
+            return false;
+        }
+        if (emitterTypeSelect) {
+            emitterTypeSelect.value = 'insurance';
+        }
+        currentBankLoanDocumentLines = Array.isArray(lines) ? cloneJsonValue(lines, []) : [];
+        currentBankLoanConversionActive = false;
+        return true;
     }
 
     function getLineNetAmount(line) {
@@ -7774,6 +7822,17 @@ window.addEventListener('load', function() {
             if (useBankLoanFlow) {
                 fetchBankLoanLines()
                     .then(function(lines) {
+                        if (applyInsuranceDetectionFromLines(lines)) {
+                            return requestAccountSuggestionsForCurrentRows({
+                                session_id: 'ai_suggest_accounts'
+                            }).then(function(applied) {
+                                if (applied) {
+                                    showSuccess('Sugestoes aplicadas (Seguradora).');
+                                } else {
+                                    showNotice('warning', 'Documento identificado como seguradora, mas nao existem sugestoes para aplicar.');
+                                }
+                            });
+                        }
                         return applyBankLoanConversionFromLines(lines);
                     })
                     .catch(function() {
