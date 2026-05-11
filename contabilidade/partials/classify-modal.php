@@ -1,6 +1,9 @@
 <?php
 $classifyModalImportType = isset($classifyModalImportType) ? (int) $classifyModalImportType : 1;
 $classifyModalShowAiButtons = isset($classifyModalShowAiButtons) ? (bool) $classifyModalShowAiButtons : false;
+$classifyModalCanManageEntityAiInstructions = isset($classifyModalCanManageEntityAiInstructions)
+    ? (bool) $classifyModalCanManageEntityAiInstructions
+    : userHasDepartmentPermission('ctb_classificar_docs');
 $classifyModalTitle = isset($classifyModalTitle) && trim((string) $classifyModalTitle) !== ''
     ? trim((string) $classifyModalTitle)
     : 'Classificar';
@@ -420,6 +423,11 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                                     <option value="insurance">Seguradora</option>
                                                 </select>
                                             </div>
+                                            <?php if ($classifyModalCanManageEntityAiInstructions): ?>
+                                            <button type="button" class="btn btn-sm btn-outline-primary" id="entityPairAiInstructionsBtn" title="Instruções IA" aria-label="Instruções IA">
+                                                <i class="fa fa-android"></i>
+                                            </button>
+                                            <?php endif; ?>
                                         </div>
                                         <input
                                             type="text"
@@ -498,6 +506,9 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                     <?php if ($classifyModalShowAiButtons): ?>
                     <button type="button" class="btn btn-sm btn-outline-info" id="aiSuggestAccountsBtn">
                         <i class="fa fa-lightbulb-o"></i> Sugestão de contas IA
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" id="aiSuggestCorrectionBtn">
+                        <i class="fa fa-commenting-o"></i> Sugerir correção
                     </button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="aiSuggestionExplainBtn">
                         <i class="fa fa-info-circle"></i> Explicação da sugestão

@@ -1969,6 +1969,163 @@ function normalizeSuggestionDocDate(string $value): string {
     return '';
 }
 
+function explanationPayloadHasInvalidTextualRate(string $accountPayload): bool {
+    $decoded = json_decode($accountPayload, true);
+    if (!is_array($decoded)) {
+        return false;
+    }
+
+    $rates = isset($decoded['rates']) && is_array($decoded['rates']) ? $decoded['rates'] : $decoded;
+    foreach ($rates as $rateKey => $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $normalizedKey = normalizeSuggestionRateKey((string) $rateKey);
+        $label = trim((string) ($entry['label'] ?? ''));
+        $normalizedLabel = $label !== '' ? normalizeSuggestionRateKey($label) : '';
+
+        $keyIsTextual = $normalizedKey !== '' && !preg_match('/^\d+(?:\.\d+)?$/', $normalizedKey);
+        $labelIsTextual = $normalizedLabel !== '' && !preg_match('/^\d+(?:\.\d+)?$/', $normalizedLabel);
+
+        if ($keyIsTextual || $labelIsTextual) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function buildSuggestionContextCandidates(array $args): array {
+    $docType = trim((string) ($args['doc_type'] ?? ''));
+    $emitter = trim((string) ($args['emitter'] ?? ''));
+    $emitterNif = extractVatNumber((string) ($args['emitter_nif'] ?? ''));
+    if ($emitterNif === '' && $emitter !== '') {
+        $emitterNif = extractVatNumber($emitter);
+    }
+    $acquirerRaw = trim((string) ($args['acquirer_raw'] ?? ''));
+    $acquirerNif = extractVatNumber((string) ($args['acquirer_nif'] ?? ''));
+    if ($acquirerNif === '' && $acquirerRaw !== '') {
+        $acquirerNif = extractVatNumber($acquirerRaw);
+    }
+
+    $emitterCandidates = array_values(array_unique(array_filter([
+        $emitterNif,
+        $emitter,
+        normalizeSupplierPartyValue($emitter),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    $acquirerCandidates = array_values(array_unique(array_filter([
+        $acquirerNif,
+        $acquirerRaw,
+        normalizeSupplierPartyValue($acquirerRaw),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    $docTypeCandidates = array_values(array_unique(array_filter([
+        $docType,
+        strtoupper($docType),
+        normalizeDocTypeValue($docType),
+    ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+
+    return [
+        'emitter' => $emitterCandidates,
+        'acquirer' => $acquirerCandidates,
+        'doc_type' => $docTypeCandidates,
+    ];
+}
+
+function clearInvalidSuggestionHistoryForContext(PDO $pdo, array $args): array {
+    $candidates = buildSuggestionContextCandidates($args);
+    if (empty($candidates['emitter']) || empty($candidates['acquirer']) || empty($candidates['doc_type'])) {
+        return ['history_cleared' => 0, 'rules_cleared' => 0];
+    }
+
+    $historyCleared = 0;
+    $rulesCleared = 0;
+
+    $historySql = 'SELECT id, account, field_A, field_B, field_C, field_D
+                   FROM accounting_imports
+                   WHERE account <> ""';
+    $historySql .= ' AND field_D IN (' . implode(',', array_fill(0, count($candidates['doc_type']), '?')) . ')';
+    $historySql .= ' AND (field_A IN (' . implode(',', array_fill(0, count($candidates['emitter']), '?')) . ')
+                     OR field_C IN (' . implode(',', array_fill(0, count($candidates['emitter']), '?')) . '))';
+    $historySql .= ' AND (field_B IN (' . implode(',', array_fill(0, count($candidates['acquirer']), '?')) . ')
+                     OR field_C IN (' . implode(',', array_fill(0, count($candidates['acquirer']), '?')) . '))';
+    $historyParams = array_merge(
+        $candidates['doc_type'],
+        $candidates['emitter'],
+        $candidates['emitter'],
+        $candidates['acquirer'],
+        $candidates['acquirer']
+    );
+    $historyStmt = $pdo->prepare($historySql);
+    $historyStmt->execute($historyParams);
+    $historyRows = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!empty($historyRows)) {
+        $clearHistoryStmt = $pdo->prepare('UPDATE accounting_imports SET account = "" WHERE id = ?');
+        foreach ($historyRows as $row) {
+            $payload = trim((string) ($row['account'] ?? ''));
+            if ($payload === '' || !explanationPayloadHasInvalidTextualRate($payload)) {
+                continue;
+            }
+            $clearHistoryStmt->execute([(int) ($row['id'] ?? 0)]);
+            $historyCleared++;
+        }
+    }
+
+    if (hasTable('accounting_classifications')) {
+        $rulesSql = 'SELECT id, account
+                     FROM accounting_classifications
+                     WHERE account <> ""';
+        $rulesSql .= ' AND doc_type IN (' . implode(',', array_fill(0, count($candidates['doc_type']), '?')) . ')';
+        $rulesSql .= ' AND emitter IN (' . implode(',', array_fill(0, count($candidates['emitter']), '?')) . ')';
+        $rulesSql .= ' AND acquirer IN (' . implode(',', array_fill(0, count($candidates['acquirer']), '?')) . ')';
+        $rulesParams = array_merge($candidates['doc_type'], $candidates['emitter'], $candidates['acquirer']);
+        $rulesStmt = $pdo->prepare($rulesSql);
+        $rulesStmt->execute($rulesParams);
+        $ruleRows = $rulesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!empty($ruleRows)) {
+            $clearRuleStmt = $pdo->prepare('UPDATE accounting_classifications SET account = "" WHERE id = ?');
+            foreach ($ruleRows as $row) {
+                $payload = trim((string) ($row['account'] ?? ''));
+                if ($payload === '' || !explanationPayloadHasInvalidTextualRate($payload)) {
+                    continue;
+                }
+                $clearRuleStmt->execute([(int) ($row['id'] ?? 0)]);
+                $rulesCleared++;
+            }
+        }
+    }
+
+    return ['history_cleared' => $historyCleared, 'rules_cleared' => $rulesCleared];
+}
+
+if (!function_exists('hasBankLoanConversionRates')) {
+    function hasBankLoanConversionRates($rateItems): bool {
+        if (!is_array($rateItems)) {
+            return false;
+        }
+        foreach ($rateItems as $rateInfo) {
+            if (!is_array($rateInfo)) {
+                continue;
+            }
+            if (trim((string) ($rateInfo['bank_loan_conversion'] ?? '')) === '1') {
+                return true;
+            }
+            $key = trim((string) ($rateInfo['key'] ?? ''));
+            if ($key === 'bank_loan_commission' || $key === 'bank_loan_capital') {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 function normalizeSuggestionLigacaoDocType(string $docType): string {
     $value = strtoupper(trim($docType));
     if ($value === '') {
@@ -2972,6 +3129,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     }
 
     $args = is_array($payload['payload'] ?? null) ? $payload['payload'] : [];
+    $mode = trim((string) ($payload['mode'] ?? ''));
     $docType = trim((string) ($args['doc_type'] ?? ''));
     $docDate = normalizeSuggestionDocDate((string) ($args['doc_date'] ?? ''));
     $emitter = trim((string) ($args['emitter'] ?? ''));
@@ -2991,10 +3149,34 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         exit;
     }
 
-    $historyTally = buildSuggestionTallyFromHistory($pdo, $acquirerNif, $docType, $emitter);
-    $ruleTally = buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
+    if ($mode === 'clear_wrong_history') {
+        $result = clearInvalidSuggestionHistoryForContext($pdo, $args);
+        logAuditAction('clear_invalid_suggestion_history', 'accounting_suggestions', null, [
+            'doc_type' => $docType,
+            'emitter_nif' => $emitterNif,
+            'acquirer_nif' => $acquirerNif,
+            'history_cleared' => (int) ($result['history_cleared'] ?? 0),
+            'rules_cleared' => (int) ($result['rules_cleared'] ?? 0),
+        ]);
+        echo json_encode([
+            'success' => true,
+            'csrf_token' => generateCsrfToken(),
+            'message' => 'Histórico limpo: ' . (int) ($result['history_cleared'] ?? 0) . ' | Regras limpas: ' . (int) ($result['rules_cleared'] ?? 0) . '.',
+            'history_cleared' => (int) ($result['history_cleared'] ?? 0),
+            'rules_cleared' => (int) ($result['rules_cleared'] ?? 0),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $hasReceiptCompanion = trim((string) ($args['has_receipt_companion'] ?? '0')) === '1';
     $suggestionSources = is_array($args['suggestion_sources'] ?? null) ? $args['suggestion_sources'] : [];
+    $bankMode = hasBankLoanConversionRates($rateItems) || trim((string) ($args['emitter_type'] ?? '')) === 'bank';
+    $historyTally = $bankMode
+        ? ['samples' => 0, 'rates' => [], 'totals' => []]
+        : buildSuggestionTallyFromHistory($pdo, $acquirerNif, $docType, $emitter);
+    $ruleTally = $bankMode
+        ? ['samples' => 0, 'rates' => [], 'totals' => []]
+        : buildSuggestionTallyFromRules($pdo, $docType, $emitter, $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif);
     $backofficeInstructionSourceActive = in_array('ai_prompt_extra_classification_rules', $suggestionSources, true);
     $backofficeInstructions = buildBackofficeInstructionSuggestionsForExplanation($rateItems, [
         'emitter' => $emitter,
@@ -3385,6 +3567,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $topRulesTotal = !empty($ruleTally['totals']) ? (string) array_key_first($ruleTally['totals']) : '';
 
     $totalReasons = [];
+    if ($bankMode) {
+        $totalReasons[] = 'Modo Banco ativo: a sugestão priorizou as Instruções adicionais de Settings e a Ligação Cte Tipo Doc do ERP.';
+    }
     if ((int) ($historyTally['samples'] ?? 0) > 0) {
         $line = 'Histórico MySQL analisado (' . (int) $historyTally['samples'] . ' registos)';
         if ($topHistoryTotal !== '') {
@@ -3443,6 +3628,8 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         'success' => true,
         'csrf_token' => generateCsrfToken(),
         'summary' => [
+            'bank_mode' => $bankMode ? 1 : 0,
+            'bank_mode_label' => $bankMode ? 'Banco: Settings + Ligação ERP' : '',
             'history_samples' => (int) ($historyTally['samples'] ?? 0),
             'rule_samples' => (int) ($ruleTally['samples'] ?? 0),
             'backoffice_instruction_rules' => (int) ($backofficeInstructions['count'] ?? 0),

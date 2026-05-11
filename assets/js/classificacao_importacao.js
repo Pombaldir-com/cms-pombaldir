@@ -497,6 +497,290 @@ window.addEventListener('load', function() {
         });
     }
 
+    function getCurrentEmitterTypeForCorrection() {
+        return emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() || 'normal' : 'normal';
+    }
+
+    function getClassificationCorrectionExamples() {
+        var emitterType = getCurrentEmitterTypeForCorrection();
+        if (emitterType === 'insurance') {
+            return [
+                'Seguros sem LigacaoCteTipoDoc: conta geral 626312 e total 1205',
+                'Seguradora com imposto do selo: criar 1 linha unica, base = total do documento e sem Conta IVA',
+                'Medis/Multicare/Fidelidade: tratar como Seguradora e nunca como Banco'
+            ];
+        }
+        if (emitterType === 'bank') {
+            return [
+                'Banco com CAPITAL cria linha adicional',
+                'Banco com CAPITAL, JUROS e COMISSOES: CAPITAL usa conta ERP, JUROS = 6911, COMISSOES = 698812',
+                'Banco sem separar juros/comissoes no OCR: usar 1 linha unica com taxa 0%'
+            ];
+        }
+        return [
+            'Fornecedor recorrente sem historico: usar a conta geral habitual deste tipo de despesa',
+            'Se a taxa for 0% e nao houver Conta IVA, manter a linha sem conta IVA',
+            'Nao usar contas de Banco ou Seguradora fora desses contextos'
+        ];
+    }
+
+    function buildCorrectionSuggestionHtml(examples) {
+        var html = '<div class="text-start">';
+        html += '<p class="mb-2">Descreva a regra de forma curta e reutilizável. Exemplos:</p>';
+        html += '<div class="mb-3">';
+        examples.forEach(function(example) {
+            html += '<div class="text-muted small mb-2">'
+                + escapeHtml(example)
+                + '</div>';
+        });
+        html += '</div>';
+        html += '<textarea id="aiCorrectionSuggestionText" class="form-control" rows="9" maxlength="2000" style="min-height:220px; width:100%; resize:vertical;" placeholder="Ex.: Seguros sem LigacaoCteTipoDoc: conta geral 626312 e total 1205"></textarea>';
+        html += '<small class="text-muted d-block mt-2">A sugestão fica memorizada por grupo de entidade para melhorar futuras sugestões. Limite: 2000 caracteres.</small>';
+        html += '</div>';
+        return html;
+    }
+
+    function buildEntityPairAiInstructionsHtml(examples, existingText) {
+        var html = '<div class="text-start">';
+        html += '<p class="mb-2">Estas instruções aplicam-se apenas a este emitente/adquirente.</p>';
+        html += '<div class="d-flex flex-column gap-2 mb-3">';
+        examples.forEach(function(example, index) {
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary text-start ai-pair-instruction-example-btn" data-example-index="' + index + '">'
+                + escapeHtml(example)
+                + '</button>';
+        });
+        html += '</div>';
+        html += '<textarea id="entityPairAiInstructionsText" class="form-control" rows="10" style="min-height:240px; width:100%; resize:vertical;" placeholder="Escreva aqui as regras personalizadas para este emitente/adquirente...">'
+            + escapeHtml(existingText || '')
+            + '</textarea>';
+        html += '<small class="text-muted d-block mt-2">Estas instruções são lidas juntamente com as instruções gerais de Definições &gt; AI.</small>';
+        html += '</div>';
+        return html;
+    }
+
+    function saveClassificationCorrectionSuggestion(instruction) {
+        if (!instruction) {
+            return;
+        }
+        postAssistantRequest({
+            action: 'save_classification_correction',
+            instruction: instruction,
+            context: {
+                emitter_type: getCurrentEmitterTypeForCorrection(),
+                emitter_nif: currentBtn ? String(currentBtn.getAttribute('data-emitter-nif') || '').trim() : '',
+                acquirer_nif: currentBtn ? String(currentBtn.getAttribute('data-acquirer') || '').trim() : '',
+                doc_type: currentBtn ? String(currentBtn.getAttribute('data-doctype') || '').trim() : ''
+            },
+            session_id: 'ai_suggest_accounts'
+        }).then(function(res) {
+            if (!res || res.success === false) {
+                showError((res && (res.message || res.error)) || 'Não foi possível memorizar a correção.');
+                return;
+            }
+            showSuccess((res && res.message) || 'Correção memorizada para próximas sugestões.');
+        }).catch(function(err) {
+            showError((err && err.message) || 'Erro ao memorizar a correção.');
+        });
+    }
+
+    function saveEntityPairAiInstructions(instructions) {
+        if (!currentBtn) {
+            return;
+        }
+        var body = new URLSearchParams({
+            id: currentBtn.getAttribute('data-id') || '',
+            A: currentBtn.getAttribute('data-emitter') || '',
+            B: currentBtn.getAttribute('data-acquirer') || '',
+            emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+            acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+            instructions: instructions || '',
+            csrf_token: csrfInput ? csrfInput.value : ''
+        });
+        fetchJson('contabilidade/save-analysis.php?action=save_entity_ai_instructions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        }).then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (!res || res.success === false) {
+                showError((res && (res.error || res.message)) || 'Não foi possível guardar as Instruções IA.');
+                return;
+            }
+            currentEntityPairAiInstructions = String((res && res.instructions) || '').trim();
+            showSuccess((res && res.message) || 'Instruções IA guardadas.');
+        }).catch(function(err) {
+            showError((err && err.message) || 'Erro ao guardar as Instruções IA.');
+        });
+    }
+
+    function openEntityPairAiInstructionsDialog() {
+        if (!currentBtn) {
+            showNotice('warning', 'Selecione um documento antes de editar Instruções IA.');
+            return;
+        }
+        var examples = getClassificationCorrectionExamples();
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            window.Swal.fire({
+                title: 'Instruções IA',
+                html: buildEntityPairAiInstructionsHtml(examples, currentEntityPairAiInstructions),
+                width: 960,
+                showCancelButton: true,
+                confirmButtonText: 'Guardar',
+                cancelButtonText: 'Cancelar',
+                didOpen: function() {
+                    var textarea = document.getElementById('entityPairAiInstructionsText');
+                    var buttons = document.querySelectorAll('.ai-pair-instruction-example-btn');
+                    buttons.forEach(function(button, index) {
+                        button.addEventListener('click', function() {
+                            if (!textarea) {
+                                return;
+                            }
+                            var prefix = textarea.value && String(textarea.value).trim() !== '' ? textarea.value.replace(/\s+$/, '') + '\n' : '';
+                            textarea.value = prefix + (examples[index] || '');
+                            textarea.focus();
+                        });
+                    });
+                },
+                preConfirm: function() {
+                    var textarea = document.getElementById('entityPairAiInstructionsText');
+                    return textarea ? String(textarea.value || '').trim() : '';
+                }
+            }).then(function(result) {
+                if (!result || !result.isConfirmed) {
+                    return;
+                }
+                saveEntityPairAiInstructions(String(result.value || '').trim());
+            });
+            return;
+        }
+        var value = window.prompt('Instruções IA para este emitente/adquirente:', currentEntityPairAiInstructions || '');
+        if (value !== null) {
+            saveEntityPairAiInstructions(String(value || '').trim());
+        }
+    }
+
+    var correctionSuggestModalEl = null;
+    var correctionSuggestModalBody = null;
+    var correctionSuggestModalTextarea = null;
+    var correctionSuggestModalSaveBtn = null;
+    var correctionSuggestModal = null;
+    var correctionSuggestModalExamples = [];
+
+    function ensureCorrectionSuggestModal() {
+        if (correctionSuggestModalEl) {
+            return true;
+        }
+        if (!document.body || !window.bootstrap || typeof window.bootstrap.Modal !== 'function') {
+            return false;
+        }
+
+        correctionSuggestModalEl = document.createElement('div');
+        correctionSuggestModalEl.className = 'modal fade';
+        correctionSuggestModalEl.id = 'correctionSuggestModal';
+        correctionSuggestModalEl.tabIndex = -1;
+        correctionSuggestModalEl.setAttribute('aria-hidden', 'true');
+        correctionSuggestModalEl.innerHTML = ''
+            + '<div class="modal-dialog modal-lg">'
+            + '  <div class="modal-content">'
+            + '    <div class="modal-header">'
+            + '      <h5 class="modal-title">Sugerir correção</h5>'
+            + '      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>'
+            + '    </div>'
+            + '    <div class="modal-body"></div>'
+            + '    <div class="modal-footer">'
+            + '      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>'
+            + '      <button type="button" class="btn btn-primary" id="correctionSuggestModalSaveBtn">Memorizar</button>'
+            + '    </div>'
+            + '  </div>'
+            + '</div>';
+
+        document.body.appendChild(correctionSuggestModalEl);
+        correctionSuggestModalBody = correctionSuggestModalEl.querySelector('.modal-body');
+        correctionSuggestModalSaveBtn = correctionSuggestModalEl.querySelector('#correctionSuggestModalSaveBtn');
+        correctionSuggestModal = new window.bootstrap.Modal(correctionSuggestModalEl);
+
+        if (correctionSuggestModalSaveBtn) {
+            correctionSuggestModalSaveBtn.addEventListener('click', function() {
+                var value = correctionSuggestModalTextarea ? String(correctionSuggestModalTextarea.value || '').trim() : '';
+                if (!value) {
+                    showNotice('warning', 'Indique a correção a memorizar.');
+                    return;
+                }
+                correctionSuggestModal.hide();
+                saveClassificationCorrectionSuggestion(value);
+            });
+        }
+
+        return !!correctionSuggestModalBody;
+    }
+
+    function showCorrectionSuggestModal(examples) {
+        if (!ensureCorrectionSuggestModal()) {
+            return false;
+        }
+        correctionSuggestModalExamples = Array.isArray(examples) ? examples.slice() : [];
+        correctionSuggestModalBody.innerHTML = buildCorrectionSuggestionHtml(correctionSuggestModalExamples);
+        correctionSuggestModalTextarea = correctionSuggestModalBody.querySelector('#aiCorrectionSuggestionText');
+        if (correctionSuggestModalTextarea) {
+            correctionSuggestModalTextarea.style.minHeight = '260px';
+            correctionSuggestModalTextarea.style.width = '100%';
+            correctionSuggestModalTextarea.style.resize = 'vertical';
+        }
+        correctionSuggestModal.show();
+        return true;
+    }
+
+    function openClassificationCorrectionDialog() {
+        var examples = getClassificationCorrectionExamples();
+        if (window.Swal && typeof window.Swal.fire === 'function') {
+            window.Swal.fire({
+                title: 'Sugerir correção',
+                html: buildCorrectionSuggestionHtml(examples),
+                width: 920,
+                showCancelButton: true,
+                confirmButtonText: 'Memorizar',
+                cancelButtonText: 'Cancelar',
+                didOpen: function() {
+                    var textarea = document.getElementById('aiCorrectionSuggestionText');
+                    var popup = window.Swal.getPopup ? window.Swal.getPopup() : null;
+                    if (popup) {
+                        popup.style.maxWidth = '920px';
+                    }
+                    if (textarea) {
+                        textarea.style.minHeight = '220px';
+                        textarea.style.width = '100%';
+                        textarea.style.resize = 'vertical';
+                    }
+                },
+                preConfirm: function() {
+                    var textarea = document.getElementById('aiCorrectionSuggestionText');
+                    var value = textarea ? String(textarea.value || '').trim() : '';
+                    if (!value) {
+                        window.Swal.showValidationMessage('Indique a correção a memorizar.');
+                        return false;
+                    }
+                    return value;
+                }
+            }).then(function(result) {
+                if (!result || !result.isConfirmed || !result.value) {
+                    return;
+                }
+                saveClassificationCorrectionSuggestion(String(result.value || '').trim());
+            });
+            return;
+        }
+        if (showCorrectionSuggestModal(examples)) {
+            return;
+        }
+        var fallbackMessage = 'Sugira uma correção para futuras classificações.\n\nExemplos:\n- ' + examples.join('\n- ');
+        var value = window.prompt(fallbackMessage, examples[0] || '');
+        if (value && String(value).trim()) {
+            saveClassificationCorrectionSuggestion(String(value).trim());
+        }
+    }
+
     function buildImportCtbUrl() {
         return importCtbRelativeUrl;
     }
@@ -2348,6 +2632,8 @@ window.addEventListener('load', function() {
     var form = document.getElementById('classify-form');
     var addVatLineBtn = document.getElementById('addVatLineBtn');
     var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
+    var aiSuggestCorrectionBtn = document.getElementById('aiSuggestCorrectionBtn');
+    var entityPairAiInstructionsBtn = document.getElementById('entityPairAiInstructionsBtn');
     var classifyTableOverlay = document.getElementById('classifyTableOverlay');
     var aiSuggestionExplainBtn = document.getElementById('aiSuggestionExplainBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
@@ -2360,8 +2646,11 @@ window.addEventListener('load', function() {
     var currentIgnoreDetectedRates = false;
     var currentBankLoanConversionActive = false;
     var currentBankLoanResolvedAmounts = null;
+    var currentBankLoanCapitalAccount = '';
     var currentClassificationModelName = '';
     var classificationModels = [];
+    var currentEntityPairAiInstructions = '';
+    var currentCanManageEntityPairAiInstructions = false;
     var currentDocumentFieldValues = {};
     var currentBankLoanDocumentLines = [];
     var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
@@ -4044,6 +4333,15 @@ window.addEventListener('load', function() {
             csrfInput.value = response.csrf_token;
         }
 
+        currentEntityPairAiInstructions = typeof response.entity_pair_ai_instructions === 'string'
+            ? String(response.entity_pair_ai_instructions || '').trim()
+            : '';
+        currentCanManageEntityPairAiInstructions = String(response.can_manage_entity_ai_instructions || '').trim() === '1';
+        if (entityPairAiInstructionsBtn) {
+            entityPairAiInstructionsBtn.disabled = !currentCanManageEntityPairAiInstructions;
+            entityPairAiInstructionsBtn.classList.toggle('disabled', !currentCanManageEntityPairAiInstructions);
+        }
+
         storedRowRates = (response.row_rates && typeof response.row_rates === 'object') ? response.row_rates : {};
         storedDefaultRates = (response.rates && typeof response.rates === 'object') ? response.rates : {};
         preserveAdjustedDisplayRates(storedRowRates, currentRateData);
@@ -4103,11 +4401,11 @@ window.addEventListener('load', function() {
             }
             var rowData = storedRowRates[rate];
             if (rowData && typeof rowData === 'object') {
-                if (rowData.iva_account) {
-                    currentRateData[rate].iva_account = rowData.iva_account;
+                if (Object.prototype.hasOwnProperty.call(rowData, 'iva_account')) {
+                    currentRateData[rate].iva_account = String(rowData.iva_account || '').trim();
                 }
-                if (rowData.general_account) {
-                    currentRateData[rate].general_account = rowData.general_account;
+                if (Object.prototype.hasOwnProperty.call(rowData, 'general_account')) {
+                    currentRateData[rate].general_account = String(rowData.general_account || '').trim();
                 }
                 if (rowData.label) {
                     currentRateData[rate].label = normalizeRateLabelForUi(rowData.label);
@@ -4135,11 +4433,11 @@ window.addEventListener('load', function() {
             }
             var defaultData = storedDefaultRates[rate];
             if (defaultData && typeof defaultData === 'object') {
-                if (defaultData.iva_account) {
-                    currentRateData[rate].iva_account = defaultData.iva_account;
+                if (Object.prototype.hasOwnProperty.call(defaultData, 'iva_account')) {
+                    currentRateData[rate].iva_account = String(defaultData.iva_account || '').trim();
                 }
-                if (defaultData.general_account) {
-                    currentRateData[rate].general_account = defaultData.general_account;
+                if (Object.prototype.hasOwnProperty.call(defaultData, 'general_account')) {
+                    currentRateData[rate].general_account = String(defaultData.general_account || '').trim();
                 }
                 if (defaultData.label) {
                     currentRateData[rate].label = normalizeRateLabelForUi(defaultData.label);
@@ -4743,7 +5041,7 @@ window.addEventListener('load', function() {
         if (isEmitterInsuranceEntitySelected()) {
             return false;
         }
-        if (hasBankLoanStampValues()) {
+        if (hasBankLoanStampValues() && isEmitterBankEntitySelected()) {
             return true;
         }
         return isEmitterBankEntitySelected() && getDocumentFieldNumber('FIELD_O') !== null;
@@ -4819,6 +5117,17 @@ window.addEventListener('load', function() {
             return false;
         }
         return [
+            'medis',
+            'multicare',
+            'fidelidade',
+            'tranquilidade',
+            'allianz',
+            'generali',
+            'ageas',
+            'advancecare',
+            'una seguros',
+            'logo seguros',
+            'seguros de saude',
             'apolice',
             'seguro',
             'seguros',
@@ -4870,12 +5179,17 @@ window.addEventListener('load', function() {
         if (parseDecimalValue(line.TAX) !== null || parseDecimalValue(line.STAMP_TAX) !== null || parseDecimalValue(line.IMPOSTO_SELO) !== null) {
             return true;
         }
+        var description = normalizeLoanLineDescription(getLineDescriptionText(line));
+        if (description.indexOf('imposto selo') !== -1 || description.indexOf(' selo ') !== -1 || description.indexOf('selo s/') !== -1 || description.indexOf('selo sobre') !== -1) {
+            return true;
+        }
         var ivaTaxa = normalizeLoanLineDescription(line.IVA_TAXA || line.TAX_RATE || '');
         return ivaTaxa === 'is' || ivaTaxa.indexOf('i.s') !== -1 || ivaTaxa.indexOf('selo') !== -1;
     }
 
     function buildBankLoanAmountsFromLines(lines, exemptBase, stampTax, totalGross) {
         var result = {
+            capital: 0,
             interest: 0,
             commission: 0,
             matched: false,
@@ -4895,14 +5209,23 @@ window.addEventListener('load', function() {
         var textSuggestsOnlyCommission = combinedRawText.indexOf('comiss') !== -1
             && combinedRawText.indexOf('juro') === -1;
 
-        lines.forEach(function(line) {
+        lines.forEach(function(line, index) {
             var description = normalizeLoanLineDescription(getLineDescriptionText(line));
             var net = getLineNetAmount(line);
+            var isCapitalLine = description === 'capital' || description.indexOf('capital ') === 0;
             if (net === null || Math.abs(net) < 0.00001) {
                 return;
             }
             if (lineHasExplicitStampTax(line)) {
                 usesLineTotalsWithStamp = true;
+            }
+            if (isCapitalLine) {
+                var capitalAmount = parseDecimalValue(line.UNIT_PRICE);
+                if (capitalAmount === null || Math.abs(capitalAmount) < 0.00001) {
+                    capitalAmount = net;
+                }
+                result.capital += capitalAmount;
+                return;
             }
             if (description.indexOf('juro') !== -1) {
                 result.interest += net;
@@ -4964,6 +5287,10 @@ window.addEventListener('load', function() {
         }
         if (Math.abs(result.interest) < 0.00001 && exemptBase > result.commission) {
             result.interest = exemptBase - result.commission;
+            if (result.interest > 0.00001) {
+                result.matched = true;
+                result.hasInterest = true;
+            }
         }
         if (Math.abs(result.commission) < 0.00001 && exemptBase > result.interest) {
             result.commission = exemptBase - result.interest;
@@ -5062,6 +5389,7 @@ window.addEventListener('load', function() {
         currentCostCenterBreakdowns = {};
         currentBankLoanDocumentLines = [];
         currentBankLoanResolvedAmounts = null;
+        currentBankLoanCapitalAccount = '';
     }
 
     function showClassificationTableOverlay() {
@@ -5084,7 +5412,13 @@ window.addEventListener('load', function() {
         var formattedBase = formatDecimalValue(baseValue);
         var resolvedGeneralAccount = String(generalAccount || '').trim();
         if (!resolvedGeneralAccount) {
-            resolvedGeneralAccount = rate === 'bank_loan_commission' ? '698812' : '6911';
+            if (rate === 'bank_loan_commission') {
+                resolvedGeneralAccount = '698812';
+            } else if (rate === 'bank_loan_capital') {
+                resolvedGeneralAccount = currentBankLoanCapitalAccount || '';
+            } else {
+                resolvedGeneralAccount = '6911';
+            }
         }
         var ratePayload = {
             label: label,
@@ -5174,6 +5508,9 @@ window.addEventListener('load', function() {
                     total_account: (typeof res.total_account === 'string' ? res.total_account : '')
                 };
             }
+            if (res && typeof res === 'object' && typeof res.erp_ligacao_capital_account === 'string') {
+                currentBankLoanCapitalAccount = String(res.erp_ligacao_capital_account || '').trim();
+            }
             if (!parsed) {
                 parsed = extractJsonFromText(message);
             }
@@ -5191,6 +5528,12 @@ window.addEventListener('load', function() {
                 if (Array.isArray(res.actions)) {
                     res.actions.forEach(function(action) {
                         if (action && action.type === 'suggest_accounts') {
+                            if (action.user_correction_instructions && parseInt(action.user_correction_instructions, 10) > 0) {
+                                window.aiSuggestionSources.push('user_classification_corrections');
+                            }
+                            if (parseInt(action.bank_mode, 10) === 1) {
+                                window.aiSuggestionSources.push('bank_settings_erp');
+                            }
                             if (action.history && parseInt(action.history, 10) > 0) {
                                 window.aiSuggestionSources.push('mysql_history');
                             }
@@ -5268,11 +5611,30 @@ window.addEventListener('load', function() {
                 bank_loan_conversion: '1'
             });
         }
+        if ((amounts.capital || 0) > 0) {
+            rateLinesOverride.push({
+                key: 'bank_loan_capital',
+                label: '0',
+                base: formatDecimalValue(amounts.capital),
+                iva: '',
+                bank_loan_conversion: '1'
+            });
+        }
         return requestAccountSuggestionsForCurrentRows({
             session_id: 'ai_suggest_accounts',
             rateLinesOverride: rateLinesOverride
         })
             .then(function(applied) {
+                if ((currentBankLoanResolvedAmounts.capital || 0) > 0 && !rateInputs.bank_loan_capital) {
+                    setBankLoanRate('bank_loan_capital', '0', currentBankLoanResolvedAmounts.capital, currentBankLoanCapitalAccount || '');
+                }
+                if ((currentBankLoanResolvedAmounts.capital || 0) > 0 && currentRateData.bank_loan_capital) {
+                    currentRateData.bank_loan_capital.general_account = currentBankLoanCapitalAccount || String(currentRateData.bank_loan_capital.general_account || '').trim();
+                    if (rateInputs.bank_loan_capital && rateInputs.bank_loan_capital.generalAccount) {
+                        rateInputs.bank_loan_capital.generalAccount.value = currentRateData.bank_loan_capital.general_account;
+                        updatePlanInputTitle(rateInputs.bank_loan_capital.generalAccount);
+                    }
+                }
                 applyBankLoanResolvedAmountsToRows(currentBankLoanResolvedAmounts);
                 finalizeBankLoanSingleLineResult(currentBankLoanResolvedAmounts);
                 enforceBankLoanAccountRulesOnCurrentRows();
@@ -5775,12 +6137,18 @@ window.addEventListener('load', function() {
     }
 
     function adjustPrimaryBaseForRateChange(changedRate, previousBaseNumber, newBaseNumber) {
+        if (isBankLoanConversionRate(changedRate, ensureRateData(changedRate))) {
+            return;
+        }
         var ratePercentage = getRatePercentage(changedRate);
         if (ratePercentage === null) {
             return;
         }
         var primaryInfo = findPrimaryRateForPercentage(ratePercentage, { excludeRate: changedRate });
         if (!primaryInfo || !primaryInfo.base) {
+            return;
+        }
+        if (isBankLoanConversionRate(primaryInfo.rate, ensureRateData(primaryInfo.rate))) {
             return;
         }
         var previousValue = previousBaseNumber === null || previousBaseNumber === undefined ? 0 : previousBaseNumber;
@@ -5991,6 +6359,8 @@ window.addEventListener('load', function() {
                 || label.indexOf('gestao') !== -1
             ) {
                 targetAccount = '698812';
+            } else if (rate === 'bank_loan_capital') {
+                targetAccount = currentBankLoanCapitalAccount || String(data.general_account || '').trim();
             } else {
                 targetAccount = '6911';
             }
@@ -6031,7 +6401,7 @@ window.addEventListener('load', function() {
         var changed = false;
 
         Object.keys(rateInputs || {}).forEach(function(rate) {
-            if (rate === targetRate) {
+            if (rate === targetRate || rate === 'bank_loan_capital') {
                 return;
             }
             if (rateInputs[rate]) {
@@ -6095,7 +6465,8 @@ window.addEventListener('load', function() {
         var applied = false;
         [
             { rate: '0', amount: amounts.interest },
-            { rate: 'bank_loan_commission', amount: amounts.singleLine && String(amounts.primaryRate || '') === 'bank_loan_commission' ? (amounts.interest + amounts.commission) : amounts.commission }
+            { rate: 'bank_loan_commission', amount: amounts.singleLine && String(amounts.primaryRate || '') === 'bank_loan_commission' ? (amounts.interest + amounts.commission) : amounts.commission },
+            { rate: 'bank_loan_capital', amount: amounts.capital }
         ].forEach(function(entry) {
             var rate = entry.rate;
             if (!currentRateData[rate] || String(currentRateData[rate].bank_loan_conversion || '').trim() !== '1') {
@@ -6312,7 +6683,7 @@ window.addEventListener('load', function() {
         }
 
         var singleTargetRate = getResolvedBankLoanSingleLineTargetRate();
-        var allowedRates = singleTargetRate ? [singleTargetRate] : ['0', 'bank_loan_commission'];
+        var allowedRates = singleTargetRate ? [singleTargetRate] : ['0', 'bank_loan_commission', 'bank_loan_capital'];
         var allowedMap = {};
         var changed = false;
         var targetAmount = null;
@@ -6341,6 +6712,11 @@ window.addEventListener('load', function() {
             }
         }
 
+        if (currentBankLoanResolvedAmounts && (currentBankLoanResolvedAmounts.capital || 0) > 0 && !rateInputs.bank_loan_capital) {
+            setBankLoanRate('bank_loan_capital', '0', currentBankLoanResolvedAmounts.capital, currentBankLoanCapitalAccount || '');
+            changed = true;
+        }
+
         allowedRates.forEach(function(rate) {
             if (!currentRateData[rate]) {
                 return;
@@ -6354,6 +6730,10 @@ window.addEventListener('load', function() {
                 currentRateData[rate].base = formatDecimalValue(targetAmount);
                 currentRateData[rate].base_value = currentRateData[rate].base;
                 currentRateData[rate].general_account = targetAccount;
+            } else if (rate === 'bank_loan_capital' && currentBankLoanResolvedAmounts) {
+                currentRateData[rate].base = formatDecimalValue(currentBankLoanResolvedAmounts.capital || 0);
+                currentRateData[rate].base_value = currentRateData[rate].base;
+                currentRateData[rate].general_account = currentBankLoanCapitalAccount || currentRateData[rate].general_account || '';
             }
             populateRateRow(rate);
             updateRowDirtyState(rate);
@@ -6501,6 +6881,10 @@ window.addEventListener('load', function() {
                 return;
             }
             var suggestion = ratesPayload[rateKey] || {};
+            var hasExplicitIvaAccount = Object.prototype.hasOwnProperty.call(suggestion, 'iva_account')
+                || Object.prototype.hasOwnProperty.call(suggestion, 'ivaAccount')
+                || Object.prototype.hasOwnProperty.call(suggestion, 'conta_iva')
+                || Object.prototype.hasOwnProperty.call(suggestion, 'contaIVA');
             var ivaAccount = resolveSuggestionValue(suggestion, ['iva_account', 'ivaAccount', 'conta_iva', 'contaIVA']);
             var generalAccount = resolveSuggestionValue(suggestion, ['general_account', 'generalAccount', 'conta_geral', 'contaGeral', 'account']);
             ivaAccount = sanitizeAccountCodeForRate(ivaAccount, resolvedKey);
@@ -6510,7 +6894,7 @@ window.addEventListener('load', function() {
                 ivaAccount = '';
             }
             var updated = false;
-            if (ivaAccount) {
+            if (ivaAccount || hasExplicitIvaAccount || (normalizedResolvedRate !== null && Math.abs(normalizedResolvedRate) < 0.00001)) {
                 var currentIvaAccount = info.ivaAccount ? String(info.ivaAccount.value || '').trim() : String((ensureRateData(resolvedKey).iva_account || '')).trim();
                 if (info.ivaAccount) {
                     info.ivaAccount.value = ivaAccount;
@@ -7890,6 +8274,12 @@ window.addEventListener('load', function() {
                         if (Array.isArray(res.actions)) {
                             res.actions.forEach(function(action) {
                                 if (action && action.type === 'suggest_accounts') {
+                                    if (action.user_correction_instructions && parseInt(action.user_correction_instructions, 10) > 0) {
+                                        window.aiSuggestionSources.push('user_classification_corrections');
+                                    }
+                                    if (parseInt(action.bank_mode, 10) === 1) {
+                                        window.aiSuggestionSources.push('bank_settings_erp');
+                                    }
                                     if (action.history && parseInt(action.history, 10) > 0) {
                                         window.aiSuggestionSources.push('mysql_history');
                                     }
@@ -7920,6 +8310,13 @@ window.addEventListener('load', function() {
                         res.actions.forEach(function(action) {
                             if (!action || action.type !== 'suggest_accounts') {
                                 return;
+                            }
+                            if (parseInt(action.bank_mode, 10) === 1) {
+                                sourceLabel = 'Banco: Settings + Ligação ERP';
+                                return;
+                            }
+                            if (action.user_correction_instructions && parseInt(action.user_correction_instructions, 10) > 0 && sourceLabel === 'IA') {
+                                sourceLabel = 'IA + Correções memorizadas';
                             }
                             var historyCount = parseInt(action.history, 10);
                             if (!isNaN(historyCount) && historyCount > 0) {
@@ -7974,6 +8371,12 @@ window.addEventListener('load', function() {
         var html = '';
         if (response.summary && typeof response.summary === 'object') {
             var summary = response.summary;
+            if (String(summary.bank_mode || '0') === '1') {
+                html += '<div class="alert alert-info py-2 mb-3">'
+                    + '<strong>' + escapeHtml(String(summary.bank_mode_label || 'Banco: Settings + Ligação ERP')) + '</strong><br>'
+                    + 'Neste modo a sugestão prioriza as Instruções adicionais de Settings e a Ligação ERP, ignorando histórico, regras antigas e movimentos ERP.'
+                    + '</div>';
+            }
             if (String(summary.supplier_not_found || '0') === '1') {
                 html += '<div class="alert alert-warning mb-3">'
                     + escapeHtml(String(summary.supplier_lookup_message || 'Fornecedor não encontrado no ERP para a ligação do documento.'))
@@ -7996,6 +8399,14 @@ window.addEventListener('load', function() {
             if (String(summary.backoffice_instruction_source || '0') === '1') {
                 html += '<div class="alert alert-info py-2 mb-3">'
                     + 'A sugestão aplicada inclui regras lidas nas Instruções adicionais do backoffice.'
+                    + '</div>';
+            }
+            if (parseInt(summary.history_samples || 0, 10) > 0 || parseInt(summary.rule_samples || 0, 10) > 0) {
+                html += '<div class="mb-3">'
+                    + '<button type="button" class="btn btn-sm btn-outline-danger" id="clearWrongSuggestionHistoryBtn">'
+                    + '<i class="fa fa-eraser"></i> Limpar histórico/regras errados deste contexto'
+                    + '</button>'
+                    + '<small class="text-muted d-block mt-2">Remove apenas sugestões históricas e regras do contexto atual com taxa textual inválida, como "Imposto do Selo".</small>'
                     + '</div>';
             }
         }
@@ -8108,18 +8519,104 @@ window.addEventListener('load', function() {
                 title: 'Explicação da sugestão',
                 html: html,
                 width: 900,
-                confirmButtonText: 'Fechar'
+                confirmButtonText: 'Fechar',
+                didOpen: function() {
+                    attachClearWrongSuggestionHistoryHandler(document);
+                }
             });
             return;
         }
 
         if (ensureSuggestionExplainModal()) {
             suggestionExplainModalBody.innerHTML = html;
+            attachClearWrongSuggestionHistoryHandler(suggestionExplainModalBody);
             suggestionExplainModal.show();
             return;
         }
 
         showNotice('info', 'Explicação obtida, mas sem componente visual para a mostrar.');
+    }
+
+    function clearWrongSuggestionHistoryFromExplanation(buttonEl) {
+        if (!currentBtn) {
+            showNotice('warning', 'Selecione um documento antes de limpar histórico.');
+            return;
+        }
+
+        var rates = buildRateExplanationPayload();
+        if (!rates.length) {
+            showNotice('warning', 'Não existem taxas para limpar neste contexto.');
+            return;
+        }
+
+        if (!window.confirm('Limpar o histórico e as regras erradas deste contexto? Esta ação remove sugestões antigas com taxa textual inválida.')) {
+            return;
+        }
+
+        if (buttonEl) {
+            buttonEl.disabled = true;
+            buttonEl.classList.add('disabled');
+        }
+
+        fetchJson('contabilidade/classificacao-importacao/suggestion-explanation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: csrfInput ? csrfInput.value : '',
+                mode: 'clear_wrong_history',
+                payload: {
+                    acquirer_nif: currentBtn.getAttribute('data-acquirer') || '',
+                    acquirer_raw: currentBtn.getAttribute('data-acquirer') || '',
+                    emitter: currentBtn.getAttribute('data-emitter-display') || currentBtn.getAttribute('data-emitter') || '',
+                    emitter_nif: currentBtn.getAttribute('data-emitter-nif') || '',
+                    db: currentBtn.getAttribute('data-acquirer-db') || '',
+                    doc_type: currentBtn.getAttribute('data-doctype') || '',
+                    doc_date: currentBtn.getAttribute('data-docdate') || '',
+                    emitter_type: emitterTypeSelect ? String(emitterTypeSelect.value || '').trim() : '',
+                    document_fields: getCurrentDocumentFieldsPayload(),
+                    has_receipt_companion: currentBtn.getAttribute('data-has-receipt-companion') || '0',
+                    total_account: totalAccountInput ? String(totalAccountInput.value || '').trim() : '',
+                    suggestion_sources: window.aiSuggestionSources || [],
+                    rates: rates
+                }
+            })
+        }).then(function(res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            if (!res || !res.success) {
+                showError((res && res.error) || 'Não foi possível limpar o histórico/regra errados.');
+                return;
+            }
+            showSuccess((res && res.message) || 'Histórico/regra errados limpos. Peça nova sugestão.');
+            if (window.Swal && typeof window.Swal.close === 'function') {
+                window.Swal.close();
+            }
+            if (suggestionExplainModal && typeof suggestionExplainModal.hide === 'function') {
+                suggestionExplainModal.hide();
+            }
+        }).catch(function(err) {
+            showError((err && err.message) || 'Erro ao limpar histórico/regra errados.');
+        }).finally(function() {
+            if (buttonEl) {
+                buttonEl.disabled = false;
+                buttonEl.classList.remove('disabled');
+            }
+        });
+    }
+
+    function attachClearWrongSuggestionHistoryHandler(container) {
+        if (!container || typeof container.querySelector !== 'function') {
+            return;
+        }
+        var button = container.querySelector('#clearWrongSuggestionHistoryBtn');
+        if (!button || button.__clearWrongSuggestionHistoryBound) {
+            return;
+        }
+        button.__clearWrongSuggestionHistoryBound = true;
+        button.addEventListener('click', function() {
+            clearWrongSuggestionHistoryFromExplanation(button);
+        });
     }
 
     if (aiSuggestionExplainBtn) {
@@ -8176,6 +8673,26 @@ window.addEventListener('load', function() {
         });
     }
 
+    if (aiSuggestCorrectionBtn) {
+        aiSuggestCorrectionBtn.addEventListener('click', function() {
+            if (!currentBtn) {
+                showNotice('warning', 'Selecione um documento antes de sugerir uma correção.');
+                return;
+            }
+            openClassificationCorrectionDialog();
+        });
+    }
+
+    if (entityPairAiInstructionsBtn) {
+        entityPairAiInstructionsBtn.addEventListener('click', function() {
+            if (!currentCanManageEntityPairAiInstructions) {
+                showNotice('warning', 'Sem permissões para editar Instruções IA.');
+                return;
+            }
+            openEntityPairAiInstructionsDialog();
+        });
+    }
+
     if (classifyModalEl) {
         classifyModalEl.addEventListener('shown.bs.modal', function() {
             refreshCostCenterFieldModes();
@@ -8204,6 +8721,8 @@ window.addEventListener('load', function() {
             updateCurrentPlanContextFromButton(null);
             currentOriginalRatesKey = null;
             currentTotalAccount = '';
+            currentEntityPairAiInstructions = '';
+            currentCanManageEntityPairAiInstructions = false;
             currentCostCenterDistributionRate = '';
             currentBankLoanConversionActive = false;
             if (totalAccountInput) {
@@ -8343,6 +8862,8 @@ window.addEventListener('load', function() {
         currentBankLoanConversionActive = false;
         currentClassificationModelName = '';
         classificationModels = [];
+        currentEntityPairAiInstructions = '';
+        currentCanManageEntityPairAiInstructions = false;
         currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
         currentBankLoanDocumentLines = [];
         renderDocumentFieldInputs();
@@ -8508,7 +9029,7 @@ window.addEventListener('load', function() {
 
             if (currentBankLoanConversionActive) {
                 Object.keys(ratesPayload).forEach(function(rate) {
-                    if (rate !== '0' && rate !== 'bank_loan_commission') {
+                    if (rate !== '0' && rate !== 'bank_loan_commission' && rate !== 'bank_loan_capital') {
                         delete ratesPayload[rate];
                         removedRates[rate] = true;
                         if (rateInputs[rate]) {
@@ -8516,7 +9037,7 @@ window.addEventListener('load', function() {
                         }
                     }
                 });
-                ['0', 'bank_loan_commission'].forEach(function(rate) {
+                ['0', 'bank_loan_commission', 'bank_loan_capital'].forEach(function(rate) {
                     if (!ratesPayload[rate]) {
                         return;
                     }
@@ -8668,11 +9189,11 @@ window.addEventListener('load', function() {
                 if (res.row_rates && typeof res.row_rates === 'object') {
                     if (currentBankLoanConversionActive) {
                         Object.keys(res.row_rates).forEach(function(rate) {
-                            if (rate !== '0' && rate !== 'bank_loan_commission') {
+                            if (rate !== '0' && rate !== 'bank_loan_commission' && rate !== 'bank_loan_capital') {
                                 delete res.row_rates[rate];
                             }
                         });
-                        ['0', 'bank_loan_commission'].forEach(function(rate) {
+                        ['0', 'bank_loan_commission', 'bank_loan_capital'].forEach(function(rate) {
                             if (!res.row_rates[rate]) {
                                 return;
                             }
@@ -8682,7 +9203,7 @@ window.addEventListener('load', function() {
                             res.row_rates[rate].bank_loan_conversion = '1';
                         });
                         Object.keys(rateInputs).forEach(function(rate) {
-                            if (rate === '0' || rate === 'bank_loan_commission') {
+                            if (rate === '0' || rate === 'bank_loan_commission' || rate === 'bank_loan_capital') {
                                 return;
                             }
                             removeRateRow(rate);

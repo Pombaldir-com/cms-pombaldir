@@ -566,6 +566,10 @@ function normalizeEmitterTypeValue($value): string {
 }
 
 function isBankEmitterCandidateFromQrFields(array $document): bool {
+    if (isNormalSupplierQrDocument($document) || !isBankEmitterCandidateFromDocumentText($document)) {
+        return false;
+    }
+
     $exemptBase = parseAccountingBankLoanAmount($document['field_I2'] ?? null);
     $stampTax = parseAccountingBankLoanAmount($document['field_M'] ?? null);
     $total = parseAccountingBankLoanAmount($document['field_O'] ?? null);
@@ -614,6 +618,54 @@ function normalizeEmitterTypeDetectionText(string $value): string {
     return trim($value);
 }
 
+function isBankEmitterCandidateFromDocumentText(array $document): bool {
+    $parts = [];
+    foreach (['field_A', 'field_D', 'field_G', 'field_H', 'field_Q', 'field_R'] as $field) {
+        if (isset($document[$field])) {
+            $parts[] = (string) $document[$field];
+        }
+    }
+
+    if (!empty($document['line_items'])) {
+        $lineItems = is_array($document['line_items'])
+            ? $document['line_items']
+            : json_decode((string) $document['line_items'], true);
+        if (is_array($lineItems)) {
+            flattenAccountingValueForDetection($lineItems, $parts);
+        }
+    }
+
+    $text = normalizeEmitterTypeDetectionText(implode(' ', $parts));
+    if ($text === '') {
+        return false;
+    }
+
+    foreach ([
+        'banco',
+        'bank',
+        'credito agricola',
+        'caixa agricola',
+        'caixa de credito',
+        'mutuo',
+        'emprestimo',
+        'emprestimos',
+        'financiamento',
+        'prestacoes constantes',
+        'prestacao constante',
+        'juros',
+        'comissao de gestao',
+        'selo s juros',
+        'selo s com',
+        'capital',
+    ] as $needle) {
+        if (strpos($text, $needle) !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function flattenAccountingValueForDetection($value, array &$parts): void {
     if ($value === null) {
         return;
@@ -655,6 +707,20 @@ function isInsuranceEmitterCandidateFromDocumentText(array $document): bool {
     }
 
     foreach ([
+        'medis',
+        'multicare',
+        'fidelidade',
+        'tranquilidade',
+        'allianz',
+        'generali',
+        'ageas',
+        'advancecare',
+        'una seguros',
+        'logo seguros',
+        'seguros de saude',
+        'seguros de saúde',
+        'plano de saude',
+        'plano de saúde',
         'apolice',
         'seguro',
         'seguros',
@@ -677,21 +743,131 @@ function isInsuranceEmitterCandidateFromDocumentText(array $document): bool {
     return false;
 }
 
+function isNormalSupplierQrDocument(array $document): bool {
+    if (isInsuranceEmitterCandidateFromDocumentText($document) || isBankEmitterCandidateFromDocumentText($document)) {
+        return false;
+    }
+
+    $docType = strtoupper(trim((string) ($document['field_D'] ?? '')));
+    $normalDocTypes = ['FT', 'FR', 'FTR', 'RC', 'NC', 'ND'];
+    $vatFields = ['field_I3', 'field_I4', 'field_I5', 'field_I6', 'field_I7', 'field_I8', 'field_N'];
+    foreach ($vatFields as $field) {
+        $value = parseAccountingBankLoanAmount($document[$field] ?? null);
+        if ($value !== null && abs($value) >= 0.005) {
+            return true;
+        }
+    }
+
+    return in_array($docType, $normalDocTypes, true);
+}
+
+function resolveCrossCompanyEmitterTypeByNif(string $nif): string {
+    static $cache = [];
+
+    $nif = trim($nif);
+    if ($nif === '') {
+        return '';
+    }
+    if (array_key_exists($nif, $cache)) {
+        return $cache[$nif];
+    }
+
+    $companiesFile = __DIR__ . '/../data/companies.php';
+    $companies = is_file($companiesFile) ? (require $companiesFile) : [];
+    if (!is_array($companies) || empty($companies)) {
+        $cache[$nif] = '';
+        return '';
+    }
+
+    $currentDbName = trim((string) ($_SESSION['company']['db_name'] ?? ''));
+    $detectedType = '';
+
+    foreach ($companies as $companyConfig) {
+        if (!is_array($companyConfig)) {
+            continue;
+        }
+
+        $dbName = trim((string) ($companyConfig['db_name'] ?? ''));
+        if ($dbName === '' || ($currentDbName !== '' && $dbName === $currentDbName)) {
+            continue;
+        }
+
+        $dsn = 'mysql:host=' . (string) ($companyConfig['db_host'] ?? '127.0.0.1')
+            . (!empty($companyConfig['db_port']) ? ';port=' . $companyConfig['db_port'] : '')
+            . ';dbname=' . $dbName . ';charset=utf8mb4';
+
+        try {
+            $pdo = new PDO($dsn, (string) ($companyConfig['db_user'] ?? ''), (string) ($companyConfig['db_pass'] ?? ''), [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+
+            if (!$pdo->query("SHOW TABLES LIKE 'accounting_entities'")->fetchColumn()) {
+                continue;
+            }
+
+            $columnStmt = $pdo->query("SHOW COLUMNS FROM accounting_entities");
+            $columns = $columnStmt ? $columnStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+            $columnNames = array_column($columns, 'Field');
+            $emitterTypeColumn = in_array('emitter_type', $columnNames, true)
+                ? 'emitter_type'
+                : (in_array('is_bank_entity', $columnNames, true) ? 'is_bank_entity' : '');
+            if ($emitterTypeColumn === '') {
+                continue;
+            }
+
+            $stmt = $pdo->prepare(
+                'SELECT ' . $emitterTypeColumn . ' AS emitter_type
+                 FROM accounting_entities
+                 WHERE nif = ?
+                   AND (entity_type = ? OR entity_type = ? OR entity_type = ?)
+                 ORDER BY FIELD(' . $emitterTypeColumn . ', 2, 1, 0) ASC, id ASC
+                 LIMIT 1'
+            );
+            $stmt->execute([$nif, 'emitter', 'emitente', '']);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $storedKind = trim((string) ($row['emitter_type'] ?? '0'));
+            if ($storedKind === '2') {
+                $cache[$nif] = 'insurance';
+                return 'insurance';
+            }
+            if ($storedKind === '1') {
+                $detectedType = 'bank';
+            }
+        } catch (Throwable $e) {
+            continue;
+        }
+    }
+
+    $cache[$nif] = $detectedType;
+    return $detectedType;
+}
+
 function resolveEmitterTypeValue(PDO $pdo, string $entityFieldValue, array $document = []): string {
+    if (isNormalSupplierQrDocument($document)) {
+        return 'normal';
+    }
+
+    $isInsuranceCandidate = isInsuranceEmitterCandidateFromDocumentText($document);
+    $isBankCandidate = isBankEmitterCandidateFromQrFields($document);
     $emitterTypeColumn = getAccountingEmitterTypeColumn();
     if ($emitterTypeColumn === '') {
-        if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+        if ($isInsuranceCandidate) {
             return 'insurance';
         }
-        return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+        return $isBankCandidate ? 'bank' : '';
     }
 
     $nif = extractVatNumber($entityFieldValue);
     if ($nif === '') {
-        if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+        if ($isInsuranceCandidate) {
             return 'insurance';
         }
-        return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+        return $isBankCandidate ? 'bank' : '';
     }
 
     $stmt = $pdo->prepare(
@@ -706,30 +882,38 @@ function resolveEmitterTypeValue(PDO $pdo, string $entityFieldValue, array $docu
     $emitterRow = $stmt->fetch(PDO::FETCH_ASSOC);
     if (is_array($emitterRow)) {
         $storedKind = trim((string) ($emitterRow['emitter_type'] ?? '0'));
-        if ($storedKind === '1') {
-            return 'bank';
-        }
         if ($storedKind === '2') {
             return 'insurance';
+        }
+        if ($storedKind === '1' && !$isInsuranceCandidate) {
+            return 'bank';
         }
     }
 
     $existing = findAccountingEntity($pdo, $nif);
     if (is_array($existing)) {
         $storedKind = trim((string) ($existing['emitter_type'] ?? '0'));
-        if ($storedKind === '1') {
-            return 'bank';
-        }
         if ($storedKind === '2') {
             return 'insurance';
         }
+        if ($storedKind === '1' && !$isInsuranceCandidate) {
+            return 'bank';
+        }
     }
 
-    if (isInsuranceEmitterCandidateFromDocumentText($document)) {
+    $crossCompanyType = resolveCrossCompanyEmitterTypeByNif($nif);
+    if ($crossCompanyType === 'insurance') {
+        return 'insurance';
+    }
+    if ($crossCompanyType === 'bank' && !$isInsuranceCandidate) {
+        return 'bank';
+    }
+
+    if ($isInsuranceCandidate) {
         return 'insurance';
     }
 
-    return isBankEmitterCandidateFromQrFields($document) ? 'bank' : '';
+    return $isBankCandidate ? 'bank' : '';
 }
 
 function persistEmitterTypeValue(PDO $pdo, string $entityFieldValue, string $type): void {
@@ -1490,6 +1674,73 @@ if (!isLoggedIn() || getCompanySlug() === null) {
     exit;
 }
 
+$canManageEntityAiInstructions = userHasDepartmentPermission('ctb_classificar_docs');
+
+if ($action === 'save_entity_ai_instructions') {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!validateCsrfToken($token)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    if (!$canManageEntityAiInstructions) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Sem permissões para guardar Instruções IA.', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    if (!hasTable('accounting_entity_ai_instructions')) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Tabela de Instruções IA em falta.', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+    try {
+        $pdo = getPDO();
+    } catch (RuntimeException $e) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Empresa não selecionada']);
+        exit;
+    }
+
+    $idValue = isset($_POST['id']) && is_numeric($_POST['id']) ? (int) $_POST['id'] : 0;
+    requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
+
+    $emitterNif = extractVatNumber((string) ($_POST['emitter_nif'] ?? $_POST['A'] ?? ''));
+    $acquirerNif = extractVatNumber((string) ($_POST['acquirer_nif'] ?? $_POST['B'] ?? ''));
+    $instructions = trim((string) ($_POST['instructions'] ?? ''));
+    if ($emitterNif === '' || $acquirerNif === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Emitente/adquirente inválido.', 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+
+    if ($instructions === '') {
+        $stmt = $pdo->prepare('DELETE FROM accounting_entity_ai_instructions WHERE acquirer_nif = ? AND emitter_nif = ?');
+        $stmt->execute([$acquirerNif, $emitterNif]);
+    } else {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_entity_ai_instructions (acquirer_nif, emitter_nif, instructions)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE instructions = VALUES(instructions), updated_at = CURRENT_TIMESTAMP'
+        );
+        $stmt->execute([$acquirerNif, $emitterNif, $instructions]);
+    }
+
+    logAuditAction('update', 'accounting_entity_ai_instructions', null, [
+        'acquirer_nif' => $acquirerNif,
+        'emitter_nif' => $emitterNif,
+        'has_instructions' => $instructions !== '' ? 1 : 0,
+        'source' => 'classification_modal',
+    ]);
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Instruções IA guardadas.',
+        'instructions' => $instructions,
+        'csrf_token' => generateCsrfToken(true),
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'get') {
     $token = $_GET['csrf_token'] ?? '';
     if (!validateCsrfToken($token)) {
@@ -1579,6 +1830,25 @@ if ($action === 'get') {
     }
 
     ensureAccountingEntity($pdo, (string) ($importRow['field_A'] ?? $a));
+    $entityPairAiInstructions = '';
+    if (hasTable('accounting_entity_ai_instructions')) {
+        $entityPairEmitterNif = extractVatNumber((string) ($importRow['field_C'] ?? ''));
+        if ($entityPairEmitterNif === '') {
+            $entityPairEmitterNif = extractVatNumber((string) ($importRow['field_A'] ?? $a));
+        }
+        $entityPairAcquirerNif = extractVatNumber((string) ($importRow['field_B'] ?? $b));
+        if ($entityPairEmitterNif !== '' && $entityPairAcquirerNif !== '') {
+            $stmtPairAi = $pdo->prepare(
+                'SELECT instructions
+                 FROM accounting_entity_ai_instructions
+                 WHERE acquirer_nif = ? AND emitter_nif = ?
+                 LIMIT 1'
+            );
+            $stmtPairAi->execute([$entityPairAcquirerNif, $entityPairEmitterNif]);
+            $pairValue = $stmtPairAi->fetchColumn();
+            $entityPairAiInstructions = is_string($pairValue) ? trim($pairValue) : '';
+        }
+    }
     $classificationPayload = fetchClassificationAccountPayload($pdo, $a, $b, $d, $importRow);
     $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
     $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
@@ -1632,6 +1902,8 @@ if ($action === 'get') {
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
         'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
         'emitter_type' => resolveEmitterTypeValue($pdo, (string) ($importRow['field_A'] ?? $a), $importRow),
+        'entity_pair_ai_instructions' => $entityPairAiInstructions,
+        'can_manage_entity_ai_instructions' => $canManageEntityAiInstructions ? 1 : 0,
         'original_rates' => $originalSnapshot,
         'document_fields' => extractEditableAccountingImportFields($importRow),
         'show_document_fields' => $rowMetadata['manual_document_fields'] ?? '0',

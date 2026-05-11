@@ -4453,7 +4453,26 @@ function buildDocumentAccountingLines(array $document): array {
 
     $totalAccount = trim((string) ($metadata['total_account'] ?? ''));
     if ($totalAccount !== '') {
-        $totalAmount = computeDocumentTotalAmount($document);
+        $totalAmount = null;
+        if (accountingRatesContainBankLoanConversion($accounts)) {
+            $bankLoanTotal = 0.0;
+            foreach ($lines as $lineEntry) {
+                if (!is_array($lineEntry)) {
+                    continue;
+                }
+                $lineAmount = isset($lineEntry['fltValor']) ? (float) $lineEntry['fltValor'] : 0.0;
+                if (!is_finite($lineAmount) || abs($lineAmount) < 0.00001) {
+                    continue;
+                }
+                $bankLoanTotal += abs($lineAmount);
+            }
+            if (abs($bankLoanTotal) >= 0.00001) {
+                $totalAmount = $bankLoanTotal;
+            }
+        }
+        if ($totalAmount === null) {
+            $totalAmount = computeDocumentTotalAmount($document);
+        }
         if ($totalAmount !== null) {
             $totalAmount *= $documentSign;
             $nif = '';
