@@ -35,6 +35,8 @@ $flashMessage = trim((string) ($_GET['msg'] ?? ''));
 $pageScripts = '';
 $erpClientFormOverride = null;
 $erpClientDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+$isAjaxRequest = isset($_SERVER['HTTP_X_REQUESTED_WITH'])
+    && strcasecmp((string) $_SERVER['HTTP_X_REQUESTED_WITH'], 'XMLHttpRequest') === 0;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = trim((string) ($_POST['csrf_token'] ?? ''));
     if (!validateCsrfToken($token)) {
@@ -193,6 +195,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $successMessage = trim((string) $responseData['message']);
                         }
 
+                        if ($isAjaxRequest) {
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode([
+                                'success' => true,
+                                'message' => $successMessage,
+                                'csrf_token' => generateCsrfToken(true),
+                                'replace_url' => $returnUrl,
+                            ], JSON_UNESCAPED_UNICODE);
+                            exit;
+                        }
+
                         header('Location: ' . $returnUrl . '?status=success&msg=' . rawurlencode($successMessage));
                         exit;
                     }
@@ -202,39 +215,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+
+        if ($isAjaxRequest && $flashMessage !== '') {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'error' => $flashMessage,
+                'csrf_token' => generateCsrfToken(true),
+                'replace_url' => $returnUrl,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
         if (!$canManageEmitterType) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Sem permissoes para alterar o tipo de emitente.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'error', 'Sem permissoes para alterar o tipo de emitente.', 403);
         }
 
         if (!$hasEmitterTypeColumn) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Coluna de tipo de emitente em falta.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'error', 'Coluna de tipo de emitente em falta.', 400);
         }
 
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
         $emitterType = trim((string) ($_POST['emitter_type'] ?? ($_POST['is_bank_entity'] ?? '0')));
         $emitterType = in_array($emitterType, ['1', '2'], true) ? $emitterType : '0';
         if ($entityId <= 0) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Entidade invalida.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'error', 'Entidade invalida.', 400);
         }
 
         $stmt = $pdo->prepare('SELECT id, nif, name, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
         $stmt->execute([$entityId]);
         $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if (!$entity) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Entidade nao encontrada.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'error', 'Entidade nao encontrada.', 404);
         }
 
         $expectedBankEntityType = $isSupplierList ? 'emitter' : $entityType;
         if (($entity['entity_type'] ?? '') !== $expectedBankEntityType) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Tipo de entidade invalido.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'error', 'Tipo de entidade invalido.', 400);
         }
 
         $stmt = $pdo->prepare('UPDATE accounting_entities SET ' . $emitterTypeColumn . ' = ? WHERE id = ?');
@@ -251,39 +271,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]
         );
 
-        header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'success', 'Tipo de emitente atualizado.'));
-        exit;
+        respondAccountingEntitiesPost($isAjaxRequest, buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey), 'success', 'Tipo de emitente atualizado.');
     }
 
     if ($action === 'delete-entity') {
         if (!$isSuperAdmin) {
-            http_response_code(403);
-            exit('Sem permissoes para eliminar entidades.');
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Sem permissoes para eliminar entidades.', 403);
         }
 
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
         if ($entityId <= 0) {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade invalida.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Entidade invalida.', 400);
         }
 
         $stmt = $pdo->prepare('SELECT id, nif, name, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
         $stmt->execute([$entityId]);
         $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if (!$entity) {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Entidade nao encontrada.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Entidade nao encontrada.', 404);
         }
 
         if (($entity['entity_type'] ?? '') !== $entityType) {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Tipo de entidade invalido.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Tipo de entidade invalido.', 400);
         }
 
         $nif = trim((string) ($entity['nif'] ?? ''));
         if ($nif === '') {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('NIF em falta para eliminar entidade.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'NIF em falta para eliminar entidade.', 400);
         }
 
         try {
@@ -300,26 +314,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]
             );
             $okMessage = 'Empresa eliminada com sucesso. Registos apagados: ' . (int) $result['total_deleted'] . '.';
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=success&msg=' . rawurlencode($okMessage));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'success', $okMessage);
         } catch (Throwable $e) {
             $errorMessage = 'Falha ao eliminar a empresa: ' . $e->getMessage();
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode($errorMessage));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', $errorMessage, 400);
         }
     }
 
     if ($action === 'merge-duplicate-acquirer-database') {
         if (!$canManageEmitterType) {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Sem permissoes para fundir empresas duplicadas.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Sem permissoes para fundir empresas duplicadas.', 403);
         }
 
         $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
         $keepId = isset($_POST['keep_id']) ? (int) $_POST['keep_id'] : 0;
         if ($typeSlug !== 'empresas' || $erpDatabase === '') {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Dados invalidos para fundir empresas.'));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Dados invalidos para fundir empresas.', 400);
         }
 
         try {
@@ -337,11 +347,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'removed_nifs' => $result['removed_nifs'] ?? [],
                 'kept_nif' => $result['kept_nif'] ?? '',
             ]);
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=success&msg=' . rawurlencode($message));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'success', $message);
         } catch (Throwable $e) {
-            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Falha ao fundir duplicados: ' . $e->getMessage()));
-            exit;
+            respondAccountingEntitiesPost($isAjaxRequest, BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug), 'error', 'Falha ao fundir duplicados: ' . $e->getMessage(), 400);
         }
     }
 }
@@ -888,7 +896,7 @@ require_once __DIR__ . '/../header.php';
                                                             <div class="form-group">
                                                                 <label class="control-label"><?= htmlspecialchars($additionalFieldLabel); ?></label>
                                                                 <?php if ($additionalFieldType === 'textarea'): ?>
-                                                                    <textarea name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" rows="3"><?= htmlspecialchars($additionalFieldValue); ?></textarea>
+                                                                    <textarea name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" rows="3" autocomplete="off"><?= htmlspecialchars($additionalFieldValue); ?></textarea>
                                                                 <?php elseif ($additionalFieldType === 'multiselect'): ?>
                                                                     <select name="<?= htmlspecialchars($additionalFieldName); ?>[]" class="form-control" multiple size="<?= max(3, min(8, count($additionalFieldOptions))); ?>">
                                                                         <?php foreach ($additionalFieldOptions as $additionalOption): ?>
@@ -913,6 +921,7 @@ require_once __DIR__ . '/../header.php';
                                                                             id="<?= htmlspecialchars($additionalFieldInputId); ?>"
                                                                             name="<?= htmlspecialchars($additionalFieldName); ?>"
                                                                             class="form-control"
+                                                                            autocomplete="new-password"
                                                                             value="<?= htmlspecialchars($additionalFieldValue); ?>"
                                                                         >
                                                                         <span class="input-group-btn">
@@ -927,11 +936,11 @@ require_once __DIR__ . '/../header.php';
                                                                         </span>
                                                                     </div>
                                                                 <?php elseif ($additionalFieldType === 'integer'): ?>
-                                                                    <input type="number" step="1" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                    <input type="number" step="1" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" autocomplete="off" value="<?= htmlspecialchars($additionalFieldValue); ?>">
                                                                 <?php elseif ($additionalFieldType === 'decimal'): ?>
-                                                                    <input type="number" step="0.01" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                    <input type="number" step="0.01" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" autocomplete="off" value="<?= htmlspecialchars($additionalFieldValue); ?>">
                                                                 <?php else: ?>
-                                                                    <input type="text" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                    <input type="text" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" autocomplete="off" value="<?= htmlspecialchars($additionalFieldValue); ?>">
                                                                 <?php endif; ?>
                                                             </div>
                                                         </div>
@@ -1269,6 +1278,28 @@ function deleteEntityByNifWithReferences(PDO $pdo, string $nif, string $entityTy
         'total_deleted' => $totalDeleted,
         'deleted_by_table' => $deletedByTable,
     ];
+}
+
+function respondAccountingEntitiesPost(bool $isAjaxRequest, string $returnUrl, string $status, string $message, int $httpStatus = 200): void {
+    if ($isAjaxRequest) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code($httpStatus);
+        echo json_encode([
+            'success' => $status === 'success',
+            'message' => $status === 'success' ? $message : '',
+            'error' => $status === 'success' ? '' : $message,
+            'csrf_token' => generateCsrfToken(true),
+            'replace_url' => $returnUrl,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $separator = strpos($returnUrl, '?') === false ? '?' : '&';
+    header('Location: ' . $returnUrl . $separator . http_build_query([
+        'status' => $status,
+        'msg' => $message,
+    ], '', '&', PHP_QUERY_RFC3986));
+    exit;
 }
 
 function buildAccountingEntitiesReturnUrl(string $typeSlug, string $supplierCompanyRouteKey = '', string $status = '', string $message = ''): string {

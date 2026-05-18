@@ -17,7 +17,6 @@ contabilidade/magick-*
 .history/*
 contabilidade/debug_qr.txt
 data/*.log
-migrations/*
 !migrations/*.sql
 data/companies.php
 AGENTS.md

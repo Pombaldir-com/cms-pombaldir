@@ -6116,10 +6116,11 @@ ul.verticle_bars li {
     position: fixed;
     margin: 15px;
     right: 0;
+    top: 0;
     float: right;
     width: 400px;
     z-index: 4000;
-    bottom: 0;
+    bottom: auto;
 }
 
 ul.notifications {

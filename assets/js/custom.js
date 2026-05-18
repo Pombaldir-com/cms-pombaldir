@@ -879,6 +879,18 @@ $(document).ready(function() {
         document.close();
     }
 
+    function replaceBrowserUrl(url) {
+        if (!url) {
+            return;
+        }
+
+        try {
+            window.history.replaceState({}, '', url);
+        } catch (error) {
+            // Ignore history errors.
+        }
+    }
+
     document.addEventListener('submit', function (event) {
         var form = event.target;
         if (!(form instanceof HTMLFormElement)) {
@@ -921,6 +933,16 @@ $(document).ready(function() {
                             return;
                         }
 
+                        if (payload && payload.replace_url) {
+                            replaceBrowserUrl(payload.replace_url);
+                        }
+
+                        if (payload && payload.csrf_token) {
+                            form.querySelectorAll('input[name="csrf_token"]').forEach(function (input) {
+                                input.value = payload.csrf_token;
+                            });
+                        }
+
                         if (window.PNotify) {
                             var noticeOptions = {
                                 text: String((payload && (payload.message || payload.error)) || (response.ok ? 'Operacao concluida.' : 'Nao foi possivel concluir a operacao.')),
@@ -939,6 +961,8 @@ $(document).ready(function() {
                         if (!response.ok || (payload && payload.success === false)) {
                             throw new Error(String((payload && payload.error) || 'Nao foi possivel concluir a operacao.'));
                         }
+
+                        toggleSubmittingState(form, submitter, false);
                     });
                 }
 
