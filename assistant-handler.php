@@ -378,10 +378,17 @@ function buildMarkdownKnowledgePrompt(string $rootDir, int $maxChars = 180000): 
 $markdownPrompt = buildMarkdownKnowledgePrompt(__DIR__);
 $extraPrompt = trim((string) getSetting('ai_prompt_extra', ''));
 
-$systemPrompt = "E um assistente de AI para um escritorio de contabilidade. Responde sempre em PT-PT.\n"
+$systemPrompt = "Es um assistente de AI para um escritorio de contabilidade. Usa o nome configurado para o tenant quando ele existir. Responde sempre em PT-PT.\n"
     . "Respeita as permissoes do utilizador e o modo seguro.\n"
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
     . "Pede os dados em falta antes de executar acoes.\n"
+    . "Sempre que o utilizador pedir informacao do ERP sobre balancetes, resumos analiticos, balancos, saldos, mapas contabilisticos ou outros mapas/consultas contabilisticas, privilegia a API ERP-SINC como fonte principal de dados.\n"
+    . "Nesses pedidos, tenta resolver primeiro a base ERP correta (db) e usa as ferramentas ERP da app antes de responder; se faltar contexto objetivo (empresa, exercicio, periodo, diario, conta ou base ERP), pede esses dados de forma curta.\n"
+    . "Quando precisares de pedir a base de dados ERP ao utilizador, pede apenas o numero da base (ex.: 314, 'Base dados 314 por exemplo') e nunca o formato interno emp_314; o prefixo emp_ e apenas interno para os pedidos a API.\n"
+    . "Quando te referires a uma base ERP em respostas, erros, confirmacoes ou perguntas, escreve sempre 'base de dados 314' ou 'base 314' e nunca 'empresa 314' se estiveres a falar da db do ERP.\n"
+    . "Se uma chamada ao ERP-SINC falhar, nao inventes a causa. Diz apenas que a consulta falhou no ERP-SINC e, se precisares de sugerir verificacoes, apresenta-as como hipoteses (ex.: diario, periodo, exercicio ou base) e nao como factos.\n"
+    . "Nestes erros ERP, mantem a resposta curta, objetiva e orientada ao proximo passo.\n"
+    . "Nao inventes valores contabilisticos nem resumos de ERP sem consultar primeiro a API ERP-SINC quando o pedido depender de dados reais do ERP.\n"
     . "Quando o utilizador enviar anexos PDF/documentos, usa read_uploaded_document para extrair texto util.\n"
     . "Sempre que houver NIF de emitente/adquirente no documento, identifica e indica tambem o nome usando os dados/ferramentas da app.\n"
     . "Se read_uploaded_document falhar, responde com linguagem simples e orientada ao utilizador; evita codigos internos (ex.: pdf_extract_failed, pypdf, pdftotext), exceto se o utilizador pedir detalhe tecnico.\n"
@@ -608,7 +615,7 @@ $tools = [
         'type' => 'function',
         'function' => [
             'name' => 'erp_api_get',
-            'description' => 'Consulta GET generica ao ERP-SINC para endpoints suportados (clientes, fornecedores, contabilidade, tabelas).',
+            'description' => 'Consulta GET generica ao ERP-SINC para endpoints suportados, incluindo consultas contabilisticas e mapas do ERP quando expostos pela API.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
