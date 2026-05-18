@@ -1192,6 +1192,168 @@ function fetchErpTableData(string $path, bool $returnDebug = false, string $data
     return ['data' => $data];
 }
 
+/**
+ * Execute a JSON request against the ERP-SINC API.
+ *
+ * @param string     $path        Endpoint path relative to the ERP base URL.
+ * @param string     $method      HTTP method.
+ * @param array|null $payload     Optional JSON payload.
+ * @param bool       $returnDebug Include HTTP debug information.
+ * @param string     $database    Optional ERP database override.
+ * @return array Normalized response with success/error information.
+ */
+function callErpJsonEndpoint(string $path, string $method = 'GET', ?array $payload = null, bool $returnDebug = false, string $database = ''): array {
+    $method = strtoupper(trim($method));
+    if ($method === '') {
+        $method = 'GET';
+    }
+
+    if (!function_exists('curl_init')) {
+        $message = 'Extensão cURL não disponível para comunicar com o ERP-SINC.';
+        logErpMessage($message);
+        return $returnDebug ? ['success' => false, 'data' => null, 'error' => $message] : ['success' => false, 'error' => $message];
+    }
+
+    $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
+    if ($baseUrl === '') {
+        $baseUrl = 'https://api.erpsinc.pt/v1.0.0';
+    }
+
+    $endpoint = buildErpEndpointFromBase($baseUrl, $path);
+    $endpoint = appendQueryParamsToUrl($endpoint, buildErpCompanyQueryParams($database));
+    if ($endpoint === '') {
+        $message = 'URL do ERP-SINC inválida.';
+        logErpMessage($message);
+        return $returnDebug ? ['success' => false, 'data' => null, 'error' => $message] : ['success' => false, 'error' => $message];
+    }
+
+    $sanitizedEndpoint = sanitizeUrlForLog($endpoint);
+    $endpointInfo = $sanitizedEndpoint !== '' ? ' URL: ' . $sanitizedEndpoint : '';
+
+    $token = getSetting('erp_token', '');
+    $headers = ['Accept: application/json'];
+    if ($token !== null && $token !== '') {
+        $headers[] = 'X-API-KEY: ' . $token;
+    }
+
+    $encodedPayload = null;
+    if ($payload !== null) {
+        $encodedPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encodedPayload === false) {
+            $message = 'Falha ao preparar o pedido para o ERP-SINC.';
+            logErpMessage($message . $endpointInfo);
+            return $returnDebug
+                ? ['success' => false, 'data' => null, 'error' => $message, 'endpoint' => $sanitizedEndpoint]
+                : ['success' => false, 'error' => $message];
+        }
+        $headers[] = 'Content-Type: application/json; charset=utf-8';
+    }
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        $message = 'Falha ao inicializar pedido ao ERP-SINC.' . $endpointInfo;
+        logErpMessage($message);
+        return $returnDebug ? ['success' => false, 'data' => null, 'error' => $message, 'endpoint' => $sanitizedEndpoint] : ['success' => false, 'error' => $message];
+    }
+
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CUSTOMREQUEST => $method,
+    ];
+    if ($encodedPayload !== null) {
+        $options[CURLOPT_POSTFIELDS] = $encodedPayload;
+    }
+    curl_setopt_array($handle, $options);
+
+    $response = curl_exec($handle);
+    if ($response === false) {
+        $message = 'Erro cURL ao comunicar com o ERP-SINC: ' . curl_error($handle) . $endpointInfo;
+        logErpMessage($message);
+        curl_close($handle);
+        return $returnDebug
+            ? ['success' => false, 'data' => null, 'error' => $message, 'endpoint' => $sanitizedEndpoint]
+            : ['success' => false, 'error' => $message];
+    }
+
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    curl_close($handle);
+
+    $data = null;
+    if (trim((string) $response) !== '') {
+        $decoded = json_decode($response, true);
+        if (is_array($decoded)) {
+            $data = $decoded;
+        }
+    }
+
+    if ($status >= 400) {
+        $message = '';
+        if (is_array($data)) {
+            foreach (['errormsg', 'error', 'message'] as $key) {
+                if (!empty($data[$key]) && is_scalar($data[$key])) {
+                    $message = trim((string) $data[$key]);
+                    break;
+                }
+            }
+        }
+        if ($message === '') {
+            $message = 'Webservice ERP-SINC devolveu HTTP ' . $status . '.';
+        }
+        logErpMessage($message . $endpointInfo);
+        return $returnDebug
+            ? ['success' => false, 'data' => $data, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response]
+            : ['success' => false, 'error' => $message, 'data' => $data];
+    }
+
+    if (is_array($data) && array_key_exists('success', $data) && !$data['success']) {
+        $message = '';
+        foreach (['errormsg', 'error', 'message'] as $key) {
+            if (!empty($data[$key]) && is_scalar($data[$key])) {
+                $message = trim((string) $data[$key]);
+                break;
+            }
+        }
+        if ($message === '') {
+            $message = 'O ERP-SINC recusou a operação.';
+        }
+        logErpMessage($message . $endpointInfo);
+        return $returnDebug
+            ? ['success' => false, 'data' => $data, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response]
+            : ['success' => false, 'error' => $message, 'data' => $data];
+    }
+
+    return $returnDebug
+        ? ['success' => true, 'data' => $data, 'error' => null, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response]
+        : ['success' => true, 'data' => $data];
+}
+
+/**
+ * Update editable customer details in ERP-SINC.
+ *
+ * @param int    $id       ERP customer record ID.
+ * @param array  $payload  Whitelisted editable fields.
+ * @param string $database ERP database key.
+ * @return array Normalized ERP response.
+ */
+function updateErpClientDetails(int $id, array $payload, string $database = ''): array {
+    if ($id <= 0) {
+        return ['success' => false, 'error' => 'ID do cliente ERP inválido.'];
+    }
+
+    $database = normalizeAccountingEntityDatabaseKey($database);
+    if ($database !== '') {
+        $payload['db'] = $database;
+    }
+    $payload['Id'] = $id;
+
+    return callErpJsonEndpoint('/clientes/' . $id, 'PUT', $payload, true, $database);
+}
+
 function normalizeErpEInvoiceDocTypeLookupValue(string $value): string {
     $value = trim($value);
     if ($value === '') {

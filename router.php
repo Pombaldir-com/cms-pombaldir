@@ -148,6 +148,9 @@ switch (true) {
         $_GET['id'] = $m[1];
         require __DIR__ . '/departments.php';
         break;
+    case $path === 'tabelas/campos-adicionais':
+        require __DIR__ . '/additional_fields.php';
+        break;
     case preg_match('#^fields/([0-9]+)/ad$#', $path, $m):
         // Add a custom field to a content type, e.g. "/cms/fields/3/ad"
         $_GET['type_id'] = $m[1];

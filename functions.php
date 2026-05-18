@@ -740,9 +740,12 @@ function getPendingMigrationsSummary(bool $forceRefresh = false): array {
     startSession();
     $cacheKey = 'pending_migrations_summary';
     $cacheTtl = 60;
+    $files = getMigrationFilesList();
+    $filesSignature = sha1(implode('|', $files));
     if (
         !$forceRefresh
         && isset($_SESSION[$cacheKey]['generated_at'], $_SESSION[$cacheKey]['data'])
+        && (string) ($_SESSION[$cacheKey]['files_signature'] ?? '') === $filesSignature
         && (time() - (int) $_SESSION[$cacheKey]['generated_at']) < $cacheTtl
         && is_array($_SESSION[$cacheKey]['data'])
     ) {
@@ -755,9 +758,12 @@ function getPendingMigrationsSummary(bool $forceRefresh = false): array {
         'companies' => [],
         'errors' => [],
     ];
-    $files = getMigrationFilesList();
     if (!$files) {
-        $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
+        $_SESSION[$cacheKey] = [
+            'generated_at' => time(),
+            'files_signature' => $filesSignature,
+            'data' => $summary,
+        ];
         return $summary;
     }
 
@@ -843,7 +849,11 @@ function getPendingMigrationsSummary(bool $forceRefresh = false): array {
         }
     }
 
-    $_SESSION[$cacheKey] = ['generated_at' => time(), 'data' => $summary];
+    $_SESSION[$cacheKey] = [
+        'generated_at' => time(),
+        'files_signature' => $filesSignature,
+        'data' => $summary,
+    ];
     return $summary;
 }
 
@@ -2620,6 +2630,475 @@ function deleteTerm(int $term_id): void {
     $pdo = getPDO();
     $stmt = $pdo->prepare('DELETE FROM taxonomy_terms WHERE id = ?');
     $stmt->execute([$term_id]);
+}
+
+function getAccountingAdditionalFieldScopeOptions(): array {
+    return [
+        'client' => 'Clientes',
+        'supplier' => 'Fornecedores',
+    ];
+}
+
+function getAccountingAdditionalFieldTypeOptions(): array {
+    return [
+        'text' => 'Texto',
+        'textarea' => 'Texto longo',
+        'password' => 'Password',
+        'integer' => 'Numero inteiro',
+        'decimal' => 'Numero decimal',
+        'select' => 'Select',
+        'multiselect' => 'Multi-select',
+        'boolean_select' => 'Sim/Não (select)',
+    ];
+}
+
+function getAccountingAdditionalFieldBootstrapColumnOptions(): array {
+    return [
+        12 => '12/12 - largura total',
+        9 => '9/12',
+        8 => '8/12',
+        6 => '6/12 - meia largura',
+        4 => '4/12 - tres colunas',
+        3 => '3/12 - quatro colunas',
+        2 => '2/12',
+        1 => '1/12',
+    ];
+}
+
+function getAccountingAdditionalFieldBootstrapOffsetOptions(): array {
+    return [
+        0 => '0/12 - sem offset',
+        1 => '1/12',
+        2 => '2/12',
+        3 => '3/12',
+        4 => '4/12',
+        5 => '5/12',
+        6 => '6/12',
+        7 => '7/12',
+        8 => '8/12',
+        9 => '9/12',
+        10 => '10/12',
+        11 => '11/12',
+    ];
+}
+
+function normalizeAccountingAdditionalFieldBootstrapColumn($value): int {
+    $allowed = array_map('intval', array_keys(getAccountingAdditionalFieldBootstrapColumnOptions()));
+    $normalized = (int) $value;
+    if (!in_array($normalized, $allowed, true)) {
+        return 6;
+    }
+    return $normalized;
+}
+
+function normalizeAccountingAdditionalFieldBootstrapOffset($value): int {
+    $allowed = array_map('intval', array_keys(getAccountingAdditionalFieldBootstrapOffsetOptions()));
+    $normalized = (int) $value;
+    if (!in_array($normalized, $allowed, true)) {
+        return 0;
+    }
+    return $normalized;
+}
+
+function normalizeAccountingAdditionalFieldSlug(string $value): string {
+    $value = trim($value);
+    $value = function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    if (function_exists('iconv')) {
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if (is_string($ascii) && $ascii !== '') {
+            $value = $ascii;
+        }
+    }
+    $value = preg_replace('/[^a-z0-9]+/', '_', $value);
+    $value = trim((string) $value, '_');
+    return $value;
+}
+
+function getAccountingAdditionalFieldTaxonomies(): array {
+    if (!hasTable('accounting_additional_field_taxonomies')) {
+        return [];
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->query('SELECT id, name, label, created_at, updated_at FROM accounting_additional_field_taxonomies ORDER BY label ASC, id ASC');
+    return $stmt->fetchAll();
+}
+
+function getAccountingAdditionalFieldTaxonomy(int $id): ?array {
+    if (!hasTable('accounting_additional_field_taxonomies')) {
+        return null;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, name, label, created_at, updated_at FROM accounting_additional_field_taxonomies WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function getAccountingAdditionalFieldTaxonomyBySlug(string $slug): ?array {
+    if (!hasTable('accounting_additional_field_taxonomies')) {
+        return null;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, name, label, created_at, updated_at FROM accounting_additional_field_taxonomies WHERE LOWER(name) = LOWER(?)');
+    $stmt->execute([$slug]);
+    return $stmt->fetch() ?: null;
+}
+
+function createAccountingAdditionalFieldTaxonomy(string $name, string $label): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('INSERT INTO accounting_additional_field_taxonomies (name, label) VALUES (?, ?)');
+    $stmt->execute([$name, $label]);
+    $id = (int) $pdo->lastInsertId();
+    logAuditAction('create', 'accounting_additional_field_taxonomy', $id, ['name' => $name]);
+    return $id;
+}
+
+function updateAccountingAdditionalFieldTaxonomy(int $id, string $name, string $label): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE accounting_additional_field_taxonomies SET name = ?, label = ? WHERE id = ?');
+    $stmt->execute([$name, $label, $id]);
+    logAuditAction('update', 'accounting_additional_field_taxonomy', $id, ['name' => $name]);
+}
+
+function deleteAccountingAdditionalFieldTaxonomy(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM accounting_additional_field_taxonomies WHERE id = ?');
+    $stmt->execute([$id]);
+    logAuditAction('delete', 'accounting_additional_field_taxonomy', $id);
+}
+
+function countAccountingAdditionalFieldsByTaxonomy(int $taxonomyId): int {
+    if (!hasTable('accounting_additional_fields')) {
+        return 0;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM accounting_additional_fields WHERE taxonomy_id = ?');
+    $stmt->execute([$taxonomyId]);
+    return (int) $stmt->fetchColumn();
+}
+
+function getAccountingAdditionalFieldTerms(int $taxonomyId): array {
+    if (!hasTable('accounting_additional_field_taxonomy_terms')) {
+        return [];
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, taxonomy_id, name, sort_order, created_at, updated_at FROM accounting_additional_field_taxonomy_terms WHERE taxonomy_id = ? ORDER BY sort_order ASC, name ASC, id ASC');
+    $stmt->execute([$taxonomyId]);
+    return $stmt->fetchAll();
+}
+
+function getAccountingAdditionalFieldTerm(int $id): ?array {
+    if (!hasTable('accounting_additional_field_taxonomy_terms')) {
+        return null;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT id, taxonomy_id, name, sort_order, created_at, updated_at FROM accounting_additional_field_taxonomy_terms WHERE id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function createAccountingAdditionalFieldTerm(int $taxonomyId, string $name, int $sortOrder = 0): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('INSERT INTO accounting_additional_field_taxonomy_terms (taxonomy_id, name, sort_order) VALUES (?, ?, ?)');
+    $stmt->execute([$taxonomyId, $name, $sortOrder]);
+    $id = (int) $pdo->lastInsertId();
+    logAuditAction('create', 'accounting_additional_field_taxonomy_term', $id, ['taxonomy_id' => $taxonomyId, 'name' => $name]);
+    return $id;
+}
+
+function updateAccountingAdditionalFieldTerm(int $id, string $name, int $sortOrder = 0): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('UPDATE accounting_additional_field_taxonomy_terms SET name = ?, sort_order = ? WHERE id = ?');
+    $stmt->execute([$name, $sortOrder, $id]);
+    logAuditAction('update', 'accounting_additional_field_taxonomy_term', $id, ['name' => $name]);
+}
+
+function deleteAccountingAdditionalFieldTerm(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM accounting_additional_field_taxonomy_terms WHERE id = ?');
+    $stmt->execute([$id]);
+    logAuditAction('delete', 'accounting_additional_field_taxonomy_term', $id);
+}
+
+function countAccountingAdditionalValueUsageByTerm(int $termId): int {
+    if (!hasTable('accounting_entity_additional_values') || !hasTable('accounting_additional_fields')) {
+        return 0;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM accounting_entity_additional_values v
+         INNER JOIN accounting_additional_fields f ON f.id = v.field_id
+         WHERE f.type = 'taxonomy'
+           AND TRIM(COALESCE(v.value, '')) = ?"
+    );
+    $stmt->execute([(string) $termId]);
+    return (int) $stmt->fetchColumn();
+}
+
+function getAccountingAdditionalFields(?string $scope = null): array {
+    if (!hasTable('accounting_additional_fields')) {
+        return [];
+    }
+    $pdo = getPDO();
+    $bootstrapColExpr = hasColumn('accounting_additional_fields', 'bootstrap_col') ? 'f.bootstrap_col' : '6';
+    $bootstrapOffsetExpr = hasColumn('accounting_additional_fields', 'bootstrap_offset') ? 'f.bootstrap_offset' : '0';
+    $sql = "SELECT f.id, f.scope, f.name, f.label, f.type, f.options, f.taxonomy_id, f.required, f.sort_order,
+                   {$bootstrapColExpr} AS bootstrap_col,
+                   {$bootstrapOffsetExpr} AS bootstrap_offset,
+                   t.label AS taxonomy_label
+            FROM accounting_additional_fields f
+            LEFT JOIN accounting_additional_field_taxonomies t ON t.id = f.taxonomy_id";
+    $params = [];
+    if ($scope !== null && $scope !== '') {
+        $sql .= ' WHERE f.scope = ?';
+        $params[] = $scope;
+    }
+    $sql .= ' ORDER BY f.scope ASC, f.sort_order ASC, f.label ASC, f.id ASC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+function getAccountingAdditionalField(int $id): ?array {
+    if (!hasTable('accounting_additional_fields')) {
+        return null;
+    }
+    $pdo = getPDO();
+    $bootstrapColExpr = hasColumn('accounting_additional_fields', 'bootstrap_col') ? 'f.bootstrap_col' : '6';
+    $bootstrapOffsetExpr = hasColumn('accounting_additional_fields', 'bootstrap_offset') ? 'f.bootstrap_offset' : '0';
+    $stmt = $pdo->prepare(
+        "SELECT f.id, f.scope, f.name, f.label, f.type, f.options, f.taxonomy_id, f.required, f.sort_order,
+                {$bootstrapColExpr} AS bootstrap_col,
+                {$bootstrapOffsetExpr} AS bootstrap_offset,
+                t.label AS taxonomy_label
+         FROM accounting_additional_fields f
+         LEFT JOIN accounting_additional_field_taxonomies t ON t.id = f.taxonomy_id
+         WHERE f.id = ?"
+    );
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function getAccountingAdditionalFieldByScopeAndName(string $scope, string $name): ?array {
+    if (!hasTable('accounting_additional_fields')) {
+        return null;
+    }
+    $pdo = getPDO();
+    $bootstrapColExpr = hasColumn('accounting_additional_fields', 'bootstrap_col') ? 'f.bootstrap_col' : '6';
+    $bootstrapOffsetExpr = hasColumn('accounting_additional_fields', 'bootstrap_offset') ? 'f.bootstrap_offset' : '0';
+    $stmt = $pdo->prepare(
+        "SELECT f.id, f.scope, f.name, f.label, f.type, f.options, f.taxonomy_id, f.required, f.sort_order,
+                {$bootstrapColExpr} AS bootstrap_col,
+                {$bootstrapOffsetExpr} AS bootstrap_offset,
+                t.label AS taxonomy_label
+         FROM accounting_additional_fields f
+         LEFT JOIN accounting_additional_field_taxonomies t ON t.id = f.taxonomy_id
+         WHERE f.scope = ? AND LOWER(f.name) = LOWER(?)"
+    );
+    $stmt->execute([$scope, $name]);
+    return $stmt->fetch() ?: null;
+}
+
+function createAccountingAdditionalField(string $scope, string $name, string $label, string $type, string $options = '', ?int $taxonomyId = null, bool $required = false, int $sortOrder = 0, int $bootstrapCol = 6, int $bootstrapOffset = 0): int {
+    $pdo = getPDO();
+    $bootstrapCol = normalizeAccountingAdditionalFieldBootstrapColumn($bootstrapCol);
+    $bootstrapOffset = normalizeAccountingAdditionalFieldBootstrapOffset($bootstrapOffset);
+    if (hasColumn('accounting_additional_fields', 'bootstrap_col') && hasColumn('accounting_additional_fields', 'bootstrap_offset')) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_additional_fields (scope, name, label, type, options, taxonomy_id, required, sort_order, bootstrap_col, bootstrap_offset)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder, $bootstrapCol, $bootstrapOffset]);
+    } elseif (hasColumn('accounting_additional_fields', 'bootstrap_col')) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_additional_fields (scope, name, label, type, options, taxonomy_id, required, sort_order, bootstrap_col)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder, $bootstrapCol]);
+    } else {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_additional_fields (scope, name, label, type, options, taxonomy_id, required, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder]);
+    }
+    $id = (int) $pdo->lastInsertId();
+    logAuditAction('create', 'accounting_additional_field', $id, ['scope' => $scope, 'name' => $name, 'type' => $type, 'bootstrap_col' => $bootstrapCol, 'bootstrap_offset' => $bootstrapOffset]);
+    return $id;
+}
+
+function updateAccountingAdditionalField(int $id, string $scope, string $name, string $label, string $type, string $options = '', ?int $taxonomyId = null, bool $required = false, int $sortOrder = 0, int $bootstrapCol = 6, int $bootstrapOffset = 0): void {
+    $pdo = getPDO();
+    $bootstrapCol = normalizeAccountingAdditionalFieldBootstrapColumn($bootstrapCol);
+    $bootstrapOffset = normalizeAccountingAdditionalFieldBootstrapOffset($bootstrapOffset);
+    if (hasColumn('accounting_additional_fields', 'bootstrap_col') && hasColumn('accounting_additional_fields', 'bootstrap_offset')) {
+        $stmt = $pdo->prepare(
+            'UPDATE accounting_additional_fields
+             SET scope = ?, name = ?, label = ?, type = ?, options = ?, taxonomy_id = ?, required = ?, sort_order = ?, bootstrap_col = ?, bootstrap_offset = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder, $bootstrapCol, $bootstrapOffset, $id]);
+    } elseif (hasColumn('accounting_additional_fields', 'bootstrap_col')) {
+        $stmt = $pdo->prepare(
+            'UPDATE accounting_additional_fields
+             SET scope = ?, name = ?, label = ?, type = ?, options = ?, taxonomy_id = ?, required = ?, sort_order = ?, bootstrap_col = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder, $bootstrapCol, $id]);
+    } else {
+        $stmt = $pdo->prepare(
+            'UPDATE accounting_additional_fields
+             SET scope = ?, name = ?, label = ?, type = ?, options = ?, taxonomy_id = ?, required = ?, sort_order = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([$scope, $name, $label, $type, $options, $taxonomyId, $required ? 1 : 0, $sortOrder, $id]);
+    }
+    logAuditAction('update', 'accounting_additional_field', $id, ['scope' => $scope, 'name' => $name, 'type' => $type, 'bootstrap_col' => $bootstrapCol, 'bootstrap_offset' => $bootstrapOffset]);
+}
+
+function deleteAccountingAdditionalField(int $id): void {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM accounting_additional_fields WHERE id = ?');
+    $stmt->execute([$id]);
+    logAuditAction('delete', 'accounting_additional_field', $id);
+}
+
+function getAccountingEntityAdditionalValues(int $entityId): array {
+    if (!hasTable('accounting_entity_additional_values')) {
+        return [];
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('SELECT field_id, value FROM accounting_entity_additional_values WHERE entity_id = ?');
+    $stmt->execute([$entityId]);
+    $values = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $values[(int) $row['field_id']] = (string) ($row['value'] ?? '');
+    }
+    return $values;
+}
+
+function saveAccountingEntityAdditionalValue(int $entityId, int $fieldId, ?string $value): void {
+    if (!hasTable('accounting_entity_additional_values')) {
+        return;
+    }
+    $pdo = getPDO();
+    $normalizedValue = trim((string) $value);
+    if ($normalizedValue === '') {
+        $stmt = $pdo->prepare('DELETE FROM accounting_entity_additional_values WHERE entity_id = ? AND field_id = ?');
+        $stmt->execute([$entityId, $fieldId]);
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_entity_additional_values (entity_id, field_id, value)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = CURRENT_TIMESTAMP'
+    );
+    $stmt->execute([$entityId, $fieldId, $normalizedValue]);
+}
+
+function getAccountingAdditionalFieldOptions(array $field): array {
+    $type = trim((string) ($field['type'] ?? ''));
+    if ($type === 'boolean_select') {
+        return [
+            ['value' => '1', 'label' => 'Sim'],
+            ['value' => '0', 'label' => 'Nao'],
+        ];
+    }
+
+    if ($type === 'select' || $type === 'multiselect') {
+        $rawOptions = preg_split('/\r\n|\r|\n/', (string) ($field['options'] ?? '')) ?: [];
+        $options = [];
+        foreach ($rawOptions as $option) {
+            $option = trim((string) $option);
+            if ($option === '') {
+                continue;
+            }
+            $options[] = ['value' => $option, 'label' => $option];
+        }
+        return $options;
+    }
+
+    if ($type === 'taxonomy') {
+        $taxonomyId = (int) ($field['taxonomy_id'] ?? 0);
+        $terms = getAccountingAdditionalFieldTerms($taxonomyId);
+        return array_map(function (array $term): array {
+            return [
+                'value' => (string) $term['id'],
+                'label' => (string) $term['name'],
+            ];
+        }, $terms);
+    }
+
+    return [];
+}
+
+function normalizeAccountingAdditionalFieldSubmittedValue(array $field, $rawInput): string {
+    $type = trim((string) ($field['type'] ?? 'text'));
+    $allowedOptions = getAccountingAdditionalFieldOptions($field);
+    $allowedValues = array_map('strval', array_column($allowedOptions, 'value'));
+
+    if ($type === 'multiselect') {
+        $values = is_array($rawInput) ? $rawInput : [];
+        $normalizedValues = [];
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            if ($value === '' || !in_array($value, $allowedValues, true)) {
+                continue;
+            }
+            if (!in_array($value, $normalizedValues, true)) {
+                $normalizedValues[] = $value;
+            }
+        }
+        return $normalizedValues ? json_encode($normalizedValues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : '';
+    }
+
+    $value = trim((string) (is_array($rawInput) ? '' : $rawInput));
+    if ($type === 'integer') {
+        if ($value === '') {
+            return '';
+        }
+        return preg_match('/^-?\d+$/', $value) ? $value : '';
+    }
+
+    if ($type === 'decimal') {
+        if ($value === '') {
+            return '';
+        }
+        $normalizedDecimal = str_replace(',', '.', $value);
+        return preg_match('/^-?\d+(?:\.\d+)?$/', $normalizedDecimal) ? $normalizedDecimal : '';
+    }
+
+    if (($type === 'select' || $type === 'taxonomy' || $type === 'boolean_select') && $value !== '') {
+        if (!in_array($value, $allowedValues, true)) {
+            return '';
+        }
+    }
+
+    return $value;
+}
+
+function getAccountingAdditionalFieldStoredValues(array $field, ?string $storedValue): array {
+    $type = trim((string) ($field['type'] ?? 'text'));
+    $storedValue = (string) $storedValue;
+    if ($type !== 'multiselect') {
+        return $storedValue === '' ? [] : [$storedValue];
+    }
+
+    $decoded = json_decode($storedValue, true);
+    if (!is_array($decoded)) {
+        return $storedValue === '' ? [] : [$storedValue];
+    }
+
+    $values = [];
+    foreach ($decoded as $value) {
+        $value = trim((string) $value);
+        if ($value === '') {
+            continue;
+        }
+        $values[] = $value;
+    }
+    return $values;
 }
 
 /**

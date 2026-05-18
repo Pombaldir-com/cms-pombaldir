@@ -303,6 +303,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 <a><i class="fa fa-table"></i> Tabelas <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
                                     <li><a href="<?= BASE_URL ?>tabelas/departamentos">Departamentos</a></li>
+                                    <li><a href="<?= BASE_URL ?>tabelas/campos-adicionais">Campos Adicionais</a></li>
                                     <li><a href="<?= BASE_URL ?>contabilidade/ai-tarefas">Tarefas AI</a></li>
 
                                 </ul>
@@ -427,7 +428,7 @@ foreach ($sidebarTypes as $sidebarType):
 
 
 
-
+        
 
        
 

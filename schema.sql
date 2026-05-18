@@ -1,5 +1,7 @@
 -- Schema for CMS using Gentelella interface
--- This file can be executed using a MySQL client to create the necessary tables.
+-- Bootstrap base schema for a fresh install.
+-- After importing this file, run the SQL migrations in /migrations to align the
+-- database with the current application version.
 
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -142,14 +144,6 @@ CREATE TABLE IF NOT EXISTS content_taxonomy (
     FOREIGN KEY (term_id) REFERENCES taxonomy_terms(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS accounting_documents (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    file_path VARCHAR(255) NOT NULL,
-    field1 VARCHAR(255) NOT NULL,
-    field2 VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS accounting_classifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     emitter VARCHAR(255) NOT NULL,
@@ -265,6 +259,5 @@ SHOW COLUMNS FROM taxonomy_terms;
 SHOW COLUMNS FROM content;
 SHOW COLUMNS FROM custom_values;
 SHOW COLUMNS FROM content_taxonomy;
-SHOW COLUMNS FROM accounting_documents;
 SHOW COLUMNS FROM accounting_classifications;
 SHOW COLUMNS FROM accounting_imports;

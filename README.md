@@ -30,13 +30,17 @@ Sistema de gestão de conteúdos simples escrito em PHP. O objetivo é fornecer 
    mysql -u root -p < schema.sql
    ```
    O script cria um utilizador de exemplo `admin` com a palavra‑passe `admin123`.
-4. Configure as credenciais da base de dados em [`data/db.php`](data/db.php).
-5. Inicie o servidor de desenvolvimento:
+4. Aplique as migrações para alinhar a base com a versão atual da aplicação:
+   ```bash
+   php scripts/migrate.php
+   ```
+5. Configure as credenciais da base de dados em [`data/db.php`](data/db.php).
+6. Inicie o servidor de desenvolvimento:
    ```bash
    php -S localhost:8000 router.php
    ```
    Ou configure o seu servidor web para apontar para a pasta do projeto e ativar a reescrita de URL com o ficheiro `.htaccess` fornecido.
-6. Aceda a `http://localhost:8000/login` e autentique-se com as credenciais de administrador.
+7. Aceda a `http://localhost:8000/login` e autentique-se com as credenciais de administrador.
 
 ## Estrutura
 - `assets/` – ficheiros CSS e JS adicionais.

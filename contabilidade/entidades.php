@@ -32,6 +32,8 @@ $csrfToken = generateCsrfToken();
 
 $flashType = trim((string) ($_GET['status'] ?? ''));
 $flashMessage = trim((string) ($_GET['msg'] ?? ''));
+$erpClientFormOverride = null;
+$erpClientDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = trim((string) ($_POST['csrf_token'] ?? ''));
     if (!validateCsrfToken($token)) {
@@ -98,6 +100,106 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'csrf_token' => generateCsrfToken(true),
         ], JSON_UNESCAPED_UNICODE);
         exit;
+    }
+
+    if ($action === 'update-erp-client-details') {
+        $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
+        $erpRecordId = isset($_POST['erp_record_id']) ? (int) $_POST['erp_record_id'] : 0;
+        $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . $entityId;
+
+        $erpClientFormOverride = [
+            'id' => $erpRecordId > 0 ? (string) $erpRecordId : '',
+            'nif' => trim((string) ($_POST['nif'] ?? '')),
+            'name' => trim((string) ($_POST['name'] ?? '')),
+            'number' => trim((string) ($_POST['number'] ?? '')),
+            'address' => trim((string) ($_POST['address'] ?? '')),
+            'address2' => trim((string) ($_POST['address2'] ?? '')),
+            'postal_code' => trim((string) ($_POST['postal_code'] ?? '')),
+            'city' => trim((string) ($_POST['city'] ?? '')),
+            'zone' => strtoupper(trim((string) ($_POST['zone'] ?? ''))),
+            'subzone' => strtoupper(trim((string) ($_POST['subzone'] ?? ''))),
+            'phone' => trim((string) ($_POST['phone'] ?? '')),
+            'mobile' => trim((string) ($_POST['mobile'] ?? '')),
+            'email' => trim((string) ($_POST['email'] ?? '')),
+            'tec' => trim((string) ($_POST['tec'] ?? '')),
+        ];
+
+        if ($entityId <= 0) {
+            $flashType = 'error';
+            $flashMessage = 'Entidade invalida.';
+        } elseif ($erpRecordId <= 0) {
+            $flashType = 'error';
+            $flashMessage = 'ID do cliente ERP em falta.';
+        } else {
+            $stmt = $pdo->prepare(
+                'SELECT id, nif, name, erp_database, erp_client_code, entity_type FROM accounting_entities WHERE id = ? LIMIT 1'
+            );
+            $stmt->execute([$entityId]);
+            $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            if (!$entity) {
+                $flashType = 'error';
+                $flashMessage = 'Entidade nao encontrada.';
+            } elseif (($entity['entity_type'] ?? '') !== 'acquirer') {
+                $flashType = 'error';
+                $flashMessage = 'Tipo de entidade invalido.';
+            } else {
+                $erpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+                if ($erpDatabase === '') {
+                    $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
+                }
+                if ($erpDatabase === '') {
+                    $flashType = 'error';
+                    $flashMessage = 'A empresa nao tem base de dados ERP configurada.';
+                } else {
+                    $payload = [
+                        'strMorada_lin1' => $erpClientFormOverride['address'],
+                        'strMorada_lin2' => $erpClientFormOverride['address2'],
+                        'strPostal' => $erpClientFormOverride['postal_code'],
+                        'strLocalidade' => $erpClientFormOverride['city'],
+                        'strAbrevSubZona' => $erpClientFormOverride['subzone'],
+                        'strTelefone' => $erpClientFormOverride['phone'],
+                        'strTelemovel' => $erpClientFormOverride['mobile'],
+                        'strEmail' => $erpClientFormOverride['email'],
+                    ];
+
+                    $updateResponse = updateErpClientDetails($erpRecordId, $payload, $erpDatabase);
+                    if (!empty($updateResponse['success'])) {
+                        $additionalFields = getAccountingAdditionalFields('client');
+                        foreach ($additionalFields as $additionalField) {
+                            $additionalFieldId = (int) ($additionalField['id'] ?? 0);
+                            if ($additionalFieldId <= 0) {
+                                continue;
+                            }
+                            $rawValue = normalizeAccountingAdditionalFieldSubmittedValue(
+                                $additionalField,
+                                $_POST['additional_fields'][$additionalFieldId] ?? null
+                            );
+                            saveAccountingEntityAdditionalValue($entityId, $additionalFieldId, $rawValue);
+                        }
+
+                        logAuditAction('update', 'accounting_entity_erp_client', $entityId, [
+                            'erp_record_id' => $erpRecordId,
+                            'erp_database' => $erpDatabase,
+                            'fields' => array_keys($payload),
+                            'additional_field_count' => count($additionalFields),
+                        ]);
+
+                        $successMessage = 'Dados do cliente atualizados com sucesso.';
+                        $responseData = $updateResponse['data'] ?? null;
+                        if (is_array($responseData) && !empty($responseData['message']) && is_scalar($responseData['message'])) {
+                            $successMessage = trim((string) $responseData['message']);
+                        }
+
+                        header('Location: ' . $returnUrl . '?status=success&msg=' . rawurlencode($successMessage));
+                        exit;
+                    }
+
+                    $flashType = 'error';
+                    $flashMessage = trim((string) ($updateResponse['error'] ?? 'Falha ao atualizar o cliente no ERP.'));
+                }
+            }
+        }
     }
 
     if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
@@ -210,6 +312,7 @@ $consultId = isset($_GET['consulta']) ? (int) $_GET['consulta'] : 0;
 $consultEntity = null;
 $erpClient = null;
 $erpClientForm = [
+    'id' => '',
     'nif' => '',
     'cons_final' => false,
     'name' => '',
@@ -230,6 +333,8 @@ $erpSubzones = [];
 $zoneError = '';
 $subzoneError = '';
 $erpError = '';
+$additionalClientFields = [];
+$additionalClientValues = [];
 if ($consultId > 0) {
     $stmt = $pdo->prepare(
         "SELECT id, nif, name, erp_database, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
@@ -239,6 +344,10 @@ if ($consultId > 0) {
 
     if ($consultEntity) {
         $erpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+        if ($erpDatabase === '') {
+            $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($consultEntity['erp_database'] ?? ''));
+        }
+        $erpClientDatabase = $erpDatabase;
         $consultNif = trim((string) ($consultEntity['nif'] ?? ''));
         if ($consultNif === '') {
             $erpError = 'Entidade sem NIF definido.';
@@ -261,6 +370,7 @@ if ($consultId > 0) {
                         }
 
                         if ($row) {
+                            $erpClientForm['id'] = trim((string) ($row['Id'] ?? ''));
                             $erpClientForm['nif'] = extractVatNumber((string) ($row['strNumContrib'] ?? ''));
                             $erpClientForm['name'] = trim((string) ($row['strNome'] ?? ''));
                             $erpClientForm['address'] = trim((string) ($row['strMorada_lin1'] ?? ''));
@@ -294,18 +404,43 @@ if ($consultId > 0) {
     }
 
     if ($consultEntity && $erpError === '') {
-        $zonesResponse = fetchErpTableData('tabelas/zonas', true);
+        $zonesResponse = fetchErpTableData('tabelas/zonas', true, $erpDatabase);
         if (!empty($zonesResponse['error'])) {
             $zoneError = (string) $zonesResponse['error'];
         } else {
             $erpZones = $zonesResponse['data'] ?? [];
         }
 
-        $subzonesResponse = fetchErpTableData('tabelas/subzonas', true);
+        $subzonesResponse = fetchErpTableData('tabelas/subzonas', true, $erpDatabase);
         if (!empty($subzonesResponse['error'])) {
             $subzoneError = (string) $subzonesResponse['error'];
         } else {
             $erpSubzones = $subzonesResponse['data'] ?? [];
+        }
+    }
+}
+
+if (is_array($erpClientFormOverride)) {
+    foreach ($erpClientFormOverride as $field => $value) {
+        if (array_key_exists($field, $erpClientForm)) {
+            $erpClientForm[$field] = $value;
+        }
+    }
+}
+
+if ($consultEntity) {
+    $additionalClientFields = getAccountingAdditionalFields('client');
+    $additionalClientValues = getAccountingEntityAdditionalValues((int) ($consultEntity['id'] ?? 0));
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && is_array($_POST['additional_fields'] ?? null)) {
+        foreach ($additionalClientFields as $additionalField) {
+            $additionalFieldId = (int) ($additionalField['id'] ?? 0);
+            if ($additionalFieldId <= 0) {
+                continue;
+            }
+            $additionalClientValues[$additionalFieldId] = normalizeAccountingAdditionalFieldSubmittedValue(
+                $additionalField,
+                $_POST['additional_fields'][$additionalFieldId] ?? null
+            );
         }
     }
 }
@@ -402,6 +537,67 @@ require_once __DIR__ . '/../header.php';
                 </div>
             <?php elseif ($consultEntity): ?>
                 <?php if ($erpClient): ?>
+                    <style>
+                        .erp-client-form .erp-form-section {
+                            border: 1px solid #e6e9ed;
+                            border-radius: 3px;
+                            padding: 15px 15px 5px;
+                            margin-bottom: 18px;
+                            background: #fff;
+                        }
+                        .erp-client-form .erp-form-section-title {
+                            margin: 0 0 12px;
+                            font-size: 15px;
+                            font-weight: 600;
+                            color: #34495e;
+                        }
+                        .erp-client-form .erp-form-section-title i {
+                            margin-right: 6px;
+                            color: #1abb9c;
+                        }
+                        .erp-client-form .erp-additional-fields-row {
+                            display: flex;
+                            flex-wrap: wrap;
+                            align-items: flex-start;
+                        }
+                        .erp-client-form .erp-additional-fields-row > [class*="col-"] {
+                            float: none;
+                        }
+                        .erp-client-form .erp-readonly-field {
+                            background-color: #f5f7fa;
+                            border-color: #dfe6ec;
+                            color: #5a738e;
+                            font-weight: 600;
+                        }
+                        .erp-client-form .erp-form-actions {
+                            display: flex;
+                            align-items: center;
+                            justify-content: flex-end;
+                            gap: 12px;
+                            flex-wrap: wrap;
+                            padding-top: 12px;
+                            border-top: 1px solid #e6e9ed;
+                        }
+                        .erp-client-form .erp-form-actions-primary,
+                        .erp-client-form .erp-form-actions-secondary {
+                            display: flex;
+                            align-items: center;
+                            gap: 10px;
+                            flex-wrap: wrap;
+                        }
+                        .erp-client-form .erp-form-actions-secondary {
+                            margin-right: auto;
+                        }
+                        .erp-client-form .erp-form-actions .btn {
+                            margin-bottom: 0;
+                        }
+                        .erp-client-form .erp-form-actions .btn-success {
+                            min-width: 190px;
+                        }
+                        .erp-client-form .password-toggle-btn {
+                            min-width: 42px;
+                        }
+                    </style>
                     <div class="x_panel">
                         <div class="x_title">
                             <h2><i class="fa fa-cloud"></i> Dados do Cliente</h2>
@@ -412,192 +608,373 @@ require_once __DIR__ . '/../header.php';
                                 <li class="nav-item">
                                     <a class="nav-link active" data-bs-toggle="tab" href="#cliente-detalhes" role="tab">Detalhes</a>
                                 </li>
+                                <?php if ($additionalClientFields): ?>
+                                    <li class="nav-item">
+                                        <a class="nav-link" data-bs-toggle="tab" href="#cliente-campos-adicionais" role="tab">Campos Adicionais</a>
+                                    </li>
+                                <?php endif; ?>
                                 <li class="nav-item">
                                     <a class="nav-link disabled" href="javascript:void(0)" tabindex="-1" aria-disabled="true">Outro</a>
                                 </li>
                             </ul>
-                            <div class="tab-content">
-                                <div class="tab-pane fade active show" id="cliente-detalhes" role="tabpanel">
-                                    <form class="form-horizontal mt-3">
-                                        <div class="row">
-                                    <div class="col-md-2 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">NIF</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>" readonly>
+                            <?php
+                                $zoneOptions = [];
+                                foreach ($erpZones as $zone) {
+                                    if (!is_array($zone)) {
+                                        continue;
+                                    }
+                                    $code = trim((string) ($zone['strAbreviatura'] ?? $zone['strabreviatura'] ?? ''));
+                                    if ($code === '') {
+                                        continue;
+                                    }
+                                    $label = trim((string) ($zone['strDescricao'] ?? $zone['strdescricao'] ?? $code));
+                                    $zoneOptions[strtoupper($code)] = $label;
+                                }
+
+                                $subzoneOptions = [];
+                                $subzoneToZone = [];
+                                foreach ($erpSubzones as $subzone) {
+                                    if (!is_array($subzone)) {
+                                        continue;
+                                    }
+                                    $code = trim((string) ($subzone['strAbreviatura'] ?? $subzone['strabreviatura'] ?? ''));
+                                    if ($code === '') {
+                                        continue;
+                                    }
+                                    $label = trim((string) ($subzone['strDescricao'] ?? $subzone['strdescricao'] ?? $code));
+                                    $zoneCode = trim((string) ($subzone['strAbrevZona'] ?? $subzone['strabrevzona'] ?? ''));
+                                    $normalizedCode = strtoupper($code);
+                                    $subzoneOptions[$normalizedCode] = [
+                                        'label' => $label,
+                                        'zone' => strtoupper($zoneCode),
+                                    ];
+                                    if ($zoneCode !== '') {
+                                        $subzoneToZone[$normalizedCode] = strtoupper($zoneCode);
+                                    }
+                                }
+
+                                $selectedSubzone = strtoupper(trim((string) $erpClientForm['subzone']));
+                                $selectedZone = strtoupper(trim((string) $erpClientForm['zone']));
+                                if ($selectedZone === '' && $selectedSubzone !== '' && isset($subzoneToZone[$selectedSubzone])) {
+                                    $selectedZone = strtoupper((string) $subzoneToZone[$selectedSubzone]);
+                                }
+
+                                if ($selectedSubzone !== '' && !isset($subzoneOptions[$selectedSubzone])) {
+                                    $subzoneOptions[$selectedSubzone] = [
+                                        'label' => $selectedSubzone,
+                                        'zone' => $selectedZone,
+                                    ];
+                                }
+
+                                $filteredSubzoneOptions = [];
+                                if ($selectedZone !== '') {
+                                    foreach ($subzoneOptions as $code => $meta) {
+                                        if (strtoupper((string) ($meta['zone'] ?? '')) === $selectedZone) {
+                                            $filteredSubzoneOptions[$code] = $meta;
+                                        }
+                                    }
+                                }
+
+                                if (!$filteredSubzoneOptions) {
+                                    $filteredSubzoneOptions = $subzoneOptions;
+                                }
+                            ?>
+                            <form class="form-horizontal erp-client-form" method="post">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                <input type="hidden" name="action" value="update-erp-client-details">
+                                <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                <input type="hidden" name="erp_record_id" value="<?= (int) ($erpClientForm['id'] ?? 0); ?>">
+                                <input type="hidden" name="nif" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>">
+                                <input type="hidden" name="name" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>">
+                                <input type="hidden" name="number" value="<?= htmlspecialchars((string) $erpClientForm['number']); ?>">
+                                <input type="hidden" name="tec" value="<?= htmlspecialchars((string) $erpClientForm['tec']); ?>">
+                                <div class="tab-content">
+                                    <div class="tab-pane fade active show" id="cliente-detalhes" role="tabpanel">
+                                        <div class="erp-form-section">
+                                            <h3 class="erp-form-section-title"><i class="fa fa-id-card-o"></i> Identificação</h3>
+                                            <div class="row">
+                                                <div class="col-md-3 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">NIF</label>
+                                                        <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>" readonly>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Nome</label>
+                                                        <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>" readonly>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-3 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Nº Cliente</label>
+                                                        <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['number']); ?>" readonly>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-
-
-   <div class="col-md-7 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Nome</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>" readonly>
+                                        <div class="erp-form-section">
+                                            <h3 class="erp-form-section-title"><i class="fa fa-map-marker"></i> Morada e Localização</h3>
+                                            <div class="row">
+                                                <div class="col-md-6 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Morada</label>
+                                                        <input type="text" class="form-control" name="address" value="<?= htmlspecialchars((string) $erpClientForm['address']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Morada 2</label>
+                                                        <input type="text" class="form-control" name="address2" value="<?= htmlspecialchars((string) $erpClientForm['address2']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-2 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">CP</label>
+                                                        <input type="text" class="form-control" name="postal_code" value="<?= htmlspecialchars((string) $erpClientForm['postal_code']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Localidade</label>
+                                                        <input type="text" class="form-control" name="city" value="<?= htmlspecialchars((string) $erpClientForm['city']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-3 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Zona</label>
+                                                        <select class="form-control" name="zone" id="erpClientZoneSelect">
+                                                            <option value="">-</option>
+                                                            <?php foreach ($zoneOptions as $code => $label): ?>
+                                                                <option value="<?= htmlspecialchars($code); ?>" <?= strtoupper($code) === $selectedZone ? 'selected' : ''; ?>>
+                                                                    <?= htmlspecialchars((string) $label); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-3 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Subzona</label>
+                                                        <select class="form-control" name="subzone" id="erpClientSubzoneSelect">
+                                                            <option value="">-</option>
+                                                            <?php foreach ($filteredSubzoneOptions as $code => $meta): ?>
+                                                                <option value="<?= htmlspecialchars($code); ?>" <?= strtoupper($code) === $selectedSubzone ? 'selected' : ''; ?>>
+                                                                    <?= htmlspecialchars((string) ($meta['label'] ?? $code)); ?>
+                                                                </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-
-<div class="col-md-1 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Nº Cliente</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['number']); ?>" readonly>
-                                        </div>
-                                    </div>
-
-
-                                    
-                                 
-
-                                    <div class="col-md-2 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Cons. Final</label>
-                                            <div>
-                                                <input type="checkbox" class="js-switch" <?= $erpClientForm['cons_final'] ? 'checked' : ''; ?> disabled>
+                                        <div class="erp-form-section">
+                                            <h3 class="erp-form-section-title"><i class="fa fa-phone"></i> Contactos</h3>
+                                            <div class="row">
+                                                <div class="col-md-4 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Telefone</label>
+                                                        <input type="text" class="form-control" name="phone" value="<?= htmlspecialchars((string) $erpClientForm['phone']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Telemovel</label>
+                                                        <input type="text" class="form-control" name="mobile" value="<?= htmlspecialchars((string) $erpClientForm['mobile']); ?>">
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">E-mail</label>
+                                                        <input type="text" class="form-control" name="email" value="<?= htmlspecialchars((string) $erpClientForm['email']); ?>">
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                    
-                                    <div class="col-md-6 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Morada</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['address']); ?>" readonly>
+                                    <?php if ($additionalClientFields): ?>
+                                        <div class="tab-pane fade" id="cliente-campos-adicionais" role="tabpanel">
+                                            <div class="erp-form-section">
+                                                <div class="row erp-additional-fields-row">
+                                                    <?php foreach ($additionalClientFields as $additionalField): ?>
+                                                        <?php
+                                                            $additionalFieldId = (int) ($additionalField['id'] ?? 0);
+                                                            $additionalFieldType = trim((string) ($additionalField['type'] ?? 'text'));
+                                                            $additionalFieldName = 'additional_fields[' . $additionalFieldId . ']';
+                                                            $additionalFieldValue = (string) ($additionalClientValues[$additionalFieldId] ?? '');
+                                                            $additionalFieldStoredValues = getAccountingAdditionalFieldStoredValues($additionalField, $additionalFieldValue);
+                                                            $additionalFieldOptions = getAccountingAdditionalFieldOptions($additionalField);
+                                                            $additionalFieldLabel = trim((string) ($additionalField['label'] ?? 'Campo'));
+                                                            $additionalFieldBootstrapCol = normalizeAccountingAdditionalFieldBootstrapColumn($additionalField['bootstrap_col'] ?? 6);
+                                                            $additionalFieldBootstrapOffset = normalizeAccountingAdditionalFieldBootstrapOffset($additionalField['bootstrap_offset'] ?? 0);
+                                                            $additionalFieldColumnClass = 'col-md-' . (int) $additionalFieldBootstrapCol . ' col-sm-12';
+                                                            $additionalFieldInputId = 'additional-field-' . $additionalFieldId;
+                                                            if ($additionalFieldBootstrapOffset > 0) {
+                                                                $additionalFieldColumnClass .= ' col-md-offset-' . (int) $additionalFieldBootstrapOffset;
+                                                                $additionalFieldColumnClass .= ' offset-md-' . (int) $additionalFieldBootstrapOffset;
+                                                            }
+                                                        ?>
+                                                        <div class="<?= htmlspecialchars($additionalFieldColumnClass); ?>">
+                                                            <div class="form-group">
+                                                                <label class="control-label"><?= htmlspecialchars($additionalFieldLabel); ?></label>
+                                                                <?php if ($additionalFieldType === 'textarea'): ?>
+                                                                    <textarea name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" rows="3"><?= htmlspecialchars($additionalFieldValue); ?></textarea>
+                                                                <?php elseif ($additionalFieldType === 'multiselect'): ?>
+                                                                    <select name="<?= htmlspecialchars($additionalFieldName); ?>[]" class="form-control" multiple size="<?= max(3, min(8, count($additionalFieldOptions))); ?>">
+                                                                        <?php foreach ($additionalFieldOptions as $additionalOption): ?>
+                                                                            <option value="<?= htmlspecialchars((string) $additionalOption['value']); ?>" <?= in_array((string) $additionalOption['value'], $additionalFieldStoredValues, true) ? 'selected' : ''; ?>>
+                                                                                <?= htmlspecialchars((string) $additionalOption['label']); ?>
+                                                                            </option>
+                                                                        <?php endforeach; ?>
+                                                                    </select>
+                                                                <?php elseif ($additionalFieldType === 'select' || $additionalFieldType === 'taxonomy' || $additionalFieldType === 'boolean_select'): ?>
+                                                                    <select name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control">
+                                                                        <option value="">-</option>
+                                                                        <?php foreach ($additionalFieldOptions as $additionalOption): ?>
+                                                                            <option value="<?= htmlspecialchars((string) $additionalOption['value']); ?>" <?= $additionalFieldValue === (string) $additionalOption['value'] ? 'selected' : ''; ?>>
+                                                                                <?= htmlspecialchars((string) $additionalOption['label']); ?>
+                                                                            </option>
+                                                                        <?php endforeach; ?>
+                                                                    </select>
+                                                                <?php elseif ($additionalFieldType === 'password'): ?>
+                                                                    <div class="input-group">
+                                                                        <input
+                                                                            type="password"
+                                                                            id="<?= htmlspecialchars($additionalFieldInputId); ?>"
+                                                                            name="<?= htmlspecialchars($additionalFieldName); ?>"
+                                                                            class="form-control"
+                                                                            value="<?= htmlspecialchars($additionalFieldValue); ?>"
+                                                                        >
+                                                                        <span class="input-group-btn">
+                                                                            <button
+                                                                                type="button"
+                                                                                class="btn btn-default password-toggle-btn"
+                                                                                data-target="#<?= htmlspecialchars($additionalFieldInputId); ?>"
+                                                                                aria-label="Mostrar password"
+                                                                            >
+                                                                                <i class="fa fa-eye"></i>
+                                                                            </button>
+                                                                        </span>
+                                                                    </div>
+                                                                <?php elseif ($additionalFieldType === 'integer'): ?>
+                                                                    <input type="number" step="1" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                <?php elseif ($additionalFieldType === 'decimal'): ?>
+                                                                    <input type="number" step="0.01" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                <?php else: ?>
+                                                                    <input type="text" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" value="<?= htmlspecialchars($additionalFieldValue); ?>">
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                    <div class="form-group erp-form-actions">
+                                        <div class="erp-form-actions-secondary">
+                                            <a href="javascript:history.back()" class="btn btn-default">
+                                                <i class="fa fa-arrow-left"></i> Voltar
+                                            </a>
+                                        </div>
+                                        <div class="erp-form-actions-primary">
+                                            <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) ($consultEntity['id'] ?? 0); ?>" class="btn btn-default">
+                                                <i class="fa fa-refresh"></i> Repor
+                                            </a>
+                                            <button type="submit" class="btn btn-success">
+                                                <i class="fa fa-save"></i> Guardar Alterações
+                                            </button>
                                         </div>
                                     </div>
-                                    <div class="col-md-6 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">&nbsp;</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['address2']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">CP</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['postal_code']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Localidade</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['city']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    <?php
-                                        $zoneOptions = [];
-                                        foreach ($erpZones as $zone) {
-                                            if (!is_array($zone)) {
-                                                continue;
-                                            }
-                                            $code = trim((string) ($zone['strAbreviatura'] ?? $zone['strabreviatura'] ?? ''));
-                                            if ($code === '') {
-                                                continue;
-                                            }
-                                            $label = trim((string) ($zone['strDescricao'] ?? $zone['strdescricao'] ?? $code));
-                                            $zoneOptions[strtoupper($code)] = $label;
-                                        }
-
-                                        $subzoneOptions = [];
-                                        $subzoneToZone = [];
-                                        foreach ($erpSubzones as $subzone) {
-                                            if (!is_array($subzone)) {
-                                                continue;
-                                            }
-                                            $code = trim((string) ($subzone['strAbreviatura'] ?? $subzone['strabreviatura'] ?? ''));
-                                            if ($code === '') {
-                                                continue;
-                                            }
-                                            $label = trim((string) ($subzone['strDescricao'] ?? $subzone['strdescricao'] ?? $code));
-                                            $zoneCode = trim((string) ($subzone['strAbrevZona'] ?? $subzone['strabrevzona'] ?? ''));
-                                            $normalizedCode = strtoupper($code);
-                                            $subzoneOptions[$normalizedCode] = [
-                                                'label' => $label,
-                                                'zone' => strtoupper($zoneCode),
-                                            ];
-                                            if ($zoneCode !== '') {
-                                                $subzoneToZone[$normalizedCode] = strtoupper($zoneCode);
-                                            }
-                                        }
-
-                                        $selectedSubzone = strtoupper(trim((string) $erpClientForm['subzone']));
-                                        $selectedZone = strtoupper(trim((string) $erpClientForm['zone']));
-                                        if ($selectedZone === '' && $selectedSubzone !== '' && isset($subzoneToZone[$selectedSubzone])) {
-                                            $selectedZone = strtoupper((string) $subzoneToZone[$selectedSubzone]);
-                                        }
-
-                                        if ($selectedSubzone !== '' && !isset($subzoneOptions[$selectedSubzone])) {
-                                            $subzoneOptions[$selectedSubzone] = [
-                                                'label' => $selectedSubzone,
-                                                'zone' => $selectedZone,
-                                            ];
-                                        }
-
-                                        $filteredSubzoneOptions = [];
-                                        if ($selectedZone !== '') {
-                                            foreach ($subzoneOptions as $code => $meta) {
-                                                if (strtoupper((string) ($meta['zone'] ?? '')) === $selectedZone) {
-                                                    $filteredSubzoneOptions[$code] = $meta;
-                                                }
-                                            }
-                                        }
-
-                                        if (!$filteredSubzoneOptions) {
-                                            $filteredSubzoneOptions = $subzoneOptions;
-                                        }
-                                    ?>
-                                    <div class="col-md-3 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Zona</label>
-                                            <select class="form-control" disabled>
-                                                <option value="">-</option>
-                                                <?php foreach ($zoneOptions as $code => $label): ?>
-                                                    <option value="<?= htmlspecialchars($code); ?>" <?= strtoupper($code) === $selectedZone ? 'selected' : ''; ?>>
-                                                        <?= htmlspecialchars((string) $label); ?>
-                                                    </option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Subzona</label>
-                                            <select class="form-control" disabled>
-                                                <option value="">-</option>
-                                                <?php foreach ($filteredSubzoneOptions as $code => $meta): ?>
-                                                    <option value="<?= htmlspecialchars($code); ?>" <?= strtoupper($code) === $selectedSubzone ? 'selected' : ''; ?>>
-                                                        <?= htmlspecialchars((string) ($meta['label'] ?? $code)); ?>
-                                                    </option>
-                                                <?php endforeach; ?>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Telefone</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['phone']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Telemovel</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['mobile']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">E-mail</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars((string) $erpClientForm['email']); ?>" readonly>
-                                        </div>
-                                    </div>
-                                    
-                                    
-                                        </div>
-                                    </form>
                                 </div>
-                            </div>
-                            <div class="mt-3">
-                                <a href="javascript:history.back()" class="btn btn-default">
-                                    <i class="fa fa-arrow-left"></i> Voltar
-                                </a>
-                            </div>
+                            </form>
                         </div>
                     </div>
+                    <script>
+                    (function () {
+                        var zoneSelect = document.getElementById('erpClientZoneSelect');
+                        var subzoneSelect = document.getElementById('erpClientSubzoneSelect');
+                        if (!zoneSelect || !subzoneSelect) {
+                            return;
+                        }
+
+                        var subzoneOptions = <?= json_encode($subzoneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+                        var initialSubzone = <?= json_encode($selectedSubzone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+
+                        function renderSubzones() {
+                            var selectedZone = (zoneSelect.value || '').toUpperCase();
+                            var currentSubzone = (subzoneSelect.value || initialSubzone || '').toUpperCase();
+                            var matched = false;
+                            var hasZoneMatches = false;
+                            var fragment = document.createDocumentFragment();
+                            var placeholder = document.createElement('option');
+                            placeholder.value = '';
+                            placeholder.textContent = '-';
+                            fragment.appendChild(placeholder);
+
+                            Object.keys(subzoneOptions).sort().forEach(function (code) {
+                                var meta = subzoneOptions[code] || {};
+                                var optionZone = String(meta.zone || '').toUpperCase();
+                                if (selectedZone && optionZone !== selectedZone) {
+                                    return;
+                                }
+                                hasZoneMatches = true;
+                                var selected = code.toUpperCase() === currentSubzone;
+                                if (selected) {
+                                    matched = true;
+                                }
+                                var option = document.createElement('option');
+                                option.value = code;
+                                option.textContent = String(meta.label || code);
+                                option.selected = selected;
+                                fragment.appendChild(option);
+                            });
+
+                            if (!hasZoneMatches && selectedZone) {
+                                Object.keys(subzoneOptions).sort().forEach(function (code) {
+                                    var meta = subzoneOptions[code] || {};
+                                    var selected = code.toUpperCase() === currentSubzone;
+                                    if (selected) {
+                                        matched = true;
+                                    }
+                                    var option = document.createElement('option');
+                                    option.value = code;
+                                    option.textContent = String(meta.label || code);
+                                    option.selected = selected;
+                                    fragment.appendChild(option);
+                                });
+                            }
+
+                            subzoneSelect.innerHTML = '';
+                            subzoneSelect.appendChild(fragment);
+                            if (!matched) {
+                                subzoneSelect.value = '';
+                            }
+                        }
+
+                        zoneSelect.addEventListener('change', renderSubzones);
+                        renderSubzones();
+
+                        document.querySelectorAll('.password-toggle-btn').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                var targetSelector = button.getAttribute('data-target') || '';
+                                if (!targetSelector) {
+                                    return;
+                                }
+                                var input = document.querySelector(targetSelector);
+                                if (!input) {
+                                    return;
+                                }
+                                var isHidden = input.getAttribute('type') === 'password';
+                                input.setAttribute('type', isHidden ? 'text' : 'password');
+                                button.setAttribute('aria-label', isHidden ? 'Esconder password' : 'Mostrar password');
+                                var icon = button.querySelector('i');
+                                if (icon) {
+                                    icon.className = isHidden ? 'fa fa-eye-slash' : 'fa fa-eye';
+                                }
+                            });
+                        });
+                    }());
+                    </script>
                 <?php endif; ?>
             <?php endif; ?>
             <?php if (!$consultEntity && $isSupplierList && $supplierCompany): ?>
@@ -735,7 +1112,7 @@ require_once __DIR__ . '/../header.php';
                             <td><?= htmlspecialchars(resolveAccountingEntityDatabase($entity)); ?></td>
                             <td class="text-right">
                                 <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>" class="btn btn-xs btn-primary">
-                                    <i class="fa fa-search"></i> Consulta
+                                    <i class="fa fa-pencil"></i> Editar
                                 </a>
                                 <?php if ($typeSlug === 'empresas'): ?>
                                     <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>/fornecedores" class="btn btn-xs btn-info">
