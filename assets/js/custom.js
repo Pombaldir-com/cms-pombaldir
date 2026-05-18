@@ -782,6 +782,192 @@ $(document).ready(function() {
 });
 
 (function () {
+    function isAjaxOptOut(form) {
+        if (!form) {
+            return true;
+        }
+
+        if (form.getAttribute('data-no-ajax') === '1') {
+            return true;
+        }
+
+        if (form.classList.contains('dropzone')) {
+            return true;
+        }
+
+        if ((form.getAttribute('target') || '').trim() !== '') {
+            return true;
+        }
+
+        return false;
+    }
+
+    function buildAjaxBody(form, submitter) {
+        var enctype = String(form.getAttribute('enctype') || '').toLowerCase();
+        var formData = new FormData(form);
+
+        if (submitter && submitter.name && !formData.has(submitter.name)) {
+            formData.append(submitter.name, submitter.value || '');
+        }
+
+        if (enctype.indexOf('multipart/form-data') !== -1) {
+            return {
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            };
+        }
+
+        return {
+            body: new URLSearchParams(formData).toString(),
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        };
+    }
+
+    function toggleSubmittingState(form, submitter, isSubmitting) {
+        if (!form) {
+            return;
+        }
+
+        form.classList.toggle('is-submitting', !!isSubmitting);
+
+        var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        buttons.forEach(function (button) {
+            button.disabled = !!isSubmitting;
+        });
+
+        if (submitter && submitter.dataset) {
+            if (isSubmitting) {
+                submitter.dataset.originalLabel = submitter.tagName === 'INPUT'
+                    ? (submitter.value || '')
+                    : (submitter.innerHTML || '');
+                if (submitter.tagName === 'INPUT') {
+                    submitter.value = 'A guardar...';
+                } else {
+                    submitter.innerHTML = '<i class="fa fa-spinner fa-spin"></i> A guardar...';
+                }
+            } else if (submitter.dataset.originalLabel) {
+                if (submitter.tagName === 'INPUT') {
+                    submitter.value = submitter.dataset.originalLabel;
+                } else {
+                    submitter.innerHTML = submitter.dataset.originalLabel;
+                }
+                delete submitter.dataset.originalLabel;
+            }
+        }
+    }
+
+    function writeAjaxResponse(html, url) {
+        if (typeof html !== 'string' || html === '') {
+            return;
+        }
+
+        if (url) {
+            try {
+                window.history.replaceState({}, '', url);
+            } catch (error) {
+                // Ignore history errors.
+            }
+        }
+
+        document.open();
+        document.write(html);
+        document.close();
+    }
+
+    document.addEventListener('submit', function (event) {
+        var form = event.target;
+        if (!(form instanceof HTMLFormElement)) {
+            return;
+        }
+
+        if (event.defaultPrevented) {
+            return;
+        }
+
+        var method = String(form.getAttribute('method') || form.method || 'get').toLowerCase();
+        if (method !== 'post') {
+            return;
+        }
+
+        if (isAjaxOptOut(form)) {
+            return;
+        }
+
+        var submitter = event.submitter || null;
+        var requestConfig = buildAjaxBody(form, submitter);
+        var action = form.getAttribute('action') || window.location.href;
+
+        event.preventDefault();
+        toggleSubmittingState(form, submitter, true);
+
+        fetch(action, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: requestConfig.headers,
+            body: requestConfig.body,
+            redirect: 'follow'
+        })
+            .then(function (response) {
+                var contentType = String(response.headers.get('content-type') || '').toLowerCase();
+                if (contentType.indexOf('application/json') !== -1) {
+                    return response.json().then(function (payload) {
+                        if (payload && payload.redirect_url) {
+                            window.location.href = payload.redirect_url;
+                            return;
+                        }
+
+                        if (window.PNotify) {
+                            var noticeOptions = {
+                                text: String((payload && (payload.message || payload.error)) || (response.ok ? 'Operacao concluida.' : 'Nao foi possivel concluir a operacao.')),
+                                type: response.ok && payload && payload.success !== false ? 'success' : 'error',
+                                styling: 'bootstrap3',
+                                delay: 6000,
+                                hide: true
+                            };
+                            if (typeof window.PNotify.alert === 'function') {
+                                window.PNotify.alert(noticeOptions);
+                            } else if (typeof window.PNotify === 'function') {
+                                window.PNotify(noticeOptions);
+                            }
+                        }
+
+                        if (!response.ok || (payload && payload.success === false)) {
+                            throw new Error(String((payload && payload.error) || 'Nao foi possivel concluir a operacao.'));
+                        }
+                    });
+                }
+
+                return response.text().then(function (html) {
+                    writeAjaxResponse(html, response.url || action);
+                });
+            })
+            .catch(function (error) {
+                toggleSubmittingState(form, submitter, false);
+
+                if (window.PNotify) {
+                    var errorOptions = {
+                        text: error && error.message ? error.message : 'Nao foi possivel concluir a operacao.',
+                        type: 'error',
+                        styling: 'bootstrap3',
+                        delay: 6000,
+                        hide: true
+                    };
+                    if (typeof window.PNotify.alert === 'function') {
+                        window.PNotify.alert(errorOptions);
+                    } else if (typeof window.PNotify === 'function') {
+                        window.PNotify(errorOptions);
+                    }
+                }
+            });
+    });
+})();
+
+(function () {
     var config = window.internalChatGlobalConfig || null;
     if (!config || !config.enabled || !config.userId) {
         return;

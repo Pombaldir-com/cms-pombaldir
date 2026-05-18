@@ -1860,11 +1860,13 @@ function resolveErpAccountingDocumentTypeAbbreviation(string $documentType, stri
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
-    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
+    $selectColumns = appendAccountingEmitterTypeSelectColumn(
+        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+    );
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row !== false ? $row : null;
+    return $row !== false ? ensureAccountingEntityRouteRow($pdo, $row) : null;
 }
 
 /**
@@ -1880,11 +1882,13 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     if ($normalizedType === '') {
         return findAccountingEntity($pdo, $nif);
     }
-    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
+    $selectColumns = appendAccountingEmitterTypeSelectColumn(
+        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+    );
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
     $stmt->execute([$nif, $normalizedType]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row !== false ? $row : null;
+    return $row !== false ? ensureAccountingEntityRouteRow($pdo, $row) : null;
 }
 
 function normalizeAccountingEntityDatabaseKey(string $value): string {
@@ -1902,6 +1906,149 @@ function normalizeAccountingEntityDatabaseKey(string $value): string {
     }
 
     return $value;
+}
+
+function isValidAccountingEntityUuid(string $value): bool {
+    return (bool) preg_match(
+        '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+        trim($value)
+    );
+}
+
+function generateAccountingEntityUuid(): string {
+    $bytes = random_bytes(16);
+    $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+    $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+    $hex = bin2hex($bytes);
+
+    return sprintf(
+        '%s-%s-%s-%s-%s',
+        substr($hex, 0, 8),
+        substr($hex, 8, 4),
+        substr($hex, 12, 4),
+        substr($hex, 16, 4),
+        substr($hex, 20, 12)
+    );
+}
+
+function hasAccountingEntityUuidColumn(): bool {
+    return hasColumn('accounting_entities', 'uuid');
+}
+
+function appendAccountingEntityUuidSelectColumn(string $selectColumns): string {
+    if (!hasAccountingEntityUuidColumn()) {
+        return $selectColumns;
+    }
+
+    return $selectColumns . ', uuid';
+}
+
+function ensureAccountingEntityUuid(PDO $pdo, int $entityId, string $currentUuid = ''): string {
+    if ($entityId <= 0 || !hasAccountingEntityUuidColumn()) {
+        return '';
+    }
+
+    $currentUuid = trim($currentUuid);
+    if (isValidAccountingEntityUuid($currentUuid)) {
+        return strtolower($currentUuid);
+    }
+
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $uuid = generateAccountingEntityUuid();
+        $stmt = $pdo->prepare('UPDATE accounting_entities SET uuid = ? WHERE id = ? AND COALESCE(NULLIF(TRIM(uuid), \'\'), \'\') = \'\'');
+        try {
+            $stmt->execute([$uuid, $entityId]);
+        } catch (Throwable $e) {
+            continue;
+        }
+
+        $checkStmt = $pdo->prepare('SELECT uuid FROM accounting_entities WHERE id = ? LIMIT 1');
+        $checkStmt->execute([$entityId]);
+        $storedUuid = trim((string) ($checkStmt->fetchColumn() ?: ''));
+        if (isValidAccountingEntityUuid($storedUuid)) {
+            return strtolower($storedUuid);
+        }
+    }
+
+    return '';
+}
+
+function ensureAccountingEntityRouteRow(PDO $pdo, ?array $entity): ?array {
+    if (!is_array($entity)) {
+        return null;
+    }
+
+    $entityId = (int) ($entity['id'] ?? 0);
+    if ($entityId <= 0 || !hasAccountingEntityUuidColumn()) {
+        return $entity;
+    }
+
+    $uuid = trim((string) ($entity['uuid'] ?? ''));
+    if (!isValidAccountingEntityUuid($uuid)) {
+        $entity['uuid'] = ensureAccountingEntityUuid($pdo, $entityId, $uuid);
+    } else {
+        $entity['uuid'] = strtolower($uuid);
+    }
+
+    return $entity;
+}
+
+function ensureAccountingEntityRouteRows(PDO $pdo, array $entities): array {
+    foreach ($entities as $index => $entity) {
+        $entities[$index] = ensureAccountingEntityRouteRow($pdo, is_array($entity) ? $entity : null);
+    }
+
+    return $entities;
+}
+
+function getAccountingEntityRouteKey(array $entity): string {
+    $uuid = trim((string) ($entity['uuid'] ?? ''));
+    if (isValidAccountingEntityUuid($uuid)) {
+        return strtolower($uuid);
+    }
+
+    return (string) ((int) ($entity['id'] ?? 0));
+}
+
+function findAccountingEntityByRouteKey(PDO $pdo, string $routeKey, string $entityType = ''): ?array {
+    $routeKey = trim($routeKey);
+    if ($routeKey === '') {
+        return null;
+    }
+
+    $selectColumns = appendAccountingEmitterTypeSelectColumn(
+        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+    );
+
+    if (ctype_digit($routeKey)) {
+        $sql = 'SELECT ' . $selectColumns . ' FROM accounting_entities WHERE id = ?';
+        $params = [(int) $routeKey];
+        if ($entityType !== '') {
+            $sql .= ' AND entity_type = ?';
+            $params[] = $entityType;
+        }
+        $sql .= ' LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? ensureAccountingEntityRouteRow($pdo, $row) : null;
+    }
+
+    if (!hasAccountingEntityUuidColumn() || !isValidAccountingEntityUuid($routeKey)) {
+        return null;
+    }
+
+    $sql = 'SELECT ' . $selectColumns . ' FROM accounting_entities WHERE uuid = ?';
+    $params = [strtolower($routeKey)];
+    if ($entityType !== '') {
+        $sql .= ' AND entity_type = ?';
+        $params[] = $entityType;
+    }
+    $sql .= ' LIMIT 1';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row !== false ? ensureAccountingEntityRouteRow($pdo, $row) : null;
 }
 
 function getAccountingEmitterTypeColumn(): string {
@@ -1963,7 +2110,9 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
         return null;
     }
 
-    $selectColumns = appendAccountingEmitterTypeSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at');
+    $selectColumns = appendAccountingEmitterTypeSelectColumn(
+        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+    );
     $stmt = $pdo->prepare(
         'SELECT ' . $selectColumns . '
          FROM accounting_entities
@@ -1974,7 +2123,218 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
     );
     $stmt->execute(['acquirer', $database]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $row !== false ? $row : null;
+    return $row !== false ? ensureAccountingEntityRouteRow($pdo, $row) : null;
+}
+
+function getAccountingAcquirerDuplicateGroups(PDO $pdo): array {
+    if (!hasTable('accounting_entities') || !hasColumn('accounting_entities', 'entity_type') || !hasColumn('accounting_entities', 'erp_database')) {
+        return [];
+    }
+
+    $groupStmt = $pdo->query(
+        "SELECT erp_database
+         FROM accounting_entities
+         WHERE entity_type = 'acquirer'
+           AND COALESCE(NULLIF(TRIM(erp_database), ''), '') <> ''
+         GROUP BY erp_database
+         HAVING COUNT(*) > 1
+         ORDER BY erp_database ASC"
+    );
+    $databases = $groupStmt ? $groupStmt->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!$databases) {
+        return [];
+    }
+
+    $groups = [];
+    $rowStmt = $pdo->prepare(
+        'SELECT id, nif, name, erp_database, erp_client_code, entity_type
+         FROM accounting_entities
+         WHERE entity_type = ?
+           AND erp_database = ?
+         ORDER BY id ASC'
+    );
+
+    foreach ($databases as $database) {
+        $database = normalizeAccountingEntityDatabaseKey((string) $database);
+        if ($database === '') {
+            continue;
+        }
+        $rowStmt->execute(['acquirer', $database]);
+        $rows = $rowStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows || count($rows) <= 1) {
+            continue;
+        }
+        $groups[] = [
+            'erp_database' => $database,
+            'rows' => $rows,
+            'keep_id' => (int) ($rows[0]['id'] ?? 0),
+        ];
+    }
+
+    return $groups;
+}
+
+function mergeAccountingAcquirerEntitiesByDatabase(PDO $pdo, string $database, int $keepId = 0): array {
+    $database = normalizeAccountingEntityDatabaseKey($database);
+    if ($database === '') {
+        throw new InvalidArgumentException('Base ERP invalida para fusao.');
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id, nif, name, erp_database, erp_client_code, entity_type
+         FROM accounting_entities
+         WHERE entity_type = ?
+           AND erp_database = ?
+         ORDER BY id ASC'
+    );
+    $stmt->execute(['acquirer', $database]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows || count($rows) <= 1) {
+        return ['merged' => 0, 'kept_id' => 0, 'removed_ids' => [], 'kept_nif' => '', 'removed_nifs' => []];
+    }
+
+    $keepRow = null;
+    if ($keepId > 0) {
+        foreach ($rows as $row) {
+            if ((int) ($row['id'] ?? 0) === $keepId) {
+                $keepRow = $row;
+                break;
+            }
+        }
+    }
+    if ($keepRow === null) {
+        $keepRow = $rows[0];
+        $keepId = (int) ($keepRow['id'] ?? 0);
+    }
+    if ($keepId <= 0) {
+        throw new RuntimeException('Nao foi possivel determinar o registo a manter.');
+    }
+
+    $dropRows = [];
+    foreach ($rows as $row) {
+        if ((int) ($row['id'] ?? 0) !== $keepId) {
+            $dropRows[] = $row;
+        }
+    }
+    if (!$dropRows) {
+        return ['merged' => 0, 'kept_id' => $keepId, 'removed_ids' => [], 'kept_nif' => (string) ($keepRow['nif'] ?? ''), 'removed_nifs' => []];
+    }
+
+    $keptNif = trim((string) ($keepRow['nif'] ?? ''));
+    $removedIds = [];
+    $removedNifs = [];
+
+    $pdo->beginTransaction();
+    try {
+        foreach ($dropRows as $dropRow) {
+            $dropId = (int) ($dropRow['id'] ?? 0);
+            $dropNif = trim((string) ($dropRow['nif'] ?? ''));
+            if ($dropId <= 0) {
+                continue;
+            }
+
+            if (hasTable('accounting_entity_additional_values')) {
+                $pdo->prepare(
+                    'INSERT INTO accounting_entity_additional_values (entity_id, field_id, value)
+                     SELECT ?, field_id, value
+                     FROM accounting_entity_additional_values
+                     WHERE entity_id = ?
+                     ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = CURRENT_TIMESTAMP'
+                )->execute([$keepId, $dropId]);
+                $pdo->prepare('DELETE FROM accounting_entity_additional_values WHERE entity_id = ?')->execute([$dropId]);
+            }
+
+            if (hasTable('efatura_company_credentials') && hasColumn('efatura_company_credentials', 'entity_id')) {
+                $keepCredential = $pdo->prepare('SELECT id FROM efatura_company_credentials WHERE entity_id = ? LIMIT 1');
+                $keepCredential->execute([$keepId]);
+                $hasKeepCredential = (bool) $keepCredential->fetchColumn();
+
+                if ($hasKeepCredential) {
+                    $pdo->prepare('DELETE FROM efatura_company_credentials WHERE entity_id = ?')->execute([$dropId]);
+                } else {
+                    $pdo->prepare('UPDATE efatura_company_credentials SET entity_id = ? WHERE entity_id = ?')->execute([$keepId, $dropId]);
+                }
+            }
+
+            if (hasTable('efatura_sync_jobs') && hasColumn('efatura_sync_jobs', 'entity_id')) {
+                $pdo->prepare('UPDATE efatura_sync_jobs SET entity_id = ? WHERE entity_id = ?')->execute([$keepId, $dropId]);
+            }
+
+            if (hasTable('efatura_documents') && hasColumn('efatura_documents', 'entity_id')) {
+                $docStmt = $pdo->prepare('SELECT id, source_hash FROM efatura_documents WHERE entity_id = ? ORDER BY id ASC');
+                $docStmt->execute([$dropId]);
+                $documents = $docStmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($documents as $document) {
+                    $documentId = (int) ($document['id'] ?? 0);
+                    $sourceHash = trim((string) ($document['source_hash'] ?? ''));
+                    if ($documentId <= 0) {
+                        continue;
+                    }
+
+                    $existingDocStmt = $pdo->prepare('SELECT id FROM efatura_documents WHERE entity_id = ? AND source_hash = ? LIMIT 1');
+                    $existingDocStmt->execute([$keepId, $sourceHash]);
+                    $existingDocId = (int) ($existingDocStmt->fetchColumn() ?: 0);
+
+                    if ($existingDocId > 0) {
+                        if (hasTable('efatura_document_lines') && hasColumn('efatura_document_lines', 'document_id')) {
+                            $pdo->prepare('DELETE FROM efatura_document_lines WHERE document_id = ?')->execute([$documentId]);
+                        }
+                        $pdo->prepare('DELETE FROM efatura_documents WHERE id = ?')->execute([$documentId]);
+                    } else {
+                        $pdo->prepare('UPDATE efatura_documents SET entity_id = ? WHERE id = ?')->execute([$keepId, $documentId]);
+                    }
+                }
+            }
+
+            if ($dropNif !== '' && $keptNif !== '' && hasTable('accounting_entity_ai_instructions')) {
+                $pdo->prepare(
+                    'INSERT INTO accounting_entity_ai_instructions (acquirer_nif, emitter_nif, instructions)
+                     SELECT ?, emitter_nif, instructions
+                     FROM accounting_entity_ai_instructions
+                     WHERE acquirer_nif = ?
+                     ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP'
+                )->execute([$keptNif, $dropNif]);
+                $pdo->prepare('DELETE FROM accounting_entity_ai_instructions WHERE acquirer_nif = ?')->execute([$dropNif]);
+            }
+
+            if ($dropNif !== '' && $keptNif !== '' && hasTable('supplier_documents')) {
+                $pdo->prepare(
+                    'INSERT IGNORE INTO supplier_documents (emitter, acquirer, doc_codigo, erp_codigo, created_at, updated_at)
+                     SELECT emitter, ?, doc_codigo, erp_codigo, created_at, updated_at
+                     FROM supplier_documents
+                     WHERE acquirer = ?'
+                )->execute([$keptNif, $dropNif]);
+                $pdo->prepare('DELETE FROM supplier_documents WHERE acquirer = ?')->execute([$dropNif]);
+            }
+
+            if ($dropNif !== '' && $keptNif !== '' && hasTable('accounting_classifications') && hasColumn('accounting_classifications', 'acquirer')) {
+                $pdo->prepare('UPDATE accounting_classifications SET acquirer = ? WHERE acquirer = ?')->execute([$keptNif, $dropNif]);
+            }
+
+            if ($dropNif !== '' && $keptNif !== '' && hasTable('accounting_imports') && hasColumn('accounting_imports', 'field_B')) {
+                $pdo->prepare('UPDATE accounting_imports SET field_B = ? WHERE field_B = ?')->execute([$keptNif, $dropNif]);
+            }
+
+            $pdo->prepare('DELETE FROM accounting_entities WHERE id = ?')->execute([$dropId]);
+            $removedIds[] = $dropId;
+            $removedNifs[] = $dropNif;
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+
+    return [
+        'merged' => count($removedIds),
+        'kept_id' => $keepId,
+        'removed_ids' => $removedIds,
+        'kept_nif' => $keptNif,
+        'removed_nifs' => $removedNifs,
+    ];
 }
 
 function resolveAccountingEntityDatabase(array $entity): string {
@@ -2012,6 +2372,21 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
         $existing = findAccountingEntity($pdo, $nif);
     }
 
+    if ($entityType === 'acquirer' && $erpDatabase !== '') {
+        $existingByDatabase = findAccountingAcquirerEntityByDatabase($pdo, $erpDatabase);
+        if (
+            is_array($existingByDatabase)
+            && !empty($existingByDatabase['id'])
+            && (int) ($existingByDatabase['id'] ?? 0) !== (int) ($existing['id'] ?? 0)
+        ) {
+            throw new RuntimeException(
+                'Ja existe uma empresa associada a esta base ERP (' . $erpDatabase . '): '
+                . trim((string) ($existingByDatabase['name'] ?? ''))
+                . ' [' . trim((string) ($existingByDatabase['nif'] ?? '')) . '].'
+            );
+        }
+    }
+
     if (is_array($existing) && !empty($existing['id'])) {
         $qrDocTypeMappings = array_key_exists('qr_doc_type_mappings', $data)
             ? (string) $data['qr_doc_type_mappings']
@@ -2042,10 +2417,26 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
         ? (string) $data['qr_doc_type_mappings']
         : '';
     if ($emitterTypeColumn !== '') {
+        if (hasAccountingEntityUuidColumn()) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO accounting_entities (uuid, nif, name, erp_database, entity_type, erp_client_code, ' . $emitterTypeColumn . ', qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([generateAccountingEntityUuid(), $nif, $name, $erpDatabase, $entityType, $erpClientCode, $emitterType, $qrDocTypeMappings]);
+            return;
+        }
+
         $stmt = $pdo->prepare(
             'INSERT INTO accounting_entities (nif, name, erp_database, entity_type, erp_client_code, ' . $emitterTypeColumn . ', qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$nif, $name, $erpDatabase, $entityType, $erpClientCode, $emitterType, $qrDocTypeMappings]);
+        return;
+    }
+
+    if (hasAccountingEntityUuidColumn()) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO accounting_entities (uuid, nif, name, erp_database, entity_type, erp_client_code, qr_doc_type_mappings) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([generateAccountingEntityUuid(), $nif, $name, $erpDatabase, $entityType, $erpClientCode, $qrDocTypeMappings]);
         return;
     }
 

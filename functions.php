@@ -637,7 +637,7 @@ function shouldIgnoreMigrationStatementError(Throwable $e, string $statement = '
         return false;
     }
     $code = $e->errorInfo[1] ?? null;
-    if (in_array($code, [1050, 1060, 1091], true)) {
+    if (in_array($code, [1050, 1060, 1061, 1091], true)) {
         return true;
     }
     if ($code === 1146) {

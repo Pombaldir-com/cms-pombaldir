@@ -215,12 +215,12 @@ switch (true) {
         $_GET['tipo'] = $m[1];
         require __DIR__ . '/contabilidade/entidades.php';
         break;
-    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)/([0-9]+)/fornecedores$#', $path, $m):
+    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)/fornecedores$#', $path, $m):
         $_GET['tipo'] = $m[1];
         $_GET['fornecedores'] = $m[2];
         require __DIR__ . '/contabilidade/entidades.php';
         break;
-    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)/([0-9]+)$#', $path, $m):
+    case preg_match('#^contabilidade/entidades/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$#', $path, $m):
         $_GET['tipo'] = $m[1];
         $_GET['consulta'] = $m[2];
         require __DIR__ . '/contabilidade/entidades.php';

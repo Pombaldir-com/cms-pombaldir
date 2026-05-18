@@ -26,12 +26,13 @@ $entityTypeMap = [
     'empresas' => 'acquirer',
 ];
 $entityType = $entityTypeMap[$typeSlug] ?? $typeSlug;
-$supplierCompanyId = isset($_GET['fornecedores']) ? (int) $_GET['fornecedores'] : 0;
-$isSupplierList = $typeSlug === 'empresas' && $supplierCompanyId > 0;
+$supplierCompanyRouteKey = trim((string) ($_GET['fornecedores'] ?? ''));
+$isSupplierList = $typeSlug === 'empresas' && $supplierCompanyRouteKey !== '';
 $csrfToken = generateCsrfToken();
 
 $flashType = trim((string) ($_GET['status'] ?? ''));
 $flashMessage = trim((string) ($_GET['msg'] ?? ''));
+$pageScripts = '';
 $erpClientFormOverride = null;
 $erpClientDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -65,9 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $emitterNif = extractVatNumber((string) ($_POST['emitter_nif'] ?? ''));
         $instructions = trim((string) ($_POST['instructions'] ?? ''));
 
-        $stmt = $pdo->prepare('SELECT id, nif, name FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1');
-        $stmt->execute([$supplierCompanyId, 'acquirer']);
-        $company = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $company = findAccountingEntityByRouteKey($pdo, $supplierCompanyRouteKey, 'acquirer');
         $acquirerNif = $company ? extractVatNumber((string) ($company['nif'] ?? '')) : '';
         if ($acquirerNif === '' || $emitterNif === '') {
             http_response_code(400);
@@ -105,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'update-erp-client-details') {
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
         $erpRecordId = isset($_POST['erp_record_id']) ? (int) $_POST['erp_record_id'] : 0;
-        $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . $entityId;
+        $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug);
 
         $erpClientFormOverride = [
             'id' => $erpRecordId > 0 ? (string) $erpRecordId : '',
@@ -132,10 +131,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flashMessage = 'ID do cliente ERP em falta.';
         } else {
             $stmt = $pdo->prepare(
-                'SELECT id, nif, name, erp_database, erp_client_code, entity_type FROM accounting_entities WHERE id = ? LIMIT 1'
+                'SELECT ' . appendAccountingEntityUuidSelectColumn('id, nif, name, erp_database, erp_client_code, entity_type') . ' FROM accounting_entities WHERE id = ? LIMIT 1'
             );
             $stmt->execute([$entityId]);
-            $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $entity = ensureAccountingEntityRouteRow($pdo, $stmt->fetch(PDO::FETCH_ASSOC) ?: null);
+            if ($entity) {
+                $returnUrl .= '/' . rawurlencode(getAccountingEntityRouteKey($entity));
+            }
 
             if (!$entity) {
                 $flashType = 'error';
@@ -204,12 +206,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
         if (!$canManageEmitterType) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Sem permissoes para alterar o tipo de emitente.'));
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Sem permissoes para alterar o tipo de emitente.'));
             exit;
         }
 
         if (!$hasEmitterTypeColumn) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Coluna de tipo de emitente em falta.'));
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Coluna de tipo de emitente em falta.'));
             exit;
         }
 
@@ -217,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $emitterType = trim((string) ($_POST['emitter_type'] ?? ($_POST['is_bank_entity'] ?? '0')));
         $emitterType = in_array($emitterType, ['1', '2'], true) ? $emitterType : '0';
         if ($entityId <= 0) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Entidade invalida.'));
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Entidade invalida.'));
             exit;
         }
 
@@ -225,13 +227,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$entityId]);
         $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         if (!$entity) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Entidade nao encontrada.'));
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Entidade nao encontrada.'));
             exit;
         }
 
         $expectedBankEntityType = $isSupplierList ? 'emitter' : $entityType;
         if (($entity['entity_type'] ?? '') !== $expectedBankEntityType) {
-            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'error', 'Tipo de entidade invalido.'));
+            header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'error', 'Tipo de entidade invalido.'));
             exit;
         }
 
@@ -249,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]
         );
 
-        header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyId, 'success', 'Tipo de emitente atualizado.'));
+        header('Location: ' . buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey, 'success', 'Tipo de emitente atualizado.'));
         exit;
     }
 
@@ -306,9 +308,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
     }
+
+    if ($action === 'merge-duplicate-acquirer-database') {
+        if (!$canManageEmitterType) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Sem permissoes para fundir empresas duplicadas.'));
+            exit;
+        }
+
+        $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
+        $keepId = isset($_POST['keep_id']) ? (int) $_POST['keep_id'] : 0;
+        if ($typeSlug !== 'empresas' || $erpDatabase === '') {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Dados invalidos para fundir empresas.'));
+            exit;
+        }
+
+        try {
+            $result = mergeAccountingAcquirerEntitiesByDatabase($pdo, $erpDatabase, $keepId);
+            $mergedCount = (int) ($result['merged'] ?? 0);
+            if ($mergedCount <= 0) {
+                $message = 'Nao existiam duplicados por fundir para a base ' . $erpDatabase . '.';
+            } else {
+                $message = 'Duplicados fundidos com sucesso para a base ' . $erpDatabase . '. Registos removidos: ' . $mergedCount . '.';
+            }
+            logAuditAction('merge', 'accounting_entity_duplicate_database', (int) ($result['kept_id'] ?? 0), [
+                'erp_database' => $erpDatabase,
+                'merged' => $mergedCount,
+                'removed_ids' => $result['removed_ids'] ?? [],
+                'removed_nifs' => $result['removed_nifs'] ?? [],
+                'kept_nif' => $result['kept_nif'] ?? '',
+            ]);
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=success&msg=' . rawurlencode($message));
+            exit;
+        } catch (Throwable $e) {
+            header('Location: ' . BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '?status=error&msg=' . rawurlencode('Falha ao fundir duplicados: ' . $e->getMessage()));
+            exit;
+        }
+    }
 }
 
-$consultId = isset($_GET['consulta']) ? (int) $_GET['consulta'] : 0;
+$consultRouteKey = trim((string) ($_GET['consulta'] ?? ''));
 $consultEntity = null;
 $erpClient = null;
 $erpClientForm = [
@@ -335,12 +373,8 @@ $subzoneError = '';
 $erpError = '';
 $additionalClientFields = [];
 $additionalClientValues = [];
-if ($consultId > 0) {
-    $stmt = $pdo->prepare(
-        "SELECT id, nif, name, erp_database, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
-    );
-    $stmt->execute([$consultId, $entityType]);
-    $consultEntity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+if ($consultRouteKey !== '') {
+    $consultEntity = findAccountingEntityByRouteKey($pdo, $consultRouteKey, $entityType);
 
     if ($consultEntity) {
         $erpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
@@ -451,11 +485,11 @@ if ($consultEntity && $erpError === '' && !$erpClient) {
         ? ('O cliente com o NIF ' . $fallbackNif . ' não existe no ERP.')
         : 'O cliente não existe no ERP.';
 }
-if ($consultId > 0 && !$consultEntity && $erpError === '') {
+if ($consultRouteKey !== '' && !$consultEntity && $erpError === '') {
     $erpError = 'Entidade não encontrada.';
 }
 
-$entitySelectColumns = 'id, nif, name, erp_database, erp_client_code';
+$entitySelectColumns = appendAccountingEntityUuidSelectColumn('id, nif, name, erp_database, erp_client_code');
 if ($hasEmitterTypeColumn) {
     $entitySelectColumns .= ', ' . $emitterTypeColumn . ' AS emitter_type';
 }
@@ -463,20 +497,19 @@ $stmt = $pdo->prepare(
     "SELECT $entitySelectColumns FROM accounting_entities WHERE entity_type = ? ORDER BY name ASC, nif ASC"
 );
 $stmt->execute([$entityType]);
-$entities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$entities = ensureAccountingEntityRouteRows($pdo, $stmt->fetchAll(PDO::FETCH_ASSOC));
+$duplicateAcquirerGroups = (!$consultEntity && $typeSlug === 'empresas')
+    ? getAccountingAcquirerDuplicateGroups($pdo)
+    : [];
 
 $supplierCompany = null;
 $supplierEntities = [];
 if ($isSupplierList) {
-    $supplierCompanyColumns = 'id, nif, name, erp_database, erp_client_code';
+    $supplierCompanyColumns = appendAccountingEntityUuidSelectColumn('id, nif, name, erp_database, erp_client_code');
     if ($hasEmitterTypeColumn) {
         $supplierCompanyColumns .= ', ' . $emitterTypeColumn . ' AS emitter_type';
     }
-    $stmt = $pdo->prepare(
-        "SELECT $supplierCompanyColumns FROM accounting_entities WHERE id = ? AND entity_type = ? LIMIT 1"
-    );
-    $stmt->execute([$supplierCompanyId, 'acquirer']);
-    $supplierCompany = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $supplierCompany = findAccountingEntityByRouteKey($pdo, $supplierCompanyRouteKey, 'acquirer');
     if ($supplierCompany) {
         $supplierEntities = loadAccountingSupplierEntitiesForCompany($pdo, $supplierCompany, $emitterTypeColumn);
     } elseif ($flashMessage === '') {
@@ -485,18 +518,26 @@ if ($isSupplierList) {
     }
 }
 
+if ($flashMessage !== '') {
+    $pnotifyType = $flashType === 'success' ? 'success' : ($flashType === 'warning' ? 'notice' : 'error');
+    $pageScripts .= 'document.addEventListener("DOMContentLoaded", function () {' . "\n"
+        . '    if (!window.PNotify) { return; }' . "\n"
+        . '    var options = {' . "\n"
+        . '        text: ' . json_encode($flashMessage, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',' . "\n"
+        . '        type: ' . json_encode($pnotifyType, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',' . "\n"
+        . '        styling: "bootstrap3",' . "\n"
+        . '        delay: 6000,' . "\n"
+        . '        hide: true,' . "\n"
+        . '        animate: { animate: true, in_class: "fadeInDown", out_class: "fadeOutUp" }' . "\n"
+        . '    };' . "\n"
+        . '    if (typeof window.PNotify.alert === "function") { window.PNotify.alert(options); return; }' . "\n"
+        . '    if (typeof window.PNotify === "function") { window.PNotify(options); }' . "\n"
+        . '});' . "\n";
+}
+
 require_once __DIR__ . '/../header.php';
 ?>
 <div class="container-fluid">
-    <?php if ($flashMessage !== ''): ?>
-        <div class="x_panel">
-            <div class="x_content">
-                <div class="alert <?= $flashType === 'success' ? 'alert-success' : 'alert-danger'; ?>" role="alert" style="margin-bottom: 0;">
-                    <?= htmlspecialchars($flashMessage); ?>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
     <?php if (!$consultEntity): ?>
     <div class="x_panel">
         <div class="x_title">
@@ -509,7 +550,36 @@ require_once __DIR__ . '/../header.php';
         </div>
         <div class="x_content">
     <?php endif; ?>
-            <?php if ($consultId > 0 && ($erpError !== '' || !$erpClient)): ?>
+            <?php if (!$consultEntity && $duplicateAcquirerGroups): ?>
+                <div class="alert alert-danger">
+                    <strong>Foram detetadas empresas duplicadas pela mesma base ERP.</strong>
+                    <?php foreach ($duplicateAcquirerGroups as $duplicateGroup): ?>
+                        <?php
+                            $duplicateRows = is_array($duplicateGroup['rows'] ?? null) ? $duplicateGroup['rows'] : [];
+                            $keepId = (int) ($duplicateGroup['keep_id'] ?? 0);
+                            $details = [];
+                            foreach ($duplicateRows as $duplicateRow) {
+                                $details[] = '#' . (int) ($duplicateRow['id'] ?? 0)
+                                    . ' ' . trim((string) ($duplicateRow['nif'] ?? ''))
+                                    . ' - ' . trim((string) ($duplicateRow['name'] ?? ''));
+                            }
+                        ?>
+                        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.25);">
+                            <div><strong><?= htmlspecialchars((string) ($duplicateGroup['erp_database'] ?? '')); ?></strong>: <?= htmlspecialchars(implode(' | ', $details)); ?></div>
+                            <form method="post" style="margin-top: 8px;" onsubmit="return confirm('Fundir os registos duplicados desta base ERP e manter o registo mais antigo?');">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                <input type="hidden" name="action" value="merge-duplicate-acquirer-database">
+                                <input type="hidden" name="erp_database" value="<?= htmlspecialchars((string) ($duplicateGroup['erp_database'] ?? '')); ?>">
+                                <input type="hidden" name="keep_id" value="<?= $keepId; ?>">
+                                <button type="submit" class="btn btn-default btn-sm">
+                                    <i class="fa fa-compress"></i> Fundir duplicados desta base
+                                </button>
+                            </form>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <?php if ($consultRouteKey !== '' && ($erpError !== '' || !$erpClient)): ?>
                 <?php
                     $erpErrorDisplay = preg_replace('/\\s*URL:\\s*\\S+\\s*/i', ' ', $erpError);
                     if (trim((string) $erpErrorDisplay) === '') {
@@ -877,7 +947,7 @@ require_once __DIR__ . '/../header.php';
                                             </a>
                                         </div>
                                         <div class="erp-form-actions-primary">
-                                            <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) ($consultEntity['id'] ?? 0); ?>" class="btn btn-default">
+                                            <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($consultEntity)); ?>" class="btn btn-default">
                                                 <i class="fa fa-refresh"></i> Repor
                                             </a>
                                             <button type="submit" class="btn btn-success">
@@ -1111,11 +1181,11 @@ require_once __DIR__ . '/../header.php';
                             <td><?= htmlspecialchars($entity['name'] ?? ''); ?></td>
                             <td><?= htmlspecialchars(resolveAccountingEntityDatabase($entity)); ?></td>
                             <td class="text-right">
-                                <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>" class="btn btn-xs btn-primary">
+                                <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($entity)); ?>" class="btn btn-xs btn-primary">
                                     <i class="fa fa-pencil"></i> Editar
                                 </a>
                                 <?php if ($typeSlug === 'empresas'): ?>
-                                    <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= (int) $entity['id']; ?>/fornecedores" class="btn btn-xs btn-info">
+                                    <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($entity)); ?>/fornecedores" class="btn btn-xs btn-info">
                                         <i class="fa fa-truck"></i> Fornecedores
                                     </a>
                                 <?php endif; ?>
@@ -1201,10 +1271,10 @@ function deleteEntityByNifWithReferences(PDO $pdo, string $nif, string $entityTy
     ];
 }
 
-function buildAccountingEntitiesReturnUrl(string $typeSlug, int $supplierCompanyId = 0, string $status = '', string $message = ''): string {
+function buildAccountingEntitiesReturnUrl(string $typeSlug, string $supplierCompanyRouteKey = '', string $status = '', string $message = ''): string {
     $url = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug);
-    if ($supplierCompanyId > 0) {
-        $url .= '/' . $supplierCompanyId . '/fornecedores';
+    if ($supplierCompanyRouteKey !== '') {
+        $url .= '/' . rawurlencode($supplierCompanyRouteKey) . '/fornecedores';
     }
 
     $query = [];
