@@ -51,6 +51,14 @@ var CURRENT_URL = window.location.href.split('#')[0].split('?')[0],
     $NAV_MENU = $('.nav_menu'),
     $FOOTER = $('footer');
 
+if (window.location && window.location.hash === '#cliente-extranet' && window.history && window.history.replaceState) {
+    try {
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+    } catch (error) {
+        // Ignore history errors.
+    }
+}
+
 function buildDataTableStateKey(settings) {
     var tableNode = settings && settings.nTable ? settings.nTable : null;
     var tableId = '';
@@ -704,9 +712,7 @@ $(document).ready(function() {
                 if (config.instructions && emitterNif) {
                     config.instructions[emitterNif] = data.instructions || '';
                 }
-                form.querySelectorAll('input[name="csrf_token"]').forEach(function(input) {
-                    input.value = config.csrfToken;
-                });
+                syncCsrfTokenEverywhere(config.csrfToken);
                 setAlert(successBox, data.message || 'Instrucoes IA guardadas.');
             })
             .catch(function(error) {
@@ -861,6 +867,20 @@ $(document).ready(function() {
         }
     }
 
+    function syncCsrfTokenEverywhere(token) {
+        if (!token) {
+            return;
+        }
+
+        document.querySelectorAll('input[name="csrf_token"]').forEach(function (input) {
+            input.value = token;
+        });
+
+        if (window.accountingEntityAiConfig && typeof window.accountingEntityAiConfig === 'object') {
+            window.accountingEntityAiConfig.csrfToken = token;
+        }
+    }
+
     function writeAjaxResponse(html, url) {
         if (typeof html !== 'string' || html === '') {
             return;
@@ -938,9 +958,7 @@ $(document).ready(function() {
                         }
 
                         if (payload && payload.csrf_token) {
-                            form.querySelectorAll('input[name="csrf_token"]').forEach(function (input) {
-                                input.value = payload.csrf_token;
-                            });
+                            syncCsrfTokenEverywhere(payload.csrf_token);
                         }
 
                         if (window.PNotify) {

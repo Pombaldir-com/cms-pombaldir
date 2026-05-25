@@ -465,6 +465,28 @@ function requireLogin() {
     }
 }
 
+function ensureTenantCompanyBySlug(string $slug): bool {
+    startSession();
+    $slug = trim($slug);
+    if ($slug === '') {
+        return false;
+    }
+
+    $currentSlug = trim((string) ($_SESSION['company']['slug'] ?? ''));
+    if ($currentSlug !== '' && strcasecmp($currentSlug, $slug) === 0) {
+        return true;
+    }
+
+    require_once __DIR__ . '/companies.php';
+    $company = getCompanyBySlug($slug);
+    if (!$company) {
+        return false;
+    }
+
+    setCompanyContext($company);
+    return true;
+}
+
 /**
  * Ensure the current user has a role equal or lower (more privileged) than
  * the provided level. Roles: 1=superadmin, 2=administrator, 3=user.
@@ -514,6 +536,130 @@ function loginUser(string $username, string $password): bool {
         return true;
     }
     return false;
+}
+
+function hasClientUsersTable(): bool {
+    return hasTable('client_users');
+}
+
+function hasAccountingEntityExtranetSettingsTable(): bool {
+    return hasTable('accounting_entity_extranet_settings');
+}
+
+function clientLogin(string $username, string $password, string $tenantSlug): bool {
+    startSession();
+    if (!hasClientUsersTable()) {
+        return false;
+    }
+
+    $tenantSlug = trim($tenantSlug);
+    if ($tenantSlug === '') {
+        return false;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT id, accounting_entity_id, username, password, is_active
+         FROM client_users
+         WHERE tenant_slug = ? AND username = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$tenantSlug, $username]);
+    $client = $stmt->fetch();
+    if (!$client) {
+        return false;
+    }
+
+    if ((int) ($client['is_active'] ?? 0) !== 1) {
+        return false;
+    }
+
+    if (!password_verify($password, (string) ($client['password'] ?? ''))) {
+        return false;
+    }
+
+    session_regenerate_id(true);
+    $_SESSION['client_user_id'] = (int) $client['id'];
+    $_SESSION['client_user_tenant_slug'] = $tenantSlug;
+    $_SESSION['client_accounting_entity_id'] = (int) $client['accounting_entity_id'];
+    logAuditAction('login', 'client_user', (int) $client['id'], [
+        'tenant_slug' => $tenantSlug,
+        'username' => $username,
+    ]);
+    return true;
+}
+
+function currentClientUser(): ?array {
+    startSession();
+    $clientId = (int) ($_SESSION['client_user_id'] ?? 0);
+    if ($clientId <= 0) {
+        return null;
+    }
+    if (!hasClientUsersTable()) {
+        return null;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT cu.id, cu.accounting_entity_id, cu.username, cu.name, cu.email, cu.is_active,
+                cu.tenant_slug, ae.nif AS entity_nif, ae.name AS entity_name
+         FROM client_users cu
+         INNER JOIN accounting_entities ae ON ae.id = cu.accounting_entity_id
+         WHERE cu.id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$clientId]);
+    $row = $stmt->fetch() ?: null;
+    if (!$row) {
+        return null;
+    }
+    if ((int) ($row['is_active'] ?? 0) !== 1) {
+        return null;
+    }
+    return $row;
+}
+
+function clientLogout(): void {
+    startSession();
+    $clientId = (int) ($_SESSION['client_user_id'] ?? 0);
+    if ($clientId > 0) {
+        logAuditAction('logout', 'client_user', $clientId, [
+            'tenant_slug' => (string) ($_SESSION['client_user_tenant_slug'] ?? ''),
+        ]);
+    }
+    unset($_SESSION['client_user_id'], $_SESSION['client_user_tenant_slug'], $_SESSION['client_accounting_entity_id']);
+}
+
+function requireClientLogin(string $tenantSlug): void {
+    startSession();
+    $tenantSlug = trim($tenantSlug);
+
+    if ($tenantSlug === '' || !ensureTenantCompanyBySlug($tenantSlug)) {
+        http_response_code(404);
+        exit('Tenant invalida.');
+    }
+
+    $isLoggedIn = !empty($_SESSION['client_user_id'])
+        && strcasecmp((string) ($_SESSION['client_user_tenant_slug'] ?? ''), $tenantSlug) === 0;
+    if (!$isLoggedIn) {
+        $target = BASE_URL . 't/' . rawurlencode($tenantSlug) . '/cliente/login';
+        header('Location: ' . $target);
+        exit;
+    }
+
+    $client = currentClientUser();
+    if (!$client) {
+        clientLogout();
+        $target = BASE_URL . 't/' . rawurlencode($tenantSlug) . '/cliente/login';
+        header('Location: ' . $target);
+        exit;
+    }
+
+    if (strcasecmp((string) ($client['tenant_slug'] ?? ''), $tenantSlug) !== 0) {
+        clientLogout();
+        http_response_code(403);
+        exit('Acesso negado.');
+    }
 }
 
 /**
@@ -993,6 +1139,215 @@ function getUserById(int $id): ?array {
         $user['department_term_ids'] = getUserDepartmentTermIds($id);
     }
     return $user;
+}
+
+function getClientUsersByAccountingEntityId(int $accountingEntityId): array {
+    if ($accountingEntityId <= 0 || !hasClientUsersTable()) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT id, accounting_entity_id, tenant_slug, username, name, email, is_active, created_at, updated_at
+         FROM client_users
+         WHERE accounting_entity_id = ?
+         ORDER BY id ASC'
+    );
+    $stmt->execute([$accountingEntityId]);
+    return $stmt->fetchAll() ?: [];
+}
+
+function getClientUserById(int $id): ?array {
+    if ($id <= 0 || !hasClientUsersTable()) {
+        return null;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT id, accounting_entity_id, tenant_slug, username, name, email, is_active
+         FROM client_users
+         WHERE id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function createClientUser(int $accountingEntityId, string $tenantSlug, string $username, string $passwordHash, ?string $name, ?string $email, int $isActive = 1): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'INSERT INTO client_users (accounting_entity_id, tenant_slug, username, password, name, email, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $accountingEntityId,
+        $tenantSlug,
+        $username,
+        $passwordHash,
+        $name,
+        $email,
+        $isActive ? 1 : 0,
+    ]);
+    $id = (int) $pdo->lastInsertId();
+    logAuditAction('create', 'client_user', $id, [
+        'accounting_entity_id' => $accountingEntityId,
+        'tenant_slug' => $tenantSlug,
+        'username' => $username,
+    ]);
+    return $id;
+}
+
+function updateClientUser(int $id, ?string $passwordHash, ?string $name, ?string $email, int $isActive): void {
+    $pdo = getPDO();
+    $sql = 'UPDATE client_users SET name = ?, email = ?, is_active = ?';
+    $params = [$name, $email, $isActive ? 1 : 0];
+    if ($passwordHash !== null) {
+        $sql .= ', password = ?';
+        $params[] = $passwordHash;
+    }
+    $sql .= ' WHERE id = ?';
+    $params[] = $id;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    logAuditAction('update', 'client_user', $id, ['password_changed' => $passwordHash !== null ? 1 : 0]);
+}
+
+function deleteClientUser(int $id): void {
+    if ($id <= 0 || !hasClientUsersTable()) {
+        return;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM client_users WHERE id = ?');
+    $stmt->execute([$id]);
+
+    if ($stmt->rowCount() > 0) {
+        logAuditAction('delete', 'client_user', $id);
+    }
+}
+
+function getClientAccountingDocuments(int $accountingEntityId, int $limit = 300): array {
+    if ($accountingEntityId <= 0) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $entityStmt = $pdo->prepare('SELECT nif FROM accounting_entities WHERE id = ? LIMIT 1');
+    $entityStmt->execute([$accountingEntityId]);
+    $entity = $entityStmt->fetch() ?: null;
+    $nif = extractVatNumber((string) ($entity['nif'] ?? ''));
+    if ($nif === '' || !hasTable('accounting_imports')) {
+        return [];
+    }
+
+    $limit = max(20, min(1000, $limit));
+    $nifRegex = '(^|[^0-9])' . $nif . '([^0-9]|$)';
+    $where = '(field_B = ? OR field_B REGEXP ?)';
+    $params = [$nif, $nifRegex];
+    if (hasColumn('accounting_imports', 'field_C')) {
+        $where = '(' . $where . ' OR field_C = ? OR field_C REGEXP ?)';
+        $params[] = $nif;
+        $params[] = $nifRegex;
+    }
+
+    $sql = 'SELECT id, date, file_name, field_A, field_B, field_C, total, status, account, created_at
+            FROM accounting_imports
+            WHERE ' . $where . '
+            ORDER BY id DESC
+            LIMIT ' . (int) $limit;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll() ?: [];
+}
+
+function getAccountingEntityExtranetSettings(int $accountingEntityId): array {
+    $defaults = [
+        'accounting_entity_id' => $accountingEntityId,
+        'erp_software' => '',
+        'erp_api_url' => '',
+        'erp_api_username' => '',
+        'erp_api_password' => '',
+        'erp_api_token' => '',
+        'support_enabled' => 0,
+        'support_user_id' => null,
+    ];
+
+    if ($accountingEntityId <= 0 || !hasAccountingEntityExtranetSettingsTable()) {
+        return $defaults;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT accounting_entity_id, erp_software, erp_api_url, erp_api_username, erp_api_password, erp_api_token, support_enabled, support_user_id
+         FROM accounting_entity_extranet_settings
+         WHERE accounting_entity_id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$accountingEntityId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return $defaults;
+    }
+
+    $row['support_enabled'] = (int) ($row['support_enabled'] ?? 0);
+    $row['support_user_id'] = isset($row['support_user_id']) ? (int) $row['support_user_id'] : null;
+    return array_merge($defaults, $row);
+}
+
+function saveAccountingEntityExtranetSettings(int $accountingEntityId, array $settings): void {
+    if ($accountingEntityId <= 0 || !hasAccountingEntityExtranetSettingsTable()) {
+        return;
+    }
+
+    $erpSoftware = trim((string) ($settings['erp_software'] ?? ''));
+    $allowedErpSoftware = ['', 'Eticadata', 'Techsul', 'Wintouch'];
+    if (!in_array($erpSoftware, $allowedErpSoftware, true)) {
+        $erpSoftware = '';
+    }
+
+    $erpApiUrl = trim((string) ($settings['erp_api_url'] ?? ''));
+    $erpApiUsername = trim((string) ($settings['erp_api_username'] ?? ''));
+    $erpApiPassword = trim((string) ($settings['erp_api_password'] ?? ''));
+    $erpApiToken = trim((string) ($settings['erp_api_token'] ?? ''));
+    $supportEnabled = !empty($settings['support_enabled']) ? 1 : 0;
+    $supportUserId = isset($settings['support_user_id']) && (int) $settings['support_user_id'] > 0
+        ? (int) $settings['support_user_id']
+        : null;
+
+    if ($supportEnabled === 0) {
+        $supportUserId = null;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_entity_extranet_settings
+            (accounting_entity_id, erp_software, erp_api_url, erp_api_username, erp_api_password, erp_api_token, support_enabled, support_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            erp_software = VALUES(erp_software),
+            erp_api_url = VALUES(erp_api_url),
+            erp_api_username = VALUES(erp_api_username),
+            erp_api_password = VALUES(erp_api_password),
+            erp_api_token = VALUES(erp_api_token),
+            support_enabled = VALUES(support_enabled),
+            support_user_id = VALUES(support_user_id)'
+    );
+    $stmt->execute([
+        $accountingEntityId,
+        $erpSoftware,
+        $erpApiUrl,
+        $erpApiUsername,
+        $erpApiPassword,
+        $erpApiToken,
+        $supportEnabled,
+        $supportUserId,
+    ]);
+
+    logAuditAction('update', 'accounting_entity_extranet_settings', $accountingEntityId, [
+        'erp_software' => $erpSoftware,
+        'support_enabled' => $supportEnabled,
+        'support_user_id' => $supportUserId,
+    ]);
 }
 
 /**

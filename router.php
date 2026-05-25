@@ -24,6 +24,41 @@ if ($base && strpos($path, $base) === 0) {
 }
 $path = trim($path, '/'); // agora $path vira "dashboard", "login", etc.
 
+if (preg_match('#^t/([A-Za-z0-9_-]+)/cliente(?:/(.*))?$#', $path, $tenantMatch)) {
+    require_once __DIR__ . '/functions.php';
+    startSession();
+    $tenantSlug = trim((string) ($tenantMatch[1] ?? ''));
+    $clientPath = trim((string) ($tenantMatch[2] ?? ''));
+
+    if (!ensureTenantCompanyBySlug($tenantSlug)) {
+        http_response_code(404);
+        echo 'Tenant nao encontrada.';
+        exit;
+    }
+
+    $_GET['tenant_slug'] = $tenantSlug;
+    $_GET['client_path'] = $clientPath;
+    if ($clientPath === '' || $clientPath === 'dashboard') {
+        require __DIR__ . '/client/dashboard.php';
+        exit;
+    }
+    if ($clientPath === 'login') {
+        require __DIR__ . '/client/login.php';
+        exit;
+    }
+    if ($clientPath === 'logout') {
+        require __DIR__ . '/client/logout.php';
+        exit;
+    }
+    if ($clientPath === 'documentos') {
+        require __DIR__ . '/client/documentos.php';
+        exit;
+    }
+
+    http_response_code(404);
+    echo 'Page not found';
+    exit;
+}
 
 switch (true) {
     case $path === '':

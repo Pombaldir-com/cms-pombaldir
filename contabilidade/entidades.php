@@ -20,6 +20,7 @@ $user = currentUser();
 $isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
 $canManageEntityAiInstructions = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageEmitterType = ((int) ($user['role'] ?? 3)) <= 2;
+$canManageClientExtranet = ((int) ($user['role'] ?? 3)) <= 2;
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
 $entityTypeMap = [
@@ -107,6 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
         $erpRecordId = isset($_POST['erp_record_id']) ? (int) $_POST['erp_record_id'] : 0;
         $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug);
+        $extranetSettingsSaved = false;
 
         $erpClientFormOverride = [
             'id' => $erpRecordId > 0 ? (string) $erpRecordId : '',
@@ -128,9 +130,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($entityId <= 0) {
             $flashType = 'error';
             $flashMessage = 'Entidade invalida.';
-        } elseif ($erpRecordId <= 0) {
-            $flashType = 'error';
-            $flashMessage = 'ID do cliente ERP em falta.';
         } else {
             $stmt = $pdo->prepare(
                 'SELECT ' . appendAccountingEntityUuidSelectColumn('id, nif, name, erp_database, erp_client_code, entity_type') . ' FROM accounting_entities WHERE id = ? LIMIT 1'
@@ -148,6 +147,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $flashType = 'error';
                 $flashMessage = 'Tipo de entidade invalido.';
             } else {
+                if ($canManageClientExtranet && hasAccountingEntityExtranetSettingsTable()) {
+                    try {
+                        saveAccountingEntityExtranetSettings($entityId, [
+                            'erp_software' => trim((string) ($_POST['erp_software'] ?? '')),
+                            'erp_api_url' => trim((string) ($_POST['erp_api_url'] ?? '')),
+                            'erp_api_username' => trim((string) ($_POST['erp_api_username'] ?? '')),
+                            'erp_api_password' => trim((string) ($_POST['erp_api_password'] ?? '')),
+                            'erp_api_token' => trim((string) ($_POST['erp_api_token'] ?? '')),
+                            'support_enabled' => (string) ($_POST['support_enabled'] ?? '0') === '1' ? 1 : 0,
+                            'support_user_id' => (int) ($_POST['support_user_id'] ?? 0),
+                        ]);
+                        $extranetSettingsSaved = true;
+                    } catch (Throwable $e) {
+                        $flashType = 'error';
+                        $flashMessage = 'Falha ao guardar configuracoes Extranet: ' . $e->getMessage();
+                    }
+                }
+
+                if ($flashType === 'error' && $flashMessage !== '') {
+                    // Extranet save failed; do not continue with ERP update in this request.
+                } elseif ($erpRecordId <= 0) {
+                    if ($extranetSettingsSaved) {
+                        $successMessage = 'Configuracoes Extranet guardadas.';
+                        if ($isAjaxRequest) {
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode([
+                                'success' => true,
+                                'message' => $successMessage,
+                                'csrf_token' => generateCsrfToken(true),
+                                'replace_url' => $returnUrl,
+                            ], JSON_UNESCAPED_UNICODE);
+                            exit;
+                        }
+                        header('Location: ' . $returnUrl . '?status=success&msg=' . rawurlencode($successMessage));
+                        exit;
+                    }
+                    $flashType = 'error';
+                    $flashMessage = 'ID do cliente ERP em falta.';
+                } else {
                 $erpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
                 if ($erpDatabase === '') {
                     $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
@@ -214,6 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $flashMessage = trim((string) ($updateResponse['error'] ?? 'Falha ao atualizar o cliente no ERP.'));
                 }
             }
+            }
         }
 
         if ($isAjaxRequest && $flashMessage !== '') {
@@ -227,6 +266,155 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
+    }
+
+    if ($action === 'save-client-user') {
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey);
+        }
+        if (!$canManageClientExtranet) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para gerir extranet.', 403);
+        }
+
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        $clientUserId = (int) ($_POST['client_user_id'] ?? 0);
+        $username = trim((string) ($_POST['username'] ?? ''));
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $email = trim((string) ($_POST['email'] ?? ''));
+        $password = trim((string) ($_POST['password'] ?? ''));
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+
+        if ($entityId <= 0) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Entidade invalida.', 400);
+        }
+        $entityStmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([$entityId]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Apenas entidades adquirentes suportam extranet.', 400);
+        }
+        $tenantSlug = trim((string) (getCompanySlug() ?? ''));
+        if ($tenantSlug === '') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Tenant sem slug valida.', 400);
+        }
+
+        if ($clientUserId <= 0 && $username === '') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Utilizador e obrigatorio.', 400);
+        }
+        if ($clientUserId <= 0 && $password === '') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Password e obrigatoria ao criar conta.', 400);
+        }
+        if ($password !== '' && !isStrongPassword($password)) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Password fraca. Min 8 chars com maiusculas, minusculas e numero.', 400);
+        }
+
+        try {
+            if ($clientUserId > 0) {
+                $existing = getClientUserById($clientUserId);
+                if (!$existing || (int) ($existing['accounting_entity_id'] ?? 0) !== $entityId) {
+                    throw new RuntimeException('Conta cliente nao encontrada para esta entidade.');
+                }
+                $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
+                updateClientUser($clientUserId, $hash, $name, $email, $isActive);
+                $message = 'Conta cliente atualizada.';
+            } else {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                createClientUser($entityId, $tenantSlug, $username, $hash, $name, $email, $isActive);
+                $message = 'Conta cliente criada.';
+            }
+        } catch (Throwable $e) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao guardar conta cliente: ' . $e->getMessage(), 400);
+        }
+
+        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', $message);
+    }
+
+    if ($action === 'delete-client-user') {
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey);
+        }
+        if (!$canManageClientExtranet) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para gerir extranet.', 403);
+        }
+
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        $clientUserId = (int) ($_POST['client_user_id'] ?? 0);
+        if ($entityId <= 0 || $clientUserId <= 0) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Dados invalidos.', 400);
+        }
+
+        $entityStmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([$entityId]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Apenas entidades adquirentes suportam extranet.', 400);
+        }
+
+        $existing = getClientUserById($clientUserId);
+        if (!$existing || (int) ($existing['accounting_entity_id'] ?? 0) !== $entityId) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Conta cliente nao encontrada para esta entidade.', 404);
+        }
+
+        try {
+            deleteClientUser($clientUserId);
+        } catch (Throwable $e) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao eliminar conta cliente: ' . $e->getMessage(), 400);
+        }
+
+        if ($isAjaxRequest) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'message' => 'Conta cliente eliminada.',
+                'csrf_token' => generateCsrfToken(true),
+                'redirect_url' => $returnUrl,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        header('Location: ' . $returnUrl . '?status=success&msg=' . rawurlencode('Conta cliente eliminada.'));
+        exit;
+    }
+
+    if ($action === 'save-client-extranet-settings') {
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey);
+        }
+        if (!$canManageClientExtranet) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para gerir extranet.', 403);
+        }
+        if (!hasAccountingEntityExtranetSettingsTable()) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Tabela de configuracao Extranet em falta.', 400);
+        }
+
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        if ($entityId <= 0) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Entidade invalida.', 400);
+        }
+        $entityStmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([$entityId]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Apenas entidades adquirentes suportam extranet.', 400);
+        }
+
+        try {
+            saveAccountingEntityExtranetSettings($entityId, [
+                'erp_software' => trim((string) ($_POST['erp_software'] ?? '')),
+                'erp_api_url' => trim((string) ($_POST['erp_api_url'] ?? '')),
+                'erp_api_username' => trim((string) ($_POST['erp_api_username'] ?? '')),
+                'erp_api_password' => trim((string) ($_POST['erp_api_password'] ?? '')),
+                'erp_api_token' => trim((string) ($_POST['erp_api_token'] ?? '')),
+                'support_enabled' => (string) ($_POST['support_enabled'] ?? '0') === '1' ? 1 : 0,
+                'support_user_id' => (int) ($_POST['support_user_id'] ?? 0),
+            ]);
+        } catch (Throwable $e) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao guardar configuracao Extranet: ' . $e->getMessage(), 400);
+        }
+        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', 'Configuracao Extranet guardada.');
     }
 
     if ($action === 'update-emitter-type' || $action === 'toggle-bank-entity') {
@@ -381,6 +569,9 @@ $subzoneError = '';
 $erpError = '';
 $additionalClientFields = [];
 $additionalClientValues = [];
+$clientExtranetUsers = [];
+$clientExtranetSettings = [];
+$supportAssignableUsers = [];
 if ($consultRouteKey !== '') {
     $consultEntity = findAccountingEntityByRouteKey($pdo, $consultRouteKey, $entityType);
 
@@ -483,6 +674,19 @@ if ($consultEntity) {
                 $additionalField,
                 $_POST['additional_fields'][$additionalFieldId] ?? null
             );
+        }
+    }
+    if ($canManageClientExtranet && hasClientUsersTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
+        $clientExtranetUsers = getClientUsersByAccountingEntityId((int) ($consultEntity['id'] ?? 0));
+    }
+    if ($canManageClientExtranet && hasAccountingEntityExtranetSettingsTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
+        $clientExtranetSettings = getAccountingEntityExtranetSettings((int) ($consultEntity['id'] ?? 0));
+        $allUsers = getUsers();
+        foreach ($allUsers as $row) {
+            $supportAssignableUsers[] = [
+                'id' => (int) ($row['id'] ?? 0),
+                'label' => trim((string) (($row['name'] ?? '') !== '' ? $row['name'] : ($row['username'] ?? ''))),
+            ];
         }
     }
 }
@@ -675,6 +879,95 @@ require_once __DIR__ . '/../header.php';
                         .erp-client-form .password-toggle-btn {
                             min-width: 42px;
                         }
+                        .extranet-section .help-block {
+                            margin-top: 4px;
+                            margin-bottom: 0;
+                            color: #73879c;
+                            font-size: 12px;
+                        }
+                        .extranet-create-grid .form-group {
+                            margin-bottom: 14px;
+                        }
+                        .extranet-create-actions {
+                            display: flex;
+                            align-items: center;
+                            justify-content: flex-start;
+                            gap: 12px;
+                            flex-wrap: wrap;
+                            margin-top: 6px;
+                        }
+                        .extranet-create-actions .checkbox {
+                            margin: 0;
+                        }
+                        .extranet-users-table > thead > tr > th {
+                            white-space: nowrap;
+                            vertical-align: middle;
+                        }
+                        .extranet-users-table > tbody > tr > td {
+                            vertical-align: middle;
+                        }
+                        .extranet-user-edit .row {
+                            margin-left: -6px;
+                            margin-right: -6px;
+                        }
+                        .extranet-user-edit .row > [class*="col-"] {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                        }
+                        .extranet-user-edit .form-control {
+                            margin-bottom: 6px;
+                        }
+                        .extranet-user-edit .extranet-user-actions {
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            gap: 8px;
+                            flex-wrap: wrap;
+                        }
+                        .extranet-user-edit .extranet-user-status-toggle {
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 6px;
+                            font-size: 12px;
+                            color: #5a738e;
+                        }
+                        @media (max-width: 991px) {
+                            .extranet-users-table > tbody > tr > td {
+                                white-space: normal;
+                            }
+                            .extranet-user-edit .btn {
+                                width: 100%;
+                            }
+                        }
+                        .extranet-edit-trigger {
+                            white-space: nowrap;
+                        }
+                        .extranet-kpis {
+                            margin: 0 -8px 14px;
+                        }
+                        .extranet-kpi-card {
+                            background: #f8fafc;
+                            border: 1px solid #dfe7ef;
+                            border-radius: 4px;
+                            padding: 10px 12px;
+                            min-height: 78px;
+                        }
+                        .extranet-kpi-card .count {
+                            display: block;
+                            font-size: 24px;
+                            font-weight: 700;
+                            color: #2a3f54;
+                            line-height: 1.1;
+                        }
+                        .extranet-kpi-card .label {
+                            display: inline-block;
+                            margin-top: 6px;
+                            font-size: 11px;
+                        }
+                        .extranet-users-table .label {
+                            font-size: 11px;
+                            letter-spacing: 0.2px;
+                        }
                     </style>
                     <div class="x_panel">
                         <div class="x_title">
@@ -684,16 +977,18 @@ require_once __DIR__ . '/../header.php';
                         <div class="x_content">
                             <ul class="nav nav-tabs bar_tabs" role="tablist">
                                 <li class="nav-item">
-                                    <a class="nav-link active" data-bs-toggle="tab" href="#cliente-detalhes" role="tab">Detalhes</a>
+                                    <a class="nav-link active" data-bs-toggle="tab" data-bs-target="#cliente-detalhes" href="javascript:void(0);" role="tab">Detalhes</a>
                                 </li>
                                 <?php if ($additionalClientFields): ?>
                                     <li class="nav-item">
-                                        <a class="nav-link" data-bs-toggle="tab" href="#cliente-campos-adicionais" role="tab">Campos Adicionais</a>
+                                        <a class="nav-link" data-bs-toggle="tab" data-bs-target="#cliente-campos-adicionais" href="javascript:void(0);" role="tab">Campos Adicionais</a>
                                     </li>
                                 <?php endif; ?>
-                                <li class="nav-item">
-                                    <a class="nav-link disabled" href="javascript:void(0)" tabindex="-1" aria-disabled="true">Outro</a>
-                                </li>
+                                <?php if ($canManageClientExtranet): ?>
+                                    <li class="nav-item">
+                                        <a class="nav-link" data-bs-toggle="tab" data-bs-target="#cliente-extranet" href="javascript:void(0);" role="tab">Extranet</a>
+                                    </li>
+                                <?php endif; ?>
                             </ul>
                             <?php
                                 $zoneOptions = [];
@@ -757,11 +1052,12 @@ require_once __DIR__ . '/../header.php';
                                     $filteredSubzoneOptions = $subzoneOptions;
                                 }
                             ?>
-                            <form class="form-horizontal erp-client-form" method="post">
+                            <form class="form-horizontal erp-client-form" id="erpClientMainForm" method="post">
                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                                 <input type="hidden" name="action" value="update-erp-client-details">
                                 <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
                                 <input type="hidden" name="erp_record_id" value="<?= (int) ($erpClientForm['id'] ?? 0); ?>">
+                                <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
                                 <input type="hidden" name="nif" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>">
                                 <input type="hidden" name="name" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>">
                                 <input type="hidden" name="number" value="<?= htmlspecialchars((string) $erpClientForm['number']); ?>">
@@ -949,6 +1245,329 @@ require_once __DIR__ . '/../header.php';
                                             </div>
                                         </div>
                                     <?php endif; ?>
+                                    <?php if ($canManageClientExtranet): ?>
+                                        <div class="tab-pane fade" id="cliente-extranet" role="tabpanel">
+                                            <?php if (!hasClientUsersTable()): ?>
+                                                <div class="alert alert-warning" style="margin-top: 15px;">
+                                                    A tabela <code>client_users</code> ainda nao existe nesta tenant. Execute as migracoes.
+                                                </div>
+                                            <?php else: ?>
+                                                <?php
+                                                    $extranetTotalUsers = count($clientExtranetUsers);
+                                                    $extranetActiveUsers = 0;
+                                                    foreach ($clientExtranetUsers as $accountRow) {
+                                                        if ((int) ($accountRow['is_active'] ?? 0) === 1) {
+                                                            $extranetActiveUsers++;
+                                                        }
+                                                    }
+                                                    $extranetInactiveUsers = max(0, $extranetTotalUsers - $extranetActiveUsers);
+                                                    $erpSoftwareSelected = (string) ($clientExtranetSettings['erp_software'] ?? '');
+                                                    $supportEnabled = (int) ($clientExtranetSettings['support_enabled'] ?? 0) === 1;
+                                                    $supportUserId = (int) ($clientExtranetSettings['support_user_id'] ?? 0);
+                                                ?>
+                                                <div class="erp-form-section extranet-section" style="margin-top: 12px;">
+                                                    <div class="x_title" style="border-bottom: 1px solid #e6e9ed; margin: 0 0 14px; padding: 0 0 10px;">
+                                                        <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-cogs"></i> Configuração Extranet</h3>
+                                                        <div class="clearfix"></div>
+                                                    </div>
+                                                    <?php if (!hasAccountingEntityExtranetSettingsTable()): ?>
+                                                        <div class="alert alert-warning">
+                                                            A tabela <code>accounting_entity_extranet_settings</code> ainda nao existe nesta tenant. Execute as migracoes.
+                                                        </div>
+                                                    <?php else: ?>
+                                                            <div class="row">
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">ERP</label>
+                                                                        <select name="erp_software" class="form-control" id="extranetErpSoftwareSelect">
+                                                                            <option value="">-</option>
+                                                                            <option value="Eticadata" <?= $erpSoftwareSelected === 'Eticadata' ? 'selected' : ''; ?>>Eticadata</option>
+                                                                            <option value="Techsul" <?= $erpSoftwareSelected === 'Techsul' ? 'selected' : ''; ?>>Techsul</option>
+                                                                            <option value="Wintouch" <?= $erpSoftwareSelected === 'Wintouch' ? 'selected' : ''; ?>>Wintouch</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-4 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">API URL</label>
+                                                                        <input type="text" name="erp_api_url" id="extranetErpApiUrlInput" class="form-control" value="<?= htmlspecialchars((string) ($clientExtranetSettings['erp_api_url'] ?? '')); ?>" placeholder="https://api.exemplo.com" <?= $erpSoftwareSelected === '' ? 'disabled' : ''; ?>>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">API Utilizador</label>
+                                                                        <input type="text" name="erp_api_username" id="extranetErpApiUserInput" class="form-control" value="<?= htmlspecialchars((string) ($clientExtranetSettings['erp_api_username'] ?? '')); ?>" <?= $erpSoftwareSelected === '' ? 'disabled' : ''; ?>>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">API Password</label>
+                                                                        <input type="password" name="erp_api_password" id="extranetErpApiPasswordInput" class="form-control" value="<?= htmlspecialchars((string) ($clientExtranetSettings['erp_api_password'] ?? '')); ?>" <?= $erpSoftwareSelected === '' ? 'disabled' : ''; ?>>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">API Token</label>
+                                                                        <input type="text" name="erp_api_token" id="extranetErpApiTokenInput" class="form-control" value="<?= htmlspecialchars((string) ($clientExtranetSettings['erp_api_token'] ?? '')); ?>" <?= $erpSoftwareSelected === '' ? 'disabled' : ''; ?>>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            <div class="row">
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">Suporte Online</label>
+                                                                        <div style="margin-top: 8px; display: flex; align-items: center;">
+                                                                            <input type="checkbox" class="form-control extranet-support-switch" name="support_enabled" id="extranetSupportEnabledSwitch" value="1" <?= $supportEnabled ? 'checked' : ''; ?>>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <div class="col-md-2 col-sm-12">
+                                                                    <div class="form-group">
+                                                                        <label class="control-label">Técnico responsável</label>
+                                                                        <select name="support_user_id" class="form-control" id="extranetSupportUserSelect" <?= $supportEnabled ? '' : 'disabled'; ?>>
+                                                                            <option value="">-</option>
+                                                                            <?php foreach ($supportAssignableUsers as $supportUser): ?>
+                                                                                <?php $supportUserIdOption = (int) ($supportUser['id'] ?? 0); ?>
+                                                                                <option value="<?= $supportUserIdOption; ?>" <?= $supportUserIdOption === $supportUserId ? 'selected' : ''; ?>>
+                                                                                    <?= htmlspecialchars((string) ($supportUser['label'] ?? '')); ?>
+                                                                                </option>
+                                                                            <?php endforeach; ?>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                        <script>
+                                                        (function () {
+                                                            var erpSelect = document.getElementById('extranetErpSoftwareSelect');
+                                                            var erpApiInputs = [
+                                                                document.getElementById('extranetErpApiUrlInput'),
+                                                                document.getElementById('extranetErpApiUserInput'),
+                                                                document.getElementById('extranetErpApiPasswordInput'),
+                                                                document.getElementById('extranetErpApiTokenInput')
+                                                            ];
+                                                            var supportSwitch = document.getElementById('extranetSupportEnabledSwitch');
+                                                            var supportUserSelect = document.getElementById('extranetSupportUserSelect');
+                                                            var mainForm = supportSwitch ? supportSwitch.closest('form') : null;
+                                                            var supportSwitchery = null;
+                                                            var supportStateSyncing = false;
+
+                                                            function toggleErpApiInputs() {
+                                                                if (!erpSelect) {
+                                                                    return;
+                                                                }
+                                                                var hasErp = (erpSelect.value || '').trim() !== '';
+                                                                erpApiInputs.forEach(function (input) {
+                                                                    if (!input) {
+                                                                        return;
+                                                                    }
+                                                                    input.disabled = !hasErp;
+                                                                    input.style.opacity = hasErp ? '1' : '0.65';
+                                                                });
+                                                            }
+
+                                                            function toggleSupportUserSelect() {
+                                                                if (!supportSwitch || !supportUserSelect) {
+                                                                    return;
+                                                                }
+                                                                var enabled = !!supportSwitch.checked;
+                                                                supportUserSelect.disabled = !enabled;
+                                                                if (enabled) {
+                                                                    supportUserSelect.removeAttribute('disabled');
+                                                                } else {
+                                                                    supportUserSelect.setAttribute('disabled', 'disabled');
+                                                                    supportUserSelect.value = '';
+                                                                }
+                                                                supportUserSelect.style.opacity = enabled ? '1' : '0.65';
+                                                            }
+
+                                                            function syncSupportSwitchVisual() {
+                                                                if (supportSwitchery && typeof supportSwitchery.setPosition === 'function') {
+                                                                    supportSwitchery.setPosition(false);
+                                                                }
+                                                            }
+
+                                                            function setSupportSwitchState(enabled) {
+                                                                if (!supportSwitch) {
+                                                                    return;
+                                                                }
+                                                                supportStateSyncing = true;
+                                                                supportSwitch.checked = !!enabled;
+                                                                syncSupportSwitchVisual();
+                                                                toggleSupportUserSelect();
+                                                                supportStateSyncing = false;
+                                                            }
+
+                                                            function initSupportSwitchery(force) {
+                                                                if (!supportSwitch || !window.Switchery) {
+                                                                    return;
+                                                                }
+                                                                if (supportSwitch.dataset && supportSwitch.dataset.switcheryReady === '1' && !force) {
+                                                                    return;
+                                                                }
+                                                                var existing = supportSwitch.nextElementSibling;
+                                                                if (existing && existing.classList && existing.classList.contains('switchery')) {
+                                                                    existing.remove();
+                                                                }
+                                                                try {
+                                                                    supportSwitchery = new Switchery(supportSwitch, { color: '#26B99A' });
+                                                                    if (supportSwitch.dataset) {
+                                                                        supportSwitch.dataset.switcheryReady = '1';
+                                                                    }
+                                                                    if (supportSwitchery.switcher) {
+                                                                        supportSwitchery.switcher.addEventListener('click', function () {
+                                                                            window.setTimeout(function () {
+                                                                                toggleSupportUserSelect();
+                                                                            }, 0);
+                                                                        });
+                                                                    }
+                                                                } catch (error) {
+                                                                    supportSwitchery = null;
+                                                                }
+                                                            }
+
+                                                            if (erpSelect) {
+                                                                erpSelect.addEventListener('change', toggleErpApiInputs);
+                                                            }
+                                                            toggleErpApiInputs();
+                                                            if (supportSwitch) {
+                                                                supportSwitch.addEventListener('change', toggleSupportUserSelect);
+                                                                supportSwitch.addEventListener('change', function () {
+                                                                    if (supportStateSyncing) {
+                                                                        return;
+                                                                    }
+                                                                    toggleSupportUserSelect();
+                                                                });
+                                                                toggleSupportUserSelect();
+                                                                window.setTimeout(toggleSupportUserSelect, 120);
+                                                                initSupportSwitchery(false);
+                                                            }
+                                                            if (supportUserSelect) {
+                                                                supportUserSelect.addEventListener('change', function () {
+                                                                    if (supportUserSelect.value && supportUserSelect.value !== '') {
+                                                                        setSupportSwitchState(true);
+                                                                    } else {
+                                                                        setSupportSwitchState(false);
+                                                                    }
+                                                                });
+                                                            }
+                                                            if (mainForm) {
+                                                                mainForm.addEventListener('submit', function () {
+                                                                    toggleSupportUserSelect();
+                                                                    if (supportUserSelect && !supportSwitch.checked) {
+                                                                        supportUserSelect.value = '';
+                                                                    }
+                                                                });
+                                                            }
+                                                            document.addEventListener('shown.bs.tab', function (event) {
+                                                                var target = event.target || null;
+                                                                if (!target || !(target.getAttribute && target.getAttribute('data-bs-target') === '#cliente-extranet')) {
+                                                                    return;
+                                                                }
+                                                                window.setTimeout(function () {
+                                                                    toggleErpApiInputs();
+                                                                    toggleSupportUserSelect();
+                                                                    initSupportSwitchery(true);
+                                                                }, 0);
+                                                            });
+                                                        }());
+                                                        </script>
+                                                    <?php endif; ?>
+                                                </div>
+
+                                                <div class="row extranet-kpis" style="margin-top: 12px;">
+                                                    <div class="col-md-4 col-sm-12" style="padding: 0 8px 10px;">
+                                                        <div class="extranet-kpi-card">
+                                                            <span class="count"><?= (int) $extranetTotalUsers; ?></span>
+                                                            <span class="label label-primary">Total de contas</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4 col-sm-12" style="padding: 0 8px 10px;">
+                                                        <div class="extranet-kpi-card">
+                                                            <span class="count"><?= (int) $extranetActiveUsers; ?></span>
+                                                            <span class="label label-success">Contas ativas</span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-4 col-sm-12" style="padding: 0 8px 10px;">
+                                                        <div class="extranet-kpi-card">
+                                                            <span class="count"><?= (int) $extranetInactiveUsers; ?></span>
+                                                            <span class="label label-default">Contas inativas</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="erp-form-section extranet-section">
+                                                    <div class="x_title" style="border-bottom: 1px solid #e6e9ed; margin: 0 0 14px; padding: 0 0 10px;">
+                                                        <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-users"></i> Gestão de utilizadores</h3>
+                                                        <ul class="nav navbar-right panel_toolbox" style="min-width: auto;">
+                                                            <li>
+                                                                <button type="button" class="btn btn-primary btn-sm extranet-create-trigger">
+                                                                    <i class="fa fa-plus"></i> Adicionar utilizador
+                                                                </button>
+                                                            </li>
+                                                        </ul>
+                                                        <div class="clearfix"></div>
+                                                    </div>
+                                                    <div class="table-responsive">
+                                                        <table class="table table-striped jambo_table bulk_action extranet-users-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>ID</th>
+                                                                    <th>Utilizador</th>
+                                                                    <th>Nome</th>
+                                                                    <th>Email</th>
+                                                                    <th>Estado</th>
+                                                                    <th class="text-right">Ações</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                            <?php foreach ($clientExtranetUsers as $clientAccount): ?>
+                                                                <tr>
+                                                                    <td><?= (int) ($clientAccount['id'] ?? 0); ?></td>
+                                                                    <td><?= htmlspecialchars((string) ($clientAccount['username'] ?? '')); ?></td>
+                                                                    <td><?= htmlspecialchars((string) ($clientAccount['name'] ?? '')); ?></td>
+                                                                    <td><?= htmlspecialchars((string) ($clientAccount['email'] ?? '')); ?></td>
+                                                                    <td>
+                                                                        <?php if ((int) ($clientAccount['is_active'] ?? 0) === 1): ?>
+                                                                            <span class="label label-success">Ativo</span>
+                                                                        <?php else: ?>
+                                                                            <span class="label label-default">Inativo</span>
+                                                                        <?php endif; ?>
+                                                                    </td>
+                                                                    <td class="text-right">
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn btn-xs btn-info extranet-edit-trigger"
+                                                                            data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
+                                                                            data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
+                                                                            data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
+                                                                            data-client-email="<?= htmlspecialchars((string) ($clientAccount['email'] ?? ''), ENT_QUOTES); ?>"
+                                                                            data-client-active="<?= (int) ($clientAccount['is_active'] ?? 0); ?>"
+                                                                        >
+                                                                            <i class="fa fa-pencil"></i> Editar
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn btn-xs btn-danger extranet-delete-trigger"
+                                                                            data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
+                                                                            data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
+                                                                            data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
+                                                                        >
+                                                                            <i class="fa fa-trash"></i> Eliminar
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            <?php endforeach; ?>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
                                     <div class="form-group erp-form-actions">
                                         <div class="erp-form-actions-secondary">
                                             <a href="javascript:history.back()" class="btn btn-default">
@@ -959,7 +1578,7 @@ require_once __DIR__ . '/../header.php';
                                             <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($consultEntity)); ?>" class="btn btn-default">
                                                 <i class="fa fa-refresh"></i> Repor
                                             </a>
-                                            <button type="submit" class="btn btn-success">
+                                            <button type="submit" class="btn btn-success" form="erpClientMainForm">
                                                 <i class="fa fa-save"></i> Guardar Alterações
                                             </button>
                                         </div>
@@ -968,13 +1587,212 @@ require_once __DIR__ . '/../header.php';
                             </form>
                         </div>
                     </div>
+                    <div class="modal fade" id="createClientUserModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <form method="post" class="form-horizontal">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fa fa-user-plus"></i> Adicionar utilizador da Extranet</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="save-client-user">
+                                        <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                        <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
+                                        <div class="row extranet-create-grid">
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Utilizador</label>
+                                                    <input type="text" name="username" class="form-control" required>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Nome</label>
+                                                    <input type="text" name="name" class="form-control">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Email</label>
+                                                    <input type="email" name="email" class="form-control">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Password</label>
+                                                    <input type="password" name="password" class="form-control" required>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="checkbox" style="margin-top: 4px;">
+                                            <label><input type="checkbox" name="is_active" value="1" checked> Ativo</label>
+                                        </div>
+                                        <p class="help-block">A password deve ter pelo menos 8 caracteres, incluindo maiúsculas, minúsculas e número.</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary"><i class="fa fa-plus"></i> Criar conta</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal fade" id="editClientUserModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <form method="post" class="form-horizontal">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fa fa-user"></i> Editar utilizador da Extranet</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="save-client-user">
+                                        <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                        <input type="hidden" name="client_user_id" value="">
+                                        <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
+
+                                        <div class="row extranet-create-grid">
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Utilizador</label>
+                                                    <input type="text" class="form-control" name="username" readonly>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Nome</label>
+                                                    <input type="text" name="name" class="form-control">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Email</label>
+                                                    <input type="email" name="email" class="form-control">
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6 col-sm-12">
+                                                <div class="form-group">
+                                                    <label class="control-label">Nova password</label>
+                                                    <input type="password" name="password" class="form-control" placeholder="Preencher apenas para alterar">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="checkbox" style="margin-top: 4px;">
+                                            <label><input type="checkbox" name="is_active" value="1"> Ativo</label>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal fade" id="deleteClientUserModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-md">
+                            <div class="modal-content">
+                                <form method="post" class="form-horizontal">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fa fa-trash"></i> Eliminar utilizador da Extranet</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="delete-client-user">
+                                        <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                        <input type="hidden" name="client_user_id" value="">
+                                        <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
+                                        <p class="text-danger" style="font-size: 15px; margin-bottom: 0;">
+                                            Tem a certeza que pretende eliminar o utilizador <strong data-delete-user-label></strong>?
+                                        </p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-danger"><i class="fa fa-trash"></i> Eliminar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                     <script>
                     (function () {
+                        var entityTabKey = <?= json_encode(
+                            $consultEntity ? ('accounting_entity_tab:' . (string) getAccountingEntityRouteKey($consultEntity)) : '',
+                            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                        ); ?>;
+                        var tabSelector = '.nav-tabs a[data-bs-toggle="tab"]';
+                        var storedTabTarget = '';
+                        if (entityTabKey && window.localStorage) {
+                            try {
+                                storedTabTarget = window.localStorage.getItem(entityTabKey) || '';
+                            } catch (error) {
+                                storedTabTarget = '';
+                            }
+                        }
+
+                        function saveActiveTab(targetSelector) {
+                            if (!entityTabKey || !targetSelector || !window.localStorage) {
+                                return;
+                            }
+                            try {
+                                window.localStorage.setItem(entityTabKey, targetSelector);
+                            } catch (error) {
+                                // Ignore storage errors.
+                            }
+                        }
+
+                        function activateStoredTab() {
+                            if (!storedTabTarget) {
+                                return;
+                            }
+                            var storedTabLink = document.querySelector(tabSelector + '[data-bs-target="' + storedTabTarget.replace(/"/g, '\\"') + '"]');
+                            if (!storedTabLink) {
+                                return;
+                            }
+                            if (window.bootstrap && window.bootstrap.Tab) {
+                                window.bootstrap.Tab.getOrCreateInstance(storedTabLink).show();
+                            } else if (storedTabLink.click) {
+                                storedTabLink.click();
+                            }
+                            if (window.history && window.history.replaceState) {
+                                try {
+                                    window.history.replaceState({}, '', window.location.pathname + window.location.search);
+                                } catch (error) {
+                                    // Ignore history errors.
+                                }
+                            }
+                        }
+
+                        document.querySelectorAll(tabSelector).forEach(function (tabLink) {
+                            tabLink.addEventListener('click', function (event) {
+                                event.preventDefault();
+                            });
+                            tabLink.addEventListener('shown.bs.tab', function (event) {
+                                var target = event.target || tabLink;
+                                saveActiveTab(target.getAttribute('data-bs-target') || '');
+                                if (window.history && window.history.replaceState) {
+                                    try {
+                                        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+                                    } catch (error) {
+                                        // Ignore history errors.
+                                    }
+                                }
+                            });
+                        });
+
+                        if (storedTabTarget) {
+                            window.setTimeout(activateStoredTab, 0);
+                        }
+
                         var zoneSelect = document.getElementById('erpClientZoneSelect');
                         var subzoneSelect = document.getElementById('erpClientSubzoneSelect');
-                        if (!zoneSelect || !subzoneSelect) {
-                            return;
-                        }
+                        var createClientUserModal = document.getElementById('createClientUserModal');
+                        var createClientUserTrigger = document.querySelector('.extranet-create-trigger');
+                        var hasZoneFields = !!(zoneSelect && subzoneSelect);
 
                         var subzoneOptions = <?= json_encode($subzoneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
                         var initialSubzone = <?= json_encode($selectedSubzone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
@@ -1030,8 +1848,10 @@ require_once __DIR__ . '/../header.php';
                             }
                         }
 
-                        zoneSelect.addEventListener('change', renderSubzones);
-                        renderSubzones();
+                        if (hasZoneFields) {
+                            zoneSelect.addEventListener('change', renderSubzones);
+                            renderSubzones();
+                        }
 
                         document.querySelectorAll('.password-toggle-btn').forEach(function (button) {
                             button.addEventListener('click', function () {
@@ -1049,6 +1869,86 @@ require_once __DIR__ . '/../header.php';
                                 var icon = button.querySelector('i');
                                 if (icon) {
                                     icon.className = isHidden ? 'fa fa-eye-slash' : 'fa fa-eye';
+                                }
+                            });
+                        });
+
+                        var editClientUserModal = document.getElementById('editClientUserModal');
+                        var deleteClientUserModal = document.getElementById('deleteClientUserModal');
+                        if (editClientUserModal) {
+                            var setValue = function (selector, value) {
+                                var input = editClientUserModal.querySelector(selector);
+                                if (input) {
+                                    input.value = value || '';
+                                }
+                            };
+
+                            document.querySelectorAll('.extranet-edit-trigger').forEach(function (button) {
+                                button.addEventListener('click', function (event) {
+                                    event.preventDefault();
+                                    setValue('input[name="client_user_id"]', button.getAttribute('data-client-user-id') || '');
+                                    setValue('input[name="username"]', button.getAttribute('data-client-username') || '');
+                                    setValue('input[name="name"]', button.getAttribute('data-client-name') || '');
+                                    setValue('input[name="email"]', button.getAttribute('data-client-email') || '');
+                                    setValue('input[name="password"]', '');
+
+                                    var activeInput = editClientUserModal.querySelector('input[name="is_active"]');
+                                    if (activeInput) {
+                                        activeInput.checked = String(button.getAttribute('data-client-active') || '0') === '1';
+                                    }
+
+                                    if (window.bootstrap && window.bootstrap.Modal) {
+                                        window.bootstrap.Modal.getOrCreateInstance(editClientUserModal).show();
+                                    }
+                                });
+                            });
+                        }
+
+                        if (deleteClientUserModal) {
+                            var deleteLabel = deleteClientUserModal.querySelector('[data-delete-user-label]');
+                            document.querySelectorAll('.extranet-delete-trigger').forEach(function (button) {
+                                button.addEventListener('click', function () {
+                                    var clientUserIdInput = deleteClientUserModal.querySelector('input[name="client_user_id"]');
+                                    if (clientUserIdInput) {
+                                        clientUserIdInput.value = button.getAttribute('data-client-user-id') || '';
+                                    }
+                                    if (deleteLabel) {
+                                        deleteLabel.textContent = (button.getAttribute('data-client-name') || button.getAttribute('data-client-username') || '').trim();
+                                    }
+                                    if (window.bootstrap && window.bootstrap.Modal) {
+                                        window.bootstrap.Modal.getOrCreateInstance(deleteClientUserModal).show();
+                                    }
+                                });
+                            });
+                        }
+
+                        if (createClientUserModal && createClientUserTrigger) {
+                            createClientUserTrigger.addEventListener('click', function (event) {
+                                event.preventDefault();
+                                if (window.bootstrap && window.bootstrap.Modal) {
+                                    window.bootstrap.Modal.getOrCreateInstance(createClientUserModal).show();
+                                }
+                            });
+                            createClientUserModal.addEventListener('show.bs.modal', function () {
+                                var form = createClientUserModal.querySelector('form');
+                                if (!form) {
+                                    return;
+                                }
+                                form.reset();
+                                var activeInput = form.querySelector('input[name="is_active"]');
+                                if (activeInput) {
+                                    activeInput.checked = true;
+                                }
+                            });
+                        }
+
+                        document.querySelectorAll('.extranet-edit-trigger').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (!editClientUserModal) {
+                                    return;
+                                }
+                                if (window.bootstrap && window.bootstrap.Modal) {
+                                    window.bootstrap.Modal.getOrCreateInstance(editClientUserModal).show();
                                 }
                             });
                         });

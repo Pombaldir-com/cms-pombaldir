@@ -16,3 +16,27 @@ function getCompanyByNif(string $nif): ?array {
     return $companies[$nif] ?? null;
 }
 
+/**
+ * Retrieve a company configuration by its slug.
+ *
+ * @param string $slug
+ * @return array|null
+ */
+function getCompanyBySlug(string $slug): ?array {
+    $slug = trim($slug);
+    if ($slug === '') {
+        return null;
+    }
+
+    $companies = require __DIR__ . '/data/companies.php';
+    foreach ($companies as $company) {
+        if (!is_array($company)) {
+            continue;
+        }
+        if (strcasecmp((string) ($company['slug'] ?? ''), $slug) === 0) {
+            return $company;
+        }
+    }
+
+    return null;
+}
