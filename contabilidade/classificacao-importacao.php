@@ -35,6 +35,21 @@ if (!function_exists('normalizeDocTypeValue')) {
     }
 }
 
+if (!function_exists('getClassificationImportRowEntityIdByDatabase')) {
+    function getClassificationImportRowEntityIdByDatabase(PDO $pdo, string $database): int {
+        static $cache = [];
+        $database = trim($database);
+        if ($database === '') {
+            return 0;
+        }
+        if (!array_key_exists($database, $cache)) {
+            $entity = findAccountingAcquirerEntityByDatabase($pdo, $database);
+            $cache[$database] = (int) ($entity['id'] ?? 0);
+        }
+        return (int) ($cache[$database] ?? 0);
+    }
+}
+
 if (!function_exists('buildClassificationPartyKey')) {
     function buildClassificationPartyKey($value, $fallbackVat = ''): string {
         $fallbackVat = trim((string) ($fallbackVat ?? ''));
@@ -345,8 +360,19 @@ $viewMode = strtolower(trim((string) ($_GET['type'] ?? '')));
 $isImportOnlyView = $importType === 1 && $viewMode === 'import';
 $currentErpWebserviceUrl = trim((string) getSetting('erp_webservice_url', ''));
 $currentErpToken = trim((string) getSetting('erp_token', ''));
-$canClassifyCtb = $importType !== 1 || userHasDepartmentPermission('ctb_classificar_docs');
-$canImportCtb = $importType !== 1 || userHasDepartmentPermission('ctb_importar_docs');
+$hasDepartmentClassifyPermission = userHasDepartmentPermission('ctb_classificar_docs');
+$hasDepartmentImportPermission = userHasDepartmentPermission('ctb_importar_docs');
+$hasEntityClassifyPermission = userHasAccountingEntityTaskPermission('ctb_classificar_docs');
+$hasEntityImportPermission = userHasAccountingEntityTaskPermission('ctb_importar_docs');
+$canClassifyCtb = $importType !== 1 || $hasDepartmentClassifyPermission || $hasEntityClassifyPermission;
+$canImportCtb = $importType !== 1 || $hasDepartmentImportPermission || $hasEntityImportPermission;
+$canAccessCtbView = $canClassifyCtb || $canImportCtb;
+
+if ($importType === 1 && !$canAccessCtbView) {
+    http_response_code(403);
+    exit('Sem permissao para aceder a documentos CTB.');
+}
+
 $classificationAcquirerOptions = [];
 
 if (hasTable('accounting_entities')) {
@@ -3765,8 +3791,7 @@ if (
         $requestedImportType = 1;
     }
 
-    $allowClassifiedFlow = (int) ($payload['allow_classified_flow'] ?? 0) === 1;
-    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs') && !$allowClassifiedFlow) {
+    if ($requestedImportType === 1 && !$canImportCtb) {
         http_response_code(403);
         echo json_encode([
             'success' => false,
@@ -3811,6 +3836,40 @@ if (
         $databaseGroups = [
             $targetDatabase => $ids,
         ];
+    }
+
+    if (!$hasDepartmentImportPermission) {
+        $unauthorizedGroups = [];
+        foreach (array_keys($databaseGroups) as $groupDatabase) {
+            $groupDatabase = trim((string) $groupDatabase);
+            if ($groupDatabase === '') {
+                continue;
+            }
+
+            $groupEntityId = getClassificationImportRowEntityIdByDatabase($pdo, $groupDatabase);
+            if ($groupEntityId <= 0 || !userHasAccountingEntityTaskPermission('ctb_importar_docs', $groupEntityId)) {
+                $groupEntity = findAccountingAcquirerEntityByDatabase($pdo, $groupDatabase);
+                $groupLabel = $groupDatabase;
+                if (is_array($groupEntity)) {
+                    $groupName = trim((string) ($groupEntity['name'] ?? ''));
+                    if ($groupName !== '') {
+                        $groupLabel = $groupName;
+                    }
+                }
+                $unauthorizedGroups[] = $groupLabel;
+            }
+        }
+
+        $unauthorizedGroups = array_values(array_unique(array_filter($unauthorizedGroups, static fn($value) => trim((string) $value) !== '')));
+        if (!empty($unauthorizedGroups)) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Sem permissao para importar documentos nas empresas: ' . implode(', ', $unauthorizedGroups) . '.',
+                'csrf_token' => generateCsrfToken(true),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     $mode = strtolower(trim((string) ($payload['mode'] ?? 'check')));
@@ -3981,8 +4040,7 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($requestedImportType <= 0) {
         $requestedImportType = 1;
     }
-    $allowClassifiedFlow = (int)($payload['allow_classified_flow'] ?? 0) === 1;
-    if ($requestedImportType === 1 && !userHasDepartmentPermission('ctb_importar_docs') && !$allowClassifiedFlow) {
+    if ($requestedImportType === 1 && !$canImportCtb) {
         http_response_code(403);
         echo json_encode([
             'success' => false,
@@ -4069,6 +4127,19 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'erp_database' => $entityDatabase,
     ];
 
+    if (!$hasDepartmentImportPermission) {
+        $entityId = (int) ($entity['id'] ?? 0);
+        if ($entityId <= 0 || !userHasAccountingEntityTaskPermission('ctb_importar_docs', $entityId)) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Sem permissao para importar documentos nesta empresa.',
+                'csrf_token' => generateCsrfToken(true),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
     if ($mode === 'check') {
         $response['success'] = true;
         if (count($missingSelectionCandidates) === 1) {
@@ -4135,7 +4206,8 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'erp_client_code' => $entityType === 'acquirer'
             ? fetchAccountingAcquirerClientCodeFromBaseErp(
                 (string) $entity['nif'],
-                trim((string)($entity['erp_client_code'] ?? ''))
+                trim((string)($entity['erp_client_code'] ?? '')),
+                $selectedDatabase
             )
             : trim((string)($entity['erp_client_code'] ?? '')),
     ];
@@ -4815,7 +4887,13 @@ if ($action === 'data') {
             $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
             if ($importType === 1) {
-                $disabledAttr = $canClassifyCtb ? '' : ' disabled title="Sem permissao"';
+                $rowCanClassify = $hasDepartmentClassifyPermission;
+                if (!$rowCanClassify) {
+                    $rowEntityId = getClassificationImportRowEntityIdByDatabase($pdo, (string) ($row['acquirer_erp_database'] ?? ''));
+                    $rowCanClassify = $rowEntityId > 0
+                        && userHasAccountingEntityTaskPermission('ctb_classificar_docs', $rowEntityId);
+                }
+                $disabledAttr = $rowCanClassify ? '' : ' disabled title="Sem permissao"';
                 $classifyLabel = classificationButtonLabel($row);
                 $actionsParts[] = '<button type="button" class="btn btn-xs ' . $row['btn_class'] . ' classify-row" '
                     . 'data-id="' . (int)$row['id'] . '" '
@@ -4911,7 +4989,7 @@ $rows = [];
 $initialReadyCount = 0;
 
 $csrfToken = generateCsrfToken();
-$showImportButton = ($importType === 1) || ($importType === 2);
+$showImportButton = (($importType === 1) || ($importType === 2)) && $canImportCtb;
 $showImportCtbParamInfo = getSetting('debug_mode', '0') === '1';
 if ($importType === 2) {
     $importButtonLabel = 'Importar Compras';
@@ -5022,6 +5100,12 @@ require_once __DIR__ . '/../header.php';
                         }
                         $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
+                        $rowCanClassify = $hasDepartmentClassifyPermission;
+                        if (!$rowCanClassify) {
+                            $rowEntityId = getClassificationImportRowEntityIdByDatabase($pdo, (string) ($row['acquirer_erp_database'] ?? ''));
+                            $rowCanClassify = $rowEntityId > 0
+                                && userHasAccountingEntityTaskPermission('ctb_classificar_docs', $rowEntityId);
+                        }
                     ?>
                     <td class="text-center">
 
@@ -5048,7 +5132,7 @@ require_once __DIR__ . '/../header.php';
                                 data-has-receipt-companion="<?= htmlspecialchars((string) ($row['has_receipt_companion'] ?? '0'), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
-                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $canClassifyCtb ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
+                                data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $rowCanClassify ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
                     <?php endif; ?>
 
                         <?php if ($importType === 2): ?>

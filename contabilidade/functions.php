@@ -82,6 +82,23 @@ function normalizeAccountingDocumentNumber(string $value): string {
     return $value;
 }
 
+function normalizeErpEntityTypeValue(string $value): string {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+        return '';
+    }
+
+    $normalized = preg_replace('/[^a-z0-9]+/i', '', $normalized);
+    if (in_array($normalized, ['acquirer', 'cliente', 'client', 'customer', 'comprador', 'adquirente'], true)) {
+        return 'acquirer';
+    }
+    if (in_array($normalized, ['emitter', 'emitente', 'supplier', 'fornecedor', 'vendor', 'seller'], true)) {
+        return 'emitter';
+    }
+
+    return '';
+}
+
 function normalizeAccountingMatchDate(string $value): string {
     $value = trim($value);
     if ($value === '') {
@@ -456,21 +473,15 @@ function resolveErpDatabaseIdentifier(string $database = ''): string {
  */
 function buildErpCompanyQueryParams(string $database = ''): array {
     $database = normalizeAccountingEntityDatabaseKey(trim($database));
-    $emp = trim(getErpDefaultCompanyIdentifier());
-    if ($database === '' && $emp !== '') {
-        $database = normalizeAccountingEntityDatabaseKey($emp);
-    }
-    if ($emp === '' && $database !== '') {
-        $emp = $database;
+    if ($database === '') {
+        $database = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
     }
 
     $params = [];
     if ($database !== '') {
         $params['db'] = $database;
         $params['bd'] = $database;
-    }
-    if ($emp !== '') {
-        $params['EMP'] = $emp;
+        $params['EMP'] = $database;
     }
     return $params;
 }
@@ -788,8 +799,9 @@ function buildErpEndpointFromBase(string $baseUrl, string $path): string {
  * @param string $nif     VAT number requested.
  * @return array|null Associative array with the extracted data or null if none was found.
  */
-function parseErpEntityPayload(array $payload, string $nif): ?array {
+function parseErpEntityPayload(array $payload, string $nif, string $preferredEntityType = ''): ?array {
     $sourceLabel = 'Webservice ERP-SINC';
+    $preferredEntityType = normalizeErpEntityTypeValue($preferredEntityType);
 
     if (isset($payload['success']) && $payload['success'] === false) {
         $message = isset($payload['message']) ? (string) $payload['message'] : (string) ($payload['error'] ?? 'Resposta sem sucesso');
@@ -870,6 +882,43 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
             $total = count($candidates);
         }
 
+        $fallbackCandidateNif = '';
+        $fallbackName = '';
+        $fallbackErpDatabase = '';
+        $fallbackErpClientCode = '';
+        $isListCandidate = array_keys($candidate) === range(0, count($candidate) - 1);
+        if ($isListCandidate) {
+            foreach ($candidate as $value) {
+                if (!is_scalar($value) && $value !== null) {
+                    continue;
+                }
+
+                $stringValue = trim((string) $value);
+                if ($stringValue === '') {
+                    continue;
+                }
+
+                if ($fallbackCandidateNif === '') {
+                    $listCandidateNif = extractVatNumber($stringValue);
+                    if ($listCandidateNif !== '') {
+                        $fallbackCandidateNif = $listCandidateNif;
+                    }
+                }
+
+                if ($fallbackName === '' && preg_match('/[A-Za-zÀ-ÿ]/u', $stringValue) && !preg_match('/^[0-9\s.,-]+$/', $stringValue)) {
+                    $fallbackName = $stringValue;
+                }
+
+                if ($fallbackErpDatabase === '' && preg_match('/^(emp|db|bd)[_-]?[A-Za-z0-9]+$/i', $stringValue)) {
+                    $fallbackErpDatabase = $stringValue;
+                }
+
+                if ($fallbackErpClientCode === '' && preg_match('/^\d{1,10}$/', $stringValue) && $stringValue !== $fallbackCandidateNif) {
+                    $fallbackErpClientCode = $stringValue;
+                }
+            }
+        }
+
         $nifKeys = ['nif', 'vat', 'vatnumber', 'nifcliente', 'numero_contribuinte', 'numerocontribuinte', 'contribuinte', 'strnumcontrib', 'strnumcontribuinte'];
 
 
@@ -878,6 +927,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
                 $candidateNif = extractVatNumber((string) $normalisedCandidate[$nifKey]);
                 break;
             }
+        }
+        if ($candidateNif === '' && $fallbackCandidateNif !== '') {
+            $candidateNif = $fallbackCandidateNif;
         }
         if ($candidateNif !== '' && $candidateNif !== $nif) {
             continue;
@@ -895,6 +947,9 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
                 break;
             }
         }
+        if ($name === '' && $fallbackName !== '') {
+            $name = $fallbackName;
+        }
 
 
         $erpDatabase = '';
@@ -905,10 +960,16 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
                 break;
             }
         }
+        if ($erpDatabase === '' && $fallbackErpDatabase !== '') {
+            $erpDatabase = $fallbackErpDatabase;
+        }
 
         $erpClientCode = '';
         if (array_key_exists('intcodigo', $normalisedCandidate)) {
             $erpClientCode = trim((string) $normalisedCandidate['intcodigo']);
+        }
+        if ($erpClientCode === '' && $fallbackErpClientCode !== '') {
+            $erpClientCode = $fallbackErpClientCode;
         }
 
         $entityType = '';
@@ -916,10 +977,15 @@ function parseErpEntityPayload(array $payload, string $nif): ?array {
 
         foreach ($typeKeys as $typeKey) {
             if (array_key_exists($typeKey, $normalisedCandidate)) {
-                $entityType = trim((string) $normalisedCandidate[$typeKey]);
+                $entityType = normalizeErpEntityTypeValue((string) $normalisedCandidate[$typeKey]);
                 break;
             }
         }
+
+        if ($preferredEntityType !== '' && $entityType !== '' && $entityType !== $preferredEntityType) {
+            continue;
+        }
+
         if ($candidateNif === '' && $name === '' && $erpDatabase === '' && $entityType === '') {
             continue;
         }
@@ -1025,7 +1091,7 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
         return $returnDebug ? ['entity' => null, 'error' => $message, 'status' => $status, 'endpoint' => $sanitizedEndpoint, 'response' => $response] : null;
     }
 
-    $entity = parseErpEntityPayload($data, $nif);
+    $entity = parseErpEntityPayload($data, $nif, $normalizedType);
     if ($entity === null) {
         $message = 'Dados do NIF ' . $nif . ' indisponíveis no ERP-SINC.' . $endpointInfo;
         logErpMessage($message);
@@ -1046,28 +1112,30 @@ function fetchAccountingEntityFromErp(string $nif, string $entityType = '', bool
     return $entity;
 }
 
-function fetchAccountingAcquirerClientCodeFromBaseErp(string $nif, string $fallback = ''): string {
+function fetchAccountingAcquirerClientCodeFromBaseErp(string $nif, string $fallback = '', string $database = ''): string {
     static $cache = [];
 
     $nif = extractVatNumber($nif);
     $fallback = trim($fallback);
+    $database = normalizeAccountingEntityDatabaseKey(trim($database));
     if ($nif === '') {
         return $fallback;
     }
 
-    if (array_key_exists($nif, $cache)) {
-        return $cache[$nif] !== '' ? $cache[$nif] : $fallback;
+    $cacheKey = $nif . '|' . $database;
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey] !== '' ? $cache[$cacheKey] : $fallback;
     }
 
-    $baseDatabase = trim((string) getSetting('erp_database', ''));
+    $baseDatabase = $database !== '' ? $database : trim((string) getSetting('erp_database', ''));
     if ($baseDatabase === '') {
-        $cache[$nif] = '';
+        $cache[$cacheKey] = '';
         return $fallback;
     }
 
     $remote = fetchAccountingEntityFromErp($nif, 'acquirer', false, $baseDatabase);
     $clientCode = is_array($remote) ? trim((string) ($remote['erp_client_code'] ?? '')) : '';
-    $cache[$nif] = $clientCode;
+    $cache[$cacheKey] = $clientCode;
 
     return $clientCode !== '' ? $clientCode : $fallback;
 }
@@ -2568,9 +2636,13 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
             $existingEntityType = trim((string) ($existing['entity_type'] ?? '')) !== ''
                 ? trim((string) ($existing['entity_type'] ?? ''))
                 : $defaultEntityType;
+            $existingDatabaseForCode = resolveAccountingEntityDatabase($existing);
+            if ($existingDatabaseForCode === '' && $defaultErpDatabase !== null && $defaultErpDatabase !== '') {
+                $existingDatabaseForCode = $defaultErpDatabase;
+            }
             $resolvedClientCode = trim((string) ($existing['erp_client_code'] ?? ''));
             if ($existingEntityType === 'acquirer') {
-                $resolvedClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $resolvedClientCode);
+                $resolvedClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $resolvedClientCode, $existingDatabaseForCode);
             }
             $requiresClientCodeUpdate = $existingEntityType === 'acquirer'
                 && $resolvedClientCode !== trim((string) ($existing['erp_client_code'] ?? ''));
@@ -2609,7 +2681,8 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
                 : $defaultEntityType;
             $fallbackClientCode = trim((string) ($existing['erp_client_code'] ?? ''));
             if ($fallbackEntityType === 'acquirer') {
-                $fallbackClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $fallbackClientCode);
+                $fallbackDatabase = trim((string) ($existing['erp_database'] ?? ($defaultErpDatabase ?? '')));
+                $fallbackClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $fallbackClientCode, $fallbackDatabase);
             }
             $fallbackData = [
                 'nif' => $nif,
@@ -2660,7 +2733,7 @@ function ensureAccountingEntity(PDO $pdo, string $entityFieldValue, ?array $defa
 
     $erpClientCode = trim((string) ($remote['erp_client_code'] ?? ''));
     if ($entityType === 'acquirer') {
-        $erpClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $erpClientCode);
+        $erpClientCode = fetchAccountingAcquirerClientCodeFromBaseErp($nif, $erpClientCode, $erpDatabase);
     }
 
     $data = [

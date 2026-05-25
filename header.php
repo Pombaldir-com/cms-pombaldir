@@ -264,8 +264,14 @@ foreach ($sidebarTypes as $sidebarType):
                                 <a><i class="fa fa-tasks"></i> Contabilidade <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
 <?php if (isModuleActive('contabilidade')): ?>
+<?php
+    $canAccessCtbClassification = userHasDepartmentPermission('ctb_classificar_docs') || userHasAccountingEntityTaskPermission('ctb_classificar_docs');
+    $canAccessCtbImport = userHasDepartmentPermission('ctb_importar_docs') || userHasAccountingEntityTaskPermission('ctb_importar_docs');
+?>
+<?php if ($canAccessCtbClassification || $canAccessCtbImport): ?>
     <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1">Classificação</a></li>
-<?php if (userHasDepartmentPermission('ctb_importar_docs')): ?>
+<?php endif; ?>
+<?php if ($canAccessCtbImport): ?>
     <li><a href="<?= BASE_URL ?>contabilidade/classificacao-importacao?import_type=1&type=import">Importação</a></li>
 <?php endif; ?>
 <?php if (userHasDepartmentPermission('ctb_lancamentos_aceder')): ?>

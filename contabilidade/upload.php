@@ -1536,7 +1536,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'entity_type' => 'acquirer',
             'erp_client_code' => fetchAccountingAcquirerClientCodeFromBaseErp(
                 $acquirerNif,
-                trim((string) ($existing['erp_client_code'] ?? ''))
+                trim((string) ($existing['erp_client_code'] ?? '')),
+                $selectedDatabase
             ),
         ];
         saveAccountingEntity($pdo, $saveData);

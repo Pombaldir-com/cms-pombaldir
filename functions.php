@@ -542,6 +542,14 @@ function hasClientUsersTable(): bool {
     return hasTable('client_users');
 }
 
+function hasAccountingEntityAdminUsersTable(): bool {
+    return hasTable('accounting_entity_admin_users');
+}
+
+function hasAccountingEntityAdminTaskPermissionsTable(): bool {
+    return hasTable('accounting_entity_admin_task_permissions');
+}
+
 function hasAccountingEntityExtranetSettingsTable(): bool {
     return hasTable('accounting_entity_extranet_settings');
 }
@@ -1224,6 +1232,273 @@ function deleteClientUser(int $id): void {
     if ($stmt->rowCount() > 0) {
         logAuditAction('delete', 'client_user', $id);
     }
+}
+
+function getAccountingEntityAdminPermissionOptions(): array {
+    return [
+        'can_manage_extranet' => 'Extranet',
+        'can_manage_documents' => 'Documentos',
+        'can_manage_ai' => 'IA',
+        'can_manage_users' => 'Utilizadores',
+    ];
+}
+
+function getAccountingEntityAdminUsers(int $accountingEntityId): array {
+    if ($accountingEntityId <= 0 || !hasAccountingEntityAdminUsersTable()) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT aeu.id, aeu.accounting_entity_id, aeu.user_id, aeu.is_active, aeu.can_manage_extranet, aeu.can_manage_documents, aeu.can_manage_ai, aeu.can_manage_users, aeu.created_at, aeu.updated_at, u.username, u.name, u.email, u.role
+         FROM accounting_entity_admin_users aeu
+         LEFT JOIN users u ON u.id = aeu.user_id
+         WHERE aeu.accounting_entity_id = ?
+         ORDER BY COALESCE(NULLIF(TRIM(u.name), \'\'), u.username) ASC, aeu.id ASC'
+    );
+    $stmt->execute([$accountingEntityId]);
+    return $stmt->fetchAll() ?: [];
+}
+
+function getAccountingEntityAdminUserById(int $id): ?array {
+    if ($id <= 0 || !hasAccountingEntityAdminUsersTable()) {
+        return null;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT aeu.id, aeu.accounting_entity_id, aeu.user_id, aeu.is_active, aeu.can_manage_extranet, aeu.can_manage_documents, aeu.can_manage_ai, aeu.can_manage_users, aeu.created_at, aeu.updated_at, u.username, u.name, u.email, u.role
+         FROM accounting_entity_admin_users aeu
+         LEFT JOIN users u ON u.id = aeu.user_id
+         WHERE aeu.id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
+}
+
+function saveAccountingEntityAdminUser(int $accountingEntityId, int $userId, array $permissions): int {
+    if ($accountingEntityId <= 0 || $userId <= 0 || !hasAccountingEntityAdminUsersTable()) {
+        return 0;
+    }
+
+    $isActive = !empty($permissions['is_active']) ? 1 : 0;
+    $canManageExtranet = !empty($permissions['can_manage_extranet']) ? 1 : 0;
+    $canManageDocuments = !empty($permissions['can_manage_documents']) ? 1 : 0;
+    $canManageAi = !empty($permissions['can_manage_ai']) ? 1 : 0;
+    $canManageUsers = !empty($permissions['can_manage_users']) ? 1 : 0;
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_entity_admin_users
+            (accounting_entity_id, user_id, is_active, can_manage_extranet, can_manage_documents, can_manage_ai, can_manage_users)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            is_active = VALUES(is_active),
+            can_manage_extranet = VALUES(can_manage_extranet),
+            can_manage_documents = VALUES(can_manage_documents),
+            can_manage_ai = VALUES(can_manage_ai),
+            can_manage_users = VALUES(can_manage_users)'
+    );
+    $stmt->execute([
+        $accountingEntityId,
+        $userId,
+        $isActive,
+        $canManageExtranet,
+        $canManageDocuments,
+        $canManageAi,
+        $canManageUsers,
+    ]);
+
+    $lookup = $pdo->prepare('SELECT id FROM accounting_entity_admin_users WHERE accounting_entity_id = ? AND user_id = ? LIMIT 1');
+    $lookup->execute([$accountingEntityId, $userId]);
+    $id = (int) ($lookup->fetchColumn() ?: 0);
+
+    logAuditAction('update', 'accounting_entity_admin_user', $id, [
+        'accounting_entity_id' => $accountingEntityId,
+        'user_id' => $userId,
+        'is_active' => $isActive,
+        'can_manage_extranet' => $canManageExtranet,
+        'can_manage_documents' => $canManageDocuments,
+        'can_manage_ai' => $canManageAi,
+        'can_manage_users' => $canManageUsers,
+    ]);
+
+    return $id;
+}
+
+function deleteAccountingEntityAdminUser(int $id): void {
+    if ($id <= 0 || !hasAccountingEntityAdminUsersTable()) {
+        return;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare('DELETE FROM accounting_entity_admin_users WHERE id = ?');
+    $stmt->execute([$id]);
+
+    if ($stmt->rowCount() > 0) {
+        logAuditAction('delete', 'accounting_entity_admin_user', $id);
+    }
+}
+
+function getAccountingEntityAdminTaskDefinitions(): array {
+    return [
+        'ctb_classificar_docs' => [
+            'label' => 'Classificação de Documentos',
+            'description' => 'Permite classificar documentos na área de contabilidade.',
+        ],
+        'ctb_importar_docs' => [
+            'label' => 'Importação de Lançamentos',
+            'description' => 'Permite importar os lançamentos classificados para a contabilidade.',
+        ],
+    ];
+}
+
+function getAccountingEntityAdminTaskPermissions(int $accountingEntityId): array {
+    $definitions = getAccountingEntityAdminTaskDefinitions();
+    $result = [];
+    foreach ($definitions as $permissionKey => $definition) {
+        $result[$permissionKey] = [
+            'permission_key' => $permissionKey,
+            'label' => $definition['label'] ?? $permissionKey,
+            'description' => $definition['description'] ?? '',
+            'users' => [],
+            'user_ids' => [],
+        ];
+    }
+
+    if ($accountingEntityId <= 0 || !hasAccountingEntityAdminTaskPermissionsTable()) {
+        return $result;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT aep.permission_key, aep.user_id, u.username, u.name, u.email, u.role
+         FROM accounting_entity_admin_task_permissions aep
+         LEFT JOIN users u ON u.id = aep.user_id
+         WHERE aep.accounting_entity_id = ?
+         ORDER BY aep.permission_key ASC, COALESCE(NULLIF(TRIM(u.name), \'\'), u.username) ASC, aep.id ASC'
+    );
+    $stmt->execute([$accountingEntityId]);
+    $rows = $stmt->fetchAll() ?: [];
+
+    foreach ($rows as $row) {
+        $permissionKey = trim((string) ($row['permission_key'] ?? ''));
+        if ($permissionKey === '') {
+            continue;
+        }
+        if (!isset($result[$permissionKey])) {
+            $result[$permissionKey] = [
+                'permission_key' => $permissionKey,
+                'label' => $permissionKey,
+                'description' => '',
+                'users' => [],
+                'user_ids' => [],
+            ];
+        }
+
+        $userId = (int) ($row['user_id'] ?? 0);
+        if ($userId <= 0) {
+            continue;
+        }
+
+        $result[$permissionKey]['users'][] = [
+            'id' => $userId,
+            'username' => (string) ($row['username'] ?? ''),
+            'name' => (string) ($row['name'] ?? ''),
+            'email' => (string) ($row['email'] ?? ''),
+            'role' => (int) ($row['role'] ?? 3),
+        ];
+        $result[$permissionKey]['user_ids'][] = $userId;
+    }
+
+    foreach ($result as &$permission) {
+        $permission['user_ids'] = array_values(array_unique(array_map('intval', $permission['user_ids'] ?? [])));
+    }
+    unset($permission);
+
+    return $result;
+}
+
+function userHasAccountingEntityTaskPermission(string $permissionKey, ?int $accountingEntityId = null): bool {
+    $permissionKey = trim($permissionKey);
+    if ($permissionKey === '') {
+        return false;
+    }
+
+    $user = currentUser();
+    if (!$user) {
+        return false;
+    }
+
+    if (($user['role'] ?? 3) <= 2) {
+        return true;
+    }
+
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId <= 0 || !hasAccountingEntityAdminTaskPermissionsTable()) {
+        return false;
+    }
+
+    static $cache = [];
+    $cacheKey = $userId . '|' . $permissionKey . '|' . ($accountingEntityId !== null ? (string) $accountingEntityId : '*');
+    if (array_key_exists($cacheKey, $cache)) {
+        return (bool) $cache[$cacheKey];
+    }
+
+    $pdo = getPDO();
+    if ($accountingEntityId !== null && $accountingEntityId > 0) {
+        $stmt = $pdo->prepare(
+            'SELECT 1
+             FROM accounting_entity_admin_task_permissions
+             WHERE accounting_entity_id = ? AND permission_key = ? AND user_id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$accountingEntityId, $permissionKey, $userId]);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT 1
+             FROM accounting_entity_admin_task_permissions
+             WHERE permission_key = ? AND user_id = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$permissionKey, $userId]);
+    }
+
+    $cache[$cacheKey] = (bool) $stmt->fetchColumn();
+    return (bool) $cache[$cacheKey];
+}
+
+function saveAccountingEntityAdminTaskPermissions(int $accountingEntityId, string $permissionKey, array $userIds): void {
+    if ($accountingEntityId <= 0 || !hasAccountingEntityAdminTaskPermissionsTable()) {
+        return;
+    }
+
+    $definitions = getAccountingEntityAdminTaskDefinitions();
+    if (!isset($definitions[$permissionKey])) {
+        return;
+    }
+
+    $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn($value) => $value > 0)));
+    $pdo = getPDO();
+    $deleteStmt = $pdo->prepare('DELETE FROM accounting_entity_admin_task_permissions WHERE accounting_entity_id = ? AND permission_key = ?');
+    $deleteStmt->execute([$accountingEntityId, $permissionKey]);
+
+    if ($userIds) {
+        $insertStmt = $pdo->prepare(
+            'INSERT INTO accounting_entity_admin_task_permissions (accounting_entity_id, permission_key, user_id)
+             VALUES (?, ?, ?)'
+        );
+        foreach ($userIds as $userId) {
+            $insertStmt->execute([$accountingEntityId, $permissionKey, $userId]);
+        }
+    }
+
+    logAuditAction('update', 'accounting_entity_admin_task_permissions', null, [
+        'accounting_entity_id' => $accountingEntityId,
+        'permission_key' => $permissionKey,
+        'user_ids' => $userIds,
+    ]);
 }
 
 function getClientAccountingDocuments(int $accountingEntityId, int $limit = 300): array {

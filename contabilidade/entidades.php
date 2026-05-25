@@ -12,6 +12,7 @@ if (!isModuleActive('contabilidade')) {
 
 $useDataTables = true;
 $useSwitchery = true;
+$useSelect2 = true;
 
 $pdo = getPDO();
 $emitterTypeColumn = getAccountingEmitterTypeColumn();
@@ -21,6 +22,8 @@ $isSuperAdmin = ((int) ($user['role'] ?? 3)) === 1;
 $canManageEntityAiInstructions = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageEmitterType = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageClientExtranet = ((int) ($user['role'] ?? 3)) <= 2;
+$canManageClientAdmin = ((int) ($user['role'] ?? 3)) <= 2;
+$adminTaskDefinitions = getAccountingEntityAdminTaskDefinitions();
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
 $entityTypeMap = [
@@ -35,7 +38,7 @@ $flashType = trim((string) ($_GET['status'] ?? ''));
 $flashMessage = trim((string) ($_GET['msg'] ?? ''));
 $pageScripts = '';
 $erpClientFormOverride = null;
-$erpClientDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+$erpClientDatabase = '';
 $isAjaxRequest = isset($_SERVER['HTTP_X_REQUESTED_WITH'])
     && strcasecmp((string) $_SERVER['HTTP_X_REQUESTED_WITH'], 'XMLHttpRequest') === 0;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -186,10 +189,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $flashType = 'error';
                     $flashMessage = 'ID do cliente ERP em falta.';
                 } else {
-                $erpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
-                if ($erpDatabase === '') {
-                    $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
-                }
+                $submittedErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
+                $entityErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
+                $erpDatabase = $submittedErpDatabase !== '' ? $submittedErpDatabase : $entityErpDatabase;
                 if ($erpDatabase === '') {
                     $flashType = 'error';
                     $flashMessage = 'A empresa nao tem base de dados ERP configurada.';
@@ -309,6 +311,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Password fraca. Min 8 chars com maiusculas, minusculas e numero.', 400);
         }
 
+        $existing = null;
+        $clientUser = null;
         try {
             if ($clientUserId > 0) {
                 $existing = getClientUserById($clientUserId);
@@ -317,17 +321,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
                 updateClientUser($clientUserId, $hash, $name, $email, $isActive);
+                $clientUser = getClientUserById($clientUserId);
                 $message = 'Conta cliente atualizada.';
             } else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                createClientUser($entityId, $tenantSlug, $username, $hash, $name, $email, $isActive);
+                $clientUserId = createClientUser($entityId, $tenantSlug, $username, $hash, $name, $email, $isActive);
+                $clientUser = getClientUserById($clientUserId);
                 $message = 'Conta cliente criada.';
             }
         } catch (Throwable $e) {
             respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao guardar conta cliente: ' . $e->getMessage(), 400);
         }
 
-        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', $message);
+        if ($isAjaxRequest) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'message' => $message,
+                'csrf_token' => generateCsrfToken(true),
+                'client_user' => $clientUser ?? null,
+                'operation' => $existing ? 'update' : 'create',
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        respondAccountingEntitiesPost(false, $returnUrl, 'success', $message);
     }
 
     if ($action === 'delete-client-user') {
@@ -357,6 +375,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Conta cliente nao encontrada para esta entidade.', 404);
         }
 
+        $existing = getClientUserById($clientUserId);
+
         try {
             deleteClientUser($clientUserId);
         } catch (Throwable $e) {
@@ -369,13 +389,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'success' => true,
                 'message' => 'Conta cliente eliminada.',
                 'csrf_token' => generateCsrfToken(true),
-                'redirect_url' => $returnUrl,
+                'client_user' => $existing,
+                'operation' => 'delete',
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
         header('Location: ' . $returnUrl . '?status=success&msg=' . rawurlencode('Conta cliente eliminada.'));
         exit;
+    }
+
+    if ($action === 'save-client-admin-task-users') {
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey);
+        }
+        if (!$canManageClientAdmin) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para gerir Admin.', 403);
+        }
+        if (!hasAccountingEntityAdminTaskPermissionsTable()) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Tabela de permissões Admin em falta.', 400);
+        }
+
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        $permissionKey = trim((string) ($_POST['permission_key'] ?? ''));
+        $userIds = $_POST['user_ids'] ?? [];
+        if ($entityId <= 0) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Entidade invalida.', 400);
+        }
+        if (!isset($adminTaskDefinitions[$permissionKey])) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Tarefa administrativa invalida.', 400);
+        }
+        $entityStmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([$entityId]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Apenas entidades adquirentes suportam Admin.', 400);
+        }
+
+        if (!is_array($userIds)) {
+            $userIds = [$userIds];
+        }
+        $userIds = array_values(array_filter(array_map('intval', $userIds), static fn($value) => $value > 0));
+        foreach ($userIds as $userId) {
+            if (!getUserById($userId)) {
+                respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Um dos utilizadores selecionados nao foi encontrado.', 404);
+            }
+        }
+
+        try {
+            saveAccountingEntityAdminTaskPermissions($entityId, $permissionKey, $userIds);
+        } catch (Throwable $e) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao guardar permissões Admin: ' . $e->getMessage(), 400);
+        }
+
+        $assignedUsers = [];
+        foreach ($userIds as $userId) {
+            $userRow = getUserById($userId);
+            if (!$userRow) {
+                continue;
+            }
+            $assignedUsers[] = [
+                'id' => (int) ($userRow['id'] ?? $userId),
+                'label' => trim((string) (($userRow['name'] ?? '') !== '' ? $userRow['name'] : ($userRow['username'] ?? ''))),
+            ];
+        }
+
+        if ($isAjaxRequest) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => true,
+                'message' => 'Permissões Admin guardadas.',
+                'csrf_token' => generateCsrfToken(true),
+                'permission_key' => $permissionKey,
+                'assigned_users' => $assignedUsers,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', 'Permissões Admin guardadas.');
     }
 
     if ($action === 'save-client-extranet-settings') {
@@ -571,7 +663,9 @@ $additionalClientFields = [];
 $additionalClientValues = [];
 $clientExtranetUsers = [];
 $clientExtranetSettings = [];
+$adminTaskPermissions = [];
 $supportAssignableUsers = [];
+$allInternalUsers = [];
 if ($consultRouteKey !== '') {
     $consultEntity = findAccountingEntityByRouteKey($pdo, $consultRouteKey, $entityType);
 
@@ -584,7 +678,14 @@ if ($consultRouteKey !== '') {
         $consultNif = trim((string) ($consultEntity['nif'] ?? ''));
         if ($consultNif === '') {
             $erpError = 'Entidade sem NIF definido.';
+        } elseif ($erpDatabase === '') {
+            $erpError = 'A entidade nao tem base de dados ERP configurada.';
         } else {
+            logErpMessage(
+                'Entidade ' . (int) ($consultEntity['id'] ?? 0)
+                . ' (' . $consultNif . ') a consultar ERP como acquirer na base ' . $erpDatabase
+                . ' | route=' . (string) $consultRouteKey
+            );
             $remote = fetchAccountingEntityFromErp($consultNif, 'acquirer', true, $erpDatabase);
             if (is_array($remote)) {
                 if (!empty($remote['error'])) {
@@ -679,15 +780,20 @@ if ($consultEntity) {
     if ($canManageClientExtranet && hasClientUsersTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
         $clientExtranetUsers = getClientUsersByAccountingEntityId((int) ($consultEntity['id'] ?? 0));
     }
-    if ($canManageClientExtranet && hasAccountingEntityExtranetSettingsTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
-        $clientExtranetSettings = getAccountingEntityExtranetSettings((int) ($consultEntity['id'] ?? 0));
-        $allUsers = getUsers();
-        foreach ($allUsers as $row) {
+    if (($canManageClientExtranet || $canManageClientAdmin) && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
+        $allInternalUsers = getUsers();
+        foreach ($allInternalUsers as $row) {
             $supportAssignableUsers[] = [
                 'id' => (int) ($row['id'] ?? 0),
                 'label' => trim((string) (($row['name'] ?? '') !== '' ? $row['name'] : ($row['username'] ?? ''))),
             ];
         }
+    }
+    if ($canManageClientExtranet && hasAccountingEntityExtranetSettingsTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
+        $clientExtranetSettings = getAccountingEntityExtranetSettings((int) ($consultEntity['id'] ?? 0));
+    }
+    if ($canManageClientAdmin && hasAccountingEntityAdminTaskPermissionsTable() && ($consultEntity['entity_type'] ?? 'acquirer') === 'acquirer') {
+        $adminTaskPermissions = getAccountingEntityAdminTaskPermissions((int) ($consultEntity['id'] ?? 0));
     }
 }
 
@@ -748,6 +854,90 @@ if ($flashMessage !== '') {
 }
 
 require_once __DIR__ . '/../header.php';
+if (!$consultEntity && !$isSupplierList) {
+?>
+<div class="container-fluid">
+    <div class="x_panel">
+        <div class="x_title">
+            <h2><i class="fa fa-building"></i> <?= htmlspecialchars(ucfirst($typeSlug)); ?></h2>
+            <div class="clearfix"></div>
+        </div>
+        <div class="x_content">
+            <?php if ($duplicateAcquirerGroups): ?>
+                <div class="alert alert-danger">
+                    <strong>Foram detetadas empresas duplicadas pela mesma base ERP.</strong>
+                    <?php foreach ($duplicateAcquirerGroups as $duplicateGroup): ?>
+                        <?php
+                            $duplicateRows = is_array($duplicateGroup['rows'] ?? null) ? $duplicateGroup['rows'] : [];
+                            $keepId = (int) ($duplicateGroup['keep_id'] ?? 0);
+                            $details = [];
+                            foreach ($duplicateRows as $duplicateRow) {
+                                $details[] = '#' . (int) ($duplicateRow['id'] ?? 0)
+                                    . ' ' . trim((string) ($duplicateRow['nif'] ?? ''))
+                                    . ' - ' . trim((string) ($duplicateRow['name'] ?? ''));
+                            }
+                        ?>
+                        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.25);">
+                            <div><strong><?= htmlspecialchars((string) ($duplicateGroup['erp_database'] ?? '')); ?></strong>: <?= htmlspecialchars(implode(' | ', $details)); ?></div>
+                            <form method="post" style="margin-top: 8px;" onsubmit="return confirm('Fundir os registos duplicados desta base ERP e manter o registo mais antigo?');">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                <input type="hidden" name="action" value="merge-duplicate-acquirer-database">
+                                <input type="hidden" name="erp_database" value="<?= htmlspecialchars((string) ($duplicateGroup['erp_database'] ?? '')); ?>">
+                                <input type="hidden" name="keep_id" value="<?= $keepId; ?>">
+                                <button type="submit" class="btn btn-default btn-sm">
+                                    <i class="fa fa-compress"></i> Fundir duplicados desta base
+                                </button>
+                            </form>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <table class="table table-striped datatable" data-no-sort-last="1" data-order-column="1" data-order-dir="asc">
+                <thead>
+                    <tr>
+                        <th>NIF</th>
+                        <th>Nome</th>
+                        <th>ERP Database</th>
+                        <th data-orderable="false" class="text-right">Acoes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($entities as $entity): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($entity['nif'] ?? ''); ?></td>
+                        <td><?= htmlspecialchars($entity['name'] ?? ''); ?></td>
+                        <td><?= htmlspecialchars(resolveAccountingEntityDatabase($entity)); ?></td>
+                        <td class="text-right">
+                            <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($entity)); ?>" class="btn btn-xs btn-primary">
+                                <i class="fa fa-pencil"></i> Editar
+                            </a>
+                            <?php if ($typeSlug === 'empresas'): ?>
+                                <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($entity)); ?>/fornecedores" class="btn btn-xs btn-info">
+                                    <i class="fa fa-truck"></i> Fornecedores
+                                </a>
+                            <?php endif; ?>
+                            <?php if ($isSuperAdmin && $typeSlug === 'empresas'): ?>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Eliminar a empresa e todos os registos relacionados com este NIF? Esta acao nao pode ser revertida.');">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                    <input type="hidden" name="action" value="delete-entity">
+                                    <input type="hidden" name="entity_id" value="<?= (int) $entity['id']; ?>">
+                                    <button type="submit" class="btn btn-xs btn-danger">
+                                        <i class="fa fa-trash"></i> Eliminar
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php
+require_once __DIR__ . '/../footer.php';
+return;
+}
 ?>
 <div class="container-fluid">
     <?php if (!$consultEntity): ?>
@@ -968,6 +1158,11 @@ require_once __DIR__ . '/../header.php';
                             font-size: 11px;
                             letter-spacing: 0.2px;
                         }
+                        .admin-users-table .label,
+                        .admin-task-table .label {
+                            font-size: 11px;
+                            letter-spacing: 0.2px;
+                        }
                     </style>
                     <div class="x_panel">
                         <div class="x_title">
@@ -987,6 +1182,9 @@ require_once __DIR__ . '/../header.php';
                                 <?php if ($canManageClientExtranet): ?>
                                     <li class="nav-item">
                                         <a class="nav-link" data-bs-toggle="tab" data-bs-target="#cliente-extranet" href="javascript:void(0);" role="tab">Extranet</a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link" data-bs-toggle="tab" data-bs-target="#cliente-admin" href="javascript:void(0);" role="tab">Admin</a>
                                     </li>
                                 <?php endif; ?>
                             </ul>
@@ -1057,6 +1255,7 @@ require_once __DIR__ . '/../header.php';
                                 <input type="hidden" name="action" value="update-erp-client-details">
                                 <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
                                 <input type="hidden" name="erp_record_id" value="<?= (int) ($erpClientForm['id'] ?? 0); ?>">
+                                <input type="hidden" name="erp_database" value="<?= htmlspecialchars((string) $erpClientDatabase); ?>">
                                 <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
                                 <input type="hidden" name="nif" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>">
                                 <input type="hidden" name="name" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>">
@@ -1512,7 +1711,7 @@ require_once __DIR__ . '/../header.php';
                                                     <div class="table-responsive">
                                                         <table class="table table-striped jambo_table bulk_action extranet-users-table">
                                                             <thead>
-                                                                <tr>
+                                                                <tr data-admin-task-key="<?= htmlspecialchars($permissionKey, ENT_QUOTES); ?>">
                                                                     <th>ID</th>
                                                                     <th>Utilizador</th>
                                                                     <th>Nome</th>
@@ -1522,39 +1721,134 @@ require_once __DIR__ . '/../header.php';
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
-                                                            <?php foreach ($clientExtranetUsers as $clientAccount): ?>
+                                                            <?php if ($clientExtranetUsers): ?>
+                                                                <?php foreach ($clientExtranetUsers as $clientAccount): ?>
+                                                                    <tr data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>" data-client-active="<?= (int) ($clientAccount['is_active'] ?? 0); ?>">
+                                                                        <td><?= (int) ($clientAccount['id'] ?? 0); ?></td>
+                                                                        <td><?= htmlspecialchars((string) ($clientAccount['username'] ?? '')); ?></td>
+                                                                        <td><?= htmlspecialchars((string) ($clientAccount['name'] ?? '')); ?></td>
+                                                                        <td><?= htmlspecialchars((string) ($clientAccount['email'] ?? '')); ?></td>
+                                                                        <td>
+                                                                            <?php if ((int) ($clientAccount['is_active'] ?? 0) === 1): ?>
+                                                                                <span class="label label-success">Ativo</span>
+                                                                            <?php else: ?>
+                                                                                <span class="label label-default">Inativo</span>
+                                                                            <?php endif; ?>
+                                                                        </td>
+                                                                        <td class="text-right">
+                                                                            <button
+                                                                                type="button"
+                                                                                class="btn btn-xs btn-info extranet-edit-trigger"
+                                                                                data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
+                                                                                data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
+                                                                                data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
+                                                                                data-client-email="<?= htmlspecialchars((string) ($clientAccount['email'] ?? ''), ENT_QUOTES); ?>"
+                                                                                data-client-active="<?= (int) ($clientAccount['is_active'] ?? 0); ?>"
+                                                                            >
+                                                                                <i class="fa fa-pencil"></i> Editar
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                class="btn btn-xs btn-danger extranet-delete-trigger"
+                                                                                data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
+                                                                                data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
+                                                                                data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
+                                                                            >
+                                                                                <i class="fa fa-trash"></i> Eliminar
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                <?php endforeach; ?>
+                                                            <?php else: ?>
+                                                                <tr class="extranet-empty-row">
+                                                                    <td colspan="6" class="text-center text-muted" style="padding: 24px 12px;">
+                                                                        Sem utilizadores da Extranet nesta entidade.
+                                                                    </td>
+                                                                </tr>
+                                                            <?php endif; ?>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+
+                                                </div>
+                                    <?php endif; ?>
+                                    <?php if ($canManageClientAdmin): ?>
+                                        <div class="tab-pane fade" id="cliente-admin" role="tabpanel">
+                                            <?php if (!hasAccountingEntityAdminTaskPermissionsTable()): ?>
+                                                <div class="alert alert-warning" style="margin-top: 15px;">
+                                                    A tabela <code>accounting_entity_admin_task_permissions</code> ainda nao existe nesta tenant. Execute as migracoes.
+                                                </div>
+                                            <?php else: ?>
+                                                <?php
+                                                    $adminTaskRows = $adminTaskPermissions;
+                                                    $adminTaskDefinitionsList = $adminTaskDefinitions;
+                                                    $adminTaskTotalAssignments = 0;
+                                                    foreach ($adminTaskRows as $adminTaskRow) {
+                                                        $adminTaskTotalAssignments += count($adminTaskRow['user_ids'] ?? []);
+                                                    }
+                                                ?>
+                                                <div class="erp-form-section admin-section" style="margin-top: 12px;">
+                                                    <div class="x_title" style="border-bottom: 1px solid #e6e9ed; margin: 0 0 14px; padding: 0 0 10px;">
+                                                        <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-shield"></i> Tarefas administrativas</h3>
+                                                        <ul class="nav navbar-right panel_toolbox" style="min-width: auto;">
+                                                            <li>
+                                                                <button type="button" class="btn btn-primary btn-sm admin-task-create-trigger">
+                                                                    <i class="fa fa-plus"></i> Gerir permissões
+                                                                </button>
+                                                            </li>
+                                                        </ul>
+                                                        <div class="clearfix"></div>
+                                                    </div>
+                                                    <div class="alert alert-info" style="margin-bottom: 15px;">
+                                                        Cada tarefa pode ser atribuída a vários utilizadores da mesma empresa. Um utilizador pode ter mais do que uma tarefa.
+                                                    </div>
+                                                    <div class="table-responsive">
+                                                        <table class="table table-striped jambo_table bulk_action admin-task-table">
+                                                            <thead>
                                                                 <tr>
-                                                                    <td><?= (int) ($clientAccount['id'] ?? 0); ?></td>
-                                                                    <td><?= htmlspecialchars((string) ($clientAccount['username'] ?? '')); ?></td>
-                                                                    <td><?= htmlspecialchars((string) ($clientAccount['name'] ?? '')); ?></td>
-                                                                    <td><?= htmlspecialchars((string) ($clientAccount['email'] ?? '')); ?></td>
+                                                                    <th>Tarefa</th>
+                                                                    <th>Utilizadores atribuídos</th>
+                                                                    <th class="text-right">Ações</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                            <?php foreach ($adminTaskDefinitionsList as $permissionKey => $definition): ?>
+                                                                <?php
+                                                                    $taskRow = $adminTaskRows[$permissionKey] ?? [
+                                                                        'user_ids' => [],
+                                                                        'users' => [],
+                                                                        'label' => $definition['label'] ?? $permissionKey,
+                                                                        'description' => $definition['description'] ?? '',
+                                                                    ];
+                                                                    $assignedUsers = is_array($taskRow['users'] ?? null) ? $taskRow['users'] : [];
+                                                                    $assignedUserIds = array_values(array_unique(array_map('intval', $taskRow['user_ids'] ?? [])));
+                                                                    $assignedBadges = [];
+                                                                    foreach ($assignedUsers as $assignedUser) {
+                                                                        $assignedLabel = trim((string) (($assignedUser['name'] ?? '') !== '' ? $assignedUser['name'] : ($assignedUser['username'] ?? '')));
+                                                                        if ($assignedLabel === '') {
+                                                                            continue;
+                                                                        }
+                                                                        $assignedBadges[] = '<span class="label label-info" style="display:inline-block; margin:0 4px 4px 0;">' . htmlspecialchars($assignedLabel) . '</span>';
+                                                                    }
+                                                                ?>
+                                                                <tr>
                                                                     <td>
-                                                                        <?php if ((int) ($clientAccount['is_active'] ?? 0) === 1): ?>
-                                                                            <span class="label label-success">Ativo</span>
-                                                                        <?php else: ?>
-                                                                            <span class="label label-default">Inativo</span>
-                                                                        <?php endif; ?>
+                                                                        <strong><?= htmlspecialchars((string) ($definition['label'] ?? $permissionKey)); ?></strong><br>
+                                                                        <small class="text-muted"><?= htmlspecialchars((string) ($definition['description'] ?? '')); ?></small>
+                                                                    </td>
+                                                                    <td>
+                                                                        <?= $assignedBadges ? implode('', $assignedBadges) : '<span class="label label-default">Sem utilizadores atribuídos</span>'; ?>
                                                                     </td>
                                                                     <td class="text-right">
                                                                         <button
                                                                             type="button"
-                                                                            class="btn btn-xs btn-info extranet-edit-trigger"
-                                                                            data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
-                                                                            data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
-                                                                            data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
-                                                                            data-client-email="<?= htmlspecialchars((string) ($clientAccount['email'] ?? ''), ENT_QUOTES); ?>"
-                                                                            data-client-active="<?= (int) ($clientAccount['is_active'] ?? 0); ?>"
+                                                                            class="btn btn-xs btn-primary admin-task-edit-trigger"
+                                                                            data-admin-task-key="<?= htmlspecialchars($permissionKey, ENT_QUOTES); ?>"
+                                                                            data-admin-task-label="<?= htmlspecialchars((string) ($definition['label'] ?? $permissionKey), ENT_QUOTES); ?>"
+                                                                            data-admin-task-user-ids="<?= htmlspecialchars(implode(',', $assignedUserIds), ENT_QUOTES); ?>"
                                                                         >
-                                                                            <i class="fa fa-pencil"></i> Editar
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            class="btn btn-xs btn-danger extranet-delete-trigger"
-                                                                            data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
-                                                                            data-client-username="<?= htmlspecialchars((string) ($clientAccount['username'] ?? ''), ENT_QUOTES); ?>"
-                                                                            data-client-name="<?= htmlspecialchars((string) ($clientAccount['name'] ?? ''), ENT_QUOTES); ?>"
-                                                                        >
-                                                                            <i class="fa fa-trash"></i> Eliminar
+                                                                            <i class="fa fa-users"></i> Gerir utilizadores
                                                                         </button>
                                                                     </td>
                                                                 </tr>
@@ -1562,8 +1856,6 @@ require_once __DIR__ . '/../header.php';
                                                             </tbody>
                                                         </table>
                                                     </div>
-                                                </div>
-
                                                 </div>
                                             <?php endif; ?>
                                         </div>
@@ -1718,6 +2010,43 @@ require_once __DIR__ . '/../header.php';
                             </div>
                         </div>
                     </div>
+                    <div class="modal fade" id="adminTaskPermissionModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg">
+                            <div class="modal-content">
+                                <form method="post" class="form-horizontal">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title"><i class="fa fa-shield"></i> Gerir tarefa administrativa</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                        <input type="hidden" name="action" value="save-client-admin-task-users">
+                                        <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                        <input type="hidden" name="permission_key" value="">
+                                        <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
+                                        <div class="form-group">
+                                            <label class="control-label">Tarefa</label>
+                                            <input type="text" class="form-control" data-admin-task-label readonly>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="control-label">Utilizadores com acesso</label>
+                                            <select name="user_ids[]" class="form-control admin-task-user-select" multiple="multiple" style="width: 100%;">
+                                                <?php foreach ($supportAssignableUsers as $supportUser): ?>
+                                                    <?php $supportUserOptionId = (int) ($supportUser['id'] ?? 0); ?>
+                                                    <option value="<?= $supportUserOptionId; ?>"><?= htmlspecialchars((string) ($supportUser['label'] ?? '')); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <p class="help-block" style="margin-bottom: 0;">Use Ctrl/Cmd para selecionar vários utilizadores. Um utilizador pode estar atribuído a várias tarefas.</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-default" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary"><i class="fa fa-save"></i> Guardar permissões</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                     <script>
                     (function () {
                         var entityTabKey = <?= json_encode(
@@ -1743,6 +2072,14 @@ require_once __DIR__ . '/../header.php';
                             } catch (error) {
                                 // Ignore storage errors.
                             }
+                        }
+
+                        function getCurrentActiveTabTarget() {
+                            var activeTabLink = document.querySelector(tabSelector + '.active');
+                            if (!activeTabLink) {
+                                activeTabLink = document.querySelector(tabSelector + '[aria-selected="true"]');
+                            }
+                            return activeTabLink ? (activeTabLink.getAttribute('data-bs-target') || '') : '';
                         }
 
                         function activateStoredTab() {
@@ -1792,6 +2129,375 @@ require_once __DIR__ . '/../header.php';
                         var subzoneSelect = document.getElementById('erpClientSubzoneSelect');
                         var createClientUserModal = document.getElementById('createClientUserModal');
                         var createClientUserTrigger = document.querySelector('.extranet-create-trigger');
+                        var extranetUsersTable = document.querySelector('.extranet-users-table');
+                        var extranetKpiCounters = document.querySelectorAll('.extranet-kpis .count');
+
+                        function escapeHtml(value) {
+                            return String(value == null ? '' : value)
+                                .replace(/&/g, '&amp;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;')
+                                .replace(/"/g, '&quot;')
+                                .replace(/'/g, '&#039;');
+                        }
+
+                        function syncCsrfTokens(token) {
+                            if (!token) {
+                                return;
+                            }
+                            document.querySelectorAll('input[name="csrf_token"]').forEach(function (input) {
+                                input.value = token;
+                            });
+                        }
+
+                        function getActiveTabTarget() {
+                            return getCurrentActiveTabTarget();
+                        }
+
+                        function updateCounter(index, value) {
+                            var counter = extranetKpiCounters && extranetKpiCounters[index] ? extranetKpiCounters[index] : null;
+                            if (!counter) {
+                                return;
+                            }
+                            counter.textContent = String(Math.max(0, value));
+                        }
+
+                        function getCounterValue(index) {
+                            var counter = extranetKpiCounters && extranetKpiCounters[index] ? extranetKpiCounters[index] : null;
+                            if (!counter) {
+                                return 0;
+                            }
+                            var parsed = parseInt(counter.textContent || '0', 10);
+                            return isNaN(parsed) ? 0 : parsed;
+                        }
+
+                        function refreshExtranetCounters(deltaTotal, deltaActive, deltaInactive) {
+                            updateCounter(0, getCounterValue(0) + (deltaTotal || 0));
+                            updateCounter(1, getCounterValue(1) + (deltaActive || 0));
+                            updateCounter(2, getCounterValue(2) + (deltaInactive || 0));
+                        }
+
+                        function ensureExtranetEmptyState(tbody) {
+                            if (!tbody) {
+                                return;
+                            }
+                            var existingRows = tbody.querySelectorAll('tr[data-client-user-id]');
+                            var emptyRow = tbody.querySelector('.extranet-empty-row');
+                            if (existingRows.length === 0) {
+                                if (!emptyRow) {
+                                    tbody.innerHTML = '' +
+                                        '<tr class="extranet-empty-row">' +
+                                            '<td colspan="6" class="text-center text-muted" style="padding: 24px 12px;">' +
+                                                'Sem utilizadores da Extranet nesta entidade.' +
+                                            '</td>' +
+                                        '</tr>';
+                                }
+                            } else if (emptyRow) {
+                                emptyRow.parentNode.removeChild(emptyRow);
+                            }
+                        }
+
+                        function buildExtranetUserRowHtml(clientUser) {
+                            var userId = parseInt(clientUser && clientUser.id ? clientUser.id : 0, 10) || 0;
+                            var username = escapeHtml(clientUser && clientUser.username ? clientUser.username : '');
+                            var name = escapeHtml(clientUser && clientUser.name ? clientUser.name : '');
+                            var email = escapeHtml(clientUser && clientUser.email ? clientUser.email : '');
+                            var isActive = String(clientUser && clientUser.is_active ? clientUser.is_active : '0') === '1';
+                            var activeLabel = isActive
+                                ? '<span class="label label-success">Ativo</span>'
+                                : '<span class="label label-default">Inativo</span>';
+                            return '' +
+                                '<tr data-client-user-id="' + userId + '" data-client-active="' + (isActive ? '1' : '0') + '">' +
+                                    '<td>' + userId + '</td>' +
+                                    '<td>' + username + '</td>' +
+                                    '<td>' + name + '</td>' +
+                                    '<td>' + email + '</td>' +
+                                    '<td>' + activeLabel + '</td>' +
+                                    '<td class="text-right">' +
+                                        '<button type="button" class="btn btn-xs btn-info extranet-edit-trigger" data-client-user-id="' + userId + '" data-client-username="' + username + '" data-client-name="' + name + '" data-client-email="' + email + '" data-client-active="' + (isActive ? '1' : '0') + '">' +
+                                            '<i class="fa fa-pencil"></i> Editar' +
+                                        '</button> ' +
+                                        '<button type="button" class="btn btn-xs btn-danger extranet-delete-trigger" data-client-user-id="' + userId + '" data-client-username="' + username + '" data-client-name="' + name + '">' +
+                                            '<i class="fa fa-trash"></i> Eliminar' +
+                                        '</button>' +
+                                    '</td>' +
+                                '</tr>';
+                        }
+
+                        function upsertExtranetUserRow(clientUser, operation) {
+                            if (!clientUser || !extranetUsersTable) {
+                                return;
+                            }
+                            var userId = parseInt(clientUser.id || 0, 10) || 0;
+                            if (!userId) {
+                                return;
+                            }
+                            var tbody = extranetUsersTable.querySelector('tbody');
+                            if (!tbody) {
+                                return;
+                            }
+                            var existingRow = tbody.querySelector('tr[data-client-user-id="' + userId + '"]');
+                            var isActive = String(clientUser.is_active || '0') === '1';
+                            var previousActive = existingRow ? String(existingRow.getAttribute('data-client-active') || '0') === '1' : null;
+                            if (operation === 'create') {
+                                refreshExtranetCounters(1, isActive ? 1 : 0, isActive ? 0 : 1);
+                            } else if (operation === 'update' && previousActive !== null && previousActive !== isActive) {
+                                refreshExtranetCounters(0, isActive ? 1 : -1, isActive ? -1 : 1);
+                            }
+                            var rowHtml = buildExtranetUserRowHtml(clientUser);
+                            if (existingRow) {
+                                existingRow.outerHTML = rowHtml;
+                            } else {
+                                var emptyRow = tbody.querySelector('.extranet-empty-row');
+                                if (emptyRow) {
+                                    emptyRow.parentNode.removeChild(emptyRow);
+                                }
+                                tbody.insertAdjacentHTML('beforeend', rowHtml);
+                            }
+                            ensureExtranetEmptyState(tbody);
+                        }
+
+                        function removeExtranetUserRow(clientUser) {
+                            if (!clientUser || !extranetUsersTable) {
+                                return;
+                            }
+                            var userId = parseInt(clientUser.id || 0, 10) || 0;
+                            if (!userId) {
+                                return;
+                            }
+                            var tbody = extranetUsersTable.querySelector('tbody');
+                            if (!tbody) {
+                                return;
+                            }
+                            var row = tbody.querySelector('tr[data-client-user-id="' + userId + '"]');
+                            if (!row) {
+                                return;
+                            }
+                            var wasActive = String(row.getAttribute('data-client-active') || '0') === '1';
+                            refreshExtranetCounters(-1, wasActive ? -1 : 0, wasActive ? 0 : -1);
+                            row.parentNode.removeChild(row);
+                            ensureExtranetEmptyState(tbody);
+                        }
+
+                        function escapeHtml(str) {
+                            if (str === null || str === undefined) {
+                                return '';
+                            }
+                            return String(str).replace(/[&<>\"']/g, function (m) {
+                                return ({
+                                    '&': '&amp;',
+                                    '<': '&lt;',
+                                    '>': '&gt;',
+                                    '\"': '&quot;',
+                                    "'": '&#39;'
+                                })[m];
+                            });
+                        }
+
+                        function updateAdminTaskRow(permissionKey, selectedUsers) {
+                            if (!permissionKey) {
+                                return;
+                            }
+                            var rows = document.querySelectorAll('.admin-task-table tbody tr');
+                            var targetRow = null;
+                            Array.prototype.slice.call(rows).some(function (row) {
+                                if (row.getAttribute('data-admin-task-key') === permissionKey) {
+                                    targetRow = row;
+                                    return true;
+                                }
+                                return false;
+                            });
+                            if (!targetRow) {
+                                return;
+                            }
+                            var badgesCell = targetRow.children && targetRow.children.length > 1 ? targetRow.children[1] : null;
+                            var editButton = targetRow.querySelector('.admin-task-edit-trigger');
+                            var labels = Array.isArray(selectedUsers) ? selectedUsers : [];
+                            var badgeHtml = '';
+                            if (labels.length) {
+                                badgeHtml = labels.map(function (item) {
+                                    return '<span class="label label-info" style="display:inline-block; margin:0 4px 4px 0;">' + escapeHtml(item.label || '') + '</span>';
+                                }).join('');
+                            } else {
+                                badgeHtml = '<span class="label label-default">Sem utilizadores atribuídos</span>';
+                            }
+                            if (badgesCell) {
+                                badgesCell.innerHTML = badgeHtml;
+                            }
+                            if (editButton) {
+                                editButton.setAttribute('data-admin-task-user-ids', labels.map(function (item) { return String(item.id || ''); }).filter(function (value) { return value !== ''; }).join(','));
+                            }
+                        }
+
+                        function submitAjaxModalForm(modalElement, form, options) {
+                            if (!form) {
+                                return;
+                            }
+                            var submitStateKey = '__ajax_submit_bound__';
+                            if (form[submitStateKey]) {
+                                return;
+                            }
+                            form[submitStateKey] = true;
+                            var config = options || {};
+                            form.addEventListener('submit', function (event) {
+                                event.preventDefault();
+
+                                var submitButton = form.querySelector('button[type="submit"]');
+                                var originalLabel = submitButton ? submitButton.innerHTML : '';
+                                var formData = new FormData(form);
+
+                                if (submitButton) {
+                                    submitButton.disabled = true;
+                                    submitButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> A guardar';
+                                }
+
+                                fetch(window.location.href, {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: {
+                                        'X-Requested-With': 'XMLHttpRequest'
+                                    }
+                                }).then(function (response) {
+                                    return response.json().then(function (data) {
+                                        return { status: response.status, data: data };
+                                    });
+                                }).then(function (result) {
+                                    var payload = result && result.data ? result.data : {};
+                                    if (payload && payload.csrf_token) {
+                                        syncCsrfTokens(payload.csrf_token);
+                                    }
+
+                                    if (!payload || payload.success !== true) {
+                                        var errorMessage = (payload && (payload.error || payload.message)) ? (payload.error || payload.message) : 'Nao foi possivel guardar.';
+                                        if (window.PNotify && typeof window.PNotify.alert === 'function') {
+                                            window.PNotify.alert({
+                                                text: errorMessage,
+                                                type: 'error',
+                                                styling: 'bootstrap3',
+                                                delay: 5000,
+                                                hide: true
+                                            });
+                                        } else {
+                                            alert(errorMessage);
+                                        }
+                                        return;
+                                    }
+
+                                    if (typeof config.onSuccess === 'function') {
+                                        config.onSuccess(payload, form);
+                                    }
+
+                                    if (window.bootstrap && window.bootstrap.Modal && modalElement) {
+                                        window.bootstrap.Modal.getOrCreateInstance(modalElement).hide();
+                                    }
+
+                                    var message = payload.message || config.successMessage || 'Alteracoes guardadas.';
+                                    if (window.PNotify && typeof window.PNotify.alert === 'function') {
+                                        window.PNotify.alert({
+                                            text: message,
+                                            type: 'success',
+                                            styling: 'bootstrap3',
+                                            delay: 3500,
+                                            hide: true
+                                        });
+                                    }
+                                }).catch(function () {
+                                    var errorMessage = 'Falha ao guardar.';
+                                    if (window.PNotify && typeof window.PNotify.alert === 'function') {
+                                        window.PNotify.alert({
+                                            text: errorMessage,
+                                            type: 'error',
+                                            styling: 'bootstrap3',
+                                            delay: 5000,
+                                            hide: true
+                                        });
+                                    } else {
+                                        alert(errorMessage);
+                                    }
+                                }).finally(function () {
+                                    if (submitButton) {
+                                        submitButton.disabled = false;
+                                        submitButton.innerHTML = originalLabel;
+                                    }
+                                });
+                            });
+                        }
+                        function submitExtranetModalForm(modalElement, form, successMessage) {
+                            submitAjaxModalForm(modalElement, form, {
+                                successMessage: successMessage,
+                                onSuccess: function (payload) {
+                                    if (payload && payload.client_user) {
+                                        if (payload.operation === 'delete') {
+                                            removeExtranetUserRow(payload.client_user);
+                                        } else {
+                                            upsertExtranetUserRow(payload.client_user, payload.operation || 'update');
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        function openExtranetEditModal(button) {
+                            if (!editClientUserModal || !button) {
+                                return;
+                            }
+                            var setValue = function (selector, value) {
+                                var input = editClientUserModal.querySelector(selector);
+                                if (input) {
+                                    input.value = value || '';
+                                }
+                            };
+
+                            setValue('input[name="client_user_id"]', button.getAttribute('data-client-user-id') || '');
+                            setValue('input[name="username"]', button.getAttribute('data-client-username') || '');
+                            setValue('input[name="name"]', button.getAttribute('data-client-name') || '');
+                            setValue('input[name="email"]', button.getAttribute('data-client-email') || '');
+                            setValue('input[name="password"]', '');
+
+                            var activeInput = editClientUserModal.querySelector('input[name="is_active"]');
+                            if (activeInput) {
+                                activeInput.checked = String(button.getAttribute('data-client-active') || '0') === '1';
+                            }
+
+                            if (window.bootstrap && window.bootstrap.Modal) {
+                                window.bootstrap.Modal.getOrCreateInstance(editClientUserModal).show();
+                            }
+                        }
+
+                        function openExtranetDeleteModal(button) {
+                            if (!deleteClientUserModal || !button) {
+                                return;
+                            }
+                            var clientUserIdInput = deleteClientUserModal.querySelector('input[name="client_user_id"]');
+                            if (clientUserIdInput) {
+                                clientUserIdInput.value = button.getAttribute('data-client-user-id') || '';
+                            }
+                            var deleteLabel = deleteClientUserModal.querySelector('[data-delete-user-label]');
+                            if (deleteLabel) {
+                                deleteLabel.textContent = (button.getAttribute('data-client-name') || button.getAttribute('data-client-username') || '').trim();
+                            }
+                            if (window.bootstrap && window.bootstrap.Modal) {
+                                window.bootstrap.Modal.getOrCreateInstance(deleteClientUserModal).show();
+                            }
+                        }
+
+                        if (extranetUsersTable) {
+                            extranetUsersTable.addEventListener('click', function (event) {
+                                var editButton = event.target.closest('.extranet-edit-trigger');
+                                if (editButton && extranetUsersTable.contains(editButton)) {
+                                    event.preventDefault();
+                                    openExtranetEditModal(editButton);
+                                    return;
+                                }
+
+                                var deleteButton = event.target.closest('.extranet-delete-trigger');
+                                if (deleteButton && extranetUsersTable.contains(deleteButton)) {
+                                    event.preventDefault();
+                                    openExtranetDeleteModal(deleteButton);
+                                }
+                            });
+                        }
+
                         var hasZoneFields = !!(zoneSelect && subzoneSelect);
 
                         var subzoneOptions = <?= json_encode($subzoneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
@@ -1876,50 +2582,11 @@ require_once __DIR__ . '/../header.php';
                         var editClientUserModal = document.getElementById('editClientUserModal');
                         var deleteClientUserModal = document.getElementById('deleteClientUserModal');
                         if (editClientUserModal) {
-                            var setValue = function (selector, value) {
-                                var input = editClientUserModal.querySelector(selector);
-                                if (input) {
-                                    input.value = value || '';
-                                }
-                            };
-
-                            document.querySelectorAll('.extranet-edit-trigger').forEach(function (button) {
-                                button.addEventListener('click', function (event) {
-                                    event.preventDefault();
-                                    setValue('input[name="client_user_id"]', button.getAttribute('data-client-user-id') || '');
-                                    setValue('input[name="username"]', button.getAttribute('data-client-username') || '');
-                                    setValue('input[name="name"]', button.getAttribute('data-client-name') || '');
-                                    setValue('input[name="email"]', button.getAttribute('data-client-email') || '');
-                                    setValue('input[name="password"]', '');
-
-                                    var activeInput = editClientUserModal.querySelector('input[name="is_active"]');
-                                    if (activeInput) {
-                                        activeInput.checked = String(button.getAttribute('data-client-active') || '0') === '1';
-                                    }
-
-                                    if (window.bootstrap && window.bootstrap.Modal) {
-                                        window.bootstrap.Modal.getOrCreateInstance(editClientUserModal).show();
-                                    }
-                                });
-                            });
+                            submitExtranetModalForm(editClientUserModal, editClientUserModal.querySelector('form'), 'Conta da Extranet guardada.');
                         }
 
                         if (deleteClientUserModal) {
-                            var deleteLabel = deleteClientUserModal.querySelector('[data-delete-user-label]');
-                            document.querySelectorAll('.extranet-delete-trigger').forEach(function (button) {
-                                button.addEventListener('click', function () {
-                                    var clientUserIdInput = deleteClientUserModal.querySelector('input[name="client_user_id"]');
-                                    if (clientUserIdInput) {
-                                        clientUserIdInput.value = button.getAttribute('data-client-user-id') || '';
-                                    }
-                                    if (deleteLabel) {
-                                        deleteLabel.textContent = (button.getAttribute('data-client-name') || button.getAttribute('data-client-username') || '').trim();
-                                    }
-                                    if (window.bootstrap && window.bootstrap.Modal) {
-                                        window.bootstrap.Modal.getOrCreateInstance(deleteClientUserModal).show();
-                                    }
-                                });
-                            });
+                            submitExtranetModalForm(deleteClientUserModal, deleteClientUserModal.querySelector('form'), 'Conta da Extranet eliminada.');
                         }
 
                         if (createClientUserModal && createClientUserTrigger) {
@@ -1940,18 +2607,216 @@ require_once __DIR__ . '/../header.php';
                                     activeInput.checked = true;
                                 }
                             });
+
+                            submitExtranetModalForm(createClientUserModal, createClientUserModal.querySelector('form'), 'Conta da Extranet criada.');
                         }
 
-                        document.querySelectorAll('.extranet-edit-trigger').forEach(function (button) {
-                            button.addEventListener('click', function () {
-                                if (!editClientUserModal) {
-                                    return;
-                                }
-                                if (window.bootstrap && window.bootstrap.Modal) {
-                                    window.bootstrap.Modal.getOrCreateInstance(editClientUserModal).show();
-                                }
+                        var adminTaskPermissionModal = document.getElementById('adminTaskPermissionModal');
+                        var adminTaskUserSelect = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('.admin-task-user-select') : null;
+                        var adminTaskLabelInput = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('[data-admin-task-label]') : null;
+                        var adminTaskPermissionKeyInput = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('input[name="permission_key"]') : null;
+                        var adminTaskFirstTrigger = document.querySelector('.admin-task-edit-trigger');
+                        var adminTaskCreateTrigger = document.querySelector('.admin-task-create-trigger');
+
+                        function initAdminTaskSelect2() {
+                            if (!adminTaskUserSelect || !window.jQuery || !jQuery.fn.select2) {
+                                return;
+                            }
+                            if (jQuery(adminTaskUserSelect).data('select2')) {
+                                return;
+                            }
+                            jQuery(adminTaskUserSelect).select2({
+                                width: '100%',
+                                dropdownParent: jQuery(adminTaskPermissionModal)
+                            });
+                        }
+
+                        function setAdminTaskSelectedUsers(userIds) {
+                            var normalizedIds = Array.isArray(userIds) ? userIds : [];
+                            if (!adminTaskUserSelect) {
+                                return;
+                            }
+                            if (window.jQuery && jQuery.fn.select2) {
+                                jQuery(adminTaskUserSelect).val(normalizedIds).trigger('change');
+                                return;
+                            }
+                            Array.prototype.slice.call(adminTaskUserSelect.options || []).forEach(function (option) {
+                                option.selected = normalizedIds.indexOf(option.value) !== -1;
+                            });
+                        }
+
+                        function openAdminTaskModal(button) {
+                            if (!adminTaskPermissionModal || !button) {
+                                return;
+                            }
+
+                            var taskKey = button.getAttribute('data-admin-task-key') || '';
+                            var taskLabel = button.getAttribute('data-admin-task-label') || '';
+                            var userIdsRaw = button.getAttribute('data-admin-task-user-ids') || '';
+                            var selectedUserIds = userIdsRaw ? userIdsRaw.split(',').map(function (value) {
+                                return String(value || '').trim();
+                            }).filter(function (value) {
+                                return value !== '';
+                            }) : [];
+
+                            var form = adminTaskPermissionModal.querySelector('form');
+                            if (form) {
+                                form.reset();
+                            }
+                            if (adminTaskPermissionKeyInput) {
+                                adminTaskPermissionKeyInput.value = taskKey;
+                            }
+                            if (adminTaskLabelInput) {
+                                adminTaskLabelInput.value = taskLabel;
+                            }
+
+                            initAdminTaskSelect2();
+                            setAdminTaskSelectedUsers(selectedUserIds);
+
+                            if (window.bootstrap && window.bootstrap.Modal) {
+                                window.bootstrap.Modal.getOrCreateInstance(adminTaskPermissionModal).show();
+                            }
+                        }
+
+                        if (adminTaskPermissionModal && adminTaskUserSelect) {
+                            adminTaskPermissionModal.addEventListener('show.bs.modal', function () {
+                                initAdminTaskSelect2();
+                            });
+                        }
+
+                        if (adminTaskFirstTrigger) {
+                            adminTaskFirstTrigger.addEventListener('click', function (event) {
+                                event.preventDefault();
+                                openAdminTaskModal(adminTaskFirstTrigger);
+                            });
+                        }
+
+                        if (adminTaskCreateTrigger && adminTaskFirstTrigger) {
+                            adminTaskCreateTrigger.addEventListener('click', function (event) {
+                                event.preventDefault();
+                                openAdminTaskModal(adminTaskFirstTrigger);
+                            });
+                        }
+
+                        document.querySelectorAll('.admin-task-edit-trigger').forEach(function (button) {
+                            button.addEventListener('click', function (event) {
+                                event.preventDefault();
+                                openAdminTaskModal(button);
                             });
                         });
+
+                        if (adminTaskPermissionModal) {
+                            var adminTaskForm = adminTaskPermissionModal.querySelector('form');
+                            var adminTaskPendingUpdate = null;
+                            adminTaskPermissionModal.addEventListener('hidden.bs.modal', function () {
+                                if (!adminTaskPendingUpdate) {
+                                    return;
+                                }
+
+                                var pendingUpdate = adminTaskPendingUpdate;
+                                adminTaskPendingUpdate = null;
+                                updateAdminTaskRow(pendingUpdate.permissionKey, pendingUpdate.selectedUsers || []);
+
+                                if (pendingUpdate.message && window.PNotify && typeof window.PNotify.alert === 'function') {
+                                    window.PNotify.alert({
+                                        text: pendingUpdate.message,
+                                        type: 'success',
+                                        styling: 'bootstrap3',
+                                        delay: 3500,
+                                        hide: true
+                                    });
+                                }
+                            });
+                            if (adminTaskForm) {
+                                adminTaskForm.addEventListener('submit', function (event) {
+                                    event.preventDefault();
+
+                                    var submitButton = adminTaskForm.querySelector('button[type="submit"]');
+                                    var originalLabel = submitButton ? submitButton.innerHTML : '';
+                                    var formData = new FormData(adminTaskForm);
+
+                                    if (submitButton) {
+                                        submitButton.disabled = true;
+                                        submitButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i> A guardar';
+                                    }
+
+                                    fetch(window.location.href, {
+                                        method: 'POST',
+                                        body: formData,
+                                        headers: {
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        }
+                                    }).then(function (response) {
+                                        return response.json().then(function (data) {
+                                            return { status: response.status, data: data };
+                                        });
+                                    }).then(function (result) {
+                                        var payload = result && result.data ? result.data : {};
+                                        if (payload && payload.csrf_token) {
+                                            syncCsrfTokens(payload.csrf_token);
+                                        }
+
+                                        if (!payload || payload.success !== true) {
+                                            var errorMessage = (payload && (payload.error || payload.message)) ? (payload.error || payload.message) : 'Não foi possível guardar as permissões.';
+                                            if (window.PNotify && typeof window.PNotify.alert === 'function') {
+                                                window.PNotify.alert({
+                                                    text: errorMessage,
+                                                    type: 'error',
+                                                    styling: 'bootstrap3',
+                                                    delay: 5000,
+                                                    hide: true
+                                                });
+                                            } else {
+                                                alert(errorMessage);
+                                            }
+                                            return;
+                                        }
+
+                                        var selectedUsers = [];
+                                        if (payload && Array.isArray(payload.assigned_users)) {
+                                            selectedUsers = payload.assigned_users;
+                                        } else if (adminTaskUserSelect) {
+                                            Array.prototype.slice.call(adminTaskUserSelect.options || []).forEach(function (option) {
+                                                if (option.selected) {
+                                                    selectedUsers.push({
+                                                        id: option.value || '',
+                                                        label: option.textContent || ''
+                                                    });
+                                                }
+                                            });
+                                        }
+                                        adminTaskPendingUpdate = {
+                                            permissionKey: adminTaskPermissionKeyInput ? adminTaskPermissionKeyInput.value : '',
+                                            selectedUsers: selectedUsers,
+                                            message: payload.message || 'Permissões guardadas.'
+                                        };
+
+                                        if (window.bootstrap && window.bootstrap.Modal) {
+                                            window.bootstrap.Modal.getOrCreateInstance(adminTaskPermissionModal).hide();
+                                        }
+                                    }).catch(function () {
+                                        var errorMessage = 'Falha ao guardar as permissões.';
+                                        if (window.PNotify && typeof window.PNotify.alert === 'function') {
+                                            window.PNotify.alert({
+                                                text: errorMessage,
+                                                type: 'error',
+                                                styling: 'bootstrap3',
+                                                delay: 5000,
+                                                hide: true
+                                            });
+                                        } else {
+                                            alert(errorMessage);
+                                        }
+                                    }).finally(function () {
+                                        if (submitButton) {
+                                            submitButton.disabled = false;
+                                            submitButton.innerHTML = originalLabel;
+                                        }
+                                    });
+                                });
+                            }
+                        }
+
                     }());
                     </script>
                 <?php endif; ?>
@@ -2113,6 +2978,7 @@ require_once __DIR__ . '/../header.php';
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+            <?php endif; ?>
             <?php endif; ?>
         <?php if (!$consultEntity): ?>
         </div>
