@@ -1557,7 +1557,11 @@ function getUserAccountingEntityTaskNifs(int $userId, string $permissionKey): ar
         }
     }
 
-    return array_keys($nifs);
+    // PHP coerces numeric-string array keys to integers, so array_keys() would
+    // return ints here. Cast back to strings so strict comparisons against the
+    // (string) selected NIF — e.g. in_array(..., true) in buildCtbCompanyScopeSql
+    // — match correctly.
+    return array_map('strval', array_keys($nifs));
 }
 
 function saveAccountingEntityAdminTaskPermissions(int $accountingEntityId, string $permissionKey, array $userIds): void {

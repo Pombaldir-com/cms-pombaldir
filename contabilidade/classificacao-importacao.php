@@ -480,6 +480,8 @@ function buildCtbCompanyScopeSql(?array $allowedNifs, string $selectedNif, array
 
     if (is_array($allowedNifs)) {
         if (empty($allowedNifs)) {
+            // No allowed companies: return a no-row clause with no placeholders.
+            $bindings = [];
             return ' AND 0 = 1';
         }
         $clauses = [];
@@ -494,6 +496,11 @@ function buildCtbCompanyScopeSql(?array $allowedNifs, string $selectedNif, array
     $selectedNif = extractVatNumber($selectedNif);
     if ($selectedNif !== '') {
         if (is_array($allowedNifs) && !in_array($selectedNif, $allowedNifs, true)) {
+            // Selected company is outside the user's scope: return a no-row
+            // clause. Reset $bindings so the :scope_nif_* placeholders added
+            // above are not bound against SQL that no longer contains them
+            // (otherwise PDO raises HY093: bound variables != tokens).
+            $bindings = [];
             return ' AND 0 = 1';
         }
         $bindings[':selected_nif'] = '%' . $selectedNif . '%';

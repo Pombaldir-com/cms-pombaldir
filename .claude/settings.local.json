@@ -33,7 +33,13 @@
       "Read(//tmp/**)",
       "Bash(python3 -)",
       "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom http://localhost:8001/__dt_probe.html)",
-      "Bash(CHROME=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\"; \"$CHROME\" --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom \"http://localhost:8001/__dt_probe.html\" 2>/dev/null > /tmp/probe2.html *)"
+      "Bash(CHROME=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\"; \"$CHROME\" --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom \"http://localhost:8001/__dt_probe.html\" 2>/dev/null > /tmp/probe2.html *)",
+      "Bash(php -i)",
+      "Read(//private/var/folders/**)",
+      "Bash(curl -s 'http://localhost:8001/contabilidade/classificacao-importacao/data?import_type=1&draw=1&start=0&length=10' -b PHPSESSID=45c00f8804c0694c4d426a789b926907)",
+      "Bash(curl -s 'http://localhost:8001/contabilidade/classificacao-importacao/data?import_type=1&draw=2&start=0&length=10&company=503405442' -b PHPSESSID=45c00f8804c0694c4d426a789b926907)",
+      "Bash(curl -s 'http://localhost:8001/contabilidade/classificacao-importacao/data?import_type=1&draw=30&start=0&length=10' -b PHPSESSID=45c00f8804c0694c4d426a789b926907)",
+      "Bash(curl -s 'http://localhost:8001/contabilidade/classificacao-importacao/data?import_type=1&type=import&draw=31&start=0&length=10' -b PHPSESSID=45c00f8804c0694c4d426a789b926907)"
     ],
     "additionalDirectories": [
       "/tmp"
