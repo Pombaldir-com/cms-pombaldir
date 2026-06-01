@@ -28,6 +28,25 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 - Carregar apenas os scripts/estilos necessários por rota (ex.: DataTables/Dropzone/Select2/Modal OCR).
 - DataTables devem estar em Português (PT).
 
+## DataTables (versão 2.x — armadilhas)
+O projeto usa **DataTables 2.3.x** com a integração Bootstrap 5 (`vendors/datatables.net/js/dataTables.min.js` + `vendors/datatables.net-bs5/...`). O DT 2.x **renomeou todas as classes CSS** em relação ao DT 1.x. Usar os nomes antigos (em JS `closest()/find()` ou em CSS) falha **em silêncio** — o seletor não encontra nada e o layout parece "não fazer efeito". Tabela de equivalências:
+
+| DataTables 1.x (não existe em 2.x) | DataTables 2.x (usar este) |
+| --- | --- |
+| `.dataTables_wrapper` | `.dt-container` (o id `#{tabela}_wrapper` mantém-se) |
+| `.dataTables_length` | `.dt-length` |
+| `.dataTables_filter` | `.dt-search` |
+| `.dataTables_info` | `.dt-info` |
+| `.dataTables_paginate` | `.dt-paging` (lista interna continua `.pagination`) |
+| `.dataTables_scroll(Body)` | `.dt-scroll(-body)` |
+
+Regras ao mexer em DataTables:
+- Para alcançar o contentor a partir da tabela: `$('#tabela').closest('.dt-container')` (nunca `.dataTables_wrapper`).
+- `language: { url: ... }` carrega o JSON de tradução de forma **assíncrona**, por isso o DataTables só constrói o `dom`/`layout` (e os slots/controlos) **depois** do JSON chegar. Qualquer manipulação do DOM do cabeçalho/rodapé (mover botões, filtros, etc.) tem de correr em `initComplete`/evento `init`, **nunca** de forma síncrona logo a seguir a `.DataTable({...})` — nessa altura os elementos ainda não existem.
+- O `dom: "..."` é legado mas ainda funciona; divs só-com-classe (ex.: `<'col-md-4 classify-company-slot'>`) renderizam como slots vazios onde se pode injetar conteúdo. Não misturar com a API nova `layout` (não coexistem com `dom`).
+- Manter **uma só** estratégia de posicionamento por controlo (slots do `dom` *ou* `layout`), para não criar funções concorrentes que se anulam.
+- Confirmar dúvidas de markup renderizando uma harness isolada com os mesmos vendors em Chrome headless (`--dump-dom`/`--screenshot`), em vez de adivinhar pelas classes do DT 1.x.
+
 ## ERP
 - Não usar baseUrl hardcoded; o endpoint do ERP deve vir sempre das Definições (`erp_webservice_url`).
 - Em páginas com DataTables, chamar o webservice diretamente no browser (sem proxy interno).
