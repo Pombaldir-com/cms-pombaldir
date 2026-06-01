@@ -16,6 +16,7 @@ contabilidade/test.php
 contabilidade/magick-*
 .history/*
 contabilidade/debug_qr.txt
+contabilidade/debug_ai.txt
 data/*.log
 !migrations/*.sql
 data/companies.php
@@ -23,15 +24,8 @@ AGENTS.md
 .github/copilot-instructions.MD
 work/*
 scripts/__pycache__/
-scripts/__pycache__/*
-scripts/__pycache__
-contabilidade/debug_ai.txt
-contabilidade/debug_ai.txt
-data/efatura_jobs/*.json
-data/efatura_jobs/
 contabilidade/__pycache__/
+*.pyc
 scripts/deploy_last_commit_sftp.sh
-scripts/deploy_last_commit_sftp.sh
-scripts/deploy_last_commit_sftp.sh
-contabilidade/debug_ai.txt
-contabilidade/debug_ai.txt
+data/efatura_jobs/
+data/efatura_jobs/*.json
