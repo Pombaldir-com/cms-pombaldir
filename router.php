@@ -50,6 +50,10 @@ if (preg_match('#^t/([A-Za-z0-9_-]+)/cliente(?:/(.*))?$#', $path, $tenantMatch))
         require __DIR__ . '/client/logout.php';
         exit;
     }
+    if ($clientPath === 'stop-impersonation') {
+        require __DIR__ . '/client/stop-impersonation.php';
+        exit;
+    }
     if ($clientPath === 'documentos') {
         require __DIR__ . '/client/documentos.php';
         exit;

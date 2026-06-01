@@ -635,7 +635,72 @@ function clientLogout(): void {
             'tenant_slug' => (string) ($_SESSION['client_user_tenant_slug'] ?? ''),
         ]);
     }
-    unset($_SESSION['client_user_id'], $_SESSION['client_user_tenant_slug'], $_SESSION['client_accounting_entity_id']);
+    unset(
+        $_SESSION['client_user_id'],
+        $_SESSION['client_user_tenant_slug'],
+        $_SESSION['client_accounting_entity_id'],
+        $_SESSION['client_impersonator_user_id'],
+        $_SESSION['client_impersonator_return_url']
+    );
+}
+
+/**
+ * Start impersonating a client (extranet) user without requiring credentials.
+ * Reserved for back-office staff that can manage the extranet; access control
+ * must be enforced by the caller. Returns the impersonated client row or null.
+ */
+function startClientImpersonation(int $clientUserId, int $impersonatorUserId): ?array {
+    startSession();
+    if (!hasClientUsersTable()) {
+        return null;
+    }
+
+    $client = getClientUserById($clientUserId);
+    if (!$client || (int) ($client['is_active'] ?? 0) !== 1) {
+        return null;
+    }
+
+    $tenantSlug = trim((string) ($client['tenant_slug'] ?? ''));
+    if ($tenantSlug === '') {
+        return null;
+    }
+
+    $_SESSION['client_user_id'] = (int) $client['id'];
+    $_SESSION['client_user_tenant_slug'] = $tenantSlug;
+    $_SESSION['client_accounting_entity_id'] = (int) ($client['accounting_entity_id'] ?? 0);
+    $_SESSION['client_impersonator_user_id'] = $impersonatorUserId;
+
+    logAuditAction('impersonate', 'client_user', (int) $client['id'], [
+        'tenant_slug' => $tenantSlug,
+        'username' => (string) ($client['username'] ?? ''),
+        'impersonator_user_id' => $impersonatorUserId,
+    ]);
+
+    return $client;
+}
+
+function isClientImpersonation(): bool {
+    startSession();
+    return (int) ($_SESSION['client_impersonator_user_id'] ?? 0) > 0;
+}
+
+function stopClientImpersonation(): void {
+    startSession();
+    $clientId = (int) ($_SESSION['client_user_id'] ?? 0);
+    $impersonatorUserId = (int) ($_SESSION['client_impersonator_user_id'] ?? 0);
+    if ($clientId > 0 && $impersonatorUserId > 0) {
+        logAuditAction('stop-impersonate', 'client_user', $clientId, [
+            'tenant_slug' => (string) ($_SESSION['client_user_tenant_slug'] ?? ''),
+            'impersonator_user_id' => $impersonatorUserId,
+        ]);
+    }
+    unset(
+        $_SESSION['client_user_id'],
+        $_SESSION['client_user_tenant_slug'],
+        $_SESSION['client_accounting_entity_id'],
+        $_SESSION['client_impersonator_user_id'],
+        $_SESSION['client_impersonator_return_url']
+    );
 }
 
 function requireClientLogin(string $tenantSlug): void {

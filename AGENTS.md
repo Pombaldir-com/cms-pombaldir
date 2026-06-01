@@ -34,6 +34,15 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 - Em `accounting_entities`, `erp_database` e sempre a base ERP da empresa no formato `emp_XXX`.
 - Em `accounting_entities`, `erp_client_code` e o codigo da entidade/cliente/fornecedor dentro da base ERP e nunca deve ser usado como substituto de `erp_database`.
 
+## Extranet / Area reservada de clientes
+- A area reservada de cada cliente vive em `client/` e e servida pelas rotas `t/{tenantSlug}/cliente/...` (ver `router.php`). As contas vivem na tabela `client_users` e a sessao usa as chaves `client_user_id` / `client_user_tenant_slug` / `client_accounting_entity_id`.
+- A gestao de contas esta no separador **Extranet > Gestao de utilizadores** da ficha da entidade (`contabilidade/entidades.php`), apenas para perfis com `role <= 2` (`$canManageClientExtranet`).
+- **Impersonar**: cada utilizador tem um botao `Impersonar` (POST `action=impersonate-client-user`, abre em novo separador) que entra na area reservada sem credenciais. Implementado por `startClientImpersonation()` / `stopClientImpersonation()` / `isClientImpersonation()` em `functions.php`.
+  - Gated por `$canManageClientExtranet`; valida CSRF, entidade adquirente, pertenca do utilizador a entidade e estado ativo.
+  - Marca a sessao com `client_impersonator_user_id` e regista audit log (`impersonate` / `stop-impersonate`); nao termina a sessao de back-office (`user_id` mantem-se).
+  - Em modo impersonacao, `client/header.php` mostra um banner com `Terminar impersonacao` (rota `t/{slug}/cliente/stop-impersonation`), que regressa a ficha da entidade.
+  - Manter o botao tanto na renderizacao estatica como no JS que reconstroi linhas apos criar utilizador via AJAX (`buildExtranetUserRowHtml`).
+
 ## Classificacao/Importacao CTB
 - `contabilidade/classificacao-importacao?import_type=1` e a vista de Classificacao.
 - Nesta vista, o botao por linha usa:

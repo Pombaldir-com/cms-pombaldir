@@ -399,6 +399,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if ($action === 'impersonate-client-user') {
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug, $supplierCompanyRouteKey);
+        }
+        if (!$canManageClientExtranet) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para impersonar utilizadores.', 403);
+        }
+
+        $entityId = (int) ($_POST['entity_id'] ?? 0);
+        $clientUserId = (int) ($_POST['client_user_id'] ?? 0);
+        if ($entityId <= 0 || $clientUserId <= 0) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Dados invalidos.', 400);
+        }
+
+        $entityStmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([$entityId]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Apenas entidades adquirentes suportam extranet.', 400);
+        }
+
+        $existing = getClientUserById($clientUserId);
+        if (!$existing || (int) ($existing['accounting_entity_id'] ?? 0) !== $entityId) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Conta cliente nao encontrada para esta entidade.', 404);
+        }
+        if ((int) ($existing['is_active'] ?? 0) !== 1) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Conta cliente inativa; nao e possivel impersonar.', 400);
+        }
+
+        $impersonated = startClientImpersonation($clientUserId, (int) ($user['id'] ?? 0));
+        if (!$impersonated) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Falha ao iniciar a impersonacao.', 400);
+        }
+
+        $_SESSION['client_impersonator_return_url'] = $returnUrl;
+        $tenantSlug = trim((string) ($impersonated['tenant_slug'] ?? ''));
+        header('Location: ' . BASE_URL . 't/' . rawurlencode($tenantSlug) . '/cliente/dashboard');
+        exit;
+    }
+
     if ($action === 'save-client-admin-task-users') {
         $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
         if ($returnUrl === null) {
@@ -1736,6 +1777,21 @@ return;
                                                                             <?php endif; ?>
                                                                         </td>
                                                                         <td class="text-right">
+                                                                            <form method="post" target="_blank" class="d-inline extranet-impersonate-form" style="display:inline-block;">
+                                                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES); ?>">
+                                                                                <input type="hidden" name="action" value="impersonate-client-user">
+                                                                                <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                                                                <input type="hidden" name="client_user_id" value="<?= (int) ($clientAccount['id'] ?? 0); ?>">
+                                                                                <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity)), ENT_QUOTES); ?>">
+                                                                                <button
+                                                                                    type="submit"
+                                                                                    class="btn btn-xs btn-success extranet-impersonate-trigger"
+                                                                                    title="Entrar na area reservada deste utilizador sem credenciais"
+                                                                                    <?= (int) ($clientAccount['is_active'] ?? 0) === 1 ? '' : 'disabled'; ?>
+                                                                                >
+                                                                                    <i class="fa fa-sign-in"></i> Impersonar
+                                                                                </button>
+                                                                            </form>
                                                                             <button
                                                                                 type="button"
                                                                                 class="btn btn-xs btn-info extranet-edit-trigger"
@@ -2131,6 +2187,8 @@ return;
                         var createClientUserTrigger = document.querySelector('.extranet-create-trigger');
                         var extranetUsersTable = document.querySelector('.extranet-users-table');
                         var extranetKpiCounters = document.querySelectorAll('.extranet-kpis .count');
+                        var extranetImpersonateEntityId = <?= (int) ($consultEntity['id'] ?? 0); ?>;
+                        var extranetImpersonateReturnUrl = <?= json_encode(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity)), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
 
                         function escapeHtml(value) {
                             return String(value == null ? '' : value)
@@ -2206,6 +2264,20 @@ return;
                             var activeLabel = isActive
                                 ? '<span class="label label-success">Ativo</span>'
                                 : '<span class="label label-default">Inativo</span>';
+                            var csrfTokenInput = document.querySelector('input[name="csrf_token"]');
+                            var csrfToken = csrfTokenInput ? csrfTokenInput.value : '';
+                            var impersonateForm = isActive
+                                ? ('<form method="post" target="_blank" class="d-inline extranet-impersonate-form" style="display:inline-block;">' +
+                                        '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">' +
+                                        '<input type="hidden" name="action" value="impersonate-client-user">' +
+                                        '<input type="hidden" name="entity_id" value="' + extranetImpersonateEntityId + '">' +
+                                        '<input type="hidden" name="client_user_id" value="' + userId + '">' +
+                                        '<input type="hidden" name="return_url" value="' + escapeHtml(extranetImpersonateReturnUrl) + '">' +
+                                        '<button type="submit" class="btn btn-xs btn-success extranet-impersonate-trigger" title="Entrar na area reservada deste utilizador sem credenciais">' +
+                                            '<i class="fa fa-sign-in"></i> Impersonar' +
+                                        '</button>' +
+                                    '</form> ')
+                                : '';
                             return '' +
                                 '<tr data-client-user-id="' + userId + '" data-client-active="' + (isActive ? '1' : '0') + '">' +
                                     '<td>' + userId + '</td>' +
@@ -2214,6 +2286,7 @@ return;
                                     '<td>' + email + '</td>' +
                                     '<td>' + activeLabel + '</td>' +
                                     '<td class="text-right">' +
+                                        impersonateForm +
                                         '<button type="button" class="btn btn-xs btn-info extranet-edit-trigger" data-client-user-id="' + userId + '" data-client-username="' + username + '" data-client-name="' + name + '" data-client-email="' + email + '" data-client-active="' + (isActive ? '1' : '0') + '">' +
                                             '<i class="fa fa-pencil"></i> Editar' +
                                         '</button> ' +

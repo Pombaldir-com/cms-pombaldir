@@ -226,3 +226,12 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
             </div>
         </div>
         <div class="right_col" role="main">
+<?php if (isClientImpersonation()): ?>
+            <div class="alert alert-warning" style="margin: 12px 12px 0; border-left: 4px solid #f0ad4e;">
+                <i class="fa fa-user-secret"></i>
+                Está a navegar como <strong><?= htmlspecialchars((string) ($clientUser['name'] ?: $clientUser['username'])); ?></strong> (modo impersonação).
+                <a class="btn btn-xs btn-warning" style="margin-left: 8px;" href="<?= $tenantPrefix ?>stop-impersonation">
+                    <i class="fa fa-sign-out"></i> Terminar impersonação
+                </a>
+            </div>
+<?php endif; ?>
