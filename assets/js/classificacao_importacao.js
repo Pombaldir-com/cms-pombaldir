@@ -434,6 +434,14 @@ window.addEventListener('load', function() {
     }
     var isClassificationOnlyView = importType === 1 && viewMode !== 'import';
     var importTypeAllowsImport = importType === 1 || importType === 2;
+
+    function getSelectedCompanyNif() {
+        var el = document.getElementById('company-filter');
+        if (!el) {
+            return '';
+        }
+        return String(el.value || '').trim();
+    }
     var importCtbRelativeUrl = 'contabilidade/classificacao-importacao/import-ctb';
     var erpBaseCompany = window.erpBaseCompany ? String(window.erpBaseCompany).trim() : '';
     var erpDefaultDatabase = window.erpDefaultDatabase ? String(window.erpDefaultDatabase).trim() : '';
@@ -876,6 +884,10 @@ window.addEventListener('load', function() {
             if (viewMode !== '') {
                 payload.view_mode = viewMode;
             }
+            var selectedCompany = getSelectedCompanyNif();
+            if (selectedCompany !== '') {
+                payload.company = selectedCompany;
+            }
             var queryString = $.param(payload);
 
             fetchJson('contabilidade/classificacao-importacao/data?' + queryString)
@@ -929,6 +941,18 @@ window.addEventListener('load', function() {
             { targets: [9, 10, 11, 12, 13, 14, 15, 16], orderable: false },
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
+    });
+
+    var $companyFilter = $('#company-filter');
+    if ($companyFilter.length && typeof $companyFilter.select2 === 'function') {
+        $companyFilter.select2({
+            width: '100%',
+            placeholder: 'Todas as empresas',
+            allowClear: true
+        });
+    }
+    $companyFilter.on('change', function() {
+        table.ajax.reload();
     });
 
     function hideImportButtonWrapper() {

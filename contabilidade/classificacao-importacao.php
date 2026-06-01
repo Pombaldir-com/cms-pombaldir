@@ -368,6 +368,9 @@ $canClassifyCtb = $importType !== 1 || $hasDepartmentClassifyPermission || $hasE
 $canImportCtb = $importType !== 1 || $hasDepartmentImportPermission || $hasEntityImportPermission;
 $canAccessCtbView = $canClassifyCtb || $canImportCtb;
 
+$currentCtbUser = currentUser();
+$isCtbAdmin = ((int) ($currentCtbUser['role'] ?? 3)) <= 2;
+
 if ($importType === 1 && !$canAccessCtbView) {
     http_response_code(403);
     exit('Sem permissao para aceder a documentos CTB.');
@@ -430,9 +433,74 @@ if (hasTable('accounting_entities')) {
     }
 }
 
+// Restrict the acquirer/company lists to the companies the current user may see in
+// this view (admins keep all). Non-admins only see the companies assigned to them
+// for the relevant task, so the classification modal and the filter never expose
+// other companies.
+$pageScopeNifs = $importType === 1 ? resolveCtbCompanyScopeNifs($isImportOnlyView) : null;
+if (is_array($pageScopeNifs)) {
+    $allowedNifLookup = array_fill_keys($pageScopeNifs, true);
+    $classificationAcquirerOptions = array_values(array_filter(
+        $classificationAcquirerOptions,
+        static fn(array $option): bool => isset($allowedNifLookup[(string) ($option['nif'] ?? '')])
+    ));
+}
+$companyFilterOptions = $classificationAcquirerOptions;
+
 if ($isImportOnlyView && !$canImportCtb) {
     http_response_code(403);
     exit('Sem permissao para importar documentos CTB.');
+}
+
+/**
+ * Resolve which acquirer NIFs the current user may see in a given CTB view.
+ * Returns null when the user is unrestricted (role <= 2 admins), or the list of
+ * allowed NIFs (possibly empty) for non-admins, based on the entity-level task
+ * assignments. Department permission only grants view access, not company scope.
+ */
+function resolveCtbCompanyScopeNifs(bool $isImportOnlyRequest): ?array {
+    $user = currentUser();
+    if (((int) ($user['role'] ?? 3)) <= 2) {
+        return null;
+    }
+
+    $userId = (int) ($user['id'] ?? 0);
+    $permissionKey = $isImportOnlyRequest ? 'ctb_importar_docs' : 'ctb_classificar_docs';
+    return getUserAccountingEntityTaskNifs($userId, $permissionKey);
+}
+
+/**
+ * Build the SQL condition (and bindings) that scopes accounting_imports rows by
+ * acquirer NIF (field_B). $allowedNifs null = no scope restriction; empty array =
+ * no rows. $selectedNif applies the user-chosen company filter and must fall within
+ * the allowed scope for non-admins.
+ */
+function buildCtbCompanyScopeSql(?array $allowedNifs, string $selectedNif, array &$bindings): string {
+    $sql = '';
+
+    if (is_array($allowedNifs)) {
+        if (empty($allowedNifs)) {
+            return ' AND 0 = 1';
+        }
+        $clauses = [];
+        foreach (array_values($allowedNifs) as $index => $nif) {
+            $param = ':scope_nif_' . $index;
+            $clauses[] = 'ai.field_B LIKE ' . $param;
+            $bindings[$param] = '%' . $nif . '%';
+        }
+        $sql .= ' AND (' . implode(' OR ', $clauses) . ')';
+    }
+
+    $selectedNif = extractVatNumber($selectedNif);
+    if ($selectedNif !== '') {
+        if (is_array($allowedNifs) && !in_array($selectedNif, $allowedNifs, true)) {
+            return ' AND 0 = 1';
+        }
+        $bindings[':selected_nif'] = '%' . $selectedNif . '%';
+        $sql .= ' AND ai.field_B LIKE :selected_nif';
+    }
+
+    return $sql;
 }
 
 function buildReceiptRowsHiddenSqlCondition(string $tableReference = ''): string {
@@ -3838,7 +3906,7 @@ if (
         ];
     }
 
-    if (!$hasDepartmentImportPermission) {
+    if (!$isCtbAdmin) {
         $unauthorizedGroups = [];
         foreach (array_keys($databaseGroups) as $groupDatabase) {
             $groupDatabase = trim((string) $groupDatabase);
@@ -4127,7 +4195,7 @@ if ($action === 'acquirer_database' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'erp_database' => $entityDatabase,
     ];
 
-    if (!$hasDepartmentImportPermission) {
+    if (!$isCtbAdmin) {
         $entityId = (int) ($entity['id'] ?? 0);
         if ($entityId <= 0 || !userHasAccountingEntityTaskPermission('ctb_importar_docs', $entityId)) {
             http_response_code(403);
@@ -4576,14 +4644,23 @@ if ($action === 'ready_ids') {
     $isImportOnlyRequest = $importType === 1 && $viewMode === 'import';
 
     try {
+        $scopeBindings = [];
+        $scopeSql = $importType === 1
+            ? buildCtbCompanyScopeSql(resolveCtbCompanyScopeNifs($isImportOnlyRequest), '', $scopeBindings)
+            : '';
+
         $stmt = $pdo->prepare(
             'SELECT * '
             . 'FROM accounting_imports ai '
             . 'WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\') '
             . ($importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '')
-            . 'ORDER BY id'
+            . $scopeSql
+            . ' ORDER BY id'
         );
         $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+        foreach ($scopeBindings as $param => $value) {
+            $stmt->bindValue($param, $value, PDO::PARAM_STR);
+        }
         $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -4805,10 +4882,24 @@ if ($action === 'data') {
 
         $colList = implode(', ', array_map(fn($c) => "`$c`", $columns));
         $visibilitySql = $importType === 1 ? ' AND ' . buildReceiptRowsHiddenSqlCondition('ai') : '';
-        $baseSql = "SELECT $colList FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')$visibilitySql";
+
+        $scopeBindings = [];
+        $selectedCompanyNif = trim((string) ($_GET['company'] ?? ''));
+        $scopeSql = $importType === 1
+            ? buildCtbCompanyScopeSql(resolveCtbCompanyScopeNifs($isImportOnlyRequest), $selectedCompanyNif, $scopeBindings)
+            : '';
+
+        $bindScope = static function (PDOStatement $stmt) use ($scopeBindings): void {
+            foreach ($scopeBindings as $param => $value) {
+                $stmt->bindValue($param, $value, PDO::PARAM_STR);
+            }
+        };
+
+        $baseSql = "SELECT $colList FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = '')$visibilitySql$scopeSql";
         if ($isImportOnlyRequest) {
             $stmt = $pdo->prepare($baseSql . ' ORDER BY id');
             $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $bindScope($stmt);
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rows as &$row) {
@@ -4823,18 +4914,21 @@ if ($action === 'data') {
             $filteredCount = count($rows);
             $rows = array_slice($rows, $start, $length);
         } else {
-            $countSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql;
+            $countSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')' . $visibilitySql . $scopeSql;
             $countStmt = $pdo->prepare($countSql);
             $countStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $bindScope($countStmt);
             $countStmt->execute();
             $totalCount = (int)$countStmt->fetchColumn();
 
             if ($searchSql !== '') {
                 $filteredCountSql = 'SELECT COUNT(*) FROM accounting_imports ai WHERE import_type = :importType AND (cab_id IS NULL OR cab_id = \'\')'
                     . $visibilitySql
+                    . $scopeSql
                     . $searchSql;
                 $filteredCountStmt = $pdo->prepare($filteredCountSql);
                 $filteredCountStmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+                $bindScope($filteredCountStmt);
                 foreach ($searchBindings as $paramName => $paramValue) {
                     $filteredCountStmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
                 }
@@ -4847,6 +4941,7 @@ if ($action === 'data') {
             $sql = $baseSql . $searchSql . ' ORDER BY id LIMIT :start, :length';
             $stmt = $pdo->prepare($sql);
             $stmt->bindValue(':importType', $importType, PDO::PARAM_INT);
+            $bindScope($stmt);
             foreach ($searchBindings as $paramName => $paramValue) {
                 $stmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
             }
@@ -4887,7 +4982,7 @@ if ($action === 'data') {
             $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
 
             if ($importType === 1) {
-                $rowCanClassify = $hasDepartmentClassifyPermission;
+                $rowCanClassify = $isCtbAdmin;
                 if (!$rowCanClassify) {
                     $rowEntityId = getClassificationImportRowEntityIdByDatabase($pdo, (string) ($row['acquirer_erp_database'] ?? ''));
                     $rowCanClassify = $rowEntityId > 0
@@ -5030,6 +5125,17 @@ require_once __DIR__ . '/../header.php';
             </button>
         </div>
         <?php endif; ?>
+        <?php if ($importType === 1 && count($companyFilterOptions) > 1): ?>
+        <div id="companyFilterWrapper" class="mb-3" style="max-width: 460px;">
+            <label for="company-filter" class="form-label mb-1">Empresa</label>
+            <select id="company-filter" class="form-control">
+                <option value="">Todas as empresas</option>
+                <?php foreach ($companyFilterOptions as $companyOption): ?>
+                    <option value="<?= htmlspecialchars((string) ($companyOption['nif'] ?? ''), ENT_QUOTES); ?>"><?= htmlspecialchars((string) ($companyOption['label'] ?? ($companyOption['nif'] ?? ''))); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <?php endif; ?>
         <table id="classify-table" class="table table-striped">
             <thead>
                 <tr>
@@ -5100,7 +5206,7 @@ require_once __DIR__ . '/../header.php';
                         }
                         $qrFieldsAttr = htmlspecialchars(json_encode($qrFields, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
                         $btnClass = htmlspecialchars($row['btn_class'] ?? 'btn-secondary');
-                        $rowCanClassify = $hasDepartmentClassifyPermission;
+                        $rowCanClassify = $isCtbAdmin;
                         if (!$rowCanClassify) {
                             $rowEntityId = getClassificationImportRowEntityIdByDatabase($pdo, (string) ($row['acquirer_erp_database'] ?? ''));
                             $rowCanClassify = $rowEntityId > 0
@@ -5253,6 +5359,10 @@ require __DIR__ . '/partials/classify-modal.php';
     ); ?>;
     window.classificationAcquirerOptions = <?= json_encode(
         $classificationAcquirerOptions,
+        JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
+    ); ?>;
+    window.classificationCompanyFilterOptions = <?= json_encode(
+        $companyFilterOptions,
         JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
     ); ?>;
     window.accountingFuelRubricCodes = <?= json_encode(

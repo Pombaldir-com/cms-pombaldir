@@ -1534,6 +1534,32 @@ function userHasAccountingEntityTaskPermission(string $permissionKey, ?int $acco
     return (bool) $cache[$cacheKey];
 }
 
+function getUserAccountingEntityTaskNifs(int $userId, string $permissionKey): array {
+    $permissionKey = trim($permissionKey);
+    if ($userId <= 0 || $permissionKey === '' || !hasAccountingEntityAdminTaskPermissionsTable()) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT ae.nif
+         FROM accounting_entity_admin_task_permissions aep
+         INNER JOIN accounting_entities ae ON ae.id = aep.accounting_entity_id
+         WHERE aep.user_id = ? AND aep.permission_key = ? AND ae.entity_type = ?'
+    );
+    $stmt->execute([$userId, $permissionKey, 'acquirer']);
+
+    $nifs = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $rawNif) {
+        $nif = extractVatNumber((string) $rawNif);
+        if ($nif !== '') {
+            $nifs[$nif] = true;
+        }
+    }
+
+    return array_keys($nifs);
+}
+
 function saveAccountingEntityAdminTaskPermissions(int $accountingEntityId, string $permissionKey, array $userIds): void {
     if ($accountingEntityId <= 0 || !hasAccountingEntityAdminTaskPermissionsTable()) {
         return;
