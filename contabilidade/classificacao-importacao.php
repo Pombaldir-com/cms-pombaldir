@@ -5108,6 +5108,16 @@ require_once __DIR__ . '/../header.php';
     }
 </style>
 <?php endif; ?>
+<style>
+    /* Allow the DataTables header columns to shrink so the controls stay on one
+       line (standard Bootstrap/flexbox min-width fix, not a flex utility). */
+    #classify-table_wrapper > .row > [class*="col-"] {
+        min-width: 0;
+    }
+    #classify-table_wrapper #companyFilterWrapper {
+        min-width: 0;
+    }
+</style>
 <div class="row mb-3">
     <div class="col-12">
         <?php if ($showImportButton): ?>
@@ -5124,7 +5134,7 @@ require_once __DIR__ . '/../header.php';
         </div>
         <?php endif; ?>
         <?php if ($importType === 1 && count($companyFilterOptions) > 1): ?>
-        <div id="companyFilterWrapper" style="min-width: 220px; max-width: 320px;">
+        <div id="companyFilterWrapper" style="max-width: 320px;">
             <select id="company-filter" class="form-control" aria-label="Filtrar por empresa">
                 <option value="">Todas as empresas</option>
                 <?php foreach ($companyFilterOptions as $companyOption): ?>

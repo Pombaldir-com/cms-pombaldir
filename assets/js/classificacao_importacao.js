@@ -936,7 +936,7 @@ window.addEventListener('load', function() {
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
         dom: "<'row mb-2'" +
-                "<'col-sm-12 col-md-3'l>" +
+                "<'col-sm-12 col-md-1'l>" +
                 "<'col-sm-12 col-md-4 classify-company-slot'>" +
                 "<'col-sm-12 col-md-2 classify-action-slot'>" +
                 "<'col-sm-12 col-md-3'f>" +
