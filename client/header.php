@@ -40,6 +40,40 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
                 linear-gradient(180deg, #f6f9fc 0%, #eef3f8 100%);
             min-height: calc(100vh - 56px);
         }
+        .client-portal .impersonation-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 12px 0 4px;
+            padding: 7px 14px;
+            background: #fbe6c8;
+            border: 1px solid #f0ad4e;
+            border-radius: 6px;
+            color: #8a5a00;
+            font-size: 13px;
+            line-height: 1.3;
+        }
+        .client-portal .impersonation-bar__msg i {
+            margin-right: 6px;
+        }
+        .client-portal .impersonation-bar__btn {
+            flex: 0 0 auto;
+            background: #f0ad4e;
+            color: #fff;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        .client-portal .impersonation-bar__btn:hover,
+        .client-portal .impersonation-bar__btn:focus {
+            background: #ec971f;
+            color: #fff;
+            text-decoration: none;
+        }
         .client-portal .profile_info span {
             font-size: 14px;
             line-height: 1.25;
@@ -227,10 +261,12 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
         </div>
         <div class="right_col" role="main">
 <?php if (isClientImpersonation()): ?>
-            <div class="alert alert-warning" style="margin: 12px 12px 0; border-left: 4px solid #f0ad4e;">
-                <i class="fa fa-user-secret"></i>
-                Está a navegar como <strong><?= htmlspecialchars((string) ($clientUser['name'] ?: $clientUser['username'])); ?></strong> (modo impersonação).
-                <a class="btn btn-xs btn-warning" style="margin-left: 8px;" href="<?= $tenantPrefix ?>stop-impersonation">
+            <div class="impersonation-bar">
+                <span class="impersonation-bar__msg">
+                    <i class="fa fa-user-secret"></i>
+                    Está a navegar como <strong><?= htmlspecialchars((string) ($clientUser['name'] ?: $clientUser['username'])); ?></strong> · modo impersonação
+                </span>
+                <a class="impersonation-bar__btn" href="<?= $tenantPrefix ?>stop-impersonation">
                     <i class="fa fa-sign-out"></i> Terminar impersonação
                 </a>
             </div>
