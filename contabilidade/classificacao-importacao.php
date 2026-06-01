@@ -5110,32 +5110,32 @@ require_once __DIR__ . '/../header.php';
 <?php endif; ?>
 <div class="row mb-3">
     <div class="col-12">
-        <?php if ($showImportButton): ?>
-
-
-        <div id="importCtbButtonWrapper" class="mb-3 d-none" aria-hidden="true">
-            <button
-                type="button"
-                class="btn btn-sm btn-primary"
-                id="importCtbButton"
-                data-base-label="<?= htmlspecialchars($importButtonLabel, ENT_QUOTES, 'UTF-8'); ?>"
-                <?= $initialReadyCount > 0 ? '' : 'disabled'; ?>
-            >
-                <i class="fa <?= htmlspecialchars($importButtonIcon); ?>"></i> <span class="import-ctb-button-label"><?= htmlspecialchars($importButtonLabel); ?><?= $initialReadyCount > 0 ? ' (' . (int) $initialReadyCount . ')' : ''; ?></span>
-            </button>
+        <div class="d-flex flex-wrap align-items-end gap-3 mb-3">
+            <?php if ($showImportButton): ?>
+            <div id="importCtbButtonWrapper" class="d-none" aria-hidden="true">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-primary"
+                    id="importCtbButton"
+                    data-base-label="<?= htmlspecialchars($importButtonLabel, ENT_QUOTES, 'UTF-8'); ?>"
+                    <?= $initialReadyCount > 0 ? '' : 'disabled'; ?>
+                >
+                    <i class="fa <?= htmlspecialchars($importButtonIcon); ?>"></i> <span class="import-ctb-button-label"><?= htmlspecialchars($importButtonLabel); ?><?= $initialReadyCount > 0 ? ' (' . (int) $initialReadyCount . ')' : ''; ?></span>
+                </button>
+            </div>
+            <?php endif; ?>
+            <?php if ($importType === 1 && count($companyFilterOptions) > 1): ?>
+            <div id="companyFilterWrapper" style="min-width: 280px; max-width: 460px;">
+                <label for="company-filter" class="form-label mb-1">Empresa</label>
+                <select id="company-filter" class="form-control">
+                    <option value="">Todas as empresas</option>
+                    <?php foreach ($companyFilterOptions as $companyOption): ?>
+                        <option value="<?= htmlspecialchars((string) ($companyOption['nif'] ?? ''), ENT_QUOTES); ?>"><?= htmlspecialchars((string) ($companyOption['label'] ?? ($companyOption['nif'] ?? ''))); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
         </div>
-        <?php endif; ?>
-        <?php if ($importType === 1 && count($companyFilterOptions) > 1): ?>
-        <div id="companyFilterWrapper" class="mb-3" style="max-width: 460px;">
-            <label for="company-filter" class="form-label mb-1">Empresa</label>
-            <select id="company-filter" class="form-control">
-                <option value="">Todas as empresas</option>
-                <?php foreach ($companyFilterOptions as $companyOption): ?>
-                    <option value="<?= htmlspecialchars((string) ($companyOption['nif'] ?? ''), ENT_QUOTES); ?>"><?= htmlspecialchars((string) ($companyOption['label'] ?? ($companyOption['nif'] ?? ''))); ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-        <?php endif; ?>
         <table id="classify-table" class="table table-striped">
             <thead>
                 <tr>
