@@ -1844,6 +1844,7 @@ return;
 
                                                 </div>
                                     <?php endif; ?>
+                                    <?php endif; /* fecha if ($canManageClientExtranet) do separador Extranet */ ?>
                                     <?php if ($canManageClientAdmin): ?>
                                         <div class="tab-pane fade" id="cliente-admin" role="tabpanel">
                                             <?php if (!hasAccountingEntityAdminTaskPermissionsTable()): ?>
@@ -1941,15 +1942,20 @@ return;
                                             <a href="<?= BASE_URL ?>contabilidade/entidades/<?= rawurlencode($typeSlug); ?>/<?= rawurlencode(getAccountingEntityRouteKey($consultEntity)); ?>" class="btn btn-default">
                                                 <i class="fa fa-refresh"></i> Repor
                                             </a>
+                                            <?php if ($canEditEntities): ?>
                                             <button type="submit" class="btn btn-success" form="erpClientMainForm">
                                                 <i class="fa fa-save"></i> Guardar Alterações
                                             </button>
+                                            <?php else: ?>
+                                            <span class="text-muted small"><i class="fa fa-lock"></i> Sem permissao para guardar alteracoes.</span>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
                             </form>
                         </div>
                     </div>
+                    <?php if ($canManageClientExtranet): /* modais de Extranet/Admin: apenas administradores */ ?>
                     <div class="modal fade" id="createClientUserModal" tabindex="-1" aria-hidden="true">
                         <div class="modal-dialog modal-lg">
                             <div class="modal-content">
