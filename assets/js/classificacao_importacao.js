@@ -935,6 +935,13 @@ window.addEventListener('load', function() {
         },
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
+        dom: "<'row align-items-end mb-2'" +
+                "<'col-12 col-md-auto mb-2 mb-md-0'l>" +
+                "<'col-12 col-md classify-company-slot mb-2 mb-md-0'>" +
+                "<'col-12 col-md-auto classify-action-slot d-flex align-items-end justify-content-md-end gap-2'f>" +
+             ">" +
+             "rt" +
+             "<'row mt-2'<'col-12 col-md-5'i><'col-12 col-md-7'p>>",
         columnDefs: [
             { targets: [ 2, 4, 7, 8 ], visible: false },
             { targets: [0, 1], className: 'text-start' },
@@ -942,6 +949,12 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    // Move the company filter and the global action button into the DataTables
+    // header (positioned via the dom above) instead of a separate container.
+    var $dtWrapper = $('#classify-table').closest('.dataTables_wrapper');
+    $('#companyFilterWrapper').appendTo($dtWrapper.find('.classify-company-slot'));
+    $('#importCtbButtonWrapper').prependTo($dtWrapper.find('.classify-action-slot'));
 
     var $companyFilter = $('#company-filter');
     if ($companyFilter.length && typeof $companyFilter.select2 === 'function') {
