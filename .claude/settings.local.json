@@ -18,7 +18,25 @@
       "Bash(git push *)",
       "Bash(git branch *)",
       "Bash(command -v expect)",
-      "Bash(php -r '$j=json_decode\\(file_get_contents\\(\".vscode/sftp.json\"\\),true\\); echo \"host=\".\\($j[\"host\"]??\"\"\\).\" port=\".\\($j[\"port\"]??\"22\"\\).\" user=\".\\($j[\"username\"]??\"\"\\).\" remote=\".\\($j[\"remotePath\"]??\"\"\\).\"\\\\n\";')"
+      "Bash(php -r '$j=json_decode\\(file_get_contents\\(\".vscode/sftp.json\"\\),true\\); echo \"host=\".\\($j[\"host\"]??\"\"\\).\" port=\".\\($j[\"port\"]??\"22\"\\).\" user=\".\\($j[\"username\"]??\"\"\\).\" remote=\".\\($j[\"remotePath\"]??\"\"\\).\"\\\\n\";')",
+      "Bash(grep -n 'rowCanClassify = $hasDepartmentClassifyPermission' contabilidade/classificacao-importacao.php)",
+      "Bash(grep -n 'if \\(!$hasDepartmentImportPermission\\)' contabilidade/classificacao-importacao.php)",
+      "Bash(php -l contabilidade/classificacao-importacao.php)",
+      "Bash(node --check assets/js/classificacao_importacao.js)",
+      "Bash(bash scripts/deploy_last_commit_sftp.sh)",
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless --disable-gpu --no-sandbox --virtual-time-budget=2500 --dump-dom \"file:///tmp/dt_test.html\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -c /tmp/cj.txt \"http://localhost:8001/login\")",
+      "Bash(curl -sS -i \"http://localhost:8001/login\")",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless --disable-gpu --no-sandbox --virtual-time-budget=4000 --dump-dom http://localhost:8001/__dt_probe.html)",
+      "Read(//tmp/**)",
+      "Bash(python3 -)",
+      "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom http://localhost:8001/__dt_probe.html)",
+      "Bash(CHROME=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\"; \"$CHROME\" --headless --disable-gpu --no-sandbox --virtual-time-budget=5000 --dump-dom \"http://localhost:8001/__dt_probe.html\" 2>/dev/null > /tmp/probe2.html *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

@@ -29,3 +29,5 @@ contabilidade/__pycache__/
 scripts/deploy_last_commit_sftp.sh
 data/efatura_jobs/
 data/efatura_jobs/*.json
+.claude
+.claude/settings.local.json

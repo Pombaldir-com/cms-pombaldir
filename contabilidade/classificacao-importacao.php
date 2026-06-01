@@ -5113,15 +5113,78 @@ require_once __DIR__ . '/../header.php';
        line (standard Bootstrap/flexbox min-width fix, not a flex utility). */
     #classify-table_wrapper > .row > [class*="col-"] {
         min-width: 0;
+        display: flex;
+        align-items: center;
     }
     #classify-table_wrapper #companyFilterWrapper {
         min-width: 0;
+        max-width: 100%;
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+    }
+    #classify-table_wrapper .dt-length,
+    #classify-table_wrapper .dt-search {
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+    }
+    #classify-table_wrapper .dt-length label {
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    #classify-table_wrapper .dt-length select,
+    #classify-table_wrapper .dt-length .form-select,
+    #classify-table_wrapper #companyFilterWrapper .form-control,
+    #classify-table_wrapper #companyFilterWrapper .select2-container--default .select2-selection--single {
+        min-height: 38px;
+    }
+    #classify-table_wrapper .dt-search {
+        justify-content: flex-end;
+        width: 100%;
+    }
+    #classify-table_wrapper .dt-search .form-control,
+    #classify-table_wrapper .dt-search input {
+        max-width: 280px;
+    }
+    #classify-table_wrapper .classify-action-slot #importCtbButtonWrapper {
+        margin-bottom: 0;
+    }
+    /* Align the footer pagination to the right (DataTables 2.x renders it in
+       .dt-paging with a Bootstrap .pagination list). */
+    #classify-table_wrapper .row.mt-2 > [class*="col-"] {
+        display: flex;
+        align-items: center;
+    }
+    #classify-table_wrapper .row.mt-2 > [class*="col-"] + [class*="col-"] {
+        justify-content: flex-end;
+    }
+    #classify-table_wrapper .dt-paging {
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+    }
+    #classify-table_wrapper .dt-paging .pagination {
+        justify-content: flex-end;
+        margin-bottom: 0;
+    }
+    #classify-table tbody td:last-child {
+        text-align: center;
+        vertical-align: middle;
+    }
+    #classify-table tbody td:last-child .btn {
+        margin: 0 0.15rem 0 0.15rem;
+    }
+    .dt-hidden-until-ready {
+        display: none !important;
     }
 </style>
 <div class="row mb-3">
     <div class="col-12">
         <?php if ($showImportButton): ?>
-        <div id="importCtbButtonWrapper" class="d-none" aria-hidden="true">
+        <div id="importCtbButtonWrapper" class="d-none dt-hidden-until-ready" aria-hidden="true">
             <button
                 type="button"
                 class="btn btn-sm btn-primary"
@@ -5134,7 +5197,7 @@ require_once __DIR__ . '/../header.php';
         </div>
         <?php endif; ?>
         <?php if ($importType === 1 && count($companyFilterOptions) > 1): ?>
-        <div id="companyFilterWrapper" style="max-width: 320px;">
+        <div id="companyFilterWrapper" class="dt-hidden-until-ready" style="max-width: 320px;">
             <select id="company-filter" class="form-control" aria-label="Filtrar por empresa">
                 <option value="">Todas as empresas</option>
                 <?php foreach ($companyFilterOptions as $companyOption): ?>

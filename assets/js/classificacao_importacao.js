@@ -935,9 +935,15 @@ window.addEventListener('load', function() {
         },
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
-        dom: "<'row mb-2'" +
+        // language.url loads the i18n JSON asynchronously, so DataTables defers
+        // building the dom (and its header slots) until it arrives. Wire the
+        // header controls in initComplete, once the slots actually exist.
+        initComplete: function() {
+            wireHeaderControls(this.api());
+        },
+        dom: "<'row mb-2 align-items-center'" +
                 "<'col-sm-12 col-md-1'l>" +
-                "<'col-sm-12 col-md-4 classify-company-slot'>" +
+                "<'col-sm-12 col-md-6 classify-company-slot'>" +
                 "<'col-sm-12 col-md-2 classify-action-slot'>" +
                 "<'col-sm-12 col-md-3'f>" +
              ">" +
@@ -953,21 +959,28 @@ window.addEventListener('load', function() {
 
     // Move the company filter and the global action button into the DataTables
     // header (positioned via the dom above) instead of a separate container.
-    var $dtWrapper = $('#classify-table').closest('.dataTables_wrapper');
-    $('#companyFilterWrapper').appendTo($dtWrapper.find('.classify-company-slot'));
-    $('#importCtbButtonWrapper').appendTo($dtWrapper.find('.classify-action-slot'));
+    // Called from initComplete because the header slots only exist after the
+    // (async) language.url JSON has loaded and the dom has been built.
+    function wireHeaderControls(dtApi) {
+        // DataTables 2.x wraps the table in .dt-container (the old DT 1.x
+        // .dataTables_wrapper class no longer exists).
+        var $dtWrapper = $('#classify-table').closest('.dt-container');
+        $('#companyFilterWrapper').appendTo($dtWrapper.find('.classify-company-slot'));
+        $('#importCtbButtonWrapper').appendTo($dtWrapper.find('.classify-action-slot'));
 
-    var $companyFilter = $('#company-filter');
-    if ($companyFilter.length && typeof $companyFilter.select2 === 'function') {
-        $companyFilter.select2({
-            width: '100%',
-            placeholder: 'Todas as empresas',
-            allowClear: true
+        var $companyFilter = $('#company-filter');
+        if ($companyFilter.length && typeof $companyFilter.select2 === 'function') {
+            $companyFilter.select2({
+                width: '100%',
+                placeholder: 'Todas as empresas',
+                allowClear: true
+            });
+        }
+        $companyFilter.on('change', function() {
+            dtApi.ajax.reload();
         });
+        $('#companyFilterWrapper, #importCtbButtonWrapper').removeClass('dt-hidden-until-ready');
     }
-    $companyFilter.on('change', function() {
-        table.ajax.reload();
-    });
 
     function hideImportButtonWrapper() {
         if (importCtbWrapper.length) {
@@ -994,17 +1007,16 @@ window.addEventListener('load', function() {
     }
 
     function renderImportParamInfo() {
-        if (!importCtbButton.length || !importTypeAllowsImport) {
-            return;
-        }
-        if (!classificacaoImportDebugMode) {
-            importCtbParamInfo.detach();
+        // The ERP parameters (EMP/db) are a debugging aid only and must not be
+        // shown next to the button, so keep the element out of the DOM. In debug
+        // mode the values are logged to the console instead.
+        importCtbParamInfo.detach();
+        if (!importCtbButton.length || !importTypeAllowsImport || !classificacaoImportDebugMode) {
             return;
         }
         var params = resolveCurrentImportParams();
-        importCtbParamInfo.text('ERP: EMP=' + params.emp + ' | db=' + params.db);
-        if (!importCtbParamInfo.parent().length) {
-            importCtbParamInfo.insertAfter(importCtbButton);
+        if (typeof window.console !== 'undefined' && typeof window.console.debug === 'function') {
+            window.console.debug('[Classificação] ERP: EMP=' + params.emp + ' | db=' + params.db);
         }
     }
 
@@ -1563,62 +1575,13 @@ window.addEventListener('load', function() {
             return;
         }
 
-        var container = table.table().container();
-        if (!container) {
-            showImportButtonWrapper();
-            return;
-        }
-
-        var layoutEnd = $(container).find('.dt-layout-end').first();
-        if (layoutEnd.length) {
-            layoutEnd.addClass('d-md-flex justify-content-between align-items-center gap-2 flex-wrap');
-            if (!layoutEnd.find('#importCtbButton').length) {
-                importCtbButton.prependTo(layoutEnd);
-            }
-            if (classificacaoImportDebugMode && !layoutEnd.find('#importCtbParamInfo').length) {
-                importCtbParamInfo.insertAfter(importCtbButton);
-            }
-
-            var dtSearch = layoutEnd.find('.dt-search').first();
-            if (dtSearch.length) {
-                dtSearch.addClass('d-flex align-items-center flex-wrap gap-2');
-                var dtLabel = dtSearch.find('label').first();
-                if (dtLabel.length) {
-                    dtLabel.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
-                }
-            }
-
-            hideImportButtonWrapper();
-            renderImportParamInfo();
-            return;
-        }
-
-        var filter = $(container).find('div.dataTables_filter');
-        if (!filter.length) {
-            showImportButtonWrapper();
-            return;
-        }
-
-        filter.addClass('d-flex align-items-center justify-content-end flex-wrap gap-2');
-
-        var label = filter.find('label');
-        if (label.length) {
-            label.addClass('mb-0 d-flex align-items-center flex-wrap gap-2');
-            if (!label.find('#importCtbButton').length) {
-                importCtbButton.prependTo(label);
-            }
-            if (classificacaoImportDebugMode && !label.find('#importCtbParamInfo').length) {
-                importCtbParamInfo.insertAfter(importCtbButton);
-            }
-        } else if (!filter.find('#importCtbButton').length) {
-            importCtbButton.prependTo(filter);
-            if (classificacaoImportDebugMode && !filter.find('#importCtbParamInfo').length) {
-                importCtbParamInfo.insertAfter(importCtbButton);
-            }
-        }
-
+        // The import button lives inside #importCtbButtonWrapper, which
+        // wireHeaderControls() moves into the DataTables header slot
+        // (.classify-action-slot) once, at init. The button is not relocated
+        // out of its wrapper, so here we only ensure the wrapper is visible and
+        // refresh the (debug) ERP parameter info next to the button.
+        showImportButtonWrapper();
         renderImportParamInfo();
-        hideImportButtonWrapper();
     }
 
     function getImportReadySelector() {
