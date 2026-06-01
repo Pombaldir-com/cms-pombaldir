@@ -2427,6 +2427,20 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
         $endpoint = appendQueryParamsToUrl($endpoint, $query);
     }
 
+    // The same lookups (per supplier NIF / doc type / database) recur across rows,
+    // DataTable reloads and company switches. Serve them from cache to avoid
+    // repeating slow synchronous ERP HTTP calls. The auth token travels in a
+    // header (not the URL), so the endpoint is safe to use as the cache key.
+    $cacheKey = sha1($endpoint);
+    if (isset($GLOBALS['erp_suggestion_request_cache'][$cacheKey])) {
+        return $GLOBALS['erp_suggestion_request_cache'][$cacheKey];
+    }
+    $cachedResponse = erpSuggestionCacheGet($cacheKey);
+    if (is_array($cachedResponse)) {
+        $GLOBALS['erp_suggestion_request_cache'][$cacheKey] = $cachedResponse;
+        return $cachedResponse;
+    }
+
     $handle = curl_init($endpoint);
     if ($handle === false) {
         return [];
@@ -2453,7 +2467,12 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
     }
 
     $decoded = json_decode($response, true);
-    return is_array($decoded) ? $decoded : [];
+    $result = is_array($decoded) ? $decoded : [];
+    // Cache only successful responses (including legitimate empty results, so
+    // "no data" lookups are not repeated). Transient failures above are not cached.
+    erpSuggestionCacheSet($cacheKey, $result);
+    $GLOBALS['erp_suggestion_request_cache'][$cacheKey] = $result;
+    return $result;
 }
 
 function fetchErpPlanAccountCode(string $accountCode, string $database = ''): bool {

@@ -23,6 +23,10 @@ $canManageEntityAiInstructions = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageEmitterType = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageClientExtranet = ((int) ($user['role'] ?? 3)) <= 2;
 $canManageClientAdmin = ((int) ($user['role'] ?? 3)) <= 2;
+// Permite guardar alteracoes na ficha da empresa/entidade. Admins (role <= 2)
+// passam sempre via userHasDepartmentPermission; nao-admins precisam da
+// permissao de departamento "Entidades - Editar".
+$canEditEntities = userHasDepartmentPermission('entidades_editar');
 $adminTaskDefinitions = getAccountingEntityAdminTaskDefinitions();
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
@@ -108,6 +112,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'update-erp-client-details') {
+        if (!$canEditEntities) {
+            $denyMessage = 'Sem permissoes para guardar alteracoes na entidade.';
+            if ($isAjaxRequest) {
+                header('Content-Type: application/json; charset=utf-8');
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => $denyMessage, 'csrf_token' => generateCsrfToken(true)], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            http_response_code(403);
+            exit($denyMessage);
+        }
         $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
         $erpRecordId = isset($_POST['erp_record_id']) ? (int) $_POST['erp_record_id'] : 0;
         $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug);

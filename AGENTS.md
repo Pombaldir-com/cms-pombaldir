@@ -52,6 +52,7 @@ Regras ao mexer em DataTables:
 - Em páginas com DataTables, chamar o webservice diretamente no browser (sem proxy interno).
 - Em `accounting_entities`, `erp_database` e sempre a base ERP da empresa no formato `emp_XXX`.
 - Em `accounting_entities`, `erp_client_code` e o codigo da entidade/cliente/fornecedor dentro da base ERP e nunca deve ser usado como substituto de `erp_database`.
+- **Nunca fazer chamadas ERP síncronas por linha no render de listas/DataTables.** `fetchErpJsonForSuggestion()` (sugestões/ligação/plano de contas) faz HTTP ao ERP e era chamada por linha em `prepareImportRow` → listagem lenta e cada troca de empresa a recarregar. Está agora protegida por cache: memo por request (`$GLOBALS['erp_suggestion_request_cache']`) + cache persistente por tenant na tabela `erp_suggestion_cache` (TTL via setting `erp_suggestion_cache_ttl`, por defeito 6h), com a chave = `sha1(endpoint)` (o token vai no header, não na URL). Só respostas 2xx são cacheadas (inclui resultados vazios = negative caching). Ao adicionar novas chamadas ERP em caminhos quentes, usar `fetchErpJsonForSuggestion`/o mesmo padrão de cache, não cURL direto.
 
 ## Extranet / Area reservada de clientes
 - A area reservada de cada cliente vive em `client/` e e servida pelas rotas `t/{tenantSlug}/cliente/...` (ver `router.php`). As contas vivem na tabela `client_users` e a sessao usa as chaves `client_user_id` / `client_user_tenant_slug` / `client_accounting_entity_id`.

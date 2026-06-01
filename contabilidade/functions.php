@@ -32,6 +32,92 @@ function logErpMessage(string $message): void {
 }
 
 /**
+ * TTL (seconds) for cached ERP suggestion/lookup responses. Overridable via the
+ * `erp_suggestion_cache_ttl` setting; defaults to 6 hours (the underlying ERP
+ * reference data — rubric links, plano de contas — changes rarely).
+ *
+ * @return int
+ */
+function erpSuggestionCacheTtlSeconds(): int {
+    $configured = (int) getSetting('erp_suggestion_cache_ttl', '0');
+    return $configured > 0 ? $configured : 21600;
+}
+
+/**
+ * Whether the per-tenant ERP suggestion cache table exists. Memoised per request
+ * so the existence probe (SHOW TABLES) runs at most once.
+ *
+ * @return bool
+ */
+function erpSuggestionCacheAvailable(): bool {
+    if (!array_key_exists('erp_suggestion_cache_available', $GLOBALS)) {
+        try {
+            $GLOBALS['erp_suggestion_cache_available'] = hasTable('erp_suggestion_cache');
+        } catch (Throwable $e) {
+            $GLOBALS['erp_suggestion_cache_available'] = false;
+        }
+    }
+    return (bool) $GLOBALS['erp_suggestion_cache_available'];
+}
+
+/**
+ * Read a cached ERP suggestion response. Returns null on miss/expiry/error so the
+ * caller falls back to a live ERP call. Cache failures must never break a request.
+ *
+ * @param string $key
+ * @return array|null
+ */
+function erpSuggestionCacheGet(string $key): ?array {
+    if (!erpSuggestionCacheAvailable()) {
+        return null;
+    }
+    try {
+        $pdo = getPDO();
+        $stmt = $pdo->prepare('SELECT response_json, created_at FROM erp_suggestion_cache WHERE cache_key = ? LIMIT 1');
+        $stmt->execute([$key]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $age = time() - (int) ($row['created_at'] ?? 0);
+        if ($age < 0 || $age > erpSuggestionCacheTtlSeconds()) {
+            return null;
+        }
+        $decoded = json_decode((string) ($row['response_json'] ?? ''), true);
+        return is_array($decoded) ? $decoded : null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Store an ERP suggestion response in the cache (upsert). No-op on any failure.
+ *
+ * @param string $key
+ * @param array $value
+ * @return void
+ */
+function erpSuggestionCacheSet(string $key, array $value): void {
+    if (!erpSuggestionCacheAvailable()) {
+        return;
+    }
+    try {
+        $json = json_encode($value, JSON_UNESCAPED_UNICODE);
+        if ($json === false) {
+            return;
+        }
+        $pdo = getPDO();
+        $stmt = $pdo->prepare(
+            'INSERT INTO erp_suggestion_cache (cache_key, response_json, created_at) VALUES (?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE response_json = VALUES(response_json), created_at = VALUES(created_at)'
+        );
+        $stmt->execute([$key, $json, time()]);
+    } catch (Throwable $e) {
+        // Cache writes are best-effort; never surface to the request.
+    }
+}
+
+/**
  * Attempt to extract a VAT/NIF number from an arbitrary string.
  *
  * @param string $value Raw value that may contain a VAT number.

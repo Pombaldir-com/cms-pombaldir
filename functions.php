@@ -1932,6 +1932,7 @@ function setUserDepartmentTerms(int $userId, array $termIds): void {
 function getBaseDepartmentPermissionOptions(): array {
     return [
         'compras_upload' => 'Compras -> Upload',
+        'entidades_editar' => 'Entidades - Editar',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
         'ctb_lancamentos_aceder' => 'CTB Lancamentos - Aceder',
