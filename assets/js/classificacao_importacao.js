@@ -935,6 +935,12 @@ window.addEventListener('load', function() {
         },
         orderCellsTop: true,
         language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
+        dom: "<'row align-items-end mb-2'" +
+                "<'col-12 col-md-7 classify-dt-toolbar d-flex flex-wrap align-items-end gap-2'>" +
+                "<'col-12 col-md-5 d-flex flex-wrap justify-content-md-end align-items-end gap-2'lf>" +
+             ">" +
+             "rt" +
+             "<'row mt-2'<'col-12 col-md-5'i><'col-12 col-md-7'p>>",
         columnDefs: [
             { targets: [ 2, 4, 7, 8 ], visible: false },
             { targets: [0, 1], className: 'text-start' },
@@ -942,6 +948,14 @@ window.addEventListener('load', function() {
             { targets: [ -1, -2 ], orderable: false, searchable: false }
         ]
     });
+
+    // Place the global action button ("Classificado"/"Importar Ctb") and the company
+    // filter inline within the DataTables top toolbar, aligned with search/length.
+    var $dtToolbar = $('#classify-table').closest('.dataTables_wrapper').find('.classify-dt-toolbar');
+    if ($dtToolbar.length) {
+        $('#importCtbButtonWrapper').removeClass('mb-3').appendTo($dtToolbar);
+        $('#companyFilterWrapper').removeClass('mb-3').appendTo($dtToolbar);
+    }
 
     var $companyFilter = $('#company-filter');
     if ($companyFilter.length && typeof $companyFilter.select2 === 'function') {
