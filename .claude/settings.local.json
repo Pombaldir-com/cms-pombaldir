@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n 'name=\"entity_id\"\\\\|name=\"return_url\"\\\\|\\\\$consultEntity\\\\[.id.\\\\]\\\\|currentReturnUrl\\\\|selfUrl\\\\|return_url' contabilidade/entidades.php)",
+      "Bash(php -l functions.php)",
+      "Bash(php -l contabilidade/entidades.php)",
+      "Bash(php -l client/stop-impersonation.php)",
+      "Bash(php -l client/header.php)",
+      "Bash(php -l router.php)",
+      "Bash(npm cache *)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git reset *)",
+      "Bash(git checkout *)",
+      "Bash(git check-ignore *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(git merge *)",
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(command -v expect)",
+      "Bash(php -r '$j=json_decode\\(file_get_contents\\(\".vscode/sftp.json\"\\),true\\); echo \"host=\".\\($j[\"host\"]??\"\"\\).\" port=\".\\($j[\"port\"]??\"22\"\\).\" user=\".\\($j[\"username\"]??\"\"\\).\" remote=\".\\($j[\"remotePath\"]??\"\"\\).\"\\\\n\";')"
+    ]
+  }
+}
