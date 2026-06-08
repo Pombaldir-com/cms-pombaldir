@@ -3,6 +3,6 @@
   "private": true,
   "scripts": {
     "migrate": "php scripts/migrate.php",
-    "start": "PHP_CLI_SERVER_WORKERS=6 php -S localhost:8001 router.php"
+    "start": "PHP_CLI_SERVER_WORKERS=6 php -d upload_max_filesize=100M -d post_max_size=100M -d memory_limit=256M -S localhost:8001 router.php"
   }
 }
