@@ -3095,6 +3095,8 @@ function fetchHistoryExamples(string $acquirerNif, string $docType, int $limit, 
         $examples[] = [
             'id' => (int) ($row['id'] ?? 0),
             'acquirer_nif' => $rowAcquirerNif,
+            'emitter_nif' => extractVatLikeValue((string) ($row['field_A'] ?? '')),
+            'emitter_token' => normalizePartyToken((string) ($row['field_A'] ?? '')),
             'doc_type' => (string) ($row['field_D'] ?? ''),
             'rates' => $rates,
             'score' => $score,
@@ -3170,6 +3172,8 @@ function fetchClassificationRuleExamples(string $docType, string $emitter, strin
         $examples[] = [
             'id' => (int) ($row['id'] ?? 0),
             'acquirer_nif' => '',
+            'emitter_nif' => extractVatLikeValue((string) ($row['emitter'] ?? '')),
+            'emitter_token' => normalizePartyToken((string) ($row['emitter'] ?? '')),
             'doc_type' => (string) ($row['doc_type'] ?? ''),
             'rates' => $rates,
             'score' => $score,
@@ -3944,6 +3948,35 @@ function buildExpectedLinesFromExamples(array $examples, array $context = []): a
             ];
         }
     }
+    // A conta "Valor Total" e a conta corrente do emitente (fornecedor/cliente)
+    // e e especifica de cada um. So deve vir de exemplos do MESMO emitente;
+    // caso contrario sugeririamos a conta corrente de outro emitente.
+    $contextEmitterNif = extractVatLikeValue((string) ($context['emitter_nif'] ?? ''));
+    if ($contextEmitterNif === '') {
+        $contextEmitterNif = extractVatLikeValue((string) ($context['emitter'] ?? ''));
+    }
+    if ($contextEmitterNif === '') {
+        $contextEmitterNif = extractVatLikeValue((string) ($context['emitter_raw'] ?? ''));
+    }
+    $contextEmitterToken = normalizePartyToken((string) ($context['emitter'] ?? ''));
+    if ($contextEmitterToken === '') {
+        $contextEmitterToken = normalizePartyToken((string) ($context['emitter_raw'] ?? ''));
+    }
+    $hasEmitterContext = $contextEmitterNif !== '' || $contextEmitterToken !== '';
+
+    $exampleMatchesEmitter = static function (array $example) use ($contextEmitterNif, $contextEmitterToken): bool {
+        $exNif = trim((string) ($example['emitter_nif'] ?? ''));
+        if ($contextEmitterNif !== '' && $exNif !== '' && $exNif === $contextEmitterNif) {
+            return true;
+        }
+        $exToken = trim((string) ($example['emitter_token'] ?? ''));
+        if ($contextEmitterToken !== '' && $exToken !== ''
+            && (strpos($exToken, $contextEmitterToken) !== false || strpos($contextEmitterToken, $exToken) !== false)) {
+            return true;
+        }
+        return false;
+    };
+
     $totalSelectionStrategies = [
         ['source' => 'history', 'match_receipt_flag' => true],
         ['source' => 'history', 'match_receipt_flag' => false],
@@ -3955,6 +3988,10 @@ function buildExpectedLinesFromExamples(array $examples, array $context = []): a
         foreach ($examples as $example) {
             $total = trim((string) ($example['total_account'] ?? ''));
             if ($total === '') {
+                continue;
+            }
+            // Com emitente conhecido, ignora exemplos de outros emitentes.
+            if ($hasEmitterContext && !$exampleMatchesEmitter($example)) {
                 continue;
             }
             $source = trim((string) ($example['source'] ?? ''));
@@ -3975,7 +4012,9 @@ function buildExpectedLinesFromExamples(array $examples, array $context = []): a
             break;
         }
     }
-    if ($expected['total_account'] === '' && !empty($totalTally)) {
+    // Fallback global por frequencia apenas quando NAO ha emitente conhecido,
+    // para nunca propor a conta corrente de um emitente diferente.
+    if ($expected['total_account'] === '' && !$hasEmitterContext && !empty($totalTally)) {
         arsort($totalTally);
         $expected['total_account'] = (string) array_key_first($totalTally);
     }
