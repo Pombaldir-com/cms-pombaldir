@@ -3,6 +3,6 @@
   "private": true,
   "scripts": {
     "migrate": "php scripts/migrate.php",
-    "start": "php -S localhost:8001 router.php"
+    "start": "PHP_CLI_SERVER_WORKERS=6 php -S localhost:8001 router.php"
   }
 }

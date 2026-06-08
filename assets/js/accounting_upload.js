@@ -292,6 +292,19 @@ window.addEventListener('load', function() {
         alert(message);
     }
 
+    function notifyError(message) {
+        var text = message || 'Ocorreu um erro';
+        if (window.PNotify && typeof window.PNotify.alert === 'function') {
+            window.PNotify.alert({ text: text, type: 'error', styling: 'bootstrap3', hide: false });
+            return;
+        }
+        if (window.PNotify && typeof window.PNotify === 'function') {
+            window.PNotify({ text: text, type: 'error', styling: 'bootstrap3', hide: false });
+            return;
+        }
+        console.error(text);
+    }
+
     function setManualError(message) {
         if (!manualError) {
             if (message) {
@@ -1141,6 +1154,76 @@ window.addEventListener('load', function() {
         }
     }
 
+    function clearDropzoneFailedState(file) {
+        if (!file || !file.previewElement) {
+            return;
+        }
+        var preview = file.previewElement;
+        preview.classList.remove('qr-upload-failed', 'dz-error', 'dz-complete');
+        var errEls = preview.querySelectorAll('[data-dz-errormessage]');
+        for (var i = 0; i < errEls.length; i += 1) {
+            errEls[i].textContent = '';
+        }
+        var retryBtn = preview.querySelector('.qr-retry-btn');
+        if (retryBtn) {
+            retryBtn.disabled = false;
+        }
+    }
+
+    // Marca o ficheiro como falhado (sem o remover da fila) e injeta um botao
+    // "Tentar novamente" que volta a enviar o mesmo ficheiro.
+    function markDropzoneFileFailed(file, message) {
+        if (!file || !file.previewElement) {
+            return;
+        }
+        var preview = file.previewElement;
+        preview.classList.remove('qr-auto-detected', 'qr-manual-required', 'dz-success', 'dz-complete');
+        preview.classList.add('qr-upload-failed', 'dz-error');
+
+        if (message) {
+            var errEls = preview.querySelectorAll('[data-dz-errormessage]');
+            for (var i = 0; i < errEls.length; i += 1) {
+                errEls[i].textContent = message;
+            }
+        }
+
+        var retryBtn = preview.querySelector('.qr-retry-btn');
+        if (!retryBtn) {
+            retryBtn = document.createElement('button');
+            retryBtn.type = 'button';
+            retryBtn.className = 'btn btn-sm btn-danger qr-retry-btn';
+            retryBtn.textContent = 'Tentar novamente';
+            retryBtn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                retryDropzoneUpload(file);
+            });
+            preview.appendChild(retryBtn);
+        }
+        retryBtn.disabled = false;
+    }
+
+    function retryDropzoneUpload(file) {
+        if (!file) {
+            return;
+        }
+        clearDropzoneFailedState(file);
+        // Repor o ficheiro como aceite e em fila para um novo envio.
+        // (Os estados do Dropzone sao strings: "added", "queued", ...)
+        file.status = 'added';
+        file.accepted = true;
+        if (file.previewElement) {
+            file.previewElement.classList.remove('dz-error', 'dz-complete', 'dz-success');
+        }
+        try {
+            dz.enqueueFile(file);
+        } catch (e) {
+            // enqueueFile exige status "added" + accepted; em caso de falha tenta processar a fila.
+            file.status = 'queued';
+            dz.processQueue();
+        }
+    }
+
     function resetManualSelection() {
         manualSelection = null;
         manualPointer = null;
@@ -1835,6 +1918,8 @@ window.addEventListener('load', function() {
     });
 
     dz.on('sending', function(file, xhr, formData) {
+        // Limpa o estado de falha de uma tentativa anterior (retry).
+        clearDropzoneFailedState(file);
         if (debugEnabled) {
             if (!debugStats.batchStartedAt) {
                 debugStats.batchStartedAt = performance.now();
@@ -1906,7 +1991,15 @@ window.addEventListener('load', function() {
     });
 
     dz.on('error', function(file, errorMessage, xhr) {
-        var msg = 'Erro ao processar o ficheiro ' + file.name;
+        var status = xhr ? (xhr.status || 0) : 0;
+        // Codigos tipicos de timeout/erro de gateway (Cloudflare 52x, proxy 50x, abort=0).
+        // So' classifica como timeout quando existe pedido ao servidor; sem xhr e' erro
+        // do lado do cliente (ex.: ficheiro demasiado grande, tipo invalido).
+        var isGatewayTimeout = !!xhr && (status === 0 || status === 408
+            || (status >= 502 && status <= 504)
+            || (status >= 520 && status <= 525));
+
+        var msg = '';
         var tokenUpdated = false;
         if (xhr && xhr.responseText) {
             try {
@@ -1920,6 +2013,19 @@ window.addEventListener('load', function() {
                 }
             } catch (e) {}
         }
+
+        // Sem JSON valido (ex.: 524 devolve HTML do Cloudflare) ou timeout: mensagem clara com o nome.
+        if (!msg) {
+            if (isGatewayTimeout) {
+                msg = 'Tempo de processamento excedido para "' + file.name
+                    + '". O ficheiro permanece na lista — clique em "Tentar novamente".';
+            } else if (typeof errorMessage === 'string' && errorMessage) {
+                msg = errorMessage;
+            } else {
+                msg = 'Erro ao processar o ficheiro ' + file.name;
+            }
+        }
+
         if (!tokenUpdated && csrfInput) {
             $.ajax({
                 type: 'POST',
@@ -1934,8 +2040,13 @@ window.addEventListener('load', function() {
                 }
             });
         }
-        showAlert(msg);
-        dz.removeFile(file);
+
+        // Notificacao nao-bloqueante (com muitos ficheiros, um alert() por falha seria inutilizavel)
+        // e o ficheiro fica visivel na fila marcado a vermelho com botao de retry.
+        notifyError(msg);
+        markDropzoneFileFailed(file, isGatewayTimeout
+            ? 'Tempo excedido. Clique em "Tentar novamente".'
+            : msg);
         if (debugEnabled) {
             var errorItem = ensureDebugFile(file);
             errorItem.finishedAt = performance.now();

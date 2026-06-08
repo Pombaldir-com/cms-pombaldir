@@ -2113,6 +2113,40 @@ if ($qrParallelUploads > 6) {
     background: #fff4df;
     box-shadow: 0 0 0 3px rgba(240, 173, 78, 0.18);
 }
+
+#multi-upload .dz-preview.qr-upload-failed .dz-image {
+    border: 2px solid #e74c3c;
+    background: #fdecea;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.18);
+}
+
+/* Mostrar sempre a mensagem de erro e o botao de retry nos ficheiros falhados */
+#multi-upload .dz-preview.qr-upload-failed .dz-error-message {
+    display: block;
+    opacity: 1;
+    position: static;
+    top: auto;
+    left: auto;
+    width: auto;
+    margin-top: 6px;
+    background: #e74c3c;
+    border-radius: 4px;
+}
+#multi-upload .dz-preview.qr-upload-failed .dz-error-message:after {
+    display: none;
+}
+
+#multi-upload .dz-preview .qr-retry-btn {
+    display: none;
+    margin-top: 6px;
+    width: 120px;
+    z-index: 30;
+    position: relative;
+}
+#multi-upload .dz-preview.qr-upload-failed .qr-retry-btn {
+    display: inline-block;
+}
+
 .manual-efatura-panel {
     margin-bottom: 15px;
 }
