@@ -383,6 +383,7 @@ $systemPrompt = "Es um assistente de AI para um escritorio de contabilidade. Usa
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Sempre que o utilizador pedir informacao do ERP sobre balancetes, resumos analiticos, balancos, saldos, mapas contabilisticos ou outros mapas/consultas contabilisticas, privilegia a API ERP-SINC como fonte principal de dados.\n"
+    . "Para balancetes ou saldos por conta usa a ferramenta erp_balancete (db = so o numero da base, e strCodExercicio). Para balancete geral/sintetico usa o parametro nivel (numero de digitos a agrupar); sem nivel devolve analitico. A ferramenta agrega os movimentos do ERP; nao tentes adivinhar um endpoint de balancete via erp_api_get.\n"
     . "Nesses pedidos, tenta resolver primeiro a base ERP correta (db) e usa as ferramentas ERP da app antes de responder; se faltar contexto objetivo (empresa, exercicio, periodo, diario, conta ou base ERP), pede esses dados de forma curta.\n"
     . "Quando precisares de pedir a base de dados ERP ao utilizador, pede apenas o numero da base (ex.: 314, 'Base dados 314 por exemplo') e nunca o formato interno emp_314; o prefixo emp_ e apenas interno para os pedidos a API.\n"
     . "Quando te referires a uma base ERP em respostas, erros, confirmacoes ou perguntas, escreve sempre 'base de dados 314' ou 'base 314' e nunca 'empresa 314' se estiveres a falar da db do ERP.\n"
@@ -507,6 +508,27 @@ $tools = [
                     'offset' => ['type' => 'integer'],
                 ],
                 'required' => ['db'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'erp_balancete',
+            'description' => 'Gerar um balancete (analitico ou geral/sintetico) a partir dos movimentos de contabilidade do ERP-SINC, agregando debito/credito e saldo por conta para um exercicio. Usa esta ferramenta para pedidos de balancete, saldos por conta ou mapas de razao. Para balancete geral/sintetico usa o parametro nivel (numero de digitos a agrupar); sem nivel devolve analitico (conta completa).',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'db' => ['type' => 'string', 'description' => 'Base de dados ERP (apenas o numero, ex.: 314).'],
+                    'strCodExercicio' => ['type' => 'string', 'description' => 'Exercicio/ano, ex.: 2025.'],
+                    'mes_de' => ['type' => 'integer', 'description' => 'Mes inicial (1-15, inclui apuramentos 13-15). Opcional.'],
+                    'mes_ate' => ['type' => 'integer', 'description' => 'Mes final (1-15). Opcional.'],
+                    'nivel' => ['type' => 'integer', 'description' => 'Numero de digitos para agrupar as contas (balancete geral/sintetico). Omitir ou 0 = analitico (conta completa).'],
+                    'conta' => ['type' => 'string', 'description' => 'Filtrar contas por prefixo. Opcional.'],
+                    'intCodDiario' => ['type' => 'string', 'description' => 'Filtrar por diario especifico. Opcional.'],
+                ],
+                'required' => ['db', 'strCodExercicio'],
                 'additionalProperties' => false,
             ],
         ],
@@ -2418,7 +2440,7 @@ function buildAccountingTaskMemorySummary(string $userMessage, array $actions): 
         if ($type === '') {
             continue;
         }
-        if (in_array($type, ['create_task', 'suggest_accounts', 'document_approved', 'document_rejected', 'open_lancamentos', 'erp_movimentos_search', 'erp_planocontas_search', 'erp_taxonomias_search', 'erp_clientes_search', 'erp_fornecedores_search', 'erp_exercicios_list', 'erp_empresas_list', 'erp_api_get', 'get_accounting_examples'], true)) {
+        if (in_array($type, ['create_task', 'suggest_accounts', 'document_approved', 'document_rejected', 'open_lancamentos', 'erp_movimentos_search', 'erp_balancete', 'erp_planocontas_search', 'erp_taxonomias_search', 'erp_clientes_search', 'erp_fornecedores_search', 'erp_exercicios_list', 'erp_empresas_list', 'erp_api_get', 'get_accounting_examples'], true)) {
             $taskTypes[] = $type;
         }
     }
@@ -2790,6 +2812,20 @@ function getErpDefaultDb(): string {
     return '';
 }
 
+function normalizeErpDatabaseName(string $db): string {
+    $db = trim($db);
+    if ($db === '') {
+        return '';
+    }
+    // A base SQL Server do ERP chama-se emp_XXX. O assistente recebe apenas o
+    // numero (ex.: 314); o prefixo emp_ e interno aos pedidos a API. Se ja vier
+    // prefixada (emp_314) ou nao for puramente numerica, deixa como esta.
+    if (preg_match('/^\d+$/', $db)) {
+        return 'emp_' . $db;
+    }
+    return $db;
+}
+
 function applyErpCompanyParams(array $query, string $dbHint = ''): array {
     $dbHint = trim($dbHint);
     $db = trim((string) ($query['db'] ?? ''));
@@ -2801,6 +2837,8 @@ function applyErpCompanyParams(array $query, string $dbHint = ''): array {
     if ($emp === '' && $db !== '') {
         $emp = $db;
     }
+
+    $db = normalizeErpDatabaseName($db);
 
     if ($db !== '') {
         $query['db'] = $db;
@@ -5847,7 +5885,7 @@ if ($action === 'suggest_accounts') {
     ]);
     exit;
 }
-function callErpWebservice(string $endpoint, string $token): array {
+function callErpWebservice(string $endpoint, string $token, int $timeout = 30): array {
     $handle = curl_init($endpoint);
     curl_setopt_array($handle, [
         CURLOPT_RETURNTRANSFER => true,
@@ -5855,7 +5893,7 @@ function callErpWebservice(string $endpoint, string $token): array {
             'Accept: application/json',
             'X-API-KEY: ' . $token,
         ],
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => $timeout > 0 ? $timeout : 30,
     ]);
     $response = curl_exec($handle);
     $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
@@ -5879,6 +5917,120 @@ function callErpWebservice(string $endpoint, string $token): array {
         ];
     }
     return ['ok' => true, 'data' => $decoded];
+}
+
+/**
+ * Buscar todos os movimentos de contabilidade de um exercicio no ERP-SINC.
+ *
+ * O endpoint de movimentos pagina por `limit`, mas devolve sempre `iTotalRecords`.
+ * Para garantir o conjunto completo (necessario para um balancete), le-se primeiro
+ * o total e depois pede-se tudo com offset=0 (compativel com qualquer semantica de
+ * offset no webservice). Devolve a lista de cabecalhos com as respetivas `linhas`.
+ */
+function fetchAllErpMovimentos(string $baseUrl, string $token, array $baseQuery, string $db, int $maxRecords = 25000): array {
+    $probeEndpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/movimentos', array_merge($baseQuery, ['limit' => 1, 'offset' => 0]), $db);
+    $probe = callErpWebservice($probeEndpoint, $token, 60);
+    if (!$probe['ok']) {
+        return ['ok' => false, 'status' => $probe['status'] ?? 0, 'error' => $probe['error'] ?? 'Erro ERP'];
+    }
+    $probeData = $probe['data'];
+    if (isset($probeData['success']) && (int) $probeData['success'] === 0) {
+        return ['ok' => false, 'error' => trim((string) ($probeData['message'] ?? 'Erro ERP'))];
+    }
+    $total = (int) ($probeData['iTotalRecords'] ?? 0);
+    if ($total <= 0) {
+        return ['ok' => true, 'movimentos' => [], 'total' => 0];
+    }
+    if ($total > $maxRecords) {
+        return ['ok' => false, 'error' => 'Demasiados movimentos (' . $total . ') para agregar de uma vez. Restrinja por mes (mes_de/mes_ate) ou diario.'];
+    }
+    $endpoint = buildErpGetEndpoint($baseUrl, '/contabilidade/movimentos', array_merge($baseQuery, ['limit' => $total, 'offset' => 0]), $db);
+    $resp = callErpWebservice($endpoint, $token, 120);
+    if (!$resp['ok']) {
+        return ['ok' => false, 'status' => $resp['status'] ?? 0, 'error' => $resp['error'] ?? 'Erro ERP'];
+    }
+    $data = $resp['data'];
+    if (isset($data['success']) && (int) $data['success'] === 0) {
+        return ['ok' => false, 'error' => trim((string) ($data['message'] ?? 'Erro ERP'))];
+    }
+    $rows = $data['aaData'] ?? [];
+    return ['ok' => true, 'movimentos' => is_array($rows) ? $rows : [], 'total' => $total];
+}
+
+/**
+ * Agregar movimentos num balancete: soma debito/credito e saldo por conta.
+ * Opcoes: nivel (agrupar por N digitos = balancete geral), conta (prefixo),
+ * mes_de/mes_ate (intervalo de meses, inclui apuramentos 13-15).
+ */
+function computeErpBalancete(array $movimentos, array $opts): array {
+    $nivel = (int) ($opts['nivel'] ?? 0);
+    $contaFilter = trim((string) ($opts['conta'] ?? ''));
+    $mesDe = ($opts['mes_de'] ?? '') !== '' ? (int) $opts['mes_de'] : null;
+    $mesAte = ($opts['mes_ate'] ?? '') !== '' ? (int) $opts['mes_ate'] : null;
+
+    $acc = [];
+    $linhasContab = 0;
+    foreach ($movimentos as $mov) {
+        if (!is_array($mov)) {
+            continue;
+        }
+        $mes = (int) ($mov['intMes'] ?? 0);
+        if ($mesDe !== null && $mes < $mesDe) {
+            continue;
+        }
+        if ($mesAte !== null && $mes > $mesAte) {
+            continue;
+        }
+        foreach (($mov['linhas'] ?? []) as $linha) {
+            if (!is_array($linha)) {
+                continue;
+            }
+            $conta = trim((string) ($linha['strConta'] ?? ''));
+            if ($conta === '') {
+                continue;
+            }
+            if ($contaFilter !== '' && strpos($conta, $contaFilter) !== 0) {
+                continue;
+            }
+            $key = ($nivel > 0 && strlen($conta) > $nivel) ? substr($conta, 0, $nivel) : $conta;
+            $valor = (float) ($linha['fltValor'] ?? 0);
+            $dc = strtoupper(trim((string) ($linha['strDeb_Cre'] ?? '')));
+            if (!isset($acc[$key])) {
+                $acc[$key] = ['conta' => $key, 'debito' => 0.0, 'credito' => 0.0];
+            }
+            if ($dc === 'D') {
+                $acc[$key]['debito'] += $valor;
+            } else {
+                $acc[$key]['credito'] += $valor;
+            }
+            $linhasContab++;
+        }
+    }
+
+    ksort($acc, SORT_STRING);
+    $rows = [];
+    $totDeb = 0.0;
+    $totCred = 0.0;
+    foreach ($acc as $a) {
+        $saldo = round($a['debito'] - $a['credito'], 2);
+        $rows[] = [
+            'conta' => $a['conta'],
+            'debito' => round($a['debito'], 2),
+            'credito' => round($a['credito'], 2),
+            'saldo' => $saldo,
+            'natureza' => $saldo >= 0 ? 'D' : 'C',
+        ];
+        $totDeb += $a['debito'];
+        $totCred += $a['credito'];
+    }
+
+    return [
+        'linhas' => $linhasContab,
+        'contas' => count($rows),
+        'total_debito' => round($totDeb, 2),
+        'total_credito' => round($totCred, 2),
+        'balancete' => $rows,
+    ];
 }
 
 function efaturaTablesAvailable(): bool {
@@ -6637,6 +6789,58 @@ do {
                     'data' => $erpResponse['data'],
                 ];
                 $actions[] = ['type' => 'erp_movimentos_search'];
+                break;
+
+            case 'erp_balancete':
+                if ($erpBaseUrl === '' || $erpToken === '') {
+                    $toolResult = ['ok' => false, 'error' => 'ERP nao configurado.'];
+                    break;
+                }
+                $balDb = trim((string) ($args['db'] ?? ''));
+                $balExercicio = trim((string) ($args['strCodExercicio'] ?? ''));
+                if ($balDb === '' || $balExercicio === '') {
+                    $toolResult = ['ok' => false, 'error' => 'Indique a base de dados (db) e o exercicio (strCodExercicio).'];
+                    break;
+                }
+                $balBaseQuery = ['strCodExercicio' => $balExercicio];
+                if (isset($args['intCodDiario']) && $args['intCodDiario'] !== '') {
+                    $balBaseQuery['intCodDiario'] = $args['intCodDiario'];
+                }
+                $balFetch = fetchAllErpMovimentos($erpBaseUrl, $erpToken, $balBaseQuery, $balDb);
+                if (!$balFetch['ok']) {
+                    $toolResult = [
+                        'ok' => false,
+                        'status' => $balFetch['status'] ?? 0,
+                        'error' => $balFetch['error'] ?? 'Erro ERP',
+                    ];
+                    break;
+                }
+                $balResult = computeErpBalancete($balFetch['movimentos'], [
+                    'nivel' => $args['nivel'] ?? 0,
+                    'conta' => $args['conta'] ?? '',
+                    'mes_de' => $args['mes_de'] ?? '',
+                    'mes_ate' => $args['mes_ate'] ?? '',
+                ]);
+                $balMaxRows = 600;
+                $balTruncated = false;
+                if (count($balResult['balancete']) > $balMaxRows) {
+                    $balResult['balancete'] = array_slice($balResult['balancete'], 0, $balMaxRows);
+                    $balTruncated = true;
+                }
+                $toolResult = [
+                    'ok' => true,
+                    'db' => normalizeErpDatabaseName($balDb),
+                    'exercicio' => $balExercicio,
+                    'nivel' => (int) ($args['nivel'] ?? 0),
+                    'movimentos' => $balFetch['total'],
+                    'linhas' => $balResult['linhas'],
+                    'contas' => $balResult['contas'],
+                    'total_debito' => $balResult['total_debito'],
+                    'total_credito' => $balResult['total_credito'],
+                    'truncated' => $balTruncated,
+                    'balancete' => $balResult['balancete'],
+                ];
+                $actions[] = ['type' => 'erp_balancete', 'db' => normalizeErpDatabaseName($balDb), 'exercicio' => $balExercicio, 'contas' => $balResult['contas']];
                 break;
 
             case 'erp_planocontas_search':
