@@ -2118,6 +2118,7 @@ return;
                             </div>
                         </div>
                     </div>
+                    <?php endif; /* fecha if ($canManageClientExtranet) dos modais de Extranet/Admin */ ?>
                     <script>
                     (function () {
                         var entityTabKey = <?= json_encode(
@@ -3097,7 +3098,6 @@ return;
                     <?php endforeach; ?>
                     </tbody>
                 </table>
-            <?php endif; ?>
             <?php endif; ?>
         <?php if (!$consultEntity): ?>
         </div>
