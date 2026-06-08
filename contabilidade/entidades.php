@@ -1792,21 +1792,15 @@ return;
                                                                             <?php endif; ?>
                                                                         </td>
                                                                         <td class="text-right">
-                                                                            <form method="post" target="_blank" class="d-inline extranet-impersonate-form" style="display:inline-block;">
-                                                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES); ?>">
-                                                                                <input type="hidden" name="action" value="impersonate-client-user">
-                                                                                <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
-                                                                                <input type="hidden" name="client_user_id" value="<?= (int) ($clientAccount['id'] ?? 0); ?>">
-                                                                                <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity)), ENT_QUOTES); ?>">
-                                                                                <button
-                                                                                    type="submit"
-                                                                                    class="btn btn-xs btn-success extranet-impersonate-trigger"
-                                                                                    title="Entrar na area reservada deste utilizador sem credenciais"
-                                                                                    <?= (int) ($clientAccount['is_active'] ?? 0) === 1 ? '' : 'disabled'; ?>
-                                                                                >
-                                                                                    <i class="fa fa-sign-in"></i> Impersonar
-                                                                                </button>
-                                                                            </form>
+                                                                            <button
+                                                                                type="button"
+                                                                                class="btn btn-xs btn-success extranet-impersonate-trigger"
+                                                                                data-client-user-id="<?= (int) ($clientAccount['id'] ?? 0); ?>"
+                                                                                title="Entrar na area reservada deste utilizador sem credenciais"
+                                                                                <?= (int) ($clientAccount['is_active'] ?? 0) === 1 ? '' : 'disabled'; ?>
+                                                                            >
+                                                                                <i class="fa fa-sign-in"></i> Impersonar
+                                                                            </button>
                                                                             <button
                                                                                 type="button"
                                                                                 class="btn btn-xs btn-info extranet-edit-trigger"
@@ -2285,19 +2279,10 @@ return;
                             var activeLabel = isActive
                                 ? '<span class="label label-success">Ativo</span>'
                                 : '<span class="label label-default">Inativo</span>';
-                            var csrfTokenInput = document.querySelector('input[name="csrf_token"]');
-                            var csrfToken = csrfTokenInput ? csrfTokenInput.value : '';
                             var impersonateForm = isActive
-                                ? ('<form method="post" target="_blank" class="d-inline extranet-impersonate-form" style="display:inline-block;">' +
-                                        '<input type="hidden" name="csrf_token" value="' + escapeHtml(csrfToken) + '">' +
-                                        '<input type="hidden" name="action" value="impersonate-client-user">' +
-                                        '<input type="hidden" name="entity_id" value="' + extranetImpersonateEntityId + '">' +
-                                        '<input type="hidden" name="client_user_id" value="' + userId + '">' +
-                                        '<input type="hidden" name="return_url" value="' + escapeHtml(extranetImpersonateReturnUrl) + '">' +
-                                        '<button type="submit" class="btn btn-xs btn-success extranet-impersonate-trigger" title="Entrar na area reservada deste utilizador sem credenciais">' +
-                                            '<i class="fa fa-sign-in"></i> Impersonar' +
-                                        '</button>' +
-                                    '</form> ')
+                                ? ('<button type="button" class="btn btn-xs btn-success extranet-impersonate-trigger" data-client-user-id="' + userId + '" title="Entrar na area reservada deste utilizador sem credenciais">' +
+                                        '<i class="fa fa-sign-in"></i> Impersonar' +
+                                    '</button> ')
                                 : '';
                             return '' +
                                 '<tr data-client-user-id="' + userId + '" data-client-active="' + (isActive ? '1' : '0') + '">' +
@@ -2575,8 +2560,48 @@ return;
                             }
                         }
 
+                        function submitExtranetImpersonate(clientUserId) {
+                            var userId = parseInt(clientUserId, 10) || 0;
+                            if (!userId) {
+                                return;
+                            }
+                            var csrfTokenInput = document.querySelector('input[name="csrf_token"]');
+                            var csrfToken = csrfTokenInput ? csrfTokenInput.value : '';
+                            var form = document.createElement('form');
+                            form.method = 'post';
+                            form.target = '_blank';
+                            form.style.display = 'none';
+                            var fields = {
+                                csrf_token: csrfToken,
+                                action: 'impersonate-client-user',
+                                entity_id: extranetImpersonateEntityId,
+                                client_user_id: userId,
+                                return_url: extranetImpersonateReturnUrl
+                            };
+                            Object.keys(fields).forEach(function (name) {
+                                var input = document.createElement('input');
+                                input.type = 'hidden';
+                                input.name = name;
+                                input.value = fields[name];
+                                form.appendChild(input);
+                            });
+                            document.body.appendChild(form);
+                            form.submit();
+                            document.body.removeChild(form);
+                        }
+
                         if (extranetUsersTable) {
                             extranetUsersTable.addEventListener('click', function (event) {
+                                var impersonateButton = event.target.closest('.extranet-impersonate-trigger');
+                                if (impersonateButton && extranetUsersTable.contains(impersonateButton)) {
+                                    event.preventDefault();
+                                    if (impersonateButton.disabled) {
+                                        return;
+                                    }
+                                    submitExtranetImpersonate(impersonateButton.getAttribute('data-client-user-id'));
+                                    return;
+                                }
+
                                 var editButton = event.target.closest('.extranet-edit-trigger');
                                 if (editButton && extranetUsersTable.contains(editButton)) {
                                     event.preventDefault();
