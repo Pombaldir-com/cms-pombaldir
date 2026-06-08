@@ -171,6 +171,30 @@ if (!$embed) {
     margin-left: auto;
     margin-right: 0;
 }
+.ai-message.ai-downloads {
+    background: #f0f9f4;
+    border: 1px solid #c6e7d4;
+}
+.ai-downloads-label {
+    font-size: 12px;
+    color: #2a3f54;
+    margin-bottom: 6px;
+}
+.ai-download-link {
+    display: inline-block;
+    margin: 3px 6px 3px 0;
+    padding: 6px 12px;
+    background: #26b99a;
+    color: #fff;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 13px;
+}
+.ai-download-link:hover {
+    background: #1f9c83;
+    color: #fff;
+    text-decoration: none;
+}
 .ai-input {
     margin-top: 12px;
     border: 1px solid #dce6f0;
@@ -303,6 +327,35 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
         }
         var label = filenames.length === 1 ? 'Anexo enviado' : 'Anexos enviados';
         appendMessage('attachment', label + ': ' + filenames.join(', '));
+    }
+
+    function appendDownloads(downloads) {
+        if (!Array.isArray(downloads) || !downloads.length) {
+            return;
+        }
+        var bubble = document.createElement('div');
+        bubble.className = 'ai-message assistant ai-downloads';
+        var label = document.createElement('div');
+        label.className = 'ai-downloads-label';
+        label.textContent = downloads.length === 1 ? 'Ficheiro disponivel para download:' : 'Ficheiros disponiveis para download:';
+        bubble.appendChild(label);
+        downloads.forEach(function (dl) {
+            if (!dl || !dl.url) {
+                return;
+            }
+            var link = document.createElement('a');
+            link.className = 'ai-download-link';
+            link.href = dl.url;
+            link.setAttribute('download', dl.filename || '');
+            link.setAttribute('rel', 'noopener');
+            link.target = '_blank';
+            var name = dl.filename || 'ficheiro';
+            var size = dl.size ? ' (' + Math.max(1, Math.round(dl.size / 1024)) + ' KB)' : '';
+            link.textContent = '⬇️ ' + name + size;
+            bubble.appendChild(link);
+        });
+        messagesEl.appendChild(bubble);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function readFileAsDataUrl(file) {
@@ -512,6 +565,9 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                 appendMessage('assistant', payload.message);
             } else {
                 appendMessage('assistant', 'Nao foi possivel obter resposta.');
+            }
+            if (payload && payload.downloads) {
+                appendDownloads(payload.downloads);
             }
             if (payload && payload.csrf_token) {
                 window.aiCsrfToken = payload.csrf_token;

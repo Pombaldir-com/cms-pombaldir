@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/assistant-downloads.php';
 
 startSession();
 requireLogin();
@@ -384,6 +385,7 @@ $systemPrompt = "Es um assistente de AI para um escritorio de contabilidade. Usa
     . "Pede os dados em falta antes de executar acoes.\n"
     . "Sempre que o utilizador pedir informacao do ERP sobre balancetes, resumos analiticos, balancos, saldos, mapas contabilisticos ou outros mapas/consultas contabilisticas, privilegia a API ERP-SINC como fonte principal de dados.\n"
     . "Para balancetes ou saldos por conta usa a ferramenta erp_balancete (db = so o numero da base, e strCodExercicio). Para balancete geral/sintetico usa o parametro nivel (numero de digitos a agrupar); sem nivel devolve analitico. A ferramenta agrega os movimentos do ERP; nao tentes adivinhar um endpoint de balancete via erp_api_get.\n"
+    . "Quando o utilizador quiser descarregar/exportar dados (ex.: CSV, TXT ou PDF), gera um ficheiro: para balancetes usa o parametro download (csv ou pdf) do erp_balancete; para outros dados usa a ferramenta create_download com o conteudo ja formatado. O link de download e apresentado automaticamente ao utilizador; confirma apenas que o ficheiro ficou disponivel e nao copies o conteudo todo na resposta.\n"
     . "Nesses pedidos, tenta resolver primeiro a base ERP correta (db) e usa as ferramentas ERP da app antes de responder; se faltar contexto objetivo (empresa, exercicio, periodo, diario, conta ou base ERP), pede esses dados de forma curta.\n"
     . "Quando precisares de pedir a base de dados ERP ao utilizador, pede apenas o numero da base (ex.: 314, 'Base dados 314 por exemplo') e nunca o formato interno emp_314; o prefixo emp_ e apenas interno para os pedidos a API.\n"
     . "Quando te referires a uma base ERP em respostas, erros, confirmacoes ou perguntas, escreve sempre 'base de dados 314' ou 'base 314' e nunca 'empresa 314' se estiveres a falar da db do ERP.\n"
@@ -527,6 +529,7 @@ $tools = [
                     'nivel' => ['type' => 'integer', 'description' => 'Numero de digitos para agrupar as contas (balancete geral/sintetico). Omitir ou 0 = analitico (conta completa).'],
                     'conta' => ['type' => 'string', 'description' => 'Filtrar contas por prefixo. Opcional.'],
                     'intCodDiario' => ['type' => 'string', 'description' => 'Filtrar por diario especifico. Opcional.'],
+                    'download' => ['type' => 'string', 'enum' => ['csv', 'pdf'], 'description' => 'Se indicado, gera tambem um ficheiro do balancete para download (csv ou pdf) e devolve o link.'],
                 ],
                 'required' => ['db', 'strCodExercicio'],
                 'additionalProperties' => false,
@@ -670,6 +673,24 @@ $tools = [
                     'refresh_if_missing' => ['type' => 'boolean'],
                 ],
                 'required' => ['company'],
+                'additionalProperties' => false,
+            ],
+        ],
+    ],
+    [
+        'type' => 'function',
+        'function' => [
+            'name' => 'create_download',
+            'description' => 'Gerar um ficheiro para o utilizador descarregar (CSV, TXT, MD, JSON ou PDF) e devolver um link de download. Usa quando o utilizador pedir para exportar/descarregar dados (ex.: uma tabela, lista ou resumo). Para balancetes, prefere o parametro download da ferramenta erp_balancete (evita reescrever os dados). O conteudo deve vir pronto no parametro content.',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'filename' => ['type' => 'string', 'description' => 'Nome do ficheiro (ex.: balancete-2025). A extensao e ajustada ao formato.'],
+                    'format' => ['type' => 'string', 'enum' => ['csv', 'txt', 'md', 'json', 'pdf'], 'description' => 'Formato do ficheiro.'],
+                    'content' => ['type' => 'string', 'description' => 'Conteudo textual completo do ficheiro (para CSV, o texto CSV ja formatado).'],
+                    'title' => ['type' => 'string', 'description' => 'Titulo opcional, usado no topo do PDF.'],
+                ],
+                'required' => ['filename', 'format', 'content'],
                 'additionalProperties' => false,
             ],
         ],
@@ -2440,7 +2461,7 @@ function buildAccountingTaskMemorySummary(string $userMessage, array $actions): 
         if ($type === '') {
             continue;
         }
-        if (in_array($type, ['create_task', 'suggest_accounts', 'document_approved', 'document_rejected', 'open_lancamentos', 'erp_movimentos_search', 'erp_balancete', 'erp_planocontas_search', 'erp_taxonomias_search', 'erp_clientes_search', 'erp_fornecedores_search', 'erp_exercicios_list', 'erp_empresas_list', 'erp_api_get', 'get_accounting_examples'], true)) {
+        if (in_array($type, ['create_task', 'suggest_accounts', 'document_approved', 'document_rejected', 'open_lancamentos', 'erp_movimentos_search', 'erp_balancete', 'create_download', 'erp_planocontas_search', 'erp_taxonomias_search', 'erp_clientes_search', 'erp_fornecedores_search', 'erp_exercicios_list', 'erp_empresas_list', 'erp_api_get', 'get_accounting_examples'], true)) {
             $taskTypes[] = $type;
         }
     }
@@ -6383,6 +6404,7 @@ function assistantLimitEfaturaText(string $value, int $maxLength): string {
 }
 
 $actions = [];
+$downloads = [];
 $lastSuggestedAccounts = [];
 $finalMessage = '';
 $loopCount = 0;
@@ -6821,6 +6843,7 @@ do {
                     'mes_de' => $args['mes_de'] ?? '',
                     'mes_ate' => $args['mes_ate'] ?? '',
                 ]);
+                $balFullRows = $balResult['balancete'];
                 $balMaxRows = 600;
                 $balTruncated = false;
                 if (count($balResult['balancete']) > $balMaxRows) {
@@ -6840,6 +6863,53 @@ do {
                     'truncated' => $balTruncated,
                     'balancete' => $balResult['balancete'],
                 ];
+
+                $balDownloadFormat = strtolower(trim((string) ($args['download'] ?? '')));
+                if (in_array($balDownloadFormat, ['csv', 'pdf'], true) && $balFullRows) {
+                    $balTipo = ((int) ($args['nivel'] ?? 0)) > 0 ? 'geral' : 'analitico';
+                    $balBaseName = 'balancete-' . $balTipo . '-' . preg_replace('/[^a-zA-Z0-9_\-]/', '', $balDb) . '-' . preg_replace('/[^a-zA-Z0-9_\-]/', '', $balExercicio);
+                    if ($balDownloadFormat === 'csv') {
+                        $balContent = assistantBuildCsv(
+                            $balFullRows,
+                            ['conta', 'debito', 'credito', 'saldo', 'natureza'],
+                            ['Conta', 'Debito', 'Credito', 'Saldo', 'Natureza']
+                        );
+                        $balFmt = assistantResolveDownloadFormat('csv');
+                    } else {
+                        $balPdfLines = [
+                            'Balancete ' . $balTipo . ' | base ' . normalizeErpDatabaseName($balDb) . ' | exercicio ' . $balExercicio,
+                            'Conta            Debito         Credito          Saldo  Nat',
+                            str_repeat('-', 64),
+                        ];
+                        foreach ($balFullRows as $br) {
+                            $balPdfLines[] = str_pad((string) $br['conta'], 14)
+                                . str_pad(number_format((float) $br['debito'], 2, ',', '.'), 16, ' ', STR_PAD_LEFT)
+                                . str_pad(number_format((float) $br['credito'], 2, ',', '.'), 16, ' ', STR_PAD_LEFT)
+                                . str_pad(number_format((float) $br['saldo'], 2, ',', '.'), 14, ' ', STR_PAD_LEFT)
+                                . '  ' . (string) $br['natureza'];
+                        }
+                        $balPdfLines[] = str_repeat('-', 64);
+                        $balPdfLines[] = 'Totais: Debito ' . number_format((float) $balResult['total_debito'], 2, ',', '.')
+                            . ' | Credito ' . number_format((float) $balResult['total_credito'], 2, ',', '.');
+                        $balContent = assistantBuildPdfFromText('Balancete ' . $balExercicio, implode("\n", $balPdfLines));
+                        $balFmt = assistantResolveDownloadFormat('pdf');
+                    }
+                    $balDownload = createAssistantDownload(
+                        getPDO(),
+                        $userId,
+                        $sessionId,
+                        assistantNormalizeDownloadFilename($balBaseName, $balFmt['ext']),
+                        $balFmt['mime'],
+                        $balContent
+                    );
+                    if (!empty($balDownload['ok'])) {
+                        $downloads[] = ['filename' => $balDownload['filename'], 'url' => $balDownload['url'], 'mime' => $balDownload['mime'], 'size' => $balDownload['size']];
+                        $toolResult['download'] = ['filename' => $balDownload['filename'], 'url' => $balDownload['url']];
+                    } else {
+                        $toolResult['download_error'] = $balDownload['error'] ?? 'Falha ao gerar o ficheiro.';
+                    }
+                }
+
                 $actions[] = ['type' => 'erp_balancete', 'db' => normalizeErpDatabaseName($balDb), 'exercicio' => $balExercicio, 'contas' => $balResult['contas']];
                 break;
 
@@ -7056,6 +7126,49 @@ do {
                 }
                 break;
 
+            case 'create_download':
+                $dlFormatKey = strtolower(trim((string) ($args['format'] ?? 'txt')));
+                $dlContentRaw = (string) ($args['content'] ?? '');
+                $dlFilename = (string) ($args['filename'] ?? 'export');
+                if (trim($dlContentRaw) === '') {
+                    $toolResult = ['ok' => false, 'error' => 'Indique o conteudo (content) do ficheiro.'];
+                    break;
+                }
+                $dlFmt = assistantResolveDownloadFormat($dlFormatKey);
+                if ($dlFmt['ext'] === 'pdf') {
+                    $dlContent = assistantBuildPdfFromText((string) ($args['title'] ?? ''), $dlContentRaw);
+                    if ($dlContent === '') {
+                        $toolResult = ['ok' => false, 'error' => 'Nao foi possivel gerar o PDF.'];
+                        break;
+                    }
+                } else {
+                    $dlContent = $dlContentRaw;
+                    if ($dlFmt['ext'] === 'csv' && strncmp($dlContent, "\xEF\xBB\xBF", 3) !== 0) {
+                        $dlContent = "\xEF\xBB\xBF" . $dlContent;
+                    }
+                }
+                $dlResult = createAssistantDownload(
+                    getPDO(),
+                    $userId,
+                    $sessionId,
+                    assistantNormalizeDownloadFilename($dlFilename, $dlFmt['ext']),
+                    $dlFmt['mime'],
+                    $dlContent
+                );
+                if (empty($dlResult['ok'])) {
+                    $toolResult = ['ok' => false, 'error' => $dlResult['error'] ?? 'Falha ao gerar o ficheiro.'];
+                    break;
+                }
+                $downloads[] = ['filename' => $dlResult['filename'], 'url' => $dlResult['url'], 'mime' => $dlResult['mime'], 'size' => $dlResult['size']];
+                $toolResult = [
+                    'ok' => true,
+                    'filename' => $dlResult['filename'],
+                    'url' => $dlResult['url'],
+                    'size' => $dlResult['size'],
+                ];
+                $actions[] = ['type' => 'create_download', 'filename' => $dlResult['filename']];
+                break;
+
             default:
                 $toolResult = ['ok' => false, 'error' => 'Ferramenta desconhecida.'];
         }
@@ -7206,4 +7319,5 @@ echo json_encode([
     'message' => $finalMessage,
     'csrf_token' => $newToken,
     'actions' => $actions,
+    'downloads' => $downloads,
 ]);

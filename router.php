@@ -112,6 +112,10 @@ switch (true) {
     case $path === 'assistant':
         require __DIR__ . '/assistant.php';
         break;
+    case preg_match('#^assistant/download/([a-f0-9]{48})$#', $path, $m):
+        $_GET['download_token'] = $m[1];
+        require __DIR__ . '/assistant-download.php';
+        break;
     case $path === 'chat-interno':
         require __DIR__ . '/internal-chat.php';
         break;
