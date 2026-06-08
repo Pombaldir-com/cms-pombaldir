@@ -14,6 +14,7 @@ command‑line option (default: 300).
 """
 import sys
 import os
+import re
 import json
 import argparse
 import shutil
@@ -176,30 +177,39 @@ def _decode_cv(image: np.ndarray) -> List[str]:
     return unique_texts
 
 
-def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[str]:
+def _decode_with_strategies(
+    image: np.ndarray, max_attempts: int = 12, stop_on_first: bool = False
+) -> List[str]:
     base = _prepare_base(image)
     h, w = base.shape[:2]
     min_side = min(h, w)
-    scale_boost = 1.0
+    # Upscaling so' ajuda imagens pequenas (QR com poucos pixeis). Em paginas grandes
+    # (ex.: A4 @300dpi ~ 2480x3508) reescalar para 1.5x/2x e' contraproducente e MUITO
+    # lento (cada detectAndDecodeMulti cresce com a area). Limita as escalas ao util.
     if min_side < 900:
-        scale_boost = 1200 / max(1, min_side)
-    escala_inicial = max(1.0, scale_boost)
-    scales = []
-    for m in (1.0, 1.5, 2.0):
-        val = min(3.5, escala_inicial * m)
-        scales.append(round(val, 2))
-    seen = set()
-    scales = [s for s in scales if not (s in seen or seen.add(s))]
+        boost = 1200 / max(1, min_side)
+        scales = sorted({round(min(3.5, boost * m), 2) for m in (1.0, 1.5, 2.0)})
+    elif min_side < 1500:
+        scales = [1.0, 1.5]
+    else:
+        scales = [1.0]
 
     attempts = 0
     results: List[str] = []
     for scale in scales:
-        resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
+        # Evita reescalar quando scale==1.0 (caso mais comum): poupa uma copia/resize
+        # de uma imagem potencialmente enorme (A4 @300dpi ~ 2480x3508).
+        if abs(scale - 1.0) < 1e-3:
+            resized = base
+        else:
+            resized = cv2.resize(base, None, fx=scale, fy=scale, interpolation=cv2.INTER_LANCZOS4)
         for fn in STRATEGIES.values():
             if attempts >= max_attempts:
                 return results
             proc = fn(resized.copy())
-            for ang in (-10, -5, 0, 5, 10):
+            # Tenta primeiro a imagem direita (angulo 0): e' o caso normal e o mais
+            # barato; so' roda se nao decodificar.
+            for ang in (0, -5, 5, -10, 10):
                 if attempts >= max_attempts:
                     return results
                 if ang != 0:
@@ -214,6 +224,10 @@ def _decode_with_strategies(image: np.ndarray, max_attempts: int = 12) -> List[s
                 for t in texts:
                     if t not in results:
                         results.append(t)
+                # Assim que ha' leitura valida, para (o detectAndDecodeMulti ja' apanha
+                # varios QR numa so' tentativa). Acelera muito o caso comum.
+                if results and stop_on_first:
+                    return results
     return results
 
 
@@ -267,12 +281,14 @@ def _receipt_candidate_regions(image: np.ndarray) -> List[np.ndarray]:
     return candidates
 
 
-def _decode_receipt_candidates(image: np.ndarray, max_attempts: int) -> List[str]:
+def _decode_receipt_candidates(image: np.ndarray, max_attempts: int, stop_on_first: bool = False) -> List[str]:
     if not _is_receipt_like(image):
         return []
     results: List[str] = []
     for candidate in _receipt_candidate_regions(image):
-        for text in _decode_with_strategies(candidate, max_attempts=max(4, min(max_attempts, 8))):
+        for text in _decode_with_strategies(
+            candidate, max_attempts=max(4, min(max_attempts, 8)), stop_on_first=stop_on_first
+        ):
             if text not in results:
                 results.append(text)
         if results:
@@ -301,6 +317,23 @@ def _load_page_image(path: str, dpi: int = 300, page: int = 1) -> Tuple[np.ndarr
             except TypeError:
                 info = pdfinfo_from_path(path)  # type: ignore[arg-type]
         total_pages = int(info.get("Pages", 1))
+
+        # Limita o tamanho do render: algumas digitalizacoes definem paginas enormes
+        # (ex.: 2205x3116 pts ~ 43"!). A 300 DPI dariam ~119 MP e tornariam a decode
+        # absurdamente lenta. Limita o lado maior a ~ (dpi * 11.7") = um A4 ao mesmo
+        # DPI, mantendo resolucao mais que suficiente para ler QR.
+        page_size = str(info.get("Page size", "")) if isinstance(info, dict) else ""
+        m = re.match(r"\s*([\d.]+)\s*x\s*([\d.]+)\s*pts", page_size)
+        if m:
+            w_pts, h_pts = float(m.group(1)), float(m.group(2))
+            long_pts = max(w_pts, h_pts)
+            long_in = long_pts / 72.0
+            cap_px = int(round(dpi * 11.7))
+            if long_in * dpi > cap_px * 1.05 and cap_px > 0:
+                if h_pts >= w_pts:
+                    kwargs["size"] = (None, cap_px)
+                else:
+                    kwargs["size"] = (cap_px, None)
 
         selected_page = max(1, page)
         if selected_page > total_pages:
@@ -347,21 +380,29 @@ def decode_file(
     max_attempts: int = 12,
     receipt_priority: bool = False,
     single_page_scan: bool = False,
+    stop_on_first: bool = False,
+    receipt_only: bool = False,
 ) -> List[str]:
+    # receipt_only: so' tenta as regioes tipicas de talao/POS, sem o scan completo de
+    # fallback. Util como passagem extra barata depois de um scan completo ja' falhar
+    # (evita varrer o documento inteiro outra vez em A4 sem QR).
+    def _decode_page(im: np.ndarray) -> List[str]:
+        if receipt_priority:
+            found = _decode_receipt_candidates(im, max_attempts=max_attempts, stop_on_first=stop_on_first)
+            if found or receipt_only:
+                return found
+        return _decode_with_strategies(im, max_attempts=max_attempts, stop_on_first=stop_on_first)
+
     ext = os.path.splitext(path)[1].lower()
     if crop_ratios is not None:
         image, _ = _load_page_image(path, dpi=dpi, page=page)
         cropped = _crop_by_ratios(image, crop_ratios)
-        return _decode_with_strategies(cropped, max_attempts=max_attempts)
+        return _decode_with_strategies(cropped, max_attempts=max_attempts, stop_on_first=stop_on_first)
 
     if ext == ".pdf":
         start_page = page if single_page_scan else 1
         image, total_pages = _load_page_image(path, dpi=dpi, page=start_page)
-        texts: List[str] = []
-        if receipt_priority:
-            texts = _decode_receipt_candidates(image, max_attempts=max_attempts)
-        if not texts:
-            texts = _decode_with_strategies(image, max_attempts=max_attempts)
+        texts: List[str] = _decode_page(image)
 
         if total_pages == 1 or single_page_scan:
             return texts
@@ -372,23 +413,14 @@ def decode_file(
         seen = set(texts)
         for page_num in range(2, total_pages + 1):
             img, _ = _load_page_image(path, dpi=dpi, page=page_num)
-            page_texts: List[str] = []
-            if receipt_priority:
-                page_texts = _decode_receipt_candidates(img, max_attempts=max_attempts)
-            if not page_texts:
-                page_texts = _decode_with_strategies(img, max_attempts=max_attempts)
-            for t in page_texts:
+            for t in _decode_page(img):
                 if t not in seen:
                     texts.append(t)
                     seen.add(t)
         return texts
 
     img, _ = _load_page_image(path, dpi=dpi, page=page)
-    if receipt_priority:
-        receipt_texts = _decode_receipt_candidates(img, max_attempts=max_attempts)
-        if receipt_texts:
-            return receipt_texts
-    return _decode_with_strategies(img, max_attempts=max_attempts)
+    return _decode_page(img)
 
 
 def render_preview(path: str, output_path: str, dpi: int = 150, page: int = 1) -> Dict[str, int]:
@@ -441,7 +473,9 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=0, help="maximum PDF pages to scan (0 = all)")
     parser.add_argument("--max-attempts", type=int, default=12, help="maximum image-processing attempts per page")
     parser.add_argument("--receipt-priority", action="store_true", help="prioritize likely QR regions for POS/receipt documents before global scan")
+    parser.add_argument("--receipt-only", action="store_true", help="only scan POS/receipt candidate regions (no full-page fallback); cheap extra pass")
     parser.add_argument("--single-page-scan", action="store_true", help="scan only the page selected in --page")
+    parser.add_argument("--stop-on-first", action="store_true", help="return as soon as a QR is decoded on a page (faster first pass; lower recall for multi-QR pages)")
     parser.add_argument("--crop-ratios", type=_parse_crop_ratios, help="crop rectangle as x,y,w,h ratios")
     parser.add_argument("--render-preview", action="store_true", help="render the selected page to an image")
     parser.add_argument("--output", help="output image path for --render-preview")
@@ -475,6 +509,8 @@ def main() -> int:
             max_attempts=args.max_attempts,
             receipt_priority=args.receipt_priority,
             single_page_scan=args.single_page_scan,
+            stop_on_first=args.stop_on_first,
+            receipt_only=args.receipt_only,
         )
     except Exception as exc:
         print(str(exc), file=sys.stderr)

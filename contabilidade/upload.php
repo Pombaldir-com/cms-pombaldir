@@ -1172,6 +1172,36 @@ function decodeAccountingUploadQrSelection(string $absoluteFile, int $page, arra
 }
 
 /**
+ * Conta paginas de um PDF via pdfinfo (rapido, ~30ms). Devolve 0 se nao conseguir.
+ */
+function accountingUploadPdfPageCount(string $absolutePath): int {
+    if (strtolower((string) pathinfo($absolutePath, PATHINFO_EXTENSION)) !== 'pdf') {
+        return 1;
+    }
+    $popplerPath = getenv('POPPLER_PATH');
+    $binary = 'pdfinfo';
+    if ($popplerPath) {
+        $candidate = rtrim($popplerPath, '/') . '/pdfinfo';
+        if (is_executable($candidate)) {
+            $binary = $candidate;
+        }
+    }
+    $cmd = escapeshellcmd($binary) . ' ' . escapeshellarg($absolutePath) . ' 2>/dev/null';
+    $output = [];
+    $ret = 0;
+    exec($cmd, $output, $ret);
+    if ($ret !== 0) {
+        return 0;
+    }
+    foreach ($output as $line) {
+        if (preg_match('/^Pages:\s*(\d+)/', (string) $line, $m)) {
+            return (int) $m[1];
+        }
+    }
+    return 0;
+}
+
+/**
  * Deteta QR codes de um ficheiro de upload ja' gravado (sempre PDF).
  *
  * Esta logica foi separada do upload-handler.php para que o upload do PDF seja
@@ -1197,10 +1227,6 @@ function detectAccountingUploadQr(string $absolutePath): array {
     if ($qrAutoMaxAttempts <= 0) {
         $qrAutoMaxAttempts = 6;
     }
-    $qrRetryMaxPages = (int) getSetting('qr_retry_max_pages', '2');
-    if ($qrRetryMaxPages < 0) {
-        $qrRetryMaxPages = 2;
-    }
     $qrRetryMaxAttempts = (int) getSetting('qr_retry_max_attempts', '12');
     if ($qrRetryMaxAttempts <= 0) {
         $qrRetryMaxAttempts = 12;
@@ -1213,7 +1239,7 @@ function detectAccountingUploadQr(string $absolutePath): array {
     $popplerPath = getenv('POPPLER_PATH');
     $envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
 
-    $detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority, int $page = 1, bool $singlePageScan = false) use ($envPrefix, $script, $absolutePath): array {
+    $detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority, int $page = 1, bool $singlePageScan = false, bool $receiptOnly = false) use ($envPrefix, $script, $absolutePath): array {
         $cmd = $envPrefix . escapeshellcmd("python3 $script")
             . ' ' . escapeshellarg($absolutePath)
             . ' --dpi ' . escapeshellarg((string) $dpi)
@@ -1222,6 +1248,7 @@ function detectAccountingUploadQr(string $absolutePath): array {
             . ' --page ' . escapeshellarg((string) $page)
             . ($singlePageScan ? ' --single-page-scan' : '')
             . ($receiptPriority ? ' --receipt-priority' : '')
+            . ($receiptOnly ? ' --receipt-only' : '')
             . ' 2>&1';
         $output = [];
         $ret = 0;
@@ -1268,66 +1295,31 @@ function detectAccountingUploadQr(string $absolutePath): array {
         return $merged;
     };
 
-    $completePdfAttempt = static function (array $attempt) use ($detectQr, $qrRetryDpi, $qrRetryMaxAttempts): ?array {
-        $texts = isset($attempt['texts']) && is_array($attempt['texts']) ? $attempt['texts'] : [];
-        if (empty($texts)) {
-            return null;
-        }
-
-        $attemptMaxPages = (int) ($attempt['max_pages'] ?? 0);
-        if ($attemptMaxPages === 0) {
-            return null;
-        }
-
-        $completionDpi = max((int) ($attempt['dpi'] ?? 0), $qrRetryDpi);
-        if ($completionDpi <= 0) {
-            return null;
-        }
-
-        $completionMaxAttempts = (int) ($attempt['max_attempts'] ?? 0);
-        if ($completionMaxAttempts <= 0) {
-            $completionMaxAttempts = $qrRetryMaxAttempts;
-        } else {
-            $completionMaxAttempts = max($completionMaxAttempts, $qrRetryMaxAttempts);
-        }
-
-        return $detectQr(
-            $completionDpi,
-            0,
-            $completionMaxAttempts,
-            !empty($attempt['receipt_priority'])
-        );
-    };
-
     $attempts = [];
+
+    // 1) Sonda rapida: pagina inicial a baixo DPI (apanha QR "facil" depressa).
+    //    Faturas nativas leem-se quase sempre aqui em ~2s.
     $attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
     $qrTexts = $attempts[0]['texts'];
 
-    $completionAttempt = $completePdfAttempt($attempts[0]);
-    if (is_array($completionAttempt)) {
-        $attempts[] = $completionAttempt;
-        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
-    }
+    // Caminho rapido: se a sonda leu QR e o PDF tem 1 pagina, esta' tudo lido -
+    //    nao vale a pena a varredura pesada a 300 DPI (poupa ~10s no caso comum).
+    $pageCount = accountingUploadPdfPageCount($absolutePath);
+    $fastPathDone = (!empty($qrTexts) && $pageCount === 1);
 
-    if (empty($qrTexts)) {
-        $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, false);
-        $qrTexts = $attempts[count($attempts) - 1]['texts'];
+    if (!$fastPathDone) {
+        // 2) Varredura minuciosa a 300 DPI sobre TODAS as paginas (exaustiva). Cobre o
+        //    que a sonda nao apanhou: QR so' legivel a alto DPI, 2.o QR na pagina, e QR
+        //    noutras paginas. Substitui a antiga "completion" e evita re-varrer paginas
+        //    ja' vistas (antes corria pp 1-2 e depois tudo outra vez).
+        $attempts[] = $detectQr($qrRetryDpi, 0, $qrRetryMaxAttempts, false);
+        $qrTexts = $mergeQrTexts($qrTexts, $attempts[count($attempts) - 1]['texts'] ?? []);
 
-        $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
-        if (is_array($completionAttempt)) {
-            $attempts[] = $completionAttempt;
-            $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
-        }
-    }
-
-    if (empty($qrTexts)) {
-        $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
-        $qrTexts = $attempts[count($attempts) - 1]['texts'];
-
-        $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
-        if (is_array($completionAttempt)) {
-            $attempts[] = $completionAttempt;
-            $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+        // 3) Fallback barato para taloes/POS so' se ainda nao houver nada: apenas as
+        //    regioes tipicas de talao (receipt-only), sem repetir o scan completo.
+        if (empty($qrTexts)) {
+            $attempts[] = $detectQr($qrRetryDpi, 0, $qrRetryMaxAttempts, true, 1, false, true);
+            $qrTexts = $mergeQrTexts($qrTexts, $attempts[count($attempts) - 1]['texts'] ?? []);
         }
     }
 
@@ -2093,12 +2085,20 @@ $selectedUploadAcquirerCompanyId = resolveUploadSelectedAcquirerCompanyId($uploa
 require_once __DIR__ . '/../header.php';
 $csrfToken = generateCsrfToken();
 $erpDatabase = trim((string) getSetting('erp_database', ''));
+// Leituras de QR em simultaneo (cada uma e' um processo Python que usa ~1 core).
+// Deve acompanhar os CPU cores do servidor. O teto e' configuravel via
+// `qr_parallel_uploads_max` (default 16) para producao poder ir alem dos 6 sem
+// editar codigo, mantendo uma rede de seguranca contra valores absurdos.
+$qrParallelUploadsMax = (int) getSetting('qr_parallel_uploads_max', '16');
+if ($qrParallelUploadsMax <= 0) {
+    $qrParallelUploadsMax = 16;
+}
 $qrParallelUploads = (int) getSetting('qr_parallel_uploads', '2');
 if ($qrParallelUploads <= 0) {
     $qrParallelUploads = 2;
 }
-if ($qrParallelUploads > 6) {
-    $qrParallelUploads = 6;
+if ($qrParallelUploads > $qrParallelUploadsMax) {
+    $qrParallelUploads = $qrParallelUploadsMax;
 }
 ?>
 <div class="row mb-3">
