@@ -61,6 +61,28 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    var detectQrUrl = window.accountingUploadDetectQrUrl || 'contabilidade/upload.php?action=detect-qr';
+
+    // Passo 2 (separado do upload): le os QR codes de um ficheiro ja' gravado.
+    // Mantem o upload rapido e evita timeouts (524), tal como no fluxo desktop.
+    function detectQr(serverFile) {
+        var body = new URLSearchParams();
+        body.append('file', serverFile);
+        body.append('csrf_token', csrfInput ? csrfInput.value : '');
+        return fetch(detectQrUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: body.toString()
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (res) {
+            if (res && res.csrf_token && csrfInput) {
+                csrfInput.value = res.csrf_token;
+            }
+            return { file: serverFile, qr_texts: (res && res.qr_texts) ? res.qr_texts : [] };
+        });
+    }
+
     function uploadFile(file) {
         var formData = new FormData();
         formData.append('file', file);
@@ -73,14 +95,25 @@ document.addEventListener('DOMContentLoaded', function () {
             body: formData
         })
         .then(function (res) {  return res.json(); })
-        .then(function (data) { 
+        .then(function (data) {
             if (data.csrf_token && csrfInput) {
                 csrfInput.value = data.csrf_token;
             }
             if (data.error) {
                 alert(data.error);
+                return null;
+            }
+            if (!data.file) {
+                alert('Erro ao enviar ficheiro');
+                return null;
+            }
+            // O ficheiro esta' gravado; agora le os QR codes em separado.
+            return detectQr(data.file);
+        })
+        .then(function (data) {
+            if (!data) {
                 return;
-            } 
+            }
             if (data.qr_texts && data.qr_texts.length) {
                 var keys = ['A','B','C','D','E','F','G','H','I1','I2','I3','I4','I5','I6','I7','I8','M','N','O','Q','R'];
                 var added = 0;

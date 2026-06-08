@@ -1171,6 +1171,215 @@ function decodeAccountingUploadQrSelection(string $absoluteFile, int $page, arra
     ];
 }
 
+/**
+ * Deteta QR codes de um ficheiro de upload ja' gravado (sempre PDF).
+ *
+ * Esta logica foi separada do upload-handler.php para que o upload do PDF seja
+ * rapido e a leitura de QR (lenta) corra num pedido AJAX assincrono separado,
+ * evitando timeouts (524) com muitos ficheiros. O resultado mantem o mesmo
+ * formato que o handler antigo devolvia (qr_texts, qr_attempts, timings, ...).
+ */
+function detectAccountingUploadQr(string $absolutePath): array {
+    $debugEnabled = (int) getSetting('debug_mode', '0') === 1 || !empty($_GET['debug']);
+    $qrDpi = (int) getSetting('qr_dpi', '150');
+    if ($qrDpi <= 0) {
+        $qrDpi = 150;
+    }
+    $qrRetryDpi = (int) getSetting('qr_retry_dpi', (string) max(300, $qrDpi * 2));
+    if ($qrRetryDpi <= $qrDpi) {
+        $qrRetryDpi = max(300, $qrDpi * 2);
+    }
+    $qrAutoMaxPages = (int) getSetting('qr_auto_max_pages', '1');
+    if ($qrAutoMaxPages < 0) {
+        $qrAutoMaxPages = 1;
+    }
+    $qrAutoMaxAttempts = (int) getSetting('qr_auto_max_attempts', '6');
+    if ($qrAutoMaxAttempts <= 0) {
+        $qrAutoMaxAttempts = 6;
+    }
+    $qrRetryMaxPages = (int) getSetting('qr_retry_max_pages', '2');
+    if ($qrRetryMaxPages < 0) {
+        $qrRetryMaxPages = 2;
+    }
+    $qrRetryMaxAttempts = (int) getSetting('qr_retry_max_attempts', '12');
+    if ($qrRetryMaxAttempts <= 0) {
+        $qrRetryMaxAttempts = 12;
+    }
+
+    $timings = [
+        'started_at_ms' => (int) round(microtime(true) * 1000),
+    ];
+    $script = __DIR__ . '/detectar_qr.py';
+    $popplerPath = getenv('POPPLER_PATH');
+    $envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
+
+    $detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority, int $page = 1, bool $singlePageScan = false) use ($envPrefix, $script, $absolutePath): array {
+        $cmd = $envPrefix . escapeshellcmd("python3 $script")
+            . ' ' . escapeshellarg($absolutePath)
+            . ' --dpi ' . escapeshellarg((string) $dpi)
+            . ' --max-pages ' . escapeshellarg((string) $maxPages)
+            . ' --max-attempts ' . escapeshellarg((string) $maxAttempts)
+            . ' --page ' . escapeshellarg((string) $page)
+            . ($singlePageScan ? ' --single-page-scan' : '')
+            . ($receiptPriority ? ' --receipt-priority' : '')
+            . ' 2>&1';
+        $output = [];
+        $ret = 0;
+        exec($cmd, $output, $ret);
+
+        $texts = [];
+        if ($ret === 0 && !empty($output)) {
+            foreach ($output as $line) {
+                $line = trim((string) $line);
+                if ($line !== '') {
+                    $texts[] = $line;
+                }
+            }
+            $texts = array_values(array_unique(array_map('trim', $texts)));
+        }
+
+        return [
+            'dpi' => $dpi,
+            'max_pages' => $maxPages,
+            'max_attempts' => $maxAttempts,
+            'receipt_priority' => $receiptPriority ? 1 : 0,
+            'page' => $page,
+            'single_page_scan' => $singlePageScan ? 1 : 0,
+            'cmd' => $cmd,
+            'ret' => $ret,
+            'output' => $output,
+            'texts' => $texts,
+        ];
+    };
+
+    $mergeQrTexts = static function (array ...$groups): array {
+        $merged = [];
+        $seen = [];
+        foreach ($groups as $group) {
+            foreach ($group as $text) {
+                $value = trim((string) $text);
+                if ($value === '' || isset($seen[$value])) {
+                    continue;
+                }
+                $seen[$value] = true;
+                $merged[] = $value;
+            }
+        }
+        return $merged;
+    };
+
+    $completePdfAttempt = static function (array $attempt) use ($detectQr, $qrRetryDpi, $qrRetryMaxAttempts): ?array {
+        $texts = isset($attempt['texts']) && is_array($attempt['texts']) ? $attempt['texts'] : [];
+        if (empty($texts)) {
+            return null;
+        }
+
+        $attemptMaxPages = (int) ($attempt['max_pages'] ?? 0);
+        if ($attemptMaxPages === 0) {
+            return null;
+        }
+
+        $completionDpi = max((int) ($attempt['dpi'] ?? 0), $qrRetryDpi);
+        if ($completionDpi <= 0) {
+            return null;
+        }
+
+        $completionMaxAttempts = (int) ($attempt['max_attempts'] ?? 0);
+        if ($completionMaxAttempts <= 0) {
+            $completionMaxAttempts = $qrRetryMaxAttempts;
+        } else {
+            $completionMaxAttempts = max($completionMaxAttempts, $qrRetryMaxAttempts);
+        }
+
+        return $detectQr(
+            $completionDpi,
+            0,
+            $completionMaxAttempts,
+            !empty($attempt['receipt_priority'])
+        );
+    };
+
+    $attempts = [];
+    $attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
+    $qrTexts = $attempts[0]['texts'];
+
+    $completionAttempt = $completePdfAttempt($attempts[0]);
+    if (is_array($completionAttempt)) {
+        $attempts[] = $completionAttempt;
+        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+    }
+
+    if (empty($qrTexts)) {
+        $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, false);
+        $qrTexts = $attempts[count($attempts) - 1]['texts'];
+
+        $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
+        if (is_array($completionAttempt)) {
+            $attempts[] = $completionAttempt;
+            $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+        }
+    }
+
+    if (empty($qrTexts)) {
+        $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
+        $qrTexts = $attempts[count($attempts) - 1]['texts'];
+
+        $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
+        if (is_array($completionAttempt)) {
+            $attempts[] = $completionAttempt;
+            $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
+        }
+    }
+
+    $timings['finished_at_ms'] = (int) round(microtime(true) * 1000);
+    $timings['total_ms'] = max(0, (int) ($timings['finished_at_ms'] - $timings['started_at_ms']));
+
+    if ($debugEnabled) {
+        $debugLog = [];
+        foreach ($attempts as $index => $attempt) {
+            $debugLog[] = 'ATTEMPT ' . ($index + 1) . ' | DPI: ' . $attempt['dpi'];
+            $debugLog[] = 'PAGE: ' . $attempt['page'] . ' | SINGLE_PAGE_SCAN: ' . $attempt['single_page_scan'];
+            $debugLog[] = 'MAX_PAGES: ' . $attempt['max_pages'] . ' | MAX_ATTEMPTS: ' . $attempt['max_attempts'] . ' | RECEIPT_PRIORITY: ' . $attempt['receipt_priority'];
+            $debugLog[] = 'CMD: ' . $attempt['cmd'];
+            $debugLog[] = 'RET: ' . $attempt['ret'];
+            $debugLog[] = implode(PHP_EOL, $attempt['output']);
+            $debugLog[] = '';
+        }
+        file_put_contents(__DIR__ . '/debug_qr.txt', implode(PHP_EOL, $debugLog));
+    }
+
+    if (empty($qrTexts)) {
+        foreach ($attempts as $attempt) {
+            error_log(
+                "Erro ao executar detectar_qr.py\nDPI: " . $attempt['dpi']
+                . "\nMAX_PAGES: " . $attempt['max_pages']
+                . "\nMAX_ATTEMPTS: " . $attempt['max_attempts']
+                . "\nRet: " . $attempt['ret']
+                . "\nSaída:\n" . implode(PHP_EOL, $attempt['output'])
+            );
+        }
+    }
+
+    return [
+        'qr_texts' => $qrTexts,
+        'qr_attempted_dpis' => array_values(array_map(static function (array $attempt): int {
+            return (int) ($attempt['dpi'] ?? 0);
+        }, $attempts)),
+        'qr_attempts' => array_values(array_map(static function (array $attempt): array {
+            return [
+                'dpi' => (int) ($attempt['dpi'] ?? 0),
+                'max_pages' => (int) ($attempt['max_pages'] ?? 0),
+                'max_attempts' => (int) ($attempt['max_attempts'] ?? 0),
+                'receipt_priority' => !empty($attempt['receipt_priority']),
+                'page' => (int) ($attempt['page'] ?? 1),
+                'single_page_scan' => !empty($attempt['single_page_scan']),
+                'ret' => (int) ($attempt['ret'] ?? 0),
+            ];
+        }, $attempts)),
+        'timings' => $timings,
+    ];
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'preview-image') {
@@ -1811,6 +2020,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'csrf_token' => $newToken,
         ], JSON_UNESCAPED_UNICODE);
         exit;
+    } elseif ($action === 'detect-qr') {
+        if (!userHasDepartmentPermission('compras_upload')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Sem permissao para upload de compras.', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $token = trim((string) ($_POST['csrf_token'] ?? ''));
+        if ($token === '' || !validateCsrfToken($token, false)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Token CSRF inválido', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        $file = trim((string) ($_POST['file'] ?? ''));
+        $resolved = resolveAccountingUploadPath($file);
+        if (empty($resolved['ok'])) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => $resolved['error'] ?? 'Ficheiro inválido', 'csrf_token' => $newToken]);
+            exit;
+        }
+
+        // Liberta a sessao para nao bloquear outros pedidos durante a leitura (lenta) de QR.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        $detection = detectAccountingUploadQr((string) $resolved['absolute']);
+        echo json_encode(array_merge(
+            ['success' => true, 'file' => $file],
+            $detection,
+            ['csrf_token' => $newToken]
+        ), JSON_UNESCAPED_UNICODE);
+        exit;
     } elseif ($action === 'delete') {
         $file = $_POST['file'] ?? '';
         $resolved = resolveAccountingUploadDeletePath((string) $file);
@@ -2120,6 +2363,114 @@ if ($qrParallelUploads > 6) {
     box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.18);
 }
 
+/* Indicador de progresso de leitura de QR na barra de topo */
+#qr-progress-topbar.qr-progress-topbar {
+    display: none;
+    align-items: center;
+    gap: 9px;
+    margin-left: 18px;
+    padding: 5px 14px;
+    background: #ffffff;
+    border: 1px solid #e6ebf1;
+    border-radius: 22px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+    font-size: 12px;
+    line-height: 1;
+    color: #5b6b7b;
+}
+#qr-progress-topbar .qr-progress-icon {
+    font-size: 14px;
+    color: #3498db;
+    transition: color .3s ease;
+}
+#qr-progress-topbar.is-complete .qr-progress-icon {
+    color: #26b99a;
+}
+#qr-progress-topbar .qr-progress-label {
+    font-weight: 600;
+    white-space: nowrap;
+    color: #43525f;
+}
+#qr-progress-topbar .qr-progress-track {
+    display: inline-block;
+    width: 130px;
+    height: 8px;
+    background: #e9eef3;
+    border-radius: 6px;
+    overflow: hidden;
+}
+#qr-progress-topbar .qr-progress-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 6px;
+    background-color: #3498db;
+    transition: width .35s ease, background-color .3s ease;
+}
+#qr-progress-topbar.is-active .qr-progress-fill {
+    background-image: linear-gradient(45deg, rgba(255, 255, 255, .28) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, .28) 50%, rgba(255, 255, 255, .28) 75%, transparent 75%, transparent);
+    background-size: 16px 16px;
+    animation: qrProgressStripes 1s linear infinite;
+}
+#qr-progress-topbar.is-complete .qr-progress-fill {
+    background-color: #26b99a;
+}
+#qr-progress-topbar .qr-progress-text {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    min-width: 58px;
+    text-align: right;
+    color: #43525f;
+}
+@keyframes qrProgressStripes {
+    from { background-position: 16px 0; }
+    to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #qr-progress-topbar .qr-progress-fill { transition: width .2s ease; }
+    #qr-progress-topbar.is-active .qr-progress-fill { animation: none; }
+}
+
+/* Estado "Em fila..." (em pausa, a aguardar vaga no servidor) */
+#multi-upload .dz-preview.qr-queued .dz-image {
+    border: 2px dashed #b9c2cc;
+    background: #f1f3f5;
+    box-shadow: none;
+    opacity: 0.8;
+}
+#multi-upload .dz-preview.qr-queued .dz-image:after {
+    content: "Em fila...";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 2px 0;
+    font-size: 11px;
+    text-align: center;
+    color: #fff;
+    background: rgba(127, 140, 141, 0.85);
+}
+
+/* Estado "a ler QR..." enquanto a detecao assincrona corre */
+#multi-upload .dz-preview.qr-processing .dz-image {
+    border: 2px solid #3498db;
+    background: #eaf3fb;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.18);
+}
+#multi-upload .dz-preview.qr-processing .dz-image:after {
+    content: "A ler QR...";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 2px 0;
+    font-size: 11px;
+    text-align: center;
+    color: #fff;
+    background: rgba(52, 152, 219, 0.85);
+}
+
 /* Mostrar sempre a mensagem de erro e o botao de retry nos ficheiros falhados */
 #multi-upload .dz-preview.qr-upload-failed .dz-error-message {
     display: block;
@@ -2186,6 +2537,7 @@ $pageScripts = "window.erpDatabase = " . json_encode($erpDatabase, JSON_UNESCAPE
     . "window.accountingUploadOcrAcquirerUrl = " . json_encode((string) (BASE_URL . 'upload?action=suggest-acquirer-ocr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadOcrEmitterUrl = " . json_encode((string) (BASE_URL . 'upload?action=suggest-emitter-ocr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadDeleteUrl = " . json_encode((string) (BASE_URL . 'upload?action=delete'), JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.accountingUploadDetectQrUrl = " . json_encode((string) (BASE_URL . 'upload?action=detect-qr'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadAcquirerCompanies = " . json_encode($uploadAcquirerCompanies, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ";\n"
     . "window.accountingUploadSelectedAcquirerId = " . json_encode($selectedUploadAcquirerCompanyId, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.accountingUploadParallelUploads = " . json_encode($qrParallelUploads, JSON_UNESCAPED_UNICODE) . ";\n"

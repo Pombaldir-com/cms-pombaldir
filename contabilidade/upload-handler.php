@@ -26,30 +26,10 @@ if (!userHasDepartmentPermission('compras_upload')) {
 
 $newToken = generateCsrfToken();
 $debugEnabled = (int) getSetting('debug_mode', '0') === 1 || !empty($_GET['debug']);
-$qrDpi = (int) getSetting('qr_dpi', '150');
-if ($qrDpi <= 0) {
-    $qrDpi = 150;
-}
-$qrRetryDpi = (int) getSetting('qr_retry_dpi', (string) max(300, $qrDpi * 2));
-if ($qrRetryDpi <= $qrDpi) {
-    $qrRetryDpi = max(300, $qrDpi * 2);
-}
-$qrAutoMaxPages = (int) getSetting('qr_auto_max_pages', '1');
-if ($qrAutoMaxPages < 0) {
-    $qrAutoMaxPages = 1;
-}
-$qrAutoMaxAttempts = (int) getSetting('qr_auto_max_attempts', '6');
-if ($qrAutoMaxAttempts <= 0) {
-    $qrAutoMaxAttempts = 6;
-}
-$qrRetryMaxPages = (int) getSetting('qr_retry_max_pages', '2');
-if ($qrRetryMaxPages < 0) {
-    $qrRetryMaxPages = 2;
-}
-$qrRetryMaxAttempts = (int) getSetting('qr_retry_max_attempts', '12');
-if ($qrRetryMaxAttempts <= 0) {
-    $qrRetryMaxAttempts = 12;
-}
+
+// NOTA: este handler apenas GRAVA o ficheiro e responde de imediato (resposta rapida).
+// A leitura de QR codes (lenta) corre num pedido AJAX separado em
+// upload.php?action=detect-qr, evitando timeouts (524) com muitos ficheiros.
 
 function uploadSizeToBytes(string $value): int {
     $value = trim($value);
@@ -248,186 +228,12 @@ if ($mime === 'application/pdf') {
     }
 }
 
-// Detectar QR codes com Python
-$qrTexts = [];
-$timings = [
-    'started_at_ms' => (int) round(microtime(true) * 1000),
-];
-$script = __DIR__ . '/detectar_qr.py';
-$popplerPath = getenv('POPPLER_PATH');
-$envPrefix = $popplerPath ? ('POPPLER_PATH=' . escapeshellarg($popplerPath) . ' ') : '';
-
-$detectQr = static function (int $dpi, int $maxPages, int $maxAttempts, bool $receiptPriority, int $page = 1, bool $singlePageScan = False) use ($envPrefix, $script, $targetPath): array {
-    $cmd = $envPrefix . escapeshellcmd("python3 $script")
-        . ' ' . escapeshellarg($targetPath)
-        . ' --dpi ' . escapeshellarg((string) $dpi)
-        . ' --max-pages ' . escapeshellarg((string) $maxPages)
-        . ' --max-attempts ' . escapeshellarg((string) $maxAttempts)
-        . ' --page ' . escapeshellarg((string) $page)
-        . ($singlePageScan ? ' --single-page-scan' : '')
-        . ($receiptPriority ? ' --receipt-priority' : '')
-        . ' 2>&1';
-    $output = [];
-    $ret = 0;
-    exec($cmd, $output, $ret);
-
-    $texts = [];
-    if ($ret === 0 && !empty($output)) {
-        foreach ($output as $line) {
-            $line = trim((string) $line);
-            if ($line !== '') {
-                $texts[] = $line;
-            }
-        }
-        $texts = array_values(array_unique(array_map('trim', $texts)));
-    }
-
-    return [
-        'dpi' => $dpi,
-        'max_pages' => $maxPages,
-        'max_attempts' => $maxAttempts,
-        'receipt_priority' => $receiptPriority ? 1 : 0,
-        'page' => $page,
-        'single_page_scan' => $singlePageScan ? 1 : 0,
-        'cmd' => $cmd,
-        'ret' => $ret,
-        'output' => $output,
-        'texts' => $texts,
-    ];
-};
-
-$mergeQrTexts = static function (array ...$groups): array {
-    $merged = [];
-    $seen = [];
-    foreach ($groups as $group) {
-        foreach ($group as $text) {
-            $value = trim((string) $text);
-            if ($value === '' || isset($seen[$value])) {
-                continue;
-            }
-            $seen[$value] = true;
-            $merged[] = $value;
-        }
-    }
-    return $merged;
-};
-
-$completePdfAttempt = static function (array $attempt) use ($mime, $detectQr, $qrRetryDpi, $qrRetryMaxAttempts): ?array {
-    if ($mime !== 'application/pdf') {
-        return null;
-    }
-
-    $texts = isset($attempt['texts']) && is_array($attempt['texts']) ? $attempt['texts'] : [];
-    if (empty($texts)) {
-        return null;
-    }
-
-    $attemptMaxPages = (int) ($attempt['max_pages'] ?? 0);
-    if ($attemptMaxPages === 0) {
-        return null;
-    }
-
-    $completionDpi = max((int) ($attempt['dpi'] ?? 0), $qrRetryDpi);
-    if ($completionDpi <= 0) {
-        return null;
-    }
-
-    $completionMaxAttempts = (int) ($attempt['max_attempts'] ?? 0);
-    if ($completionMaxAttempts <= 0) {
-        $completionMaxAttempts = $qrRetryMaxAttempts;
-    } else {
-        $completionMaxAttempts = max($completionMaxAttempts, $qrRetryMaxAttempts);
-    }
-
-    return $detectQr(
-        $completionDpi,
-        0,
-        $completionMaxAttempts,
-        !empty($attempt['receipt_priority'])
-    );
-};
-
-$attempts = [];
-$attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
-$qrTexts = $attempts[0]['texts'];
-
-$completionAttempt = $completePdfAttempt($attempts[0]);
-if (is_array($completionAttempt)) {
-    $attempts[] = $completionAttempt;
-    $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
-}
-
-if (empty($qrTexts)) {
-    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, false);
-    $qrTexts = $attempts[count($attempts) - 1]['texts'];
-
-    $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
-    if (is_array($completionAttempt)) {
-        $attempts[] = $completionAttempt;
-        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
-    }
-}
-
-if (empty($qrTexts)) {
-    $attempts[] = $detectQr($qrRetryDpi, $qrRetryMaxPages, $qrRetryMaxAttempts, true);
-    $qrTexts = $attempts[count($attempts) - 1]['texts'];
-
-    $completionAttempt = $completePdfAttempt($attempts[count($attempts) - 1]);
-    if (is_array($completionAttempt)) {
-        $attempts[] = $completionAttempt;
-        $qrTexts = $mergeQrTexts($qrTexts, $completionAttempt['texts'] ?? []);
-    }
-}
-
-$timings['finished_at_ms'] = (int) round(microtime(true) * 1000);
-$timings['total_ms'] = max(0, (int) ($timings['finished_at_ms'] - $timings['started_at_ms']));
-
-if ($debugEnabled) {
-    $debugLog = [];
-    foreach ($attempts as $index => $attempt) {
-        $debugLog[] = 'ATTEMPT ' . ($index + 1) . ' | DPI: ' . $attempt['dpi'];
-        $debugLog[] = 'PAGE: ' . $attempt['page'] . ' | SINGLE_PAGE_SCAN: ' . $attempt['single_page_scan'];
-        $debugLog[] = 'MAX_PAGES: ' . $attempt['max_pages'] . ' | MAX_ATTEMPTS: ' . $attempt['max_attempts'] . ' | RECEIPT_PRIORITY: ' . $attempt['receipt_priority'];
-        $debugLog[] = 'CMD: ' . $attempt['cmd'];
-        $debugLog[] = 'RET: ' . $attempt['ret'];
-        $debugLog[] = implode(PHP_EOL, $attempt['output']);
-        $debugLog[] = '';
-    }
-    file_put_contents(__DIR__ . '/debug_qr.txt', implode(PHP_EOL, $debugLog));
-}
-
-if (empty($qrTexts)) {
-    foreach ($attempts as $attempt) {
-        error_log(
-            "Erro ao executar detectar_qr.py\nDPI: " . $attempt['dpi']
-            . "\nMAX_PAGES: " . $attempt['max_pages']
-            . "\nMAX_ATTEMPTS: " . $attempt['max_attempts']
-            . "\nRet: " . $attempt['ret']
-            . "\nSaída:\n" . implode(PHP_EOL, $attempt['output'])
-        );
-    }
-}
-
 $relativePath = "uploads/$slug/accounting/$year/$month/$filename";
 
+// Resposta rapida: o ficheiro esta' gravado. A leitura de QR e' feita a seguir
+// pelo cliente via upload.php?action=detect-qr (pedido AJAX separado).
 echo json_encode([
     'success' => true,
     'file' => $relativePath,
-    'qr_texts' => $qrTexts,
-    'qr_attempted_dpis' => array_values(array_map(static function (array $attempt): int {
-        return (int) ($attempt['dpi'] ?? 0);
-    }, $attempts)),
-    'qr_attempts' => array_values(array_map(static function (array $attempt): array {
-        return [
-            'dpi' => (int) ($attempt['dpi'] ?? 0),
-            'max_pages' => (int) ($attempt['max_pages'] ?? 0),
-            'max_attempts' => (int) ($attempt['max_attempts'] ?? 0),
-            'receipt_priority' => !empty($attempt['receipt_priority']),
-            'page' => (int) ($attempt['page'] ?? 1),
-            'single_page_scan' => !empty($attempt['single_page_scan']),
-            'ret' => (int) ($attempt['ret'] ?? 0),
-        ];
-    }, $attempts)),
-    'timings' => $timings,
     'csrf_token' => $newToken,
 ]);

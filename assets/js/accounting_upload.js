@@ -15,6 +15,7 @@ window.addEventListener('load', function() {
     var ocrAcquirerUrl = window.accountingUploadOcrAcquirerUrl || 'contabilidade/upload.php?action=suggest-acquirer-ocr';
     var ocrEmitterUrl = window.accountingUploadOcrEmitterUrl || 'contabilidade/upload.php?action=suggest-emitter-ocr';
     var deleteUrl = window.accountingUploadDeleteUrl || 'contabilidade/upload.php?action=delete';
+    var detectQrUrl = window.accountingUploadDetectQrUrl || 'contabilidade/upload.php?action=detect-qr';
     var acquirerCompanies = Array.isArray(window.accountingUploadAcquirerCompanies) ? window.accountingUploadAcquirerCompanies : [];
     var selectedAcquirerId = parseInt(window.accountingUploadSelectedAcquirerId, 10) || 0;
     var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
@@ -86,6 +87,10 @@ window.addEventListener('load', function() {
     var manualSequence = 0;
     var manualTotal = 0;
     var uploadProcessingCount = 0;
+    // Fila/throttle da detecao de QR assincrona (corre depois do upload, em pedidos separados).
+    var qrQueue = [];
+    var qrActive = 0;
+    var qrOutstanding = 0;
     var manualPage = 1;
     var manualPageCount = 1;
     var manualSelection = null;
@@ -1159,7 +1164,7 @@ window.addEventListener('load', function() {
             return;
         }
         var preview = file.previewElement;
-        preview.classList.remove('qr-upload-failed', 'dz-error', 'dz-complete');
+        preview.classList.remove('qr-upload-failed', 'qr-processing', 'qr-queued', 'dz-error', 'dz-complete');
         var errEls = preview.querySelectorAll('[data-dz-errormessage]');
         for (var i = 0; i < errEls.length; i += 1) {
             errEls[i].textContent = '';
@@ -1177,7 +1182,7 @@ window.addEventListener('load', function() {
             return;
         }
         var preview = file.previewElement;
-        preview.classList.remove('qr-auto-detected', 'qr-manual-required', 'dz-success', 'dz-complete');
+        preview.classList.remove('qr-auto-detected', 'qr-manual-required', 'qr-processing', 'qr-queued', 'dz-success', 'dz-complete');
         preview.classList.add('qr-upload-failed', 'dz-error');
 
         if (message) {
@@ -1196,19 +1201,51 @@ window.addEventListener('load', function() {
             retryBtn.addEventListener('click', function(ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
-                retryDropzoneUpload(file);
+                retryDropzoneFile(file);
             });
             preview.appendChild(retryBtn);
         }
         retryBtn.disabled = false;
     }
 
-    function retryDropzoneUpload(file) {
+    // Estado visual "Em fila..." enquanto o ficheiro aguarda vez na fila de QR (em pausa).
+    function markDropzoneQrQueued(file) {
+        if (!file || !file.previewElement) {
+            return;
+        }
+        var preview = file.previewElement;
+        preview.classList.remove('qr-upload-failed', 'qr-auto-detected', 'qr-manual-required', 'qr-processing', 'dz-error');
+        preview.classList.add('qr-queued');
+    }
+
+    // Estado visual "A ler QR..." quando o servidor esta' mesmo a processar o ficheiro.
+    function markDropzoneQrProcessing(file) {
+        if (!file || !file.previewElement) {
+            return;
+        }
+        var preview = file.previewElement;
+        preview.classList.remove('qr-upload-failed', 'qr-auto-detected', 'qr-manual-required', 'qr-queued', 'dz-error');
+        preview.classList.add('qr-processing');
+    }
+
+    function clearDropzoneQrProcessing(file) {
+        if (file && file.previewElement) {
+            file.previewElement.classList.remove('qr-processing', 'qr-queued');
+        }
+    }
+
+    function retryDropzoneFile(file) {
         if (!file) {
             return;
         }
         clearDropzoneFailedState(file);
-        // Repor o ficheiro como aceite e em fila para um novo envio.
+        // Se o upload ja' tinha corrido bem (serverFile definido), so' falhou a leitura
+        // de QR -> repetir apenas a detecao, sem reenviar o ficheiro.
+        if (file.serverFile) {
+            enqueueQrDetection(file, file.serverFile);
+            return;
+        }
+        // Caso contrario o proprio upload falhou -> reenviar o ficheiro.
         // (Os estados do Dropzone sao strings: "added", "queued", ...)
         file.status = 'added';
         file.accepted = true;
@@ -1222,6 +1259,185 @@ window.addEventListener('load', function() {
             file.status = 'queued';
             dz.processQueue();
         }
+    }
+
+    // Indicador de progresso (topo): percentagem de leitura de QR face ao total de ficheiros.
+    var qrProgressWrap = null;
+    var qrProgressBar = null;
+    var qrProgressText = null;
+
+    function setupQrProgressBar() {
+        if (qrProgressWrap) {
+            return;
+        }
+        var nav = document.querySelector('.top_nav nav') || document.querySelector('.top_nav');
+        if (!nav) {
+            return;
+        }
+        qrProgressWrap = document.createElement('div');
+        qrProgressWrap.id = 'qr-progress-topbar';
+        qrProgressWrap.className = 'qr-progress-topbar';
+        qrProgressWrap.setAttribute('role', 'progressbar');
+        qrProgressWrap.setAttribute('aria-valuemin', '0');
+        qrProgressWrap.setAttribute('aria-valuemax', '100');
+        qrProgressWrap.innerHTML =
+            '<i class="fa fa-qrcode qr-progress-icon" aria-hidden="true"></i>'
+            + '<span class="qr-progress-label">Leitura QR</span>'
+            + '<span class="qr-progress-track"><span class="qr-progress-fill" id="qr-progress-bar"></span></span>'
+            + '<span class="qr-progress-text" id="qr-progress-text">0/0</span>';
+        var toggle = nav.querySelector('.nav.toggle');
+        if (toggle && toggle.nextSibling) {
+            nav.insertBefore(qrProgressWrap, toggle.nextSibling);
+        } else {
+            nav.appendChild(qrProgressWrap);
+        }
+        qrProgressBar = qrProgressWrap.querySelector('#qr-progress-bar');
+        qrProgressText = qrProgressWrap.querySelector('#qr-progress-text');
+    }
+
+    function updateQrProgress() {
+        if (!qrProgressWrap || !qrProgressBar) {
+            return;
+        }
+        var total = dz ? dz.files.length : 0;
+        if (total <= 0) {
+            qrProgressWrap.classList.remove('is-visible');
+            qrProgressWrap.style.display = 'none';
+            return;
+        }
+        var pendingUpload = dz ? (dz.getQueuedFiles().length + dz.getUploadingFiles().length) : 0;
+        var pending = pendingUpload + qrOutstanding;
+        var done = Math.max(0, total - pending);
+        var percent = total ? Math.round((done / total) * 100) : 0;
+
+        qrProgressWrap.style.display = 'inline-flex';
+        qrProgressWrap.setAttribute('aria-valuenow', String(percent));
+        qrProgressBar.style.width = percent + '%';
+        if (qrProgressText) {
+            qrProgressText.textContent = done + '/' + total + ' · ' + percent + '%';
+        }
+        // Em curso: azul com listas animadas; concluido: verde estatico.
+        qrProgressWrap.classList.toggle('is-complete', pending === 0);
+        qrProgressWrap.classList.toggle('is-active', pending !== 0);
+    }
+
+    // Conclui o lote (mostra fila manual / resumo de debug) quando ja' nao ha'
+    // uploads nem detecoes de QR por terminar. Espelha o antigo 'queuecomplete'.
+    function maybeFinishBatch() {
+        refreshUploadActionState();
+        updateQrProgress();
+        if (uploadProcessingCount !== 0 || qrOutstanding !== 0) {
+            return;
+        }
+        if (!manualActive && manualQueue.length) {
+            manualTotal = manualQueue.length;
+            manualSequence = 0;
+            showNextManualQueue();
+        } else if (!manualActive) {
+            printDebugSummary();
+        }
+    }
+
+    // Coloca a detecao de QR na fila e respeita o limite de concorrencia (parallelUploads).
+    function enqueueQrDetection(file, serverFile) {
+        qrOutstanding += 1;
+        // Entra "Em fila..." (em pausa); so' passa a "A ler QR..." quando arrancar mesmo.
+        markDropzoneQrQueued(file);
+        qrQueue.push({ file: file, serverFile: serverFile });
+        updateQrProgress();
+        pumpQrQueue();
+    }
+
+    function pumpQrQueue() {
+        // So' deixa o servidor processar ate' `parallelUploads` ficheiros ao mesmo tempo;
+        // os restantes ficam "Em fila..." ate' libertar vaga.
+        while (qrActive < parallelUploads && qrQueue.length) {
+            var item = qrQueue.shift();
+            qrActive += 1;
+            markDropzoneQrProcessing(item.file);
+            runQrDetection(item.file, item.serverFile);
+        }
+    }
+
+    // Aplica o resultado da detecao de QR (mesma logica que antes corria no 'success').
+    function applyQrResult(file, serverFile, data) {
+        clearDropzoneQrProcessing(file);
+        if (debugEnabled) {
+            var item = ensureDebugFile(file);
+            item.attempts = Array.isArray(data.qr_attempted_dpis) ? data.qr_attempted_dpis.slice() : [];
+            item.backendMs = (data && data.timings && data.timings.total_ms) ? (parseInt(data.timings.total_ms, 10) || 0) : 0;
+        }
+
+        var added = addRowsFromQrTexts(data.qr_texts || [], serverFile || '');
+        if (added) {
+            setDropzoneQrState(file, 'auto');
+            if (debugEnabled) {
+                var autoItem = ensureDebugFile(file);
+                autoItem.finishedAt = performance.now();
+                autoItem.ms = Math.max(0, Math.round(autoItem.finishedAt - autoItem.startedAt));
+                autoItem.frontendMs = Math.max(0, autoItem.ms - (autoItem.backendMs || 0));
+                autoItem.state = 'automatic_success';
+                debugStats.automaticSuccess += 1;
+            }
+        } else if (serverFile) {
+            queueManualQr(file, serverFile);
+            if (debugEnabled) {
+                var manualItem = ensureDebugFile(file);
+                manualItem.state = 'manual_queue';
+                debugStats.manualQueued += 1;
+            }
+        } else {
+            notifyError('QR code não encontrado em ' + (file && file.name ? file.name : 'ficheiro'));
+            markDropzoneFileFailed(file, 'QR não encontrado. Clique em "Tentar novamente".');
+        }
+    }
+
+    function runQrDetection(file, serverFile) {
+        $.ajax({
+            type: 'POST',
+            url: detectQrUrl,
+            data: { file: serverFile, csrf_token: csrfInput ? csrfInput.value : '' },
+            dataType: 'json',
+            timeout: 0,
+            success: function(data) {
+                updateCsrfToken(data);
+                if (!data || data.success === false) {
+                    notifyError((data && data.error) ? data.error : ('Falha na leitura de QR de ' + file.name));
+                    markDropzoneFileFailed(file, (data && data.error) ? data.error : 'Falha na leitura de QR. Clique em "Tentar novamente".');
+                    return;
+                }
+                applyQrResult(file, serverFile, data);
+            },
+            error: function(xhr) {
+                var status = xhr ? (xhr.status || 0) : 0;
+                var timeoutLike = (status === 0 || status === 408
+                    || (status >= 502 && status <= 504)
+                    || (status >= 520 && status <= 525));
+                var msg = '';
+                if (xhr && xhr.responseText) {
+                    try {
+                        var errData = JSON.parse(xhr.responseText);
+                        if (errData.error) { msg = errData.error; }
+                        if (errData.csrf_token && csrfInput) { csrfInput.value = errData.csrf_token; }
+                    } catch (e) {}
+                }
+                if (!msg) {
+                    msg = timeoutLike
+                        ? ('Tempo de leitura de QR excedido para "' + file.name + '". Clique em "Tentar novamente".')
+                        : ('Falha na leitura de QR de ' + file.name + '.');
+                }
+                notifyError(msg);
+                markDropzoneFileFailed(file, timeoutLike
+                    ? 'Tempo excedido a ler QR. Clique em "Tentar novamente".'
+                    : msg);
+            },
+            complete: function() {
+                qrActive = Math.max(0, qrActive - 1);
+                qrOutstanding = Math.max(0, qrOutstanding - 1);
+                pumpQrQueue();
+                maybeFinishBatch();
+            }
+        });
     }
 
     function resetManualSelection() {
@@ -1906,7 +2122,10 @@ window.addEventListener('load', function() {
         dictDefaultMessage: 'Arraste e solte os ficheiros aqui ou clique para selecionar'
     });
 
+    setupQrProgressBar();
+
     dz.on('addedfile', function(file) {
+        updateQrProgress();
         if (!debugEnabled) {
             return;
         }
@@ -1915,6 +2134,10 @@ window.addEventListener('load', function() {
             item.queuedAt = performance.now();
             item.state = 'queued';
         }
+    });
+
+    dz.on('removedfile', function() {
+        updateQrProgress();
     });
 
     dz.on('sending', function(file, xhr, formData) {
@@ -1936,6 +2159,7 @@ window.addEventListener('load', function() {
         if (csrfInput) {
             formData.append('csrf_token', csrfInput.value);
         }
+        updateQrProgress();
     });
 
     dz.on('success', function(file, response) {
@@ -1948,46 +2172,22 @@ window.addEventListener('load', function() {
             }
         }
         updateCsrfToken(data);
-        if (data.file) {
-            file.serverFile = data.file;
-        }
-        if (debugEnabled) {
-            var successItem = ensureDebugFile(file);
-            successItem.attempts = Array.isArray(data.qr_attempted_dpis) ? data.qr_attempted_dpis.slice() : [];
-            successItem.backendMs = data && data.timings && data.timings.total_ms ? parseInt(data.timings.total_ms, 10) || 0 : 0;
+        uploadProcessingCount = Math.max(0, uploadProcessingCount - 1);
+
+        if (!data || !data.file) {
+            // Upload sem ficheiro na resposta -> tratar como falha recuperavel.
+            notifyError('Resposta de upload inválida para ' + file.name + '.');
+            markDropzoneFileFailed(file, 'Falha no upload. Clique em "Tentar novamente".');
+            maybeFinishBatch();
+            return;
         }
 
-        var added = addRowsFromQrTexts(data.qr_texts || [], data.file || '');
-        if (added) {
-            setDropzoneQrState(file, 'auto');
-            if (debugEnabled) {
-                var autoItem = ensureDebugFile(file);
-                autoItem.finishedAt = performance.now();
-                autoItem.ms = Math.max(0, Math.round(autoItem.finishedAt - autoItem.startedAt));
-                autoItem.frontendMs = Math.max(0, autoItem.ms - (autoItem.backendMs || 0));
-                autoItem.state = 'automatic_success';
-                debugStats.automaticSuccess += 1;
-            }
-        } else if (data.file) {
-            queueManualQr(file, data.file);
-            if (debugEnabled) {
-                var manualItem = ensureDebugFile(file);
-                manualItem.state = 'manual_queue';
-                debugStats.manualQueued += 1;
-            }
-        } else if (!added) {
-            showAlert('QR code não encontrado');
-            dz.removeFile(file);
-            if (debugEnabled) {
-                var failItem = ensureDebugFile(file);
-                failItem.finishedAt = performance.now();
-                failItem.ms = Math.max(0, Math.round(failItem.finishedAt - failItem.startedAt));
-                failItem.frontendMs = Math.max(0, failItem.ms - (failItem.backendMs || 0));
-                failItem.state = 'hard_failure';
-                debugStats.hardFailures += 1;
-            }
+        file.serverFile = data.file;
+        if (debugEnabled) {
+            ensureDebugFile(file).state = 'qr_detecting';
         }
-        uploadProcessingCount = Math.max(0, uploadProcessingCount - 1);
+        // O ficheiro esta' gravado; a leitura de QR (lenta) corre agora em separado.
+        enqueueQrDetection(file, data.file);
     });
 
     dz.on('error', function(file, errorMessage, xhr) {
@@ -2056,17 +2256,13 @@ window.addEventListener('load', function() {
             debugStats.hardFailures += 1;
         }
         uploadProcessingCount = Math.max(0, uploadProcessingCount - 1);
+        updateQrProgress();
     });
 
     dz.on('queuecomplete', function() {
-        refreshUploadActionState();
-        if (uploadProcessingCount === 0 && !manualActive && manualQueue.length) {
-            manualTotal = manualQueue.length;
-            manualSequence = 0;
-            showNextManualQueue();
-        } else if (uploadProcessingCount === 0 && !manualActive) {
-            printDebugSummary();
-        }
+        // Os uploads terminaram, mas as detecoes de QR podem ainda estar a correr;
+        // o fecho do lote (fila manual / resumo) e' tratado por maybeFinishBatch.
+        maybeFinishBatch();
     });
 
     $('#qr-table').on('click', '.delete-row', function() {
