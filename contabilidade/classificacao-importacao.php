@@ -3799,7 +3799,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         ],
         'instruction_operations' => is_array($backofficeInstructions['operation_notes'] ?? null) ? $backofficeInstructions['operation_notes'] : [],
         'total_account' => [
-            'suggested' => $suggestedTotalAccount,
+            'suggested' => (strpos($suggestedTotalAccount, '21') === 0 && !empty($ligacaoTotalAccounts) && strpos((string) array_key_first($ligacaoTotalAccounts), '22') === 0)
+                ? (string) array_key_first($ligacaoTotalAccounts)
+                : $suggestedTotalAccount,
             'top_accounts' => [
                 'history' => $topHistoryTotal,
                 'rules' => $topRulesTotal,
