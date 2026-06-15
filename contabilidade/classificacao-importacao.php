@@ -241,6 +241,7 @@ if (!function_exists('resolveDocumentLigacaoRubricCodes')) {
         $ligacaoQueryBase = [
             'datadoc' => $docDate,
             'strTpDoc' => $ligacaoDocType,
+            'strContaEntidadePrefix' => '22',
         ];
         $docYear = substr($docDate, 0, 4);
         if (preg_match('/^\d{4}$/', $docYear)) {
@@ -3359,6 +3360,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         $ligacaoQueryBase = [
             'datadoc' => $docDate,
             'strTpDoc' => $ligacaoDocType,
+            'strContaEntidadePrefix' => '22',
         ];
         $docYear = substr($docDate, 0, 4);
         if (preg_match('/^\d{4}$/', $docYear)) {
@@ -3396,7 +3398,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         $general = $accountCandidates['general'];
         $iva = $accountCandidates['iva'];
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
-        if ($tipo === $ligacaoTotalLineType && $general !== '') {
+        if ($tipo === $ligacaoTotalLineType && $general !== '' && strpos($general, '21') !== 0) {
             $ligacaoTotalCreditAccounts[$general] = ($ligacaoTotalCreditAccounts[$general] ?? 0) + 1;
         }
         if ($total !== '') {
@@ -3434,6 +3436,29 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     $ligacaoTotalAccounts = !empty($ligacaoTotalCreditAccounts)
         ? $ligacaoTotalCreditAccounts
         : $ligacaoTotalEntityAccounts;
+
+    // Fallback: se a Ligacao nao devolveu conta de total valida (22x),
+    // buscar a conta do fornecedor diretamente no plano de contas ERP pelo NIF do emitente.
+    if (empty($ligacaoTotalAccounts) && $emitterNif !== '' && $database !== '') {
+        $emitterPlanPayload = fetchErpJsonForSuggestion('/contabilidade/planocontas', [
+            'strCodExercicio' => ($docDate !== '' ? substr($docDate, 0, 4) : date('Y')),
+            'strNumContrib' => $emitterNif,
+            'limit' => 50,
+            'offset' => 0,
+        ], $database);
+        if (!empty($emitterPlanPayload)) {
+            foreach (extractErpRowsFromPayload($emitterPlanPayload) as $emitterPlanRow) {
+                if (!is_array($emitterPlanRow)) {
+                    continue;
+                }
+                $emitterConta = trim((string) ($emitterPlanRow['strConta'] ?? ''));
+                if ($emitterConta !== '' && strpos($emitterConta, '22') === 0) {
+                    $ligacaoTotalAccounts[$emitterConta] = 1;
+                    break;
+                }
+            }
+        }
+    }
 
     $movementRows = [];
     $movementPayload = fetchErpJsonForSuggestion('/contabilidade/movimentos', [
@@ -3637,6 +3662,13 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     }
 
     $suggestedTotalAccount = trim((string) ($args['total_account'] ?? ''));
+    // Se a sugestao inicial e uma conta de cliente (21x) mas a Ligacao ERP tem um top 22x (fornecedor), substituir.
+    if ($suggestedTotalAccount !== '' && strpos($suggestedTotalAccount, '21') === 0 && !empty($ligacaoTotalAccounts)) {
+        $ligacaoTopTotal = (string) array_key_first($ligacaoTotalAccounts);
+        if (strpos($ligacaoTopTotal, '22') === 0) {
+            $suggestedTotalAccount = $ligacaoTopTotal;
+        }
+    }
     if ($missingSupplierInErp) {
         $suggestedTotalAccount = '';
         if ($hasReceiptCompanion) {
