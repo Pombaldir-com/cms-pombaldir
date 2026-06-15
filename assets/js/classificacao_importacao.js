@@ -6542,6 +6542,20 @@ window.addEventListener('load', function() {
         return '';
     }
 
+    function extractTotalAccountFromResponse(res) {
+        if (!res || typeof res !== 'object') {
+            return '';
+        }
+        var raw = res.total_account;
+        if (typeof raw === 'string') {
+            return raw.trim();
+        }
+        if (raw && typeof raw === 'object' && typeof raw.suggested === 'string') {
+            return raw.suggested.trim();
+        }
+        return '';
+    }
+
     function extractJsonFromText(text) {
         if (!text) {
             return null;
@@ -6933,18 +6947,6 @@ window.addEventListener('load', function() {
             });
         }
 
-        if (totalAccountSuggested && totalAccountInput) {
-            var currentSuggestedTotal = String(totalAccountInput.value || '').trim();
-            totalAccountInput.value = totalAccountSuggested;
-            updatePlanInputTitle(totalAccountInput);
-            currentTotalAccount = totalAccountSuggested;
-            if (currentBtn) {
-                currentBtn.setAttribute('data-total-account', totalAccountSuggested);
-            }
-            if (currentSuggestedTotal !== totalAccountSuggested) {
-                applied = true;
-            }
-        }
         var requiredRates = null;
         if (assistantResponse && typeof assistantResponse === 'object' && assistantResponse.cost_center_required_rates && typeof assistantResponse.cost_center_required_rates === 'object') {
             requiredRates = assistantResponse.cost_center_required_rates;
@@ -6963,6 +6965,19 @@ window.addEventListener('load', function() {
         }
         if (applyInstructionOperations(assistantResponse)) {
             applied = true;
+        }
+        // totalAccountSuggested aplica-se por ultimo para ganhar sobre instruction_operations.
+        if (totalAccountSuggested && totalAccountInput) {
+            var currentSuggestedTotal = String(totalAccountInput.value || '').trim();
+            totalAccountInput.value = totalAccountSuggested;
+            updatePlanInputTitle(totalAccountInput);
+            currentTotalAccount = totalAccountSuggested;
+            if (currentBtn) {
+                currentBtn.setAttribute('data-total-account', totalAccountSuggested);
+            }
+            if (currentSuggestedTotal !== totalAccountSuggested) {
+                applied = true;
+            }
         }
         return applied;
     }
@@ -8261,7 +8276,7 @@ window.addEventListener('load', function() {
                 if (res && typeof res === 'object' && res.rates && typeof res.rates === 'object') {
                     parsed = {
                         rates: res.rates,
-                        total_account: (typeof res.total_account === 'string' ? res.total_account : '')
+                        total_account: extractTotalAccountFromResponse(res)
                     };
                 }
                 if (!parsed) {

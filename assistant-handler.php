@@ -4311,7 +4311,7 @@ function scoreErpLigacaoRows(array $rows, string $docType = ''): int {
     return 1;
 }
 
-function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate): array {
+function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db, string $docType, string $acquirerNif, string $docDate, array $excludeTotalPrefixes = []): array {
     if ($baseUrl === '' || $token === '' || $db === '') {
         return ['general' => [], 'iva' => [], 'total' => [], 'capital' => [], 'per_rate' => [], 'rubric_codes' => [], 'required_cost_center_accounts' => [], 'count' => 0];
     }
@@ -4419,7 +4419,14 @@ function fetchErpLigacaoAccountHints(string $baseUrl, string $token, string $db,
         $iva = $accountCandidates['iva'];
         $total = trim((string) ($row['strContaEntidade'] ?? ''));
         $codFichRepart = trim((string) ($row['strCodFichRepart'] ?? ''));
-        if ($tipo === $totalLineType && $general !== '') {
+        $excludedTotal = false;
+        foreach ($excludeTotalPrefixes as $prefix) {
+            if (strpos($general, (string) $prefix) === 0) {
+                $excludedTotal = true;
+                break;
+            }
+        }
+        if ($tipo === $totalLineType && $general !== '' && !$excludedTotal) {
             $totalCreditCounts[$general] = ($totalCreditCounts[$general] ?? 0) + 1;
         }
         if ($total !== '') {
@@ -5303,7 +5310,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
                 }
                 foreach ($nifCandidatesForDb as $nifCandidate) {
                     $ligacaoLookupAttempted = true;
-                    $candidateHints = fetchErpLigacaoAccountHints($erpBaseUrl, $erpToken, $dbCandidate, $docType, $nifCandidate, $docDate);
+                    $candidateHints = fetchErpLigacaoAccountHints($erpBaseUrl, $erpToken, $dbCandidate, $docType, $nifCandidate, $docDate, ['21']);
                     if (!empty($candidateHints['count'])) {
                         $ligacaoHints = $candidateHints;
                         $planDb = $dbCandidate;
@@ -5563,10 +5570,7 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
             }
         }
     }
-    $ligacaoTotalAccount = '';
-    if (!empty($ligacaoHints['total']) && is_array($ligacaoHints['total'])) {
-        $ligacaoTotalAccount = trim((string) ($ligacaoHints['total'][0] ?? ''));
-    }
+    $ligacaoTotalAccount = trim((string) ($ligacaoHints['total'][0] ?? ''));
     $ligacaoCapitalAccount = '';
     if (!empty($ligacaoHints['capital']) && is_array($ligacaoHints['capital'])) {
         $ligacaoCapitalAccount = trim((string) ($ligacaoHints['capital'][0] ?? ''));
@@ -5668,7 +5672,8 @@ function runSuggestAccounts(array $args, bool $canSuggestVat, string $erpBaseUrl
         }
     }
     $aiInstructionTotalAccount = trim((string) ($aiInstructionSuggestions['total_account'] ?? ''));
-    if ($aiInstructionTotalAccount !== '' && trim((string) ($expectedLines['total_account'] ?? '')) !== $aiInstructionTotalAccount) {
+    // Instrucoes IA so preenchem o total quando a Ligacao ERP nao encontrou conta (a Ligacao e mais autoritativa).
+    if ($aiInstructionTotalAccount !== '' && $ligacaoTotalAccount === '' && trim((string) ($expectedLines['total_account'] ?? '')) !== $aiInstructionTotalAccount) {
         $expectedLines['total_account'] = $aiInstructionTotalAccount;
         $aiInstructionApplied++;
     }

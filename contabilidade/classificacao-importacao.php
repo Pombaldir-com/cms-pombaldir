@@ -1605,7 +1605,12 @@ function prepareImportRow(array $row): array {
         && trim((string) ($row['field_O'] ?? '')) === '';
     $row['show_document_fields'] = (($rowMetadata['manual_document_fields'] ?? '0') === '1' || !$hasDocumentIdentity || $hasEmitterAndAcquirerOnly) ? '1' : '0';
     $row['auto_import_ready'] = (trim((string) $row['btn_class']) === 'btn-success' && $row['manual_review_required'] !== '1');
-    $row['total_account'] = $accountMetadata['total_account'] ?? '';
+    $rawTotalAccount = $accountMetadata['total_account'] ?? '';
+    // Conta de cliente (21x) nunca e valida como total em documentos de compra (import_type=1)
+    if (strpos($rawTotalAccount, '21') === 0 && (int) ($row['import_type'] ?? 0) === 1) {
+        $rawTotalAccount = '';
+    }
+    $row['total_account'] = $rawTotalAccount;
     $row['line_btn_class'] = 'btn-info';
     $row['acquirer_erp_database'] = '';
 
@@ -3401,7 +3406,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         if ($tipo === $ligacaoTotalLineType && $general !== '' && strpos($general, '21') !== 0) {
             $ligacaoTotalCreditAccounts[$general] = ($ligacaoTotalCreditAccounts[$general] ?? 0) + 1;
         }
-        if ($total !== '') {
+        if ($tipo === $ligacaoTotalLineType && $total !== '') {
             $ligacaoTotalEntityAccounts[$total] = ($ligacaoTotalEntityAccounts[$total] ?? 0) + 1;
         }
         if ($tipo !== '' && $tipo !== $ligacaoRateLineType) {
@@ -3661,16 +3666,8 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         ];
     }
 
-    $suggestedTotalAccount = trim((string) ($args['total_account'] ?? ''));
-    // Se a sugestao inicial e uma conta de cliente (21x) mas a Ligacao ERP tem um top 22x (fornecedor), substituir.
-    if ($suggestedTotalAccount !== '' && strpos($suggestedTotalAccount, '21') === 0 && !empty($ligacaoTotalAccounts)) {
-        $ligacaoTopTotal = (string) array_key_first($ligacaoTotalAccounts);
-        if (strpos($ligacaoTopTotal, '22') === 0) {
-            $suggestedTotalAccount = $ligacaoTopTotal;
-        }
-    }
+    $suggestedTotalAccount = '';
     if ($missingSupplierInErp) {
-        $suggestedTotalAccount = '';
         if ($hasReceiptCompanion) {
             foreach ($planRows as $row) {
                 if (!is_array($row)) {
@@ -3704,14 +3701,24 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             }
         }
     } else {
+        // Ligacao ERP: configuracao explicita no ERP para este NIF + tipo doc — fonte mais autoritativa.
+        if (!empty($ligacaoTotalAccounts)) {
+            $suggestedTotalAccount = (string) array_key_first($ligacaoTotalAccounts);
+        }
         if ($suggestedTotalAccount === '' && !empty($historyTally['totals'])) {
             $suggestedTotalAccount = (string) array_key_first($historyTally['totals']);
         }
         if ($suggestedTotalAccount === '' && !empty($ruleTally['totals'])) {
             $suggestedTotalAccount = (string) array_key_first($ruleTally['totals']);
         }
-        if ($suggestedTotalAccount === '' && !empty($ligacaoTotalAccounts)) {
-            $suggestedTotalAccount = (string) array_key_first($ligacaoTotalAccounts);
+    }
+
+    // Correcao final: se o total sugerido (qualquer que seja a origem) for 21x
+    // mas a Ligacao ERP tem um top 22x (fornecedor), substituir antes de reportar.
+    if (strpos($suggestedTotalAccount, '21') === 0 && !empty($ligacaoTotalAccounts)) {
+        $ligacaoTopFinal = (string) array_key_first($ligacaoTotalAccounts);
+        if (strpos($ligacaoTopFinal, '22') === 0) {
+            $suggestedTotalAccount = $ligacaoTopFinal;
         }
     }
 
@@ -3799,9 +3806,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         ],
         'instruction_operations' => is_array($backofficeInstructions['operation_notes'] ?? null) ? $backofficeInstructions['operation_notes'] : [],
         'total_account' => [
-            'suggested' => (strpos($suggestedTotalAccount, '21') === 0 && !empty($ligacaoTotalAccounts) && strpos((string) array_key_first($ligacaoTotalAccounts), '22') === 0)
-                ? (string) array_key_first($ligacaoTotalAccounts)
-                : $suggestedTotalAccount,
+            'suggested' => $suggestedTotalAccount,
             'top_accounts' => [
                 'history' => $topHistoryTotal,
                 'rules' => $topRulesTotal,
