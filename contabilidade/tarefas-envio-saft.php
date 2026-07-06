@@ -109,12 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $feedback = ['type' => 'success', 'message' => 'Envio eliminado.'];
         }
     } else {
-        $periodYear = (int) ($_POST['period_year'] ?? 0);
-        $periodMonth = (int) ($_POST['period_month'] ?? 0);
+        $periodYear = 0;
+        $periodMonth = 0;
 
-        if ($periodYear < 2000 || $periodYear > 2100 || $periodMonth < 1 || $periodMonth > 12) {
-            $feedback = ['type' => 'danger', 'message' => 'Período inválido.'];
-        } elseif (empty($_FILES['saft_file']) || ($_FILES['saft_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        if (empty($_FILES['saft_file']) || ($_FILES['saft_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $feedback = ['type' => 'danger', 'message' => 'Selecione um ficheiro SAF-T válido.'];
         } else {
             $originalName = (string) $_FILES['saft_file']['name'];
@@ -123,15 +121,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($extension, ['xml', 'zip', 'gz'], true)) {
                 $feedback = ['type' => 'danger', 'message' => 'Formato inválido. Apenas ficheiros .xml, .zip ou .gz.'];
             } else {
-                // A empresa e determinada pelo NIF no cabecalho do proprio
-                // ficheiro SAF-T, nao por seleccao manual.
+                // A empresa (NIF) e o periodo (ano/mes) sao determinados a
+                // partir do proprio cabecalho do ficheiro SAF-T, nao por
+                // seleccao manual.
                 $matchedEntity = null;
                 try {
                     $xmlContent = saftReadFileContent($_FILES['saft_file']['tmp_name'], $extension);
                     $headerData = saftExtractInvoiceData($xmlContent);
                     $fileNif = (string) ($headerData['tax_registration_number'] ?? '');
+                    $derivedPeriod = saftDerivePeriod($headerData);
                     if ($fileNif === '') {
                         $feedback = ['type' => 'danger', 'message' => 'Não foi possível identificar o NIF da empresa no cabeçalho do ficheiro SAF-T.'];
+                    } elseif ($derivedPeriod === null) {
+                        $feedback = ['type' => 'danger', 'message' => 'Não foi possível determinar o período (ano/mês) a partir do cabeçalho do ficheiro SAF-T.'];
                     } else {
                         $matchedEntity = saftResolveEntityByNif($pdo, $fileNif);
                         if (!$matchedEntity) {
@@ -140,6 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $feedback = ['type' => 'danger', 'message' => 'Não tem permissão para enviar SAF-T da empresa ' . htmlspecialchars($matchedEntity['name']) . ' (NIF ' . htmlspecialchars($matchedEntity['nif']) . ').'];
                         } else {
                             $entityId = (int) $matchedEntity['id'];
+                            $periodYear = $derivedPeriod['year'];
+                            $periodMonth = $derivedPeriod['month'];
                         }
                     }
                 } catch (Throwable $e) {
@@ -327,53 +331,59 @@ $efaturaTopbarSelector = [
     ),
 ];
 
-// Listagem: admin ve todos os envios; colaborador so os das suas empresas.
-// O filtro de empresa do topbar aplica-se em ambos os casos.
-$listEntityIds = $selectedEntityFilter > 0 ? [$selectedEntityFilter] : $allowedEntityIds;
-if ($isAdmin && $selectedEntityFilter === 0) {
-    $stmt = $pdo->query(
-        'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
-                COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
-         FROM accounting_saft_submissions s
-         INNER JOIN accounting_entities ae ON ae.id = s.accounting_entity_id
-         LEFT JOIN users u ON u.id = s.user_id
-         ORDER BY s.created_at DESC'
-    );
-    $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} elseif ($isAdmin && $selectedEntityFilter > 0) {
-    $stmt = $pdo->prepare(
-        'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
-                COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
-         FROM accounting_saft_submissions s
-         INNER JOIN accounting_entities ae ON ae.id = s.accounting_entity_id
-         LEFT JOIN users u ON u.id = s.user_id
-         WHERE s.accounting_entity_id = ?
-         ORDER BY s.created_at DESC'
-    );
-    $stmt->execute([$selectedEntityFilter]);
-    $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} elseif ($listEntityIds) {
-    $placeholders = implode(',', array_fill(0, count($listEntityIds), '?'));
-    $stmt = $pdo->prepare(
-        'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
-                COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
-         FROM accounting_saft_submissions s
-         INNER JOIN accounting_entities ae ON ae.id = s.accounting_entity_id
-         LEFT JOIN users u ON u.id = s.user_id
-         WHERE s.accounting_entity_id IN (' . $placeholders . ')
-         ORDER BY s.created_at DESC'
-    );
-    $stmt->execute($listEntityIds);
-    $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+// Filtro de periodo (ano/mes) da listagem "Envios efetuados": os mesmos
+// selects de Ano/Mês do formulário de envio, guardados em sessão.
+$saftPeriodFilterSessionKey = 'saft_tarefas_period_filter';
+if (array_key_exists('filtro_ano', $_GET) || array_key_exists('filtro_mes', $_GET)) {
+    $filterYear = (int) ($_GET['filtro_ano'] ?? 0);
+    $filterMonth = (int) ($_GET['filtro_mes'] ?? 0);
+    $_SESSION[$saftPeriodFilterSessionKey] = ['year' => $filterYear, 'month' => $filterMonth];
 } else {
-    $submissions = [];
+    $storedFilter = $_SESSION[$saftPeriodFilterSessionKey] ?? ['year' => 0, 'month' => 0];
+    $filterYear = (int) ($storedFilter['year'] ?? 0);
+    $filterMonth = (int) ($storedFilter['month'] ?? 0);
 }
 
 $monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 $currentYear = (int) date('Y');
-$currentMonth = (int) date('n');
-$defaultMonth = $currentMonth === 1 ? 12 : $currentMonth - 1;
-$defaultYear = $currentMonth === 1 ? $currentYear - 1 : $currentYear;
+
+// Listagem: admin ve todos os envios; colaborador so os das suas empresas.
+// Filtros aplicados: empresa (topbar) e periodo ano/mes (selects abaixo).
+$listEntityIds = $selectedEntityFilter > 0 ? [$selectedEntityFilter] : $allowedEntityIds;
+$listConditions = [];
+$listParams = [];
+if (!$isAdmin || $selectedEntityFilter > 0) {
+    if (!$listEntityIds) {
+        $submissions = [];
+    } else {
+        $placeholders = implode(',', array_fill(0, count($listEntityIds), '?'));
+        $listConditions[] = 's.accounting_entity_id IN (' . $placeholders . ')';
+        $listParams = array_merge($listParams, $listEntityIds);
+    }
+}
+if ($filterYear > 0) {
+    $listConditions[] = 's.period_year = ?';
+    $listParams[] = $filterYear;
+}
+if ($filterMonth > 0) {
+    $listConditions[] = 's.period_month = ?';
+    $listParams[] = $filterMonth;
+}
+
+if (!isset($submissions)) {
+    $whereSql = $listConditions ? ' WHERE ' . implode(' AND ', $listConditions) : '';
+    $stmt = $pdo->prepare(
+        'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
+                COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
+         FROM accounting_saft_submissions s
+         INNER JOIN accounting_entities ae ON ae.id = s.accounting_entity_id
+         LEFT JOIN users u ON u.id = s.user_id'
+        . $whereSql .
+        ' ORDER BY s.created_at DESC'
+    );
+    $stmt->execute($listParams);
+    $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
 
 $useDataTables = true;
 require_once __DIR__ . '/../header.php';
@@ -393,70 +403,95 @@ require_once __DIR__ . '/../header.php';
 </div>
 <?php endif; ?>
 
+<?php if (!$entities): ?>
 <div class="row">
     <div class="col-md-12">
-        <div class="x_panel">
-            <div class="x_title">
-                <h2><i class="fa fa-upload"></i> Enviar ficheiro SAF-T</h2>
-                <div class="clearfix"></div>
-            </div>
-            <div class="x_content">
-                <?php if (!$entities): ?>
-                    <div class="alert alert-info" style="margin-bottom: 0;">
-                        Não tem empresas atribuídas para esta tarefa. Contacte o administrador.
-                    </div>
-                <?php else: ?>
-                <form method="post" enctype="multipart/form-data" class="form-horizontal">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                    <input type="hidden" name="action" value="upload">
-                    <div class="row">
-                        <div class="col-md-2 col-sm-3">
-                            <div class="form-group">
-                                <label class="control-label">Ano</label>
-                                <select class="form-control" name="period_year" required>
-                                    <?php for ($y = $currentYear; $y >= $currentYear - 5; $y--): ?>
-                                        <option value="<?= $y; ?>" <?= $y === $defaultYear ? 'selected' : ''; ?>><?= $y; ?></option>
-                                    <?php endfor; ?>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-2 col-sm-3">
-                            <div class="form-group">
-                                <label class="control-label">Mês</label>
-                                <select class="form-control" name="period_month" required>
-                                    <?php foreach ($monthNames as $num => $label): ?>
-                                        <option value="<?= $num; ?>" <?= $num === $defaultMonth ? 'selected' : ''; ?>><?= htmlspecialchars($label); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-8 col-sm-6">
-                            <div class="form-group">
-                                <label class="control-label">Ficheiro SAF-T (.xml, .zip, .gz)</label>
-                                <input type="file" class="form-control" name="saft_file" accept=".xml,.zip,.gz" required>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fa fa-paper-plane"></i> Enviar SAF-T
-                        </button>
-                    </div>
-                </form>
-                <?php endif; ?>
-            </div>
+        <div class="alert alert-info">
+            Não tem empresas atribuídas para esta tarefa. Contacte o administrador.
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <div class="row">
     <div class="col-md-12">
         <div class="x_panel">
             <div class="x_title">
-                <h2><i class="fa fa-history"></i> Envios efetuados<?= $isAdmin ? ' (todas as empresas)' : ''; ?></h2>
+                <h2><i class="fa fa-history"></i> Envios efetuados<?= $isAdmin && $selectedEntityFilter === 0 ? ' (todas as empresas)' : ''; ?></h2>
                 <div class="clearfix"></div>
             </div>
             <div class="x_content">
+                <style>
+                    .dt-hidden-until-ready { display: none !important; }
+                    .saft-filter-row {
+                        padding: 6px 0 14px;
+                        border-bottom: 1px solid #e6e9ed;
+                        margin-bottom: 14px !important;
+                    }
+                    .saft-period-filter { gap: 22px; }
+                    .saft-period-filter .saft-period-field { gap: 8px; }
+                    .saft-period-filter .control-label { margin-bottom: 0; white-space: nowrap; }
+                    .saft-period-filter select { min-width: 110px; }
+                    .saft-upload-slot { display: flex; align-items: center; justify-content: center; }
+                    .saft-paging-slot .pagination { justify-content: flex-end; }
+                    .saft-actions {
+                        display: flex !important;
+                        align-items: center;
+                        justify-content: flex-end;
+                        gap: 6px;
+                    }
+                    .saft-actions-form {
+                        display: contents;
+                    }
+                    .saft-icon-btn {
+                        display: inline-flex !important;
+                        align-items: center;
+                        justify-content: center;
+                        box-sizing: border-box;
+                        width: 26px !important;
+                        height: 26px !important;
+                        padding: 0 !important;
+                        line-height: 1;
+                        margin: 0 !important;
+                        vertical-align: middle;
+                    }
+                </style>
+                <div id="saftPeriodFilterWrapper" class="dt-hidden-until-ready">
+                    <form method="get" class="d-flex align-items-center flex-wrap saft-period-filter">
+                        <input type="hidden" name="empresa" value="<?= (int) $selectedEntityFilter; ?>">
+                        <div class="d-flex align-items-center saft-period-field">
+                            <label class="control-label">Ano</label>
+                            <select class="form-control input-sm" name="filtro_ano" onchange="this.form.submit()">
+                                <option value="0" <?= $filterYear === 0 ? 'selected' : ''; ?>>Todos</option>
+                                <?php for ($y = $currentYear; $y >= $currentYear - 5; $y--): ?>
+                                    <option value="<?= $y; ?>" <?= $y === $filterYear ? 'selected' : ''; ?>><?= $y; ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                        <div class="d-flex align-items-center saft-period-field">
+                            <label class="control-label">Mês</label>
+                            <select class="form-control input-sm" name="filtro_mes" onchange="this.form.submit()">
+                                <option value="0" <?= $filterMonth === 0 ? 'selected' : ''; ?>>Todos</option>
+                                <?php foreach ($monthNames as $num => $label): ?>
+                                    <option value="<?= $num; ?>" <?= $num === $filterMonth ? 'selected' : ''; ?>><?= htmlspecialchars($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <noscript><button type="submit" class="btn btn-default btn-sm">Filtrar</button></noscript>
+                    </form>
+                </div>
+                <?php if ($entities): ?>
+                <div id="saftUploadWrapper" class="dt-hidden-until-ready">
+                    <form method="post" enctype="multipart/form-data" id="saft-upload-form">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="upload">
+                        <input type="file" name="saft_file" accept=".xml,.zip,.gz" id="saft-file-input" style="display: none;">
+                        <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
+                            <i class="fa fa-upload"></i> Enviar SAF-T
+                        </button>
+                    </form>
+                </div>
+                <?php endif; ?>
                 <div class="table-responsive">
                     <table id="saft-submissions-table" class="table table-striped jambo_table">
                         <thead>
@@ -563,17 +598,19 @@ require_once __DIR__ . '/../header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-right" style="white-space: nowrap;">
-                                    <a class="btn btn-xs btn-default" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>">
-                                        <i class="fa fa-download"></i> Transferir
-                                    </a>
-                                    <form method="post" style="display: inline-block; margin: 0;" onsubmit="return confirm('Eliminar este envio de SAF-T?');">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <input type="hidden" name="submission_id" value="<?= (int) $submission['id']; ?>">
-                                        <button type="submit" class="btn btn-xs btn-danger">
-                                            <i class="fa fa-trash"></i>
-                                        </button>
-                                    </form>
+                                    <div class="saft-actions">
+                                        <a class="btn btn-xs btn-default saft-icon-btn" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>" title="Transferir">
+                                            <i class="fa fa-download"></i>
+                                        </a>
+                                        <form method="post" class="saft-actions-form" onsubmit="return confirm('Eliminar este envio de SAF-T?');">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="submission_id" value="<?= (int) $submission['id']; ?>">
+                                            <button type="submit" class="btn btn-xs btn-danger saft-icon-btn" title="Eliminar">
+                                                <i class="fa fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -626,7 +663,35 @@ document.addEventListener('DOMContentLoaded', function () {
         $('#saft-submissions-table').DataTable({
             language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
             order: [[0, 'desc']],
-            columnDefs: [{ targets: -1, orderable: false }]
+            columnDefs: [{ targets: -1, orderable: false }],
+            dom: "<'row mb-2 align-items-center saft-filter-row'" +
+                    "<'col-sm-12 col-md-2'l>" +
+                    "<'col-sm-12 col-md-4 saft-period-slot'>" +
+                    "<'col-sm-12 col-md-2 saft-upload-slot'>" +
+                    "<'col-sm-12 col-md-4'f>" +
+                 ">" +
+                 "rt" +
+                 "<'row mt-2 align-items-center'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7 saft-paging-slot'p>>",
+            // language.url carrega de forma assincrona, por isso os slots do
+            // cabecalho so existem depois do initComplete (ver AGENTS.md).
+            initComplete: function () {
+                var $dtWrapper = $('#saft-submissions-table').closest('.dt-container');
+                $('#saftPeriodFilterWrapper').appendTo($dtWrapper.find('.saft-period-slot')).removeClass('dt-hidden-until-ready');
+                $('#saftUploadWrapper').appendTo($dtWrapper.find('.saft-upload-slot')).removeClass('dt-hidden-until-ready');
+            }
+        });
+    }
+
+    var saftUploadTrigger = document.getElementById('saft-upload-trigger');
+    var saftFileInput = document.getElementById('saft-file-input');
+    if (saftUploadTrigger && saftFileInput) {
+        saftUploadTrigger.addEventListener('click', function () {
+            saftFileInput.click();
+        });
+        saftFileInput.addEventListener('change', function () {
+            if (saftFileInput.files.length) {
+                document.getElementById('saft-upload-form').submit();
+            }
         });
     }
 

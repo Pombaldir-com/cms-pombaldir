@@ -138,6 +138,28 @@ function saftXmlValue($node): ?string {
 }
 
 /**
+ * Deriva o ano/mes do periodo a partir do cabecalho do ficheiro SAF-T
+ * (StartDate, com fallback para EndDate ou FiscalYear quando a data nao da
+ * para calcular o mes). Devolve null se nao for possivel determinar.
+ *
+ * @return array{year: int, month: int}|null
+ */
+function saftDerivePeriod(array $headerData): ?array {
+    foreach ([$headerData['start_date'] ?? null, $headerData['end_date'] ?? null] as $rawDate) {
+        if ($rawDate === null) {
+            continue;
+        }
+        $timestamp = strtotime((string) $rawDate);
+        if ($timestamp === false) {
+            continue;
+        }
+        return ['year' => (int) date('Y', $timestamp), 'month' => (int) date('n', $timestamp)];
+    }
+
+    return null;
+}
+
+/**
  * Guarda o cabecalho/totais extraidos na submissao e as faturas em
  * accounting_saft_invoices. Nao lanca excecao: erros ficam registados em
  * saft_extraction_error para nao bloquear o fluxo de envio.
