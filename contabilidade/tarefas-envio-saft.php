@@ -586,19 +586,21 @@ require_once __DIR__ . '/../header.php';
                                             · Débito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_debit'] ?? 0), 2, ',', '.')); ?>
                                             · Crédito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_credit'] ?? 0), 2, ',', '.')); ?>
                                         </small>
-                                        <br>
-                                        <button type="button" class="btn btn-xs btn-default saft-view-invoices"
-                                            data-submission-id="<?= (int) $submission['id']; ?>"
-                                            data-entity-name="<?= htmlspecialchars((string) $submission['entity_name'], ENT_QUOTES); ?>"
-                                            data-period="<?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? '') . ' ' . $submission['period_year'], ENT_QUOTES); ?>">
-                                            <i class="fa fa-list"></i> Ver faturas
-                                        </button>
                                     <?php else: ?>
                                         <span class="text-muted">—</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-right" style="white-space: nowrap;">
                                     <div class="saft-actions">
+                                        <?php if (($submission['saft_number_of_entries'] ?? null) !== null): ?>
+                                        <button type="button" class="btn btn-xs btn-default saft-icon-btn saft-view-invoices"
+                                            title="Ver faturas"
+                                            data-submission-id="<?= (int) $submission['id']; ?>"
+                                            data-entity-name="<?= htmlspecialchars((string) $submission['entity_name'], ENT_QUOTES); ?>"
+                                            data-period="<?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? '') . ' ' . $submission['period_year'], ENT_QUOTES); ?>">
+                                            <i class="fa fa-list"></i>
+                                        </button>
+                                        <?php endif; ?>
                                         <a class="btn btn-xs btn-default saft-icon-btn" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>" title="Transferir">
                                             <i class="fa fa-download"></i>
                                         </a>
