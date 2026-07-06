@@ -139,10 +139,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // Submissao a AT via FACTEMICLI, quando o jar esta
                         // configurado e a empresa tem credencial do portal.
                         $forceOnAnomalies = !empty($_POST['force_anomalies']);
+                        $testMode = getSetting('saft_test_mode', '0') === '1';
                         $jarConfigured = trim((string) getSetting('saft_jar_path', '')) !== '';
                         $credential = saftGetEntityPortalCredential($pdo, $entityId);
 
-                        if (!$jarConfigured) {
+                        if ($testMode) {
+                            $pdo->prepare('UPDATE accounting_saft_submissions SET status = ? WHERE id = ?')
+                                ->execute(['teste', $submissionId]);
+                            $feedback = ['type' => 'info', 'message' => 'Modo teste ativo: o ficheiro foi registado mas não foi enviado à AT.'];
+                        } elseif (!$jarConfigured) {
                             $feedback = ['type' => 'warning', 'message' => 'Ficheiro registado, mas o jar FACTEMICLI não está configurado (Definições > Serviços). O envio à AT não foi efetuado.'];
                         } elseif (!$credential) {
                             $feedback = ['type' => 'warning', 'message' => 'Ficheiro registado, mas a empresa não tem credencial do portal AT ativa (módulo E-fatura). O envio à AT não foi efetuado.'];
@@ -383,7 +388,9 @@ require_once __DIR__ . '/../header.php';
                                 <td>
                                     <?php
                                         $status = (string) ($submission['status'] ?? 'registado');
-                                        $statusClass = $status === 'enviado' ? 'label-success' : ($status === 'erro' ? 'label-danger' : 'label-default');
+                                        $statusClass = $status === 'enviado' ? 'label-success'
+                                            : ($status === 'erro' ? 'label-danger'
+                                            : ($status === 'teste' ? 'label-warning' : 'label-default'));
                                     ?>
                                     <span class="label <?= $statusClass; ?>"><?= htmlspecialchars(ucfirst($status)); ?></span>
                                 </td>

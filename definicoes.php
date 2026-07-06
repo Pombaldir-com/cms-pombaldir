@@ -179,6 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         setSetting('saft_java_bin', $saftJavaBin);
+        setSetting('saft_test_mode', isset($_POST['saft_test_mode']) ? '1' : '0');
 
         $awsKey = trim($_POST['aws_access_key_id'] ?? '');
         $awsSecret = trim($_POST['aws_secret_access_key'] ?? '');
@@ -361,6 +362,7 @@ $currentSystemEmailFromName = getSetting('system_email_from_name', '');
 $currentSystemEmailFromEmail = getSetting('system_email_from_email', '');
 $currentSaftJarPath = getSetting('saft_jar_path', '');
 $currentSaftJavaBin = getSetting('saft_java_bin', '');
+$currentSaftTestMode = (int) getSetting('saft_test_mode', '0');
 $currentDomainForPlaceholder = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'dominio.pt')) ?? 'dominio.pt');
 $currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
 $currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
@@ -608,6 +610,14 @@ require_once __DIR__ . '/header.php';
                                     <div class="col-12 col-lg-3">
                                         <label for="saft_java_bin" class="form-label">Binário Java</label>
                                         <input type="text" class="form-control" id="saft_java_bin" name="saft_java_bin" value="<?= htmlspecialchars($currentSaftJavaBin); ?>" placeholder="java">
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label class="form-label d-none d-lg-block">&nbsp;</label>
+                                        <div class="form-check form-switch setting-switch">
+                                            <input class="form-check-input" type="checkbox" id="saft_test_mode" name="saft_test_mode" value="1" <?= $currentSaftTestMode ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="saft_test_mode">Modo teste</label>
+                                            <div class="text-muted small">Regista o envio sem comunicar com a AT.</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
