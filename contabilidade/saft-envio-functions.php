@@ -7,9 +7,12 @@
 /**
  * Le o conteudo XML de um ficheiro SAF-T, descomprimindo .zip/.gz se
  * necessario. Ficheiros .zip sao assumidos como contendo um unico XML.
+ *
+ * $extensionHint permite indicar a extensao original quando $filePath e um
+ * ficheiro temporario sem extensao (ex.: $_FILES[...]['tmp_name']).
  */
-function saftReadFileContent(string $filePath): string {
-    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+function saftReadFileContent(string $filePath, ?string $extensionHint = null): string {
+    $extension = strtolower($extensionHint ?? pathinfo($filePath, PATHINFO_EXTENSION));
 
     if ($extension === 'gz') {
         $handle = gzopen($filePath, 'rb');
@@ -58,6 +61,7 @@ function saftReadFileContent(string $filePath): string {
  *
  * @return array{
  *   fiscal_year: ?string, start_date: ?string, end_date: ?string,
+ *   tax_registration_number: ?string, company_name: ?string,
  *   number_of_entries: ?int, total_debit: ?string, total_credit: ?string,
  *   invoices: array<int, array{invoice_no: string, atcud: ?string, invoice_type: ?string,
  *     invoice_status: ?string, invoice_date: ?string, system_entry_date: ?string,
@@ -70,6 +74,8 @@ function saftExtractInvoiceData(string $xmlContent): array {
         'fiscal_year' => null,
         'start_date' => null,
         'end_date' => null,
+        'tax_registration_number' => null,
+        'company_name' => null,
         'number_of_entries' => null,
         'total_debit' => null,
         'total_credit' => null,
@@ -90,6 +96,8 @@ function saftExtractInvoiceData(string $xmlContent): array {
         $result['fiscal_year'] = saftXmlValue($header->FiscalYear ?? null);
         $result['start_date'] = saftXmlValue($header->StartDate ?? null);
         $result['end_date'] = saftXmlValue($header->EndDate ?? null);
+        $result['tax_registration_number'] = saftXmlValue($header->TaxRegistrationNumber ?? null);
+        $result['company_name'] = saftXmlValue($header->CompanyName ?? null);
     }
 
     $salesInvoices = $xml->SourceDocuments->SalesInvoices ?? null;
@@ -191,6 +199,27 @@ function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath)
             $invoice['gross_total'],
         ]);
     }
+}
+
+/**
+ * Resolve a empresa (entidade adquirente) correspondente ao NIF indicado no
+ * cabecalho do ficheiro SAF-T (Header/TaxRegistrationNumber). Devolve null
+ * se o NIF for invalido ou nao corresponder a nenhuma empresa registada.
+ */
+function saftResolveEntityByNif(PDO $pdo, string $rawNif): ?array {
+    $nif = extractVatNumber($rawNif);
+    if ($nif === '') {
+        return null;
+    }
+    // Comparacao em PHP (nao em SQL) porque accounting_entities.nif pode ter
+    // formatacao variavel (espacos, prefixo "PT", etc.).
+    $stmt = $pdo->query("SELECT id, nif, name FROM accounting_entities WHERE entity_type = 'acquirer'");
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        if (extractVatNumber((string) $row['nif']) === $nif) {
+            return $row;
+        }
+    }
+    return null;
 }
 
 /**

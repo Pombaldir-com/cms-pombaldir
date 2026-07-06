@@ -5,6 +5,7 @@
 // empresas e todos os envios.
 
 require_once __DIR__ . '/../functions.php';
+require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/saft-envio-functions.php';
 
 startSession();
@@ -108,22 +109,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $feedback = ['type' => 'success', 'message' => 'Envio eliminado.'];
         }
     } else {
-        $entityId = (int) ($_POST['entity_id'] ?? 0);
         $periodYear = (int) ($_POST['period_year'] ?? 0);
         $periodMonth = (int) ($_POST['period_month'] ?? 0);
 
-        if (!in_array($entityId, $allowedEntityIds, true)) {
-            $feedback = ['type' => 'danger', 'message' => 'Empresa inválida ou sem permissão.'];
-        } elseif ($periodYear < 2000 || $periodYear > 2100 || $periodMonth < 1 || $periodMonth > 12) {
+        if ($periodYear < 2000 || $periodYear > 2100 || $periodMonth < 1 || $periodMonth > 12) {
             $feedback = ['type' => 'danger', 'message' => 'Período inválido.'];
         } elseif (empty($_FILES['saft_file']) || ($_FILES['saft_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             $feedback = ['type' => 'danger', 'message' => 'Selecione um ficheiro SAF-T válido.'];
         } else {
             $originalName = (string) $_FILES['saft_file']['name'];
             $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+            $entityId = 0;
             if (!in_array($extension, ['xml', 'zip', 'gz'], true)) {
                 $feedback = ['type' => 'danger', 'message' => 'Formato inválido. Apenas ficheiros .xml, .zip ou .gz.'];
             } else {
+                // A empresa e determinada pelo NIF no cabecalho do proprio
+                // ficheiro SAF-T, nao por seleccao manual.
+                $matchedEntity = null;
+                try {
+                    $xmlContent = saftReadFileContent($_FILES['saft_file']['tmp_name'], $extension);
+                    $headerData = saftExtractInvoiceData($xmlContent);
+                    $fileNif = (string) ($headerData['tax_registration_number'] ?? '');
+                    if ($fileNif === '') {
+                        $feedback = ['type' => 'danger', 'message' => 'Não foi possível identificar o NIF da empresa no cabeçalho do ficheiro SAF-T.'];
+                    } else {
+                        $matchedEntity = saftResolveEntityByNif($pdo, $fileNif);
+                        if (!$matchedEntity) {
+                            $feedback = ['type' => 'danger', 'message' => 'Não existe nenhuma empresa registada com o NIF ' . htmlspecialchars($fileNif) . ' (indicado no ficheiro SAF-T).'];
+                        } elseif (!$isAdmin && !in_array((int) $matchedEntity['id'], $allowedEntityIds, true)) {
+                            $feedback = ['type' => 'danger', 'message' => 'Não tem permissão para enviar SAF-T da empresa ' . htmlspecialchars($matchedEntity['name']) . ' (NIF ' . htmlspecialchars($matchedEntity['nif']) . ').'];
+                        } else {
+                            $entityId = (int) $matchedEntity['id'];
+                        }
+                    }
+                } catch (Throwable $e) {
+                    $feedback = ['type' => 'danger', 'message' => 'Não foi possível ler o ficheiro SAF-T: ' . $e->getMessage()];
+                }
+            }
+            if ($entityId > 0) {
                 $slug = getCompanySlug();
                 $dir = dirname(__DIR__) . '/uploads/' . $slug . '/saft-envios/' . $entityId . '/' . $periodYear . '/' . str_pad((string) $periodMonth, 2, '0', STR_PAD_LEFT) . '/';
                 if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
@@ -187,7 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         // Submissao a AT via FACTEMICLI, quando o jar esta
                         // configurado e a empresa tem credencial do portal.
-                        $forceOnAnomalies = !empty($_POST['force_anomalies']);
+                        // Continuar sempre o envio mesmo com inconsistencias nos
+                        // totais (responde "s" ao aviso interativo da AT).
+                        $forceOnAnomalies = true;
                         $testMode = getSetting('saft_test_mode', '0') === '1';
                         $jarConfigured = trim((string) getSetting('saft_jar_path', '')) !== '';
                         $credential = saftGetEntityPortalCredential($pdo, $entityId);
@@ -261,6 +286,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($previousSubmission && $feedback !== null) {
                             $feedback['message'] = 'Substituído o envio anterior deste período. ' . $feedback['message'];
                         }
+                        if ($feedback !== null) {
+                            $feedback['message'] = 'Empresa identificada: ' . $matchedEntity['name'] . ' (NIF ' . $matchedEntity['nif'] . '). ' . $feedback['message'];
+                        }
                     }
                 }
             }
@@ -270,8 +298,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $csrfToken = generateCsrfToken();
 
+// Seletor de empresa no topbar (mesmo padrao do e-fatura): filtra a listagem
+// de envios por uma das empresas a que o utilizador tem acesso nesta tarefa,
+// ou todas quando nao ha seleção.
+$saftSelectionSessionKey = 'saft_tarefas_selected_entity';
+if (array_key_exists('empresa', $_GET)) {
+    $selectedEntityFilter = (int) $_GET['empresa'];
+    $_SESSION[$saftSelectionSessionKey] = $selectedEntityFilter;
+} else {
+    $selectedEntityFilter = (int) ($_SESSION[$saftSelectionSessionKey] ?? 0);
+}
+if ($selectedEntityFilter > 0 && !in_array($selectedEntityFilter, $allowedEntityIds, true)) {
+    $selectedEntityFilter = 0;
+}
+
+$efaturaTopbarSelector = [
+    'enabled' => !empty($entities),
+    'action' => BASE_URL . 'contabilidade/tarefas/envio-saft',
+    'selected_entity_id' => $selectedEntityFilter,
+    'entities' => array_merge(
+        [['value' => '0', 'label' => 'Todas as empresas']],
+        array_map(static function (array $entity): array {
+            return [
+                'value' => (string) $entity['id'],
+                'label' => (string) $entity['name'] . (trim((string) $entity['nif']) !== '' ? ' (' . $entity['nif'] . ')' : ''),
+            ];
+        }, $entities)
+    ),
+];
+
 // Listagem: admin ve todos os envios; colaborador so os das suas empresas.
-if ($isAdmin) {
+// O filtro de empresa do topbar aplica-se em ambos os casos.
+$listEntityIds = $selectedEntityFilter > 0 ? [$selectedEntityFilter] : $allowedEntityIds;
+if ($isAdmin && $selectedEntityFilter === 0) {
     $stmt = $pdo->query(
         'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
                 COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
@@ -281,8 +340,20 @@ if ($isAdmin) {
          ORDER BY s.created_at DESC'
     );
     $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} elseif ($allowedEntityIds) {
-    $placeholders = implode(',', array_fill(0, count($allowedEntityIds), '?'));
+} elseif ($isAdmin && $selectedEntityFilter > 0) {
+    $stmt = $pdo->prepare(
+        'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
+                COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
+         FROM accounting_saft_submissions s
+         INNER JOIN accounting_entities ae ON ae.id = s.accounting_entity_id
+         LEFT JOIN users u ON u.id = s.user_id
+         WHERE s.accounting_entity_id = ?
+         ORDER BY s.created_at DESC'
+    );
+    $stmt->execute([$selectedEntityFilter]);
+    $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+} elseif ($listEntityIds) {
+    $placeholders = implode(',', array_fill(0, count($listEntityIds), '?'));
     $stmt = $pdo->prepare(
         'SELECT s.*, ae.name AS entity_name, ae.nif AS entity_nif,
                 COALESCE(NULLIF(TRIM(u.name), ""), u.username) AS user_label
@@ -292,7 +363,7 @@ if ($isAdmin) {
          WHERE s.accounting_entity_id IN (' . $placeholders . ')
          ORDER BY s.created_at DESC'
     );
-    $stmt->execute($allowedEntityIds);
+    $stmt->execute($listEntityIds);
     $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 } else {
     $submissions = [];
@@ -339,19 +410,6 @@ require_once __DIR__ . '/../header.php';
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                     <input type="hidden" name="action" value="upload">
                     <div class="row">
-                        <div class="col-md-4 col-sm-6">
-                            <div class="form-group">
-                                <label class="control-label">Empresa</label>
-                                <select class="form-control" name="entity_id" required>
-                                    <option value="">— Selecionar empresa —</option>
-                                    <?php foreach ($entities as $entity): ?>
-                                        <option value="<?= (int) $entity['id']; ?>">
-                                            <?= htmlspecialchars((string) $entity['name']); ?><?= trim((string) $entity['nif']) !== '' ? ' (' . htmlspecialchars((string) $entity['nif']) . ')' : ''; ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
                         <div class="col-md-2 col-sm-3">
                             <div class="form-group">
                                 <label class="control-label">Ano</label>
@@ -372,18 +430,12 @@ require_once __DIR__ . '/../header.php';
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-4 col-sm-6">
+                        <div class="col-md-8 col-sm-6">
                             <div class="form-group">
                                 <label class="control-label">Ficheiro SAF-T (.xml, .zip, .gz)</label>
                                 <input type="file" class="form-control" name="saft_file" accept=".xml,.zip,.gz" required>
                             </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-weight: normal;">
-                            <input type="checkbox" name="force_anomalies" value="1">
-                            Continuar o envio mesmo com inconsistências nos totais (responde "s" ao aviso da AT)
-                        </label>
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <button type="submit" class="btn btn-primary">
