@@ -87,6 +87,7 @@ Formato obrigatório:
 - Consultar ERP-SINC.
 - Consultar E-fatura local.
 - Consultar E-fatura remoto via credenciais guardadas da empresa.
+- Consultar envios de SAF-T (tabelas `accounting_saft_submissions` e `accounting_saft_invoices`, via `read_sql`) para responder a qualquer questão do utilizador sobre estado do envio, resposta da AT, faturas extraídas, totais ou período — nunca responder de memória nem inventar valores.
 - Analisar documentos importados.
 - Sugerir classificações.
 

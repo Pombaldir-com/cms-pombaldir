@@ -1320,7 +1320,7 @@ return;
                                 <div class="tab-content">
                                     <div class="tab-pane fade active show" id="cliente-detalhes" role="tabpanel">
                                         <div class="erp-form-section">
-                                            <h3 class="erp-form-section-title"><i class="fa fa-id-card-o"></i> Identificação</h3>
+                                            <h3 class="erp-form-section-title"><i class="fa fa-building-o"></i> Identificação</h3>
                                             <div class="row">
                                                 <div class="col-md-3 col-sm-12">
                                                     <div class="form-group">
@@ -3018,7 +3018,7 @@ return;
                             <div class="modal-content">
                                 <form id="accountingEntityAiForm">
                                     <div class="modal-header">
-                                        <h5 class="modal-title"><i class="fa fa-robot"></i> Instrucoes IA</h5>
+                                        <h5 class="modal-title"><i class="fa fa-magic"></i> Instrucoes IA</h5>
                                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
                                     </div>
                                     <div class="modal-body">

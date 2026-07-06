@@ -3819,6 +3819,26 @@ select.parsley-error {
     border-radius: 3px;
 }
 
+/* Bootstrap 5 nao inclui ".btn-default" (removida a favor de secondary/light)
+   e este tema tambem nunca a definiu, pelo que ficava sem cor/borda propria -
+   o mesmo botao (ex.: "Voltar" vs "Repor") podia sair visualmente diferente
+   consoante o contexto. Definir aqui um estilo neutro consistente. */
+.btn-default {
+    color: #67757c;
+    background-color: #fff;
+    border: 1px solid #e6e9ed;
+}
+
+.btn-default:hover,
+.btn-default:focus,
+.btn-default:active,
+.btn-default.active,
+.open .dropdown-toggle.btn-default {
+    color: #2a3f54;
+    background-color: #f5f7fa;
+    border-color: #d8dee4;
+}
+
 a.btn-success,
 a.btn-primary,
 a.btn-warning,
@@ -4081,44 +4101,48 @@ span.tag a {
 ul.bar_tabs {
     overflow: visible;
     background: #F5F7FA;
-    height: 25px;
-    margin: 21px 0 14px;
+    height: auto;
+    min-height: 25px;
+    margin: 10px 0 20px;
     padding-left: 14px;
     position: relative;
     z-index: 1;
     width: 100%;
     border-bottom: 1px solid #E6E9ED;
+    flex-wrap: wrap;
 }
 
 ul.bar_tabs>li {
-    border: 1px solid #E6E9ED;
-    color: #333 !important;
-    margin-top: -17px;
+    margin-top: -1px;
     margin-left: 8px;
-    background: #fff;
-    border-bottom: none;
-    border-radius: 4px 4px 0 0;
-}
-
-ul.bar_tabs>li.active {
-    border-right: 6px solid #D3D6DA;
-    border-top: 0;
-    margin-top: -15px;
 }
 
 ul.bar_tabs>li a {
     padding: 10px 17px;
-    background: #F5F7FA;
     margin: 0;
-    border-top-right-radius: 0;
+    color: #67757c !important;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    background: transparent;
+    transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 ul.bar_tabs>li a:hover {
-    border: 1px solid transparent;
+    color: #2a3f54 !important;
+    background: rgba(26, 187, 156, 0.08);
 }
 
-ul.bar_tabs>li.active a {
-    border-bottom: none;
+/* Bootstrap 5 marca o item ativo com ".nav-link.active" no proprio <a>,
+   nao com "<li class=active>" (diferente do Bootstrap 3 original deste
+   tema) — o destaque tem de visar o link, nao o item da lista. */
+ul.bar_tabs>li a.active {
+    color: #1abb9c !important;
+    background: #fff;
+    border-color: #E6E9ED;
+    border-bottom: 2px solid #fff;
+    box-shadow: 0 -2px 0 #1abb9c inset;
 }
 
 ul.bar_tabs.right {

@@ -398,6 +398,7 @@ $systemPrompt = "Es um assistente de AI para um escritorio de contabilidade. Usa
     . "Se read_uploaded_document devolver method=qr_only, apresenta de imediato os campos estruturados extraidos do QR (NIFs, tipo, numero, data e totais) antes de sugerir proximos passos.\n"
     . "Quando o tipo documental for FT ou FR (fatura/fatura-recibo), pergunta explicitamente se o utilizador pretende importar para Contabilidade > Classificacao (contabilidade/classificacao-importacao?import_type=1), respeitando o workflow e permissoes atuais.\n"
     . "Neste fluxo FT/FR, nao pedir ID de documento para iniciar; orientar para menu e link de classificacao/importacao existentes.\n"
+    . "Para qualquer questao sobre envios de SAF-T (estado do envio, resposta da AT, faturas extraidas, totais de debito/credito, periodo/ano/mes, ficheiro enviado), consulta as tabelas accounting_saft_submissions e accounting_saft_invoices com read_sql antes de responder; nao respondas de memoria nem inventes valores.\n"
     . "Resumo interno: fornece respostas curtas e claras.";
 
 if ($markdownPrompt !== '') {
