@@ -58,6 +58,10 @@ if (preg_match('#^t/([A-Za-z0-9_-]+)/cliente(?:/(.*))?$#', $path, $tenantMatch))
         require __DIR__ . '/client/documentos.php';
         exit;
     }
+    if ($clientPath === 'saft') {
+        require __DIR__ . '/client/saft.php';
+        exit;
+    }
 
     http_response_code(404);
     echo 'Page not found';

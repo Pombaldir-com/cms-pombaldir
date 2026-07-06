@@ -452,3 +452,208 @@ function saftRunFactemicli(
         'exit_code' => $exitCode,
     ];
 }
+
+/**
+ * Processa por completo o upload de um ficheiro SAF-T: valida o formato,
+ * extrai o NIF/periodo do cabecalho, resolve a empresa atraves de
+ * $resolveEntity, grava o ficheiro (substituindo o envio anterior do mesmo
+ * periodo), extrai faturas/totais para cruzamento com a contabilidade e
+ * tenta a submissao a AT (respeitando o modo teste e a credencial do portal).
+ *
+ * Usado tanto pela area administrativa (contabilidade/tarefas-envio-saft.php)
+ * como pela extranet do cliente (client/saft.php); a unica diferenca entre
+ * os dois contextos e como a empresa e validada, pelo que essa logica fica a
+ * cargo do callback $resolveEntity.
+ *
+ * $resolveEntity recebe o NIF do ficheiro (string) e devolve
+ * ['entity' => array{id,nif,name}|null, 'error' => ?string]. Quando 'error'
+ * vem preenchido, o upload e abortado com essa mensagem; quando 'entity' e
+ * null sem 'error', usa-se uma mensagem generica de "empresa nao encontrada".
+ *
+ * @return array{feedback: array{type:string,message:string}, submission_id: ?int}
+ */
+function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity, ?int $userId): array {
+    if (($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Selecione um ficheiro SAF-T válido.'], 'submission_id' => null];
+    }
+
+    $originalName = (string) ($uploadedFile['name'] ?? '');
+    $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    if (!in_array($extension, ['xml', 'zip', 'gz'], true)) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Formato inválido. Apenas ficheiros .xml, .zip ou .gz.'], 'submission_id' => null];
+    }
+
+    try {
+        $xmlContent = saftReadFileContent($tmpName, $extension);
+        $headerData = saftExtractInvoiceData($xmlContent);
+    } catch (Throwable $e) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Não foi possível ler o ficheiro SAF-T: ' . $e->getMessage()], 'submission_id' => null];
+    }
+
+    $fileNif = (string) ($headerData['tax_registration_number'] ?? '');
+    if ($fileNif === '') {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Não foi possível identificar o NIF da empresa no cabeçalho do ficheiro SAF-T.'], 'submission_id' => null];
+    }
+
+    $derivedPeriod = saftDerivePeriod($headerData);
+    if ($derivedPeriod === null) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Não foi possível determinar o período (ano/mês) a partir do cabeçalho do ficheiro SAF-T.'], 'submission_id' => null];
+    }
+
+    $resolved = $resolveEntity($fileNif);
+    if (!empty($resolved['error'])) {
+        return ['feedback' => ['type' => 'danger', 'message' => (string) $resolved['error']], 'submission_id' => null];
+    }
+    $matchedEntity = $resolved['entity'] ?? null;
+    if (!$matchedEntity) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Não existe nenhuma empresa registada com o NIF ' . htmlspecialchars($fileNif) . ' (indicado no ficheiro SAF-T).'], 'submission_id' => null];
+    }
+
+    $entityId = (int) $matchedEntity['id'];
+    $periodYear = $derivedPeriod['year'];
+    $periodMonth = $derivedPeriod['month'];
+
+    $slug = getCompanySlug();
+    $dir = dirname(__DIR__) . '/uploads/' . $slug . '/saft-envios/' . $entityId . '/' . $periodYear . '/' . str_pad((string) $periodMonth, 2, '0', STR_PAD_LEFT) . '/';
+    if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Erro ao criar diretório de destino.'], 'submission_id' => null];
+    }
+
+    $safeName = preg_replace('/[^A-Za-z0-9._-]+/', '_', $originalName) ?: ('saft.' . $extension);
+    $storedName = date('YmdHis') . '_' . $safeName;
+    $fullPath = $dir . $storedName;
+    if (!move_uploaded_file($tmpName, $fullPath)) {
+        return ['feedback' => ['type' => 'danger', 'message' => 'Falha ao gravar o ficheiro.'], 'submission_id' => null];
+    }
+
+    // So se permite um envio por empresa/periodo: o envio anterior para o
+    // mesmo ano/mes e substituido pelo mais recente (ficheiro e registo,
+    // incluindo faturas extraidas via cascade).
+    $previousStmt = $pdo->prepare(
+        'SELECT id, file_path FROM accounting_saft_submissions
+         WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ?
+         LIMIT 1'
+    );
+    $previousStmt->execute([$entityId, $periodYear, $periodMonth]);
+    $previousSubmission = $previousStmt->fetch(PDO::FETCH_ASSOC);
+    if ($previousSubmission) {
+        $previousFullPath = dirname(__DIR__) . '/' . ltrim((string) $previousSubmission['file_path'], '/');
+        if (is_file($previousFullPath)) {
+            @unlink($previousFullPath);
+        }
+        $pdo->prepare('DELETE FROM accounting_saft_submissions WHERE id = ?')->execute([(int) $previousSubmission['id']]);
+        logAuditAction('delete', 'accounting_saft_submission', (int) $previousSubmission['id'], [
+            'accounting_entity_id' => $entityId,
+            'period' => $periodYear . '-' . $periodMonth,
+            'reason' => 'substituido por novo envio',
+        ]);
+    }
+
+    $relativePath = 'uploads/' . $slug . '/saft-envios/' . $entityId . '/' . $periodYear . '/' . str_pad((string) $periodMonth, 2, '0', STR_PAD_LEFT) . '/' . $storedName;
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_saft_submissions
+            (accounting_entity_id, user_id, period_year, period_month, original_filename, file_path, file_size)
+         VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $entityId,
+        $userId,
+        $periodYear,
+        $periodMonth,
+        $originalName,
+        $relativePath,
+        (int) ($uploadedFile['size'] ?? 0),
+    ]);
+    $submissionId = (int) $pdo->lastInsertId();
+    logAuditAction('create', 'accounting_saft_submission', $submissionId, [
+        'accounting_entity_id' => $entityId,
+        'period' => $periodYear . '-' . $periodMonth,
+    ]);
+
+    // Extrai faturas e totais do proprio ficheiro SAF-T para cruzamento
+    // posterior com a contabilidade e lancamentos. Nao bloqueia o envio se
+    // falhar.
+    saftPersistExtractedData($pdo, $submissionId, $fullPath);
+
+    // Submissao a AT via FACTEMICLI, quando o jar esta configurado e a
+    // empresa tem credencial do portal. Continua sempre o envio mesmo com
+    // inconsistencias nos totais (responde "s" ao aviso interativo da AT).
+    $testMode = getSetting('saft_test_mode', '0') === '1';
+    $jarConfigured = trim((string) getSetting('saft_jar_path', '')) !== '';
+    $credential = saftGetEntityPortalCredential($pdo, $entityId);
+    $feedback = null;
+
+    if ($testMode) {
+        $pdo->prepare('UPDATE accounting_saft_submissions SET status = ? WHERE id = ?')
+            ->execute(['teste', $submissionId]);
+        $feedback = ['type' => 'info', 'message' => 'Modo teste ativo: o ficheiro foi registado mas não foi enviado à AT.'];
+    } elseif (!$jarConfigured) {
+        $feedback = ['type' => 'warning', 'message' => 'Ficheiro registado, mas o jar FACTEMICLI não está configurado (Definições > Serviços). O envio à AT não foi efetuado.'];
+    } elseif (!$credential) {
+        $feedback = ['type' => 'warning', 'message' => 'Ficheiro registado, mas a empresa não tem credencial do portal AT ativa (módulo E-fatura). O envio à AT não foi efetuado.'];
+    } else {
+        try {
+            $portalPassword = saftDecryptPortalSecret((string) $credential['portal_password_encrypted']);
+            $result = saftRunFactemicli(
+                (string) $credential['portal_username'],
+                $portalPassword,
+                $periodYear,
+                $periodMonth,
+                $fullPath,
+                true
+            );
+            $parsed = $result['parsed'];
+            $status = $parsed !== null && $parsed['code'] === '200' ? 'enviado' : 'erro';
+            $pdo->prepare(
+                'UPDATE accounting_saft_submissions SET
+                    status = ?, at_response_code = ?, at_total_faturas = ?, at_total_creditos = ?,
+                    at_total_debitos = ?, at_warning = ?, at_id_ficheiro = ?, at_nome_ficheiro = ?,
+                    at_created_date = ?, at_errors = ?, at_response_raw = ?
+                 WHERE id = ?'
+            )->execute([
+                $status,
+                $parsed['code'] ?? null,
+                $parsed['total_faturas'] ?? null,
+                $parsed['total_creditos'] ?? null,
+                $parsed['total_debitos'] ?? null,
+                $parsed['warning'] ?? null,
+                $parsed['id_ficheiro'] ?? null,
+                $parsed['nome_ficheiro'] ?? null,
+                $parsed['created_date'] ?? null,
+                !empty($parsed['errors']) ? implode("\n", $parsed['errors']) : null,
+                $result['raw'] !== '' ? $result['raw'] : null,
+                $submissionId,
+            ]);
+            logAuditAction('update', 'accounting_saft_submission', $submissionId, [
+                'status' => $status,
+                'at_response_code' => $parsed['code'] ?? null,
+            ]);
+            if ($status === 'enviado') {
+                $message = 'SAF-T enviado à AT com sucesso (código 200'
+                    . (!empty($parsed['id_ficheiro']) ? ', ficheiro n.º ' . $parsed['id_ficheiro'] : '')
+                    . ').';
+                if (!empty($parsed['warning'])) {
+                    $message .= ' Aviso da AT: ' . $parsed['warning'];
+                }
+                $feedback = ['type' => 'success', 'message' => $message];
+            } else {
+                $errorDetail = $parsed !== null
+                    ? 'código ' . $parsed['code'] . (!empty($parsed['errors']) ? ' — ' . implode(' | ', $parsed['errors']) : '')
+                    : 'resposta da AT não reconhecida';
+                $feedback = ['type' => 'danger', 'message' => 'O ficheiro foi registado mas a AT devolveu erro (' . $errorDetail . '). Consulte os detalhes na listagem.'];
+            }
+        } catch (Throwable $e) {
+            $pdo->prepare('UPDATE accounting_saft_submissions SET status = ?, at_errors = ? WHERE id = ?')
+                ->execute(['erro', $e->getMessage(), $submissionId]);
+            $feedback = ['type' => 'danger', 'message' => 'Ficheiro registado, mas o envio à AT falhou: ' . $e->getMessage()];
+        }
+    }
+
+    if ($previousSubmission) {
+        $feedback['message'] = 'Substituído o envio anterior deste período. ' . $feedback['message'];
+    }
+    $feedback['message'] = 'Empresa identificada: ' . $matchedEntity['name'] . ' (NIF ' . $matchedEntity['nif'] . '). ' . $feedback['message'];
+
+    return ['feedback' => $feedback, 'submission_id' => $submissionId];
+}

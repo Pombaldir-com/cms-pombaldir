@@ -55,6 +55,14 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
             font-size: 13px;
             line-height: 1.3;
         }
+        .client-portal .impersonation-bar--top {
+            margin: 0;
+            padding: 8px 18px;
+            border-width: 0 0 1px;
+            border-radius: 0;
+            position: relative;
+            z-index: 1100;
+        }
         .client-portal .impersonation-bar__msg i {
             margin-right: 6px;
         }
@@ -206,6 +214,17 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
     </style>
 </head>
 <body class="nav-md client-portal">
+<?php if (isClientImpersonation()): ?>
+<div class="impersonation-bar impersonation-bar--top">
+    <span class="impersonation-bar__msg">
+        <i class="fa fa-user-secret"></i>
+        Está a navegar como <strong><?= htmlspecialchars((string) ($clientUser['name'] ?: $clientUser['username'])); ?></strong> · modo impersonação
+    </span>
+    <a class="impersonation-bar__btn" href="<?= $tenantPrefix ?>stop-impersonation">
+        <i class="fa fa-sign-out"></i> Terminar impersonação
+    </a>
+</div>
+<?php endif; ?>
 <div class="container body">
     <div class="main_container">
         <div class="col-md-3 left_col">
@@ -232,6 +251,7 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
                         <ul class="nav side-menu">
                             <li class="<?= $currentClientPage === 'dashboard' ? 'active' : ''; ?>"><a href="<?= $tenantPrefix ?>dashboard"><i class="fa fa-home"></i> Dashboard</a></li>
                             <li class="<?= $currentClientPage === 'documentos' ? 'active' : ''; ?>"><a href="<?= $tenantPrefix ?>documentos"><i class="fa fa-files-o"></i> Documentos</a></li>
+                            <li class="<?= $currentClientPage === 'saft' ? 'active' : ''; ?>"><a href="<?= $tenantPrefix ?>saft"><i class="fa fa-upload"></i> Envio de SAF-T</a></li>
                         </ul>
                     </div>
                 </div>
@@ -260,14 +280,3 @@ $currentClientPage = $currentClientPage ?? 'dashboard';
             </div>
         </div>
         <div class="right_col" role="main">
-<?php if (isClientImpersonation()): ?>
-            <div class="impersonation-bar">
-                <span class="impersonation-bar__msg">
-                    <i class="fa fa-user-secret"></i>
-                    Está a navegar como <strong><?= htmlspecialchars((string) ($clientUser['name'] ?: $clientUser['username'])); ?></strong> · modo impersonação
-                </span>
-                <a class="impersonation-bar__btn" href="<?= $tenantPrefix ?>stop-impersonation">
-                    <i class="fa fa-sign-out"></i> Terminar impersonação
-                </a>
-            </div>
-<?php endif; ?>
