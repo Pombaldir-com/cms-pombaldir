@@ -545,6 +545,197 @@ function loginUser(string $username, string $password): bool {
     return false;
 }
 
+/**
+ * Create a password reset token for the given user and persist its hash.
+ * Any previous unused tokens for this user are invalidated first.
+ *
+ * @return string The plain-text token to embed in the reset link (never stored as-is).
+ */
+function createPasswordResetToken(int $userId): string {
+    $pdo = getPDO();
+    if (!hasTable('password_resets')) {
+        throw new RuntimeException('Tabela password_resets nao existe. Corra as migracoes.');
+    }
+    $stmt = $pdo->prepare('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL');
+    $stmt->execute([$userId]);
+
+    $token = bin2hex(random_bytes(32));
+    $tokenHash = hash('sha256', $token);
+    $stmt = $pdo->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))');
+    $stmt->execute([$userId, $tokenHash]);
+    return $token;
+}
+
+/**
+ * Validate a password reset token and return the associated user row, or null
+ * if the token is unknown, expired or already used.
+ */
+function findUserByPasswordResetToken(string $token): ?array {
+    if (!hasTable('password_resets') || trim($token) === '') {
+        return null;
+    }
+    $pdo = getPDO();
+    $tokenHash = hash('sha256', $token);
+    $stmt = $pdo->prepare(
+        'SELECT u.id, u.username, u.name, u.email
+         FROM password_resets pr
+         JOIN users u ON u.id = pr.user_id
+         WHERE pr.token_hash = ? AND pr.used_at IS NULL AND pr.expires_at > NOW()
+         LIMIT 1'
+    );
+    $stmt->execute([$tokenHash]);
+    $user = $stmt->fetch();
+    return $user ?: null;
+}
+
+/**
+ * Mark a password reset token as used and update the user's password.
+ */
+function consumePasswordResetToken(string $token, string $newPasswordHash): void {
+    $pdo = getPDO();
+    $tokenHash = hash('sha256', $token);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('SELECT user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1');
+        $stmt->execute([$tokenHash]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            $pdo->rollBack();
+            throw new RuntimeException('Token de recuperacao invalido ou expirado.');
+        }
+        $userId = (int) $row['user_id'];
+        $stmt = $pdo->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt->execute([$newPasswordHash, $userId]);
+        $stmt = $pdo->prepare('UPDATE password_resets SET used_at = NOW() WHERE user_id = ? AND used_at IS NULL');
+        $stmt->execute([$userId]);
+        $pdo->commit();
+        logAuditAction('password_reset', 'user', $userId, []);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
+    }
+}
+
+/**
+ * Send a plain-text email using the configured SMTP settings, falling back
+ * to PHP's mail() when no SMTP host is configured. Mirrors the transport
+ * logic used by the e-fatura module but kept self-contained here so pages
+ * outside contabilidade/ (e.g. login/password recovery) don't need to load it.
+ */
+function sendSystemEmail(string $toEmail, string $subject, string $body): void {
+    $smtpHost = trim((string) getSetting('smtp_host', ''));
+    $fromEmail = trim((string) getSetting('smtp_user', ''));
+    if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
+        $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost')) ?? 'localhost');
+        $fromEmail = 'noreply@' . ($host !== '' ? $host : 'localhost');
+    }
+    $fromName = trim((string) getSetting('app_name', 'CMS'));
+
+    if ($smtpHost !== '') {
+        sendSystemEmailViaSmtp($smtpHost, $toEmail, $subject, $body, $fromEmail, $fromName);
+        return;
+    }
+
+    if (!function_exists('mail')) {
+        throw new RuntimeException('Nao existe transporte de email configurado.');
+    }
+    $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+    $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64";
+    $encodedBody = chunk_split(base64_encode($body));
+    if (!@mail($toEmail, $encodedSubject, $encodedBody, $headers, '-f ' . $fromEmail)) {
+        throw new RuntimeException('Falha ao enviar email pelo transporte local.');
+    }
+}
+
+function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName): void {
+    $port = (int) getSetting('smtp_port', '0');
+    $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
+    $username = trim((string) getSetting('smtp_user', ''));
+    $password = (string) getSetting('smtp_pass', '');
+    if ($port <= 0) {
+        $port = $encryption === 'ssl' ? 465 : 587;
+    }
+
+    $clientHost = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost.localdomain')) ?? 'localhost.localdomain');
+    $remoteHost = $encryption === 'ssl' ? 'ssl://' . $host : $host;
+    $socket = @stream_socket_client($remoteHost . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        throw new RuntimeException('Falha ao ligar ao SMTP: ' . $errstr);
+    }
+    stream_set_timeout($socket, 20);
+
+    $expect = function ($socket, array $codes, string $context) {
+        $response = '';
+        while (!feof($socket)) {
+            $line = fgets($socket, 515);
+            if ($line === false) {
+                break;
+            }
+            $response .= $line;
+            if (strlen($line) >= 4 && $line[3] === ' ') {
+                break;
+            }
+        }
+        if ($response === '') {
+            throw new RuntimeException('Resposta vazia do servidor SMTP em ' . $context . '.');
+        }
+        $code = (int) substr($response, 0, 3);
+        if (!in_array($code, $codes, true)) {
+            throw new RuntimeException('SMTP falhou em ' . $context . ': ' . trim($response));
+        }
+        return $response;
+    };
+    $command = function ($socket, string $cmd, array $codes, string $context) use ($expect) {
+        fwrite($socket, $cmd . "\r\n");
+        return $expect($socket, $codes, $context);
+    };
+
+    $expect($socket, [220], 'ligacao inicial');
+    $command($socket, 'EHLO ' . $clientHost, [250], 'EHLO');
+
+    if ($encryption === 'tls') {
+        $command($socket, 'STARTTLS', [220], 'STARTTLS');
+        if (@stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT) !== true) {
+            fclose($socket);
+            throw new RuntimeException('Nao foi possivel ativar TLS no SMTP.');
+        }
+        $command($socket, 'EHLO ' . $clientHost, [250], 'EHLO pos-TLS');
+    }
+
+    if ($username !== '') {
+        $command($socket, 'AUTH LOGIN', [334], 'AUTH LOGIN');
+        $command($socket, base64_encode($username), [334], 'SMTP utilizador');
+        $command($socket, base64_encode($password), [235], 'SMTP password');
+    }
+
+    $envelopeFrom = $username !== '' && strpos($username, '@') !== false ? $username : $fromEmail;
+    $command($socket, 'MAIL FROM:<' . $envelopeFrom . '>', [250], 'MAIL FROM');
+    $command($socket, 'RCPT TO:<' . $toEmail . '>', [250, 251], 'RCPT TO');
+    $command($socket, 'DATA', [354], 'DATA');
+
+    $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+    $headers = implode("\r\n", [
+        'To: ' . $toEmail,
+        'From: ' . $fromName . ' <' . $fromEmail . '>',
+        'Subject: ' . $encodedSubject,
+        'Date: ' . date(DATE_RFC2822),
+        'Message-ID: <' . uniqid('reset_', true) . '@' . $clientHost . '>',
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: base64',
+        'X-Mailer: AICRM',
+    ]);
+    $encodedBody = chunk_split(base64_encode($body));
+    $rawMessage = $headers . "\r\n\r\n" . $encodedBody;
+    $rawMessage = preg_replace("/(?m)^\\./", '..', $rawMessage) ?? $rawMessage;
+    fwrite($socket, $rawMessage . "\r\n.\r\n");
+    $expect($socket, [250], 'corpo da mensagem');
+    @fwrite($socket, "QUIT\r\n");
+    fclose($socket);
+}
+
 function hasClientUsersTable(): bool {
     return hasTable('client_users');
 }

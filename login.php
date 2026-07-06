@@ -191,6 +191,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </button>
                   </div>
                   <p class="login-note">
+                    <a href="<?php echo htmlspecialchars(BASE_URL . 'recuperar-password'); ?>">Esqueceu a palavra-passe?</a>
+                  </p>
+                  <p class="login-note">
                     <i class="fa fa-shield"></i> Sessao protegida com validacao CSRF
                   </p>
                 </form>

@@ -71,6 +71,12 @@ switch (true) {
     case $path === 'login':
         require __DIR__ . '/login.php';
         break;
+    case $path === 'recuperar-password':
+        require __DIR__ . '/recuperar-password.php';
+        break;
+    case $path === 'redefinir-password':
+        require __DIR__ . '/redefinir-password.php';
+        break;
     case $path === 'terminar-sessao':
     case $path === 'logout':
         $_GET['action'] = 'logout';
