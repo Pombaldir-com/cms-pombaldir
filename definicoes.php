@@ -141,11 +141,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $smtpUser = trim($_POST['smtp_user'] ?? '');
         $smtpPass = trim($_POST['smtp_pass'] ?? '');
         $smtpEncryption = trim($_POST['smtp_encryption'] ?? '');
+        $systemEmailFromName = trim($_POST['system_email_from_name'] ?? '');
+        $systemEmailFromEmail = trim($_POST['system_email_from_email'] ?? '');
         setSetting('smtp_host', $smtpHost);
         setSetting('smtp_port', $smtpPort);
         setSetting('smtp_user', $smtpUser);
         setSetting('smtp_pass', $smtpPass);
         setSetting('smtp_encryption', $smtpEncryption);
+        setSetting('system_email_from_name', $systemEmailFromName);
+        setSetting('system_email_from_email', $systemEmailFromEmail);
 
         $awsKey = trim($_POST['aws_access_key_id'] ?? '');
         $awsSecret = trim($_POST['aws_secret_access_key'] ?? '');
@@ -324,6 +328,9 @@ $currentSmtpPort = getSetting('smtp_port', '');
 $currentSmtpUser = getSetting('smtp_user', '');
 $currentSmtpPass = getSetting('smtp_pass', '');
 $currentSmtpEncryption = getSetting('smtp_encryption', '');
+$currentSystemEmailFromName = getSetting('system_email_from_name', '');
+$currentSystemEmailFromEmail = getSetting('system_email_from_email', '');
+$currentDomainForPlaceholder = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'dominio.pt')) ?? 'dominio.pt');
 $currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
 $currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
 $currentAwsRegion = getSetting('aws_region', '');
@@ -524,6 +531,21 @@ require_once __DIR__ . '/header.php';
                                             <option value="ssl" <?= $currentSmtpEncryption === 'ssl' ? 'selected' : ''; ?>>SSL</option>
                                             <option value="tls" <?= $currentSmtpEncryption === 'tls' ? 'selected' : ''; ?>>TLS</option>
                                         </select>
+                                    </div>
+                                </div>
+                                <hr>
+                                <div class="row g-3">
+                                    <div class="col-12">
+                                        <strong>Remetente de mensagens do sistema</strong>
+                                        <p class="text-muted mb-0">Usado em emails automáticos (ex.: recuperação de palavra-passe). Se ficar vazio, usa o utilizador SMTP e o nome da app como remetente.</p>
+                                    </div>
+                                    <div class="col-12 col-lg-4">
+                                        <label for="system_email_from_name" class="form-label">Nome do remetente</label>
+                                        <input type="text" class="form-control" id="system_email_from_name" name="system_email_from_name" value="<?= htmlspecialchars($currentSystemEmailFromName); ?>" placeholder="<?= htmlspecialchars($currentAppName ?: 'CMS'); ?>">
+                                    </div>
+                                    <div class="col-12 col-lg-4">
+                                        <label for="system_email_from_email" class="form-label">Email do remetente</label>
+                                        <input type="email" class="form-control" id="system_email_from_email" name="system_email_from_email" value="<?= htmlspecialchars($currentSystemEmailFromEmail); ?>" placeholder="noreply@<?= htmlspecialchars($currentDomainForPlaceholder); ?>">
                                     </div>
                                 </div>
                             </div>

@@ -34,15 +34,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch();
             if ($user && !empty($user['email'])) {
                 $token = createPasswordResetToken((int) $user['id']);
-                $resetLink = BASE_URL . 'redefinir-password?token=' . urlencode($token) . '&nif=' . urlencode($nif);
-                $appName = getSetting('app_name', 'CMS');
+                $resetLink = appAbsoluteBaseUrl() . 'redefinir-password?token=' . urlencode($token) . '&nif=' . urlencode($nif);
+                $appName = (string) getSetting('app_name', 'CMS');
+                $displayName = $user['name'] ?: $user['username'];
                 $subject = $appName . ' - Recuperação de palavra-passe';
-                $body = "Ola " . ($user['name'] ?: $user['username']) . ",\n\n"
-                    . "Recebemos um pedido para redefinir a sua palavra-passe em {$appName}.\n\n"
-                    . "Para continuar, aceda a este link (valido por 1 hora):\n{$resetLink}\n\n"
-                    . "Se nao pediu esta alteracao, pode ignorar este email.\n";
+                $body = '<p>Ola ' . htmlspecialchars($displayName) . ',</p>'
+                    . '<p>Recebemos um pedido para redefinir a sua palavra-passe em ' . htmlspecialchars($appName) . '.</p>'
+                    . '<p>Para continuar, aceda a este link (valido por 1 hora):<br>'
+                    . '<a href="' . htmlspecialchars($resetLink) . '">' . htmlspecialchars($resetLink) . '</a></p>'
+                    . '<p>Se nao pediu esta alteracao, pode ignorar este email.</p>';
                 try {
-                    sendSystemEmail($user['email'], $subject, $body);
+                    sendSystemEmail($user['email'], $subject, $body, true);
                 } catch (Throwable $e) {
                     error_log('Falha ao enviar email de recuperacao de password: ' . $e->getMessage());
                 }

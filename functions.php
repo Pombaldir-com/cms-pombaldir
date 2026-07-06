@@ -619,37 +619,56 @@ function consumePasswordResetToken(string $token, string $newPasswordHash): void
 }
 
 /**
- * Send a plain-text email using the configured SMTP settings, falling back
- * to PHP's mail() when no SMTP host is configured. Mirrors the transport
- * logic used by the e-fatura module but kept self-contained here so pages
- * outside contabilidade/ (e.g. login/password recovery) don't need to load it.
+ * Build the absolute base URL of the application (scheme + host + BASE_URL),
+ * for use in contexts like emails where a relative path is not usable.
  */
-function sendSystemEmail(string $toEmail, string $subject, string $body): void {
+function appAbsoluteBaseUrl(): string {
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    $scheme = $isHttps ? 'https' : 'http';
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    return $scheme . '://' . $host . BASE_URL;
+}
+
+/**
+ * Send an email using the configured SMTP settings, falling back to PHP's
+ * mail() when no SMTP host is configured. Mirrors the transport logic used
+ * by the e-fatura module but kept self-contained here so pages outside
+ * contabilidade/ (e.g. login/password recovery) don't need to load it.
+ */
+function sendSystemEmail(string $toEmail, string $subject, string $body, bool $isHtml = false): void {
     $smtpHost = trim((string) getSetting('smtp_host', ''));
-    $fromEmail = trim((string) getSetting('smtp_user', ''));
+    $fromEmail = trim((string) getSetting('system_email_from_email', ''));
+    if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
+        $fromEmail = trim((string) getSetting('smtp_user', ''));
+    }
     if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
         $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost')) ?? 'localhost');
         $fromEmail = 'noreply@' . ($host !== '' ? $host : 'localhost');
     }
-    $fromName = trim((string) getSetting('app_name', 'CMS'));
+    $fromName = trim((string) getSetting('system_email_from_name', ''));
+    if ($fromName === '') {
+        $fromName = trim((string) getSetting('app_name', 'CMS'));
+    }
 
     if ($smtpHost !== '') {
-        sendSystemEmailViaSmtp($smtpHost, $toEmail, $subject, $body, $fromEmail, $fromName);
+        sendSystemEmailViaSmtp($smtpHost, $toEmail, $subject, $body, $fromEmail, $fromName, $isHtml);
         return;
     }
 
     if (!function_exists('mail')) {
         throw new RuntimeException('Nao existe transporte de email configurado.');
     }
+    $contentType = $isHtml ? 'text/html' : 'text/plain';
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
-    $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64";
+    $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: {$contentType}; charset=UTF-8\r\nContent-Transfer-Encoding: base64";
     $encodedBody = chunk_split(base64_encode($body));
     if (!@mail($toEmail, $encodedSubject, $encodedBody, $headers, '-f ' . $fromEmail)) {
         throw new RuntimeException('Falha ao enviar email pelo transporte local.');
     }
 }
 
-function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName): void {
+function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName, bool $isHtml = false): void {
     $port = (int) getSetting('smtp_port', '0');
     $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
     $username = trim((string) getSetting('smtp_user', ''));
@@ -715,6 +734,7 @@ function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, 
     $command($socket, 'RCPT TO:<' . $toEmail . '>', [250, 251], 'RCPT TO');
     $command($socket, 'DATA', [354], 'DATA');
 
+    $contentType = $isHtml ? 'text/html' : 'text/plain';
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     $headers = implode("\r\n", [
         'To: ' . $toEmail,
@@ -723,7 +743,7 @@ function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, 
         'Date: ' . date(DATE_RFC2822),
         'Message-ID: <' . uniqid('reset_', true) . '@' . $clientHost . '>',
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Type: ' . $contentType . '; charset=UTF-8',
         'Content-Transfer-Encoding: base64',
         'X-Mailer: AICRM',
     ]);
