@@ -135,6 +135,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!move_uploaded_file($_FILES['saft_file']['tmp_name'], $fullPath)) {
                         $feedback = ['type' => 'danger', 'message' => 'Falha ao gravar o ficheiro.'];
                     } else {
+                        // So se permite um envio por empresa/periodo: o envio
+                        // anterior para o mesmo ano/mes e substituido pelo mais
+                        // recente (ficheiro e registo, incluindo faturas
+                        // extraidas via cascade).
+                        $previousStmt = $pdo->prepare(
+                            'SELECT id, file_path FROM accounting_saft_submissions
+                             WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ?
+                             LIMIT 1'
+                        );
+                        $previousStmt->execute([$entityId, $periodYear, $periodMonth]);
+                        $previousSubmission = $previousStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($previousSubmission) {
+                            $previousFullPath = dirname(__DIR__) . '/' . ltrim((string) $previousSubmission['file_path'], '/');
+                            if (is_file($previousFullPath)) {
+                                @unlink($previousFullPath);
+                            }
+                            $pdo->prepare('DELETE FROM accounting_saft_submissions WHERE id = ?')->execute([(int) $previousSubmission['id']]);
+                            logAuditAction('delete', 'accounting_saft_submission', (int) $previousSubmission['id'], [
+                                'accounting_entity_id' => $entityId,
+                                'period' => $periodYear . '-' . $periodMonth,
+                                'reason' => 'substituido por novo envio',
+                            ]);
+                        }
+
                         $relativePath = 'uploads/' . $slug . '/saft-envios/' . $entityId . '/' . $periodYear . '/' . str_pad((string) $periodMonth, 2, '0', STR_PAD_LEFT) . '/' . $storedName;
                         $stmt = $pdo->prepare(
                             'INSERT INTO accounting_saft_submissions
@@ -232,6 +256,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     ->execute(['erro', $e->getMessage(), $submissionId]);
                                 $feedback = ['type' => 'danger', 'message' => 'Ficheiro registado, mas o envio à AT falhou: ' . $e->getMessage()];
                             }
+                        }
+
+                        if ($previousSubmission && $feedback !== null) {
+                            $feedback['message'] = 'Substituído o envio anterior deste período. ' . $feedback['message'];
                         }
                     }
                 }
@@ -472,7 +500,10 @@ require_once __DIR__ . '/../header.php';
                                             · Crédito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_credit'] ?? 0), 2, ',', '.')); ?>
                                         </small>
                                         <br>
-                                        <button type="button" class="btn btn-xs btn-default saft-view-invoices" data-submission-id="<?= (int) $submission['id']; ?>">
+                                        <button type="button" class="btn btn-xs btn-default saft-view-invoices"
+                                            data-submission-id="<?= (int) $submission['id']; ?>"
+                                            data-entity-name="<?= htmlspecialchars((string) $submission['entity_name'], ENT_QUOTES); ?>"
+                                            data-period="<?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? '') . ' ' . $submission['period_year'], ENT_QUOTES); ?>">
                                             <i class="fa fa-list"></i> Ver faturas
                                         </button>
                                     <?php else: ?>
@@ -503,31 +534,35 @@ require_once __DIR__ . '/../header.php';
 </div>
 
 <div class="modal fade" id="saft-invoices-modal" tabindex="-1" role="dialog" aria-hidden="true">
-    <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="fa fa-list"></i> Faturas extraídas do SAF-T</h5>
-                <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar"><span aria-hidden="true">&times;</span></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="padding: 0;">
+                <div id="saft-invoices-modal-summary" class="d-flex flex-wrap justify-content-between align-items-center" style="padding: 12px 20px; background: #f7f9fb; border-bottom: 1px solid #e6e9ed; font-size: 13px; color: #73879c;"></div>
                 <div class="table-responsive">
-                    <table class="table table-striped table-condensed">
-                        <thead>
+                    <table class="table table-striped table-hover table-sm" style="margin-bottom: 0;">
+                        <thead style="background: #f7f9fb;">
                             <tr>
-                                <th>N.º Fatura</th>
+                                <th style="padding: 10px 20px;">N.º Fatura</th>
                                 <th>Tipo</th>
                                 <th>Data</th>
                                 <th>Cliente</th>
                                 <th class="text-right">Total s/IVA</th>
                                 <th class="text-right">IVA</th>
-                                <th class="text-right">Total c/IVA</th>
+                                <th class="text-right" style="padding-right: 20px;">Total c/IVA</th>
                             </tr>
                         </thead>
                         <tbody id="saft-invoices-modal-body">
-                            <tr><td colspan="7" class="text-center text-muted">A carregar…</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted" style="padding: 30px;"><i class="fa fa-spinner fa-spin"></i> A carregar…</td></tr>
                         </tbody>
                     </table>
                 </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
     </div>
@@ -547,7 +582,10 @@ document.addEventListener('DOMContentLoaded', function () {
         button.addEventListener('click', function () {
             var submissionId = button.getAttribute('data-submission-id');
             var body = document.getElementById('saft-invoices-modal-body');
-            body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">A carregar…</td></tr>';
+            var summary = document.getElementById('saft-invoices-modal-summary');
+            body.innerHTML = '<tr><td colspan="7" class="text-center text-muted" style="padding: 30px;"><i class="fa fa-spinner fa-spin"></i> A carregar…</td></tr>';
+            summary.innerHTML = '<strong>' + escapeHtml(button.getAttribute('data-entity-name') || '') + '</strong>'
+                + '<span>' + escapeHtml(button.getAttribute('data-period') || '') + '</span>';
             if (window.jQuery) {
                 $('#saft-invoices-modal').modal('show');
             }
@@ -556,23 +594,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(function (data) {
                     var invoices = data.invoices || [];
                     if (!invoices.length) {
-                        body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Sem faturas extraídas.</td></tr>';
+                        body.innerHTML = '<tr><td colspan="7" class="text-center text-muted" style="padding: 30px;">Sem faturas extraídas.</td></tr>';
                         return;
                     }
+                    var totalNet = 0, totalTax = 0, totalGross = 0;
                     body.innerHTML = invoices.map(function (inv) {
+                        totalNet += parseFloat(inv.net_total) || 0;
+                        totalTax += parseFloat(inv.tax_payable) || 0;
+                        totalGross += parseFloat(inv.gross_total) || 0;
                         return '<tr>'
-                            + '<td>' + escapeHtml(inv.invoice_no || '') + '</td>'
+                            + '<td style="padding-left: 20px;">' + escapeHtml(inv.invoice_no || '') + '</td>'
                             + '<td>' + escapeHtml(inv.invoice_type || '') + '</td>'
-                            + '<td>' + escapeHtml(inv.invoice_date || '') + '</td>'
+                            + '<td>' + formatDate(inv.invoice_date) + '</td>'
                             + '<td>' + escapeHtml(inv.customer_id || '') + '</td>'
-                            + '<td class="text-right">' + escapeHtml(inv.net_total || '') + '</td>'
-                            + '<td class="text-right">' + escapeHtml(inv.tax_payable || '') + '</td>'
-                            + '<td class="text-right">' + escapeHtml(inv.gross_total || '') + '</td>'
+                            + '<td class="text-right">' + formatMoney(inv.net_total) + '</td>'
+                            + '<td class="text-right">' + formatMoney(inv.tax_payable) + '</td>'
+                            + '<td class="text-right" style="padding-right: 20px;">' + formatMoney(inv.gross_total) + '</td>'
                             + '</tr>';
                     }).join('');
+                    summary.innerHTML += '<span><strong>' + invoices.length + '</strong> faturas &nbsp;·&nbsp; Total c/IVA: <strong>' + formatMoney(totalGross) + '</strong></span>';
                 })
                 .catch(function () {
-                    body.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Erro ao carregar faturas.</td></tr>';
+                    body.innerHTML = '<tr><td colspan="7" class="text-center text-danger" style="padding: 30px;">Erro ao carregar faturas.</td></tr>';
                 });
         });
     });
@@ -581,6 +624,21 @@ document.addEventListener('DOMContentLoaded', function () {
         return String(value).replace(/[&<>"']/g, function (ch) {
             return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
         });
+    }
+
+    function formatMoney(value) {
+        var num = parseFloat(value);
+        if (isNaN(num)) { return '—'; }
+        return num.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatDate(value) {
+        if (!value) { return '—'; }
+        var parts = String(value).split('-');
+        if (parts.length === 3) {
+            return parts[2] + '/' + parts[1] + '/' + parts[0];
+        }
+        return escapeHtml(value);
     }
 });
 </script>
