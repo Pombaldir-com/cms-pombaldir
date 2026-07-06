@@ -3385,4 +3385,15 @@ function buildAccountingEntityAiInstructionClientMap(array $supplierEntities): a
     return $map;
 }
 
+if ($consultEntity) {
+    // Contexto passado ao assistente AI flutuante: so o identificador
+    // (nif/uuid) segue para o browser, os dados reais sao sempre resolvidos
+    // no servidor a partir daqui (ver assistant-handler.php).
+    $aiPageContext = [
+        'type' => 'accounting_entity',
+        'nif' => trim((string) ($consultEntity['nif'] ?? '')),
+        'uuid' => trim((string) ($consultEntity['uuid'] ?? '')),
+    ];
+}
+
 require_once __DIR__ . '/../footer.php';

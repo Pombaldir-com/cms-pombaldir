@@ -379,6 +379,56 @@ function buildMarkdownKnowledgePrompt(string $rootDir, int $maxChars = 180000): 
 $markdownPrompt = buildMarkdownKnowledgePrompt(__DIR__);
 $extraPrompt = trim((string) getSetting('ai_prompt_extra', ''));
 
+/**
+ * Resolve o contexto de pagina enviado pelo browser (ex.: ficha de uma
+ * empresa em contabilidade/entidades) para uma instrucao de sistema.
+ *
+ * O cliente so envia um identificador (nif ou uuid da entidade); os dados
+ * reais (nome, base ERP) sao sempre resolvidos aqui a partir da BD, nunca
+ * confiados diretamente do payload.
+ */
+function buildAssistantPageContextPrompt(array $payload): string {
+    $pageContext = $payload['page_context'] ?? null;
+    if (!is_array($pageContext) || ($pageContext['type'] ?? '') !== 'accounting_entity') {
+        return '';
+    }
+
+    require_once __DIR__ . '/contabilidade/functions.php';
+
+    $uuid = trim((string) ($pageContext['uuid'] ?? ''));
+    $nif = trim((string) ($pageContext['nif'] ?? ''));
+    if ($uuid === '' && $nif === '') {
+        return '';
+    }
+
+    $pdo = getPDO();
+    $entity = null;
+    if ($uuid !== '') {
+        $entity = findAccountingEntityByRouteKey($pdo, $uuid, 'acquirer');
+    }
+    if (!$entity && $nif !== '') {
+        $normalizedNif = extractVatNumber($nif);
+        if ($normalizedNif !== '') {
+            $stmt = $pdo->prepare("SELECT id, name, nif, erp_database, entity_type FROM accounting_entities WHERE entity_type = 'acquirer' AND nif = ? LIMIT 1");
+            $stmt->execute([$normalizedNif]);
+            $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+    }
+    if (!$entity) {
+        return '';
+    }
+
+    $entityName = trim((string) ($entity['name'] ?? ''));
+    $entityNif = trim((string) ($entity['nif'] ?? ''));
+    $erpDatabase = resolveAccountingEntityDatabase($entity);
+    $dbNumber = preg_replace('/^emp_/i', '', $erpDatabase) ?: $erpDatabase;
+
+    return "O utilizador esta neste momento na ficha da empresa \"{$entityName}\" (NIF {$entityNif}, base de dados {$dbNumber}) em Contabilidade > Entidades.\n"
+        . "Se a proxima pergunta for sobre dados de contabilidade/ERP (balancetes, saldos, movimentos, lancamentos, documentos, SAF-T, etc.) e nao indicar outra empresa/base explicitamente, assume que se refere a esta empresa e a esta base — mas confirma uma vez com o utilizador antes de executar a consulta (ex.: \"Estas a perguntar sobre a empresa {$entityName}, base {$dbNumber}. Confirmas?\"). Se o utilizador confirmar ou responder afirmativamente, usa esta empresa/base sem voltar a perguntar no resto da conversa.";
+}
+
+$pageContextPrompt = buildAssistantPageContextPrompt($payload);
+
 $systemPrompt = "Es um assistente de AI para um escritorio de contabilidade. Usa o nome configurado para o tenant quando ele existir. Responde sempre em PT-PT.\n"
     . "Respeita as permissoes do utilizador e o modo seguro.\n"
     . "Se o modo seguro estiver ativo, nao executes tarefas que alterem dados.\n"
@@ -406,6 +456,9 @@ if ($markdownPrompt !== '') {
 }
 if ($extraPrompt !== '') {
     $systemPrompt .= "\n\n" . $extraPrompt;
+}
+if ($pageContextPrompt !== '') {
+    $systemPrompt .= "\n\n" . $pageContextPrompt;
 }
 
 $persistentMemories = getPersistentAssistantMemories($userId, 12);

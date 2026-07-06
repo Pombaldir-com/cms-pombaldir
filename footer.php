@@ -48,7 +48,13 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body p-0" style="height: 70vh;">
-                <iframe src="<?= BASE_URL ?>assistant?embed=1" style="width: 100%; height: 100%; border: 0;"></iframe>
+                <?php
+                    $aiPageContextParam = '';
+                    if (!empty($aiPageContext) && is_array($aiPageContext)) {
+                        $aiPageContextParam = '&page_context=' . rawurlencode(json_encode($aiPageContext, JSON_UNESCAPED_UNICODE));
+                    }
+                ?>
+                <iframe src="<?= BASE_URL ?>assistant?embed=1<?= $aiPageContextParam ?>" style="width: 100%; height: 100%; border: 0;"></iframe>
             </div>
         </div>
     </div>

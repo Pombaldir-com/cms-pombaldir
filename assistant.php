@@ -17,6 +17,19 @@ $sessionId = bin2hex(random_bytes(8));
 $readOnly = (int) ($user['ai_read_only'] ?? (int) getSetting('ai_default_read_only', '1'));
 $hideOcrModal = true;
 
+// Contexto de pagina (ex.: ficha de empresa em contabilidade/entidades),
+// recebido via query string do iframe flutuante (ver footer.php). Apenas
+// repassado ao JS tal-e-qual; a resolucao/validacao real e feita no servidor
+// em assistant-handler.php a partir do nif/uuid.
+$pageContextRaw = (string) ($_GET['page_context'] ?? '');
+$pageContextData = null;
+if ($pageContextRaw !== '') {
+    $decodedPageContext = json_decode($pageContextRaw, true);
+    if (is_array($decodedPageContext)) {
+        $pageContextData = $decodedPageContext;
+    }
+}
+
 if ($embed) {
     ?>
     <!DOCTYPE html>
@@ -299,6 +312,7 @@ if (!$embed) {
 $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
     . "window.aiCsrfToken = " . json_encode($csrfToken) . ";\n"
     . "window.aiReadOnly = " . json_encode((int) $readOnly) . ";\n"
+    . "window.aiPageContext = " . json_encode($pageContextData, JSON_UNESCAPED_UNICODE) . ";\n"
     . <<<'JS'
 (function() {
     var messagesEl = document.getElementById('ai-messages');
@@ -558,7 +572,8 @@ $pageScripts = "window.aiSessionId = " . json_encode($sessionId) . ";\n"
                 csrf_token: window.aiCsrfToken,
                 message: text,
                 session_id: window.aiSessionId,
-                attachments: attachmentsToSend
+                attachments: attachmentsToSend,
+                page_context: window.aiPageContext
             });
         }).then(function(payload) {
             if (payload && payload.message) {
