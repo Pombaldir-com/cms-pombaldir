@@ -34,6 +34,7 @@ $permissionHelpTexts = [
 $generalSaved = false;
 $generalErrors = [];
 $emailSaved = false;
+$servicesErrors = [];
 $erpSaved = false;
 $modulesSaved = false;
 $permissionsSaved = false;
@@ -151,6 +152,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setSetting('system_email_from_name', $systemEmailFromName);
         setSetting('system_email_from_email', $systemEmailFromEmail);
 
+        $saftJavaBin = trim($_POST['saft_java_bin'] ?? '');
+
+        if (!empty($_FILES['saft_jar_file']['tmp_name'])) {
+            $jarTmp = $_FILES['saft_jar_file']['tmp_name'];
+            $jarName = (string) ($_FILES['saft_jar_file']['name'] ?? '');
+            $jarExtension = strtolower(pathinfo($jarName, PATHINFO_EXTENSION));
+            // Ficheiros .jar sao arquivos ZIP: validar a assinatura "PK".
+            $jarSignature = (string) @file_get_contents($jarTmp, false, null, 0, 2);
+            if ($jarExtension !== 'jar' || $jarSignature !== 'PK') {
+                $servicesErrors[] = 'Ficheiro inválido: apenas ficheiros .jar são aceites.';
+            } else {
+                $attachmentsDir = __DIR__ . '/attachments/' . (getCompanySlug() ?: 'default') . '/';
+                if (!is_dir($attachmentsDir) && !mkdir($attachmentsDir, 0755, true)) {
+                    $servicesErrors[] = 'Erro ao criar a pasta attachments.';
+                } else {
+                    $safeJarName = preg_replace('/[^A-Za-z0-9._-]+/', '_', $jarName) ?: 'factemicli.jar';
+                    $jarTarget = $attachmentsDir . $safeJarName;
+                    if (!move_uploaded_file($jarTmp, $jarTarget)) {
+                        $servicesErrors[] = 'Erro ao guardar o jar na pasta attachments.';
+                    } else {
+                        setSetting('saft_jar_path', $jarTarget);
+                    }
+                }
+            }
+        }
+
+        setSetting('saft_java_bin', $saftJavaBin);
+
         $awsKey = trim($_POST['aws_access_key_id'] ?? '');
         $awsSecret = trim($_POST['aws_secret_access_key'] ?? '');
         $awsRegion = trim($_POST['aws_region'] ?? '');
@@ -198,7 +227,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         setSetting('qr_retry_max_pages', (string) $qrRetryMaxPages);
         setSetting('qr_retry_max_attempts', (string) $qrRetryMaxAttempts);
 
-        $emailSaved = true;
+        $emailSaved = empty($servicesErrors);
     }
     if (isset($_POST['erp_webservice_url'])) {
         $erpWebserviceUrl = trim($_POST['erp_webservice_url'] ?? '');
@@ -330,6 +359,8 @@ $currentSmtpPass = getSetting('smtp_pass', '');
 $currentSmtpEncryption = getSetting('smtp_encryption', '');
 $currentSystemEmailFromName = getSetting('system_email_from_name', '');
 $currentSystemEmailFromEmail = getSetting('system_email_from_email', '');
+$currentSaftJarPath = getSetting('saft_jar_path', '');
+$currentSaftJavaBin = getSetting('saft_java_bin', '');
 $currentDomainForPlaceholder = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'dominio.pt')) ?? 'dominio.pt');
 $currentAwsAccessKeyId = getSetting('aws_access_key_id', '');
 $currentAwsSecretAccessKey = getSetting('aws_secret_access_key', '');
@@ -497,7 +528,10 @@ require_once __DIR__ . '/header.php';
             <?php if ($emailSaved): ?>
                 <div class="alert alert-success mt-3">Definições de serviços guardadas.</div>
             <?php endif; ?>
-            <form method="post" class="mt-3">
+            <?php foreach ($servicesErrors as $servicesError): ?>
+                <div class="alert alert-danger mt-3"><?= htmlspecialchars($servicesError); ?></div>
+            <?php endforeach; ?>
+            <form method="post" class="mt-3" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                 <div class="row g-4 settings-panels">
                     <div class="col-12">
@@ -546,6 +580,34 @@ require_once __DIR__ . '/header.php';
                                     <div class="col-12 col-lg-4">
                                         <label for="system_email_from_email" class="form-label">Email do remetente</label>
                                         <input type="email" class="form-control" id="system_email_from_email" name="system_email_from_email" value="<?= htmlspecialchars($currentSystemEmailFromEmail); ?>" placeholder="noreply@<?= htmlspecialchars($currentDomainForPlaceholder); ?>">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="x_panel">
+                            <div class="x_title">
+                                <h2><i class="fa fa-file-code-o"></i> SAF-T (AT)</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <div class="row g-3">
+                                    <div class="col-12 col-lg-6">
+                                        <label for="saft_jar_file" class="form-label">Upload do jar FACTEMICLI</label>
+                                        <input type="file" class="form-control" id="saft_jar_file" name="saft_jar_file" accept=".jar">
+                                        <?php if ($currentSaftJarPath !== ''): ?>
+                                            <small class="<?= is_file($currentSaftJarPath) ? 'text-success' : 'text-danger'; ?>">
+                                                <i class="fa <?= is_file($currentSaftJarPath) ? 'fa-check-circle' : 'fa-exclamation-triangle'; ?>"></i>
+                                                Jar atual: <?= htmlspecialchars(basename($currentSaftJarPath)); ?><?= is_file($currentSaftJarPath) ? '' : ' (ficheiro não encontrado)'; ?>
+                                            </small>
+                                        <?php else: ?>
+                                            <small class="text-muted">Nenhum jar configurado. O ficheiro é guardado nos attachments deste tenant.</small>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="col-12 col-lg-3">
+                                        <label for="saft_java_bin" class="form-label">Binário Java</label>
+                                        <input type="text" class="form-control" id="saft_java_bin" name="saft_java_bin" value="<?= htmlspecialchars($currentSaftJavaBin); ?>" placeholder="java">
                                     </div>
                                 </div>
                             </div>

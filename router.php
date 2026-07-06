@@ -274,6 +274,9 @@ switch (true) {
         $_GET['consulta'] = $m[2];
         require __DIR__ . '/contabilidade/entidades.php';
         break;
+    case $path === 'contabilidade/tarefas/envio-saft':
+        require __DIR__ . '/contabilidade/tarefas-envio-saft.php';
+        break;
     case $path === 'contabilidade/saft-handler.php':
         require __DIR__ . '/contabilidade/saft-handler.php';
         break;

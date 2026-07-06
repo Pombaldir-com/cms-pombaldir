@@ -285,6 +285,14 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
+<?php if (isModuleActive('contabilidade') && userHasAccountingEntityTaskPermission('ctb_envio_saft')): ?>
+                            <li>
+                                <a><i class="fa fa-check-square-o"></i> Tarefas <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-saft">Envio de SAF-T</a></li>
+                                </ul>
+                            </li>
+<?php endif; ?>
 <?php if (isModuleActive('efatura') && userHasDepartmentPermission('ctb_efatura_aceder')): ?>
                             <li>
                                 <a><i class="fa fa-file-text-o"></i> E-fatura <span class="fa fa-chevron-down"></span></a>

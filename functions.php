@@ -1634,6 +1634,10 @@ function getAccountingEntityAdminTaskDefinitions(): array {
             'label' => 'Importação de Lançamentos',
             'description' => 'Permite importar os lançamentos classificados para a contabilidade.',
         ],
+        'ctb_envio_saft' => [
+            'label' => 'Envio de SAF-T',
+            'description' => 'Permite enviar o ficheiro SAF-T desta empresa na área de tarefas.',
+        ],
     ];
 }
 
