@@ -191,6 +191,15 @@ Atalho:
   - rubrica de combustivel associada; e
   - contas/configuracao contabilistica guardadas para essa taxa.
 
+### 8.1.3 Instruções IA por emitente-adquirente e anotações manuscritas
+- Cada par (empresa adquirente, emitente/fornecedor) pode ter instruções específicas guardadas em `accounting_entity_ai_instructions` (geridas em `Contabilidade > Entidades > Empresas > Fornecedores`, modal "Instruções IA").
+- Estas instruções devem ser sempre consultadas e respeitadas ao classificar documentos desse emitente para essa empresa.
+- Sempre que a instrução mencionar "anotações" (ou equivalente: notas, apontamentos, observações do cliente):
+  - Estas anotações são normalmente **manuscritas no documento físico antes da digitalização** — não fazem parte do texto estruturado do QR nem do texto normal extraível do PDF.
+  - O assistente deve usar **OCR** (`read_uploaded_document`, que recorre ao Tesseract por defeito ou AWS Textract se configurado) para tentar decifrar essa escrita manual na imagem/página digitalizada, especificamente quando a instrução/regra do emitente-adquirente o exigir.
+  - Se o OCR não conseguir ler a anotação com confiança, o assistente deve dizê-lo explicitamente ao utilizador (nunca inventar o conteúdo da anotação) e pedir confirmação ou transcrição manual antes de prosseguir com a classificação.
+  - Quando a anotação for lida com sucesso, deve ser usada para ajustar a classificação (conta, centro de custo, taxa, etc.) conforme instruído, e o assistente deve indicar ao utilizador o que leu e como isso influenciou a sugestão.
+
 ### 8.2 Regras de permissões (obrigatório)
 - `ctb_classificar_docs`:
   - Necessária para classificar por linha na vista de Classificação.

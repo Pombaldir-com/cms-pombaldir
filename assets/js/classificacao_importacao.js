@@ -364,7 +364,7 @@ window.addEventListener('load', function() {
             refreshCostCenterFields();
             return Promise.resolve([]);
         }
-        if (currentCostCenterContextKey === requestKey && currentCostCenterOptions.length > 0) {
+        if (!options.forceRefresh && currentCostCenterContextKey === requestKey && currentCostCenterOptions.length > 0) {
             refreshCostCenterFields();
             return Promise.resolve(currentCostCenterOptions);
         }
@@ -7780,19 +7780,28 @@ window.addEventListener('load', function() {
         setCostCenterDistributionMeta(costCenterDistributionRateInfoEl, accountLabel);
 
         if (costCenterDistributionTableBody) {
-            costCenterDistributionTableBody.innerHTML = '';
+            costCenterDistributionTableBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">A atualizar lista de centros de custo do ERP…</td></tr>';
         }
-
-        var existingRows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
-        if (!existingRows.length) {
-            addCostCenterDistributionRow(null);
-        } else {
-            existingRows.forEach(function(row) {
-                addCostCenterDistributionRow(row);
-            });
-        }
-        recalculateCostCenterDistributionModal();
         costCenterDistributionModal.show();
+
+        // Pesquisa sempre a lista atual de centros de custo no ERP ao abrir a
+        // modal (ignora a cache local), para que centros criados recentemente
+        // no ERP fiquem disponiveis de imediato, sem recarregar a pagina.
+        var documentDb = currentBtn.getAttribute('data-acquirer-db') || erpDefaultDatabase || '';
+        loadCostCenterCatalogForDocument(documentDb, docDate, { silent: true, forceRefresh: true }).then(function() {
+            if (costCenterDistributionTableBody) {
+                costCenterDistributionTableBody.innerHTML = '';
+            }
+            var existingRows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
+            if (!existingRows.length) {
+                addCostCenterDistributionRow(null);
+            } else {
+                existingRows.forEach(function(row) {
+                    addCostCenterDistributionRow(row);
+                });
+            }
+            recalculateCostCenterDistributionModal();
+        });
     }
 
     function applyCostCenterValues(value, options) {

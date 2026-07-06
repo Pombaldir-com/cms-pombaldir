@@ -2415,7 +2415,7 @@ function extractTotalAccountFromPayloadString(?string $json): string {
     return '';
 }
 
-function fetchErpJsonForSuggestion(string $path, array $query, string $database = ''): array {
+function fetchErpJsonForSuggestion(string $path, array $query, string $database = '', bool $bypassCache = false): array {
     $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
     $token = trim((string) getSetting('erp_token', ''));
 
@@ -2437,14 +2437,19 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
     // DataTable reloads and company switches. Serve them from cache to avoid
     // repeating slow synchronous ERP HTTP calls. The auth token travels in a
     // header (not the URL), so the endpoint is safe to use as the cache key.
+    // $bypassCache skips both cache layers for lookups whose freshness matters
+    // more than avoiding a round-trip (ex.: centros de custo, criados ad-hoc
+    // pelo utilizador e esperados de imediato na app).
     $cacheKey = sha1($endpoint);
-    if (isset($GLOBALS['erp_suggestion_request_cache'][$cacheKey])) {
-        return $GLOBALS['erp_suggestion_request_cache'][$cacheKey];
-    }
-    $cachedResponse = erpSuggestionCacheGet($cacheKey);
-    if (is_array($cachedResponse)) {
-        $GLOBALS['erp_suggestion_request_cache'][$cacheKey] = $cachedResponse;
-        return $cachedResponse;
+    if (!$bypassCache) {
+        if (isset($GLOBALS['erp_suggestion_request_cache'][$cacheKey])) {
+            return $GLOBALS['erp_suggestion_request_cache'][$cacheKey];
+        }
+        $cachedResponse = erpSuggestionCacheGet($cacheKey);
+        if (is_array($cachedResponse)) {
+            $GLOBALS['erp_suggestion_request_cache'][$cacheKey] = $cachedResponse;
+            return $cachedResponse;
+        }
     }
 
     $handle = curl_init($endpoint);
@@ -2474,6 +2479,10 @@ function fetchErpJsonForSuggestion(string $path, array $query, string $database 
 
     $decoded = json_decode($response, true);
     $result = is_array($decoded) ? $decoded : [];
+    if ($bypassCache) {
+        $GLOBALS['erp_suggestion_request_cache'][$cacheKey] = $result;
+        return $result;
+    }
     // Cache only successful responses (including legitimate empty results, so
     // "no data" lookups are not repeated). Transient failures above are not cached.
     erpSuggestionCacheSet($cacheKey, $result);
@@ -3828,10 +3837,13 @@ if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQU
         $query['datadoc'] = $docDate;
     }
 
-    $payload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', $query, $database);
+    // Centros de custo sao criados ad-hoc pelo utilizador no ERP e esperados
+    // de imediato na app, por isso esta pesquisa ignora sempre a cache de
+    // sugestoes (que serve dados de referencia estaveis como plano de contas).
+    $payload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', $query, $database, true);
     $rows = !empty($payload) ? extractErpRowsFromPayload($payload) : [];
     if (empty($rows) && $docDate !== '') {
-        $fallbackPayload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', [], $database);
+        $fallbackPayload = fetchErpJsonForSuggestion('/contabilidade/centroscusto', [], $database, true);
         if (!empty($fallbackPayload)) {
             $rows = extractErpRowsFromPayload($fallbackPayload);
         }
