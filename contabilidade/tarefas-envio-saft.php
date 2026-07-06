@@ -501,7 +501,6 @@ require_once __DIR__ . '/../header.php';
                                 <th>Período</th>
                                 <th>Ficheiro</th>
                                 <th>Tamanho</th>
-                                <th>Enviado por</th>
                                 <th>Estado</th>
                                 <th>Resposta AT</th>
                                 <th>Valores extraídos</th>
@@ -525,7 +524,6 @@ require_once __DIR__ . '/../header.php';
                                             : htmlspecialchars(number_format(max(1, round($size / 1024)), 0, ',', '.')) . ' KB';
                                     ?>
                                 </td>
-                                <td><?= htmlspecialchars((string) ($submission['user_label'] ?? '—')); ?></td>
                                 <td>
                                     <?php
                                         $status = (string) ($submission['status'] ?? 'registado');
