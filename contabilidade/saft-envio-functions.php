@@ -1,6 +1,197 @@
 <?php
 // Helpers para a submissao de ficheiros SAF-T a AT via cliente de linha de
-// comandos FACTEMICLI. Documentacao de referencia em ENVIO_SAFT.md.
+// comandos FACTEMICLI, e para a extracao dos valores do proprio ficheiro
+// SAF-T (faturas e totais) para cruzamento posterior com a contabilidade e
+// lancamentos. Documentacao de referencia em ENVIO_SAFT.md.
+
+/**
+ * Le o conteudo XML de um ficheiro SAF-T, descomprimindo .zip/.gz se
+ * necessario. Ficheiros .zip sao assumidos como contendo um unico XML.
+ */
+function saftReadFileContent(string $filePath): string {
+    $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+    if ($extension === 'gz') {
+        $handle = gzopen($filePath, 'rb');
+        if ($handle === false) {
+            throw new RuntimeException('Nao foi possivel abrir o ficheiro .gz.');
+        }
+        $content = '';
+        while (!gzeof($handle)) {
+            $content .= gzread($handle, 1048576);
+        }
+        gzclose($handle);
+        return $content;
+    }
+
+    if ($extension === 'zip') {
+        $zip = new ZipArchive();
+        if ($zip->open($filePath) !== true) {
+            throw new RuntimeException('Nao foi possivel abrir o ficheiro .zip.');
+        }
+        $content = '';
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = $zip->getNameIndex($i);
+            if (strtolower(pathinfo((string) $name, PATHINFO_EXTENSION)) === 'xml') {
+                $content = (string) $zip->getFromIndex($i);
+                break;
+            }
+        }
+        $zip->close();
+        if ($content === '') {
+            throw new RuntimeException('O ficheiro .zip nao contem um XML.');
+        }
+        return $content;
+    }
+
+    $content = @file_get_contents($filePath);
+    if ($content === false) {
+        throw new RuntimeException('Nao foi possivel ler o ficheiro SAF-T.');
+    }
+    return $content;
+}
+
+/**
+ * Extrai do XML SAF-T (faturacao) o cabecalho, os totais de SalesInvoices e
+ * a lista de faturas, para permitir cruzar mais tarde com a contabilidade e
+ * os lancamentos importados do ERP.
+ *
+ * @return array{
+ *   fiscal_year: ?string, start_date: ?string, end_date: ?string,
+ *   number_of_entries: ?int, total_debit: ?string, total_credit: ?string,
+ *   invoices: array<int, array{invoice_no: string, atcud: ?string, invoice_type: ?string,
+ *     invoice_status: ?string, invoice_date: ?string, system_entry_date: ?string,
+ *     customer_id: ?string, source_id: ?string, tax_payable: ?string, net_total: ?string,
+ *     gross_total: ?string}>
+ * }
+ */
+function saftExtractInvoiceData(string $xmlContent): array {
+    $result = [
+        'fiscal_year' => null,
+        'start_date' => null,
+        'end_date' => null,
+        'number_of_entries' => null,
+        'total_debit' => null,
+        'total_credit' => null,
+        'invoices' => [],
+    ];
+
+    $previous = libxml_use_internal_errors(true);
+    $xml = simplexml_load_string($xmlContent);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+
+    if ($xml === false) {
+        throw new RuntimeException('Ficheiro SAF-T invalido ou nao e XML.');
+    }
+
+    $header = $xml->Header ?? null;
+    if ($header !== null) {
+        $result['fiscal_year'] = saftXmlValue($header->FiscalYear ?? null);
+        $result['start_date'] = saftXmlValue($header->StartDate ?? null);
+        $result['end_date'] = saftXmlValue($header->EndDate ?? null);
+    }
+
+    $salesInvoices = $xml->SourceDocuments->SalesInvoices ?? null;
+    if ($salesInvoices === null) {
+        return $result;
+    }
+
+    $numberOfEntries = saftXmlValue($salesInvoices->NumberOfEntries ?? null);
+    $result['number_of_entries'] = $numberOfEntries !== null ? (int) $numberOfEntries : null;
+    $result['total_debit'] = saftXmlValue($salesInvoices->TotalDebit ?? null);
+    $result['total_credit'] = saftXmlValue($salesInvoices->TotalCredit ?? null);
+
+    foreach ($salesInvoices->Invoice as $invoice) {
+        $result['invoices'][] = [
+            'invoice_no' => (string) ($invoice->InvoiceNo ?? ''),
+            'atcud' => saftXmlValue($invoice->ATCUD ?? null),
+            'invoice_type' => saftXmlValue($invoice->InvoiceType ?? null),
+            'invoice_status' => saftXmlValue($invoice->DocumentStatus->InvoiceStatus ?? null),
+            'invoice_date' => saftXmlValue($invoice->InvoiceDate ?? null),
+            'system_entry_date' => saftXmlValue($invoice->SystemEntryDate ?? null),
+            'customer_id' => saftXmlValue($invoice->CustomerID ?? null),
+            'source_id' => saftXmlValue($invoice->SourceID ?? null),
+            'tax_payable' => saftXmlValue($invoice->DocumentTotals->TaxPayable ?? null),
+            'net_total' => saftXmlValue($invoice->DocumentTotals->NetTotal ?? null),
+            'gross_total' => saftXmlValue($invoice->DocumentTotals->GrossTotal ?? null),
+        ];
+    }
+
+    return $result;
+}
+
+function saftXmlValue($node): ?string {
+    if ($node === null) {
+        return null;
+    }
+    $value = trim((string) $node);
+    return $value !== '' ? $value : null;
+}
+
+/**
+ * Guarda o cabecalho/totais extraidos na submissao e as faturas em
+ * accounting_saft_invoices. Nao lanca excecao: erros ficam registados em
+ * saft_extraction_error para nao bloquear o fluxo de envio.
+ */
+function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath): void {
+    try {
+        $xmlContent = saftReadFileContent($filePath);
+        $data = saftExtractInvoiceData($xmlContent);
+    } catch (Throwable $e) {
+        $pdo->prepare('UPDATE accounting_saft_submissions SET saft_extraction_error = ? WHERE id = ?')
+            ->execute([$e->getMessage(), $submissionId]);
+        return;
+    }
+
+    $pdo->prepare(
+        'UPDATE accounting_saft_submissions SET
+            saft_fiscal_year = ?, saft_start_date = ?, saft_end_date = ?,
+            saft_number_of_entries = ?, saft_total_debit = ?, saft_total_credit = ?,
+            saft_extraction_error = NULL
+         WHERE id = ?'
+    )->execute([
+        $data['fiscal_year'],
+        $data['start_date'],
+        $data['end_date'],
+        $data['number_of_entries'],
+        $data['total_debit'],
+        $data['total_credit'],
+        $submissionId,
+    ]);
+
+    if (!$data['invoices']) {
+        return;
+    }
+
+    $insertStmt = $pdo->prepare(
+        'INSERT INTO accounting_saft_invoices
+            (submission_id, invoice_no, atcud, invoice_type, invoice_status, invoice_date,
+             system_entry_date, customer_id, source_id, tax_payable, net_total, gross_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    foreach ($data['invoices'] as $invoice) {
+        $invoiceDate = null;
+        if (!empty($invoice['invoice_date'])) {
+            $timestamp = strtotime((string) $invoice['invoice_date']);
+            $invoiceDate = $timestamp !== false ? date('Y-m-d', $timestamp) : null;
+        }
+        $insertStmt->execute([
+            $submissionId,
+            $invoice['invoice_no'],
+            $invoice['atcud'],
+            $invoice['invoice_type'],
+            $invoice['invoice_status'],
+            $invoiceDate,
+            $invoice['system_entry_date'],
+            $invoice['customer_id'],
+            $invoice['source_id'],
+            $invoice['tax_payable'],
+            $invoice['net_total'],
+            $invoice['gross_total'],
+        ]);
+    }
+}
 
 /**
  * Devolve a credencial ativa do portal AT para uma empresa, a partir da

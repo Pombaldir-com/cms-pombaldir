@@ -57,6 +57,26 @@ function getSaftTaskEntities(PDO $pdo, bool $isAdmin, int $userId): array {
 $entities = getSaftTaskEntities($pdo, $isAdmin, $userId);
 $allowedEntityIds = array_map(static fn($row) => (int) $row['id'], $entities);
 
+if (($_GET['action'] ?? '') === 'invoices') {
+    header('Content-Type: application/json; charset=utf-8');
+    $submissionId = (int) ($_GET['submission_id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT accounting_entity_id FROM accounting_saft_submissions WHERE id = ? LIMIT 1');
+    $stmt->execute([$submissionId]);
+    $entityId = (int) ($stmt->fetchColumn() ?: 0);
+    if ($entityId <= 0 || (!$isAdmin && !in_array($entityId, $allowedEntityIds, true))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Sem permissão.']);
+        exit;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT invoice_no, invoice_type, invoice_status, invoice_date, customer_id, tax_payable, net_total, gross_total
+         FROM accounting_saft_invoices WHERE submission_id = ? ORDER BY invoice_date ASC, id ASC'
+    );
+    $stmt->execute([$submissionId]);
+    echo json_encode(['invoices' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $feedback = null; // ['type' => 'success'|'danger', 'message' => string]
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -135,6 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'accounting_entity_id' => $entityId,
                             'period' => $periodYear . '-' . $periodMonth,
                         ]);
+
+                        // Extrai faturas e totais do proprio ficheiro SAF-T
+                        // para cruzamento posterior com a contabilidade e
+                        // lancamentos. Nao bloqueia o envio se falhar.
+                        saftPersistExtractedData($pdo, $submissionId, $fullPath);
 
                         // Submissao a AT via FACTEMICLI, quando o jar esta
                         // configurado e a empresa tem credencial do portal.
@@ -364,6 +389,7 @@ require_once __DIR__ . '/../header.php';
                                 <th>Enviado por</th>
                                 <th>Estado</th>
                                 <th>Resposta AT</th>
+                                <th>Valores extraídos</th>
                                 <th class="text-right">Ações</th>
                             </tr>
                         </thead>
@@ -430,6 +456,29 @@ require_once __DIR__ . '/../header.php';
                                         <span class="text-muted">—</span>
                                     <?php endif; ?>
                                 </td>
+                                <td>
+                                    <?php
+                                        $extractionError = trim((string) ($submission['saft_extraction_error'] ?? ''));
+                                        $numberOfEntries = $submission['saft_number_of_entries'] ?? null;
+                                    ?>
+                                    <?php if ($extractionError !== ''): ?>
+                                        <small class="text-danger" title="<?= htmlspecialchars($extractionError, ENT_QUOTES); ?>">
+                                            <i class="fa fa-exclamation-triangle"></i> Falha na extração
+                                        </small>
+                                    <?php elseif ($numberOfEntries !== null): ?>
+                                        <small>
+                                            <?= (int) $numberOfEntries; ?> faturas
+                                            · Débito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_debit'] ?? 0), 2, ',', '.')); ?>
+                                            · Crédito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_credit'] ?? 0), 2, ',', '.')); ?>
+                                        </small>
+                                        <br>
+                                        <button type="button" class="btn btn-xs btn-default saft-view-invoices" data-submission-id="<?= (int) $submission['id']; ?>">
+                                            <i class="fa fa-list"></i> Ver faturas
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="text-muted">—</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="text-right" style="white-space: nowrap;">
                                     <a class="btn btn-xs btn-default" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>">
                                         <i class="fa fa-download"></i> Transferir
@@ -453,6 +502,37 @@ require_once __DIR__ . '/../header.php';
     </div>
 </div>
 
+<div class="modal fade" id="saft-invoices-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-list"></i> Faturas extraídas do SAF-T</h5>
+                <button type="button" class="close" data-bs-dismiss="modal" aria-label="Fechar"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-condensed">
+                        <thead>
+                            <tr>
+                                <th>N.º Fatura</th>
+                                <th>Tipo</th>
+                                <th>Data</th>
+                                <th>Cliente</th>
+                                <th class="text-right">Total s/IVA</th>
+                                <th class="text-right">IVA</th>
+                                <th class="text-right">Total c/IVA</th>
+                            </tr>
+                        </thead>
+                        <tbody id="saft-invoices-modal-body">
+                            <tr><td colspan="7" class="text-center text-muted">A carregar…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     if (window.jQuery && $.fn.DataTable) {
@@ -460,6 +540,46 @@ document.addEventListener('DOMContentLoaded', function () {
             language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
             order: [[0, 'desc']],
             columnDefs: [{ targets: -1, orderable: false }]
+        });
+    }
+
+    document.querySelectorAll('.saft-view-invoices').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var submissionId = button.getAttribute('data-submission-id');
+            var body = document.getElementById('saft-invoices-modal-body');
+            body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">A carregar…</td></tr>';
+            if (window.jQuery) {
+                $('#saft-invoices-modal').modal('show');
+            }
+            fetch('<?= htmlspecialchars(BASE_URL . 'contabilidade/tarefas/envio-saft'); ?>?action=invoices&submission_id=' + encodeURIComponent(submissionId))
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    var invoices = data.invoices || [];
+                    if (!invoices.length) {
+                        body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Sem faturas extraídas.</td></tr>';
+                        return;
+                    }
+                    body.innerHTML = invoices.map(function (inv) {
+                        return '<tr>'
+                            + '<td>' + escapeHtml(inv.invoice_no || '') + '</td>'
+                            + '<td>' + escapeHtml(inv.invoice_type || '') + '</td>'
+                            + '<td>' + escapeHtml(inv.invoice_date || '') + '</td>'
+                            + '<td>' + escapeHtml(inv.customer_id || '') + '</td>'
+                            + '<td class="text-right">' + escapeHtml(inv.net_total || '') + '</td>'
+                            + '<td class="text-right">' + escapeHtml(inv.tax_payable || '') + '</td>'
+                            + '<td class="text-right">' + escapeHtml(inv.gross_total || '') + '</td>'
+                            + '</tr>';
+                    }).join('');
+                })
+                .catch(function () {
+                    body.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Erro ao carregar faturas.</td></tr>';
+                });
+        });
+    });
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, function (ch) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
         });
     }
 });
