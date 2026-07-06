@@ -178,6 +178,13 @@ function normalizeAccountingRubricCodeValue($value): string {
         return '';
     }
 
+    if (class_exists('Normalizer')) {
+        $nfc = \Normalizer::normalize($string, \Normalizer::FORM_C);
+        if (is_string($nfc) && $nfc !== '') {
+            $string = $nfc;
+        }
+    }
+
     $normalized = preg_replace('/\s+/u', ' ', $string);
     if (!is_string($normalized) || $normalized === '') {
         $normalized = $string;

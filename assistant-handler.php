@@ -5077,6 +5077,26 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
 
     $documentFields = is_array($args['document_fields'] ?? null) ? $args['document_fields'] : [];
     $documentLines = is_array($args['document_lines'] ?? null) ? $args['document_lines'] : [];
+    // Filtrar expected_lines para nao passar taxas historicas que nao existem no documento actual.
+    // Sem este filtro, o LLM ve taxas do historico (ex: 0%) e cria linhas adicionais nao pedidas.
+    $activeRateKeys = [];
+    foreach ($rateItems as $ri) {
+        $rk = trim((string) ($ri['key'] ?? ''));
+        if ($rk !== '') {
+            $activeRateKeys[$rk] = true;
+            $activeRateKeys[normalizeRateKey($rk)] = true;
+        }
+    }
+    $filteredExpectedRates = [];
+    if (is_array($expectedLines['rates'] ?? null)) {
+        foreach ($expectedLines['rates'] as $erk => $erv) {
+            if (isset($activeRateKeys[(string) $erk]) || isset($activeRateKeys[normalizeRateKey((string) $erk)])) {
+                $filteredExpectedRates[$erk] = $erv;
+            }
+        }
+    }
+    $filteredExpectedLines = $expectedLines;
+    $filteredExpectedLines['rates'] = $filteredExpectedRates;
     $docContext = [
         'emitter' => $context['emitter'] ?? '',
         'emitter_nif' => $context['emitter_nif'] ?? '',
@@ -5091,7 +5111,7 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
         'document_fields' => $documentFields,
         'document_lines' => $documentLines,
         'suggested_accounts' => $suggested,
-        'expected_lines' => $expectedLines,
+        'expected_lines' => $filteredExpectedLines,
     ];
 
     $messages = [
@@ -5099,7 +5119,8 @@ function buildAiInstructionOperationPlan(array $args, array $context, array $rat
             'role' => 'system',
             'content' => "Converte instrucoes contabilisticas adicionais num plano JSON para uma classificacao.\n"
                 . "Mantem as sugestoes de contas existentes salvo instrucao explicita em contrario.\n"
-                . "Podes criar linhas adicionais, remover linhas e aplicar calculos usando apenas os campos do documento e taxas fornecidos.\n"
+                . "Nao cries novas linhas de taxa (custom_X) a menos que as instrucoes o exijam explicitamente. So opera sobre as taxas ja presentes em 'rates'.\n"
+                . "Podes criar linhas adicionais quando as instrucoes descrevem um tipo de custo extra (juros, comissoes, capital, etc.), remover linhas e aplicar calculos usando apenas os campos do documento e taxas fornecidos.\n"
                 . "Nao inventes contas contabilisticas. So preenches general_account, iva_account, total_account ou erp_rubric_code se estiverem nas instrucoes ou nas sugestoes fornecidas.\n"
                 . "Responde apenas JSON valido com esta estrutura: {\"rates\":{\"<rate_key>\":{\"label\":\"\",\"base\":\"\",\"iva\":\"\",\"general_account\":\"\",\"iva_account\":\"\",\"erp_rubric_code\":\"\",\"cost_center\":\"\",\"bank_loan_conversion\":\"0\"}},\"remove_rates\":[],\"total_account\":\"\",\"ignore_detected_rates\":null,\"notes\":[]}.\n"
                 . "Usa chaves existentes quando estiveres a alterar uma linha; para linhas novas usa custom_1, custom_2, etc. Valores monetarios devem ser strings com duas casas decimais.",

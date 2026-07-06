@@ -455,7 +455,10 @@ window.addEventListener('load', function() {
         if (!string) {
             return '';
         }
-        return string.replace(/\s+/g, ' ').toLocaleUpperCase();
+        if (typeof string.normalize === 'function') {
+            string = string.normalize('NFC');
+        }
+        return string.replace(/\s+/g, ' ').toUpperCase();
     }
 
     if (Array.isArray(window.accountingFuelRubricCodes)) {
@@ -3966,7 +3969,54 @@ window.addEventListener('load', function() {
             && isCompletedAccountingAccountValue(getResolvedRateAccountValue(rate, 'iva_account'));
     }
 
+    function isFuelCompanionRate(rate) {
+        return String(rate || '').indexOf('fuel_nodedut_') === 0;
+    }
+
+    function ensureFuelCompanionLine(primaryRate, nonDeductibleIva) {
+        var companionKey = 'fuel_nodedut_' + primaryRate;
+        var generalAccount = getResolvedRateAccountValue(primaryRate, 'general_account');
+        var formattedAmount = formatDecimalValue(nonDeductibleIva);
+
+        var info = ensureRateRow(companionKey, { label: '0' }, { allowCreate: true });
+        if (!info) {
+            return;
+        }
+        var data = ensureRateData(companionKey);
+        data.base = formattedAmount;
+        data.base_value = formattedAmount;
+        data.iva = '';
+        data.iva_value = '';
+        data.general_account = generalAccount;
+        data.iva_account = '';
+
+        if (info.base && info.base.value !== formattedAmount) {
+            info.base.value = formattedAmount;
+        }
+        if (info.iva && info.iva.value !== '') {
+            info.iva.value = '';
+        }
+        if (info.generalAccount && info.generalAccount.value !== generalAccount) {
+            info.generalAccount.value = generalAccount;
+            updatePlanInputTitle(info.generalAccount);
+        }
+        if (info.ivaAccount && info.ivaAccount.value !== '') {
+            info.ivaAccount.value = '';
+        }
+        updateRowDirtyState(companionKey);
+    }
+
+    function removeFuelCompanionLine(primaryRate) {
+        var companionKey = 'fuel_nodedut_' + primaryRate;
+        if (rateInputs[companionKey]) {
+            removeRateRow(companionKey);
+        }
+    }
+
     function syncFuelRubricAdjustmentForRate(rate, options) {
+        if (isFuelCompanionRate(rate)) {
+            return;
+        }
         var info = rateInputs[rate];
         if (!info || !info.base) {
             return;
@@ -3976,49 +4026,11 @@ window.addEventListener('load', function() {
         var rateData = ensureRateData(rate);
         var shouldAdjust = shouldApplyFuelRubricAdjustmentForRate(rate);
         var isAdjusted = isAdjustedVatRateEntry(rateData);
-        var percentage = getRatePercentage(rate);
-        var rawBaseValue = info.base.value !== undefined ? String(info.base.value || '').trim() : '';
 
-        if (rawBaseValue === '' || percentage === null || Math.abs(percentage) < 0.00001) {
-            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
-            recalculateVatForRate(rate, opts);
-            return;
+        if (!shouldAdjust && isAdjusted) {
+            removeFuelCompanionLine(rate);
         }
-
-        var baseNumber = parseDecimalValue(rawBaseValue);
-        if (baseNumber === null) {
-            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
-            recalculateVatForRate(rate, opts);
-            return;
-        }
-
-        if (shouldAdjust !== isAdjusted) {
-            if (shouldAdjust) {
-                var rawIvaValue = info.iva ? parseDecimalValue(info.iva.value) : null;
-                if (rawIvaValue === null) {
-                    rawIvaValue = baseNumber * (percentage / 100);
-                }
-                var adjustedBase = baseNumber + (rawIvaValue * 0.5);
-                var formattedAdjustedBase = formatDecimalValue(adjustedBase);
-                if (info.base.value !== formattedAdjustedBase) {
-                    info.base.value = formattedAdjustedBase;
-                }
-                rateData.base = formattedAdjustedBase;
-                rateData.base_value = formattedAdjustedBase;
-                rateData.vat_amounts_adjusted = '1';
-            } else {
-                var revertedBase = baseNumber * (100 / (100 + (percentage / 2)));
-                var formattedRevertedBase = formatDecimalValue(revertedBase);
-                if (info.base.value !== formattedRevertedBase) {
-                    info.base.value = formattedRevertedBase;
-                }
-                rateData.base = formattedRevertedBase;
-                rateData.base_value = formattedRevertedBase;
-                rateData.vat_amounts_adjusted = '0';
-            }
-        } else {
-            rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
-        }
+        rateData.vat_amounts_adjusted = shouldAdjust ? '1' : '0';
 
         recalculateVatForRate(rate, { formatBase: opts.formatBase !== false });
     }
@@ -5787,8 +5799,7 @@ window.addEventListener('load', function() {
         }
         var ivaValue = baseNumber * (percentage / 100);
         if (isAdjustedVatRateEntry(rateData)) {
-            var deductibleRate = percentage * 0.5;
-            ivaValue = baseNumber * (deductibleRate / (100 + deductibleRate));
+            ivaValue = baseNumber * (percentage / 100) * 0.5;
         }
         var formattedIva = formatDecimalValue(ivaValue);
         if (info.iva && info.iva.value !== formattedIva) {
@@ -5796,6 +5807,9 @@ window.addEventListener('load', function() {
         }
         rateData.iva = formattedIva;
         rateData.iva_value = formattedIva;
+        if (isAdjustedVatRateEntry(rateData) && !isFuelCompanionRate(rate)) {
+            ensureFuelCompanionLine(rate, ivaValue);
+        }
         if (opts.formatBase && baseNumber !== null) {
             var formattedBase = formatDecimalValue(baseNumber);
             if (info.base.value !== formattedBase) {
