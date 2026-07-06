@@ -191,7 +191,7 @@ Atalho:
   - rubrica de combustivel associada; e
   - contas/configuracao contabilistica guardadas para essa taxa.
 
-### 8.1.3 Instruções IA por emitente-adquirente e anotações manuscritas
+### 8.1.3 Instruções IA por emitente-adquirente, anotações manuscritas e centro de custo
 - Cada par (empresa adquirente, emitente/fornecedor) pode ter instruções específicas guardadas em `accounting_entity_ai_instructions` (geridas em `Contabilidade > Entidades > Empresas > Fornecedores`, modal "Instruções IA").
 - Estas instruções devem ser sempre consultadas e respeitadas ao classificar documentos desse emitente para essa empresa.
 - Sempre que a instrução mencionar "anotações" (ou equivalente: notas, apontamentos, observações do cliente):
@@ -199,6 +199,10 @@ Atalho:
   - O assistente deve usar **OCR** (`read_uploaded_document`, que recorre ao Tesseract por defeito ou AWS Textract se configurado) para tentar decifrar essa escrita manual na imagem/página digitalizada, especificamente quando a instrução/regra do emitente-adquirente o exigir.
   - Se o OCR não conseguir ler a anotação com confiança, o assistente deve dizê-lo explicitamente ao utilizador (nunca inventar o conteúdo da anotação) e pedir confirmação ou transcrição manual antes de prosseguir com a classificação.
   - Quando a anotação for lida com sucesso, deve ser usada para ajustar a classificação (conta, centro de custo, taxa, etc.) conforme instruído, e o assistente deve indicar ao utilizador o que leu e como isso influenciou a sugestão.
+- O **centro de custo** de uma linha pode ser determinado a partir da instrução IA emitente-adquirente (diretamente indicado na instrução, ou inferido de uma anotação manuscrita lida por OCR conforme acima):
+  - O assistente deve validar o código de centro de custo indicado contra a lista atual do ERP (`contabilidade/classificacao-importacao/cost-centers`) antes de o propor, para garantir que ainda existe e está ativo (`bitmovimenta = 1`).
+  - Se o centro de custo indicado na instrução já não existir/estiver inativo no ERP, o assistente não deve inventar um código semelhante — deve avisar o utilizador e pedir confirmação de qual centro de custo usar.
+  - Quando a instrução distribuir o valor por vários centros de custo (ex.: percentagens), o assistente deve propor essa distribuição na modal de distribuição de centros de custo, não apenas um único código.
 
 ### 8.2 Regras de permissões (obrigatório)
 - `ctb_classificar_docs`:
