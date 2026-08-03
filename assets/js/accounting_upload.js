@@ -18,6 +18,13 @@ window.addEventListener('load', function() {
     var detectQrUrl = window.accountingUploadDetectQrUrl || 'contabilidade/upload.php?action=detect-qr';
     var acquirerCompanies = Array.isArray(window.accountingUploadAcquirerCompanies) ? window.accountingUploadAcquirerCompanies : [];
     var selectedAcquirerId = parseInt(window.accountingUploadSelectedAcquirerId, 10) || 0;
+    // Copia imutavel do valor vindo do servidor: `selectedAcquirerId` e' reposto a 0
+    // sempre que a empresa e' limpa, pelo que nao serve de omissao fiavel.
+    var initialAcquirerId = selectedAcquirerId;
+    // Ultima empresa escolhida nesta sessao. Os uploads sao feitos em serie, quase
+    // sempre para a mesma empresa, por isso serve de omissao nos ficheiros seguintes
+    // em vez de obrigar a escolher a empresa documento a documento.
+    var lastManualAcquirerCompany = null;
     var parallelUploads = parseInt(window.accountingUploadParallelUploads, 10) || 2;
     var debugEnabled = window.accountingUploadDebug === true;
     var navigationGuardEnabled = true;
@@ -470,15 +477,23 @@ window.addEventListener('load', function() {
         return null;
     }
 
+    function rememberManualAcquirerCompany(company) {
+        if (company && company.id) {
+            lastManualAcquirerCompany = company;
+        }
+    }
+
     function syncManualAcquirerFromSelect() {
         if (!manualAcquirerSelect) {
             manualSelectedAcquirer = null;
             return;
         }
         manualSelectedAcquirer = findAcquirerCompanyById(manualAcquirerSelect.value);
+        rememberManualAcquirerCompany(manualSelectedAcquirer);
     }
 
     function applyManualAcquirerSelection(company, triggerChange) {
+        rememberManualAcquirerCompany(company);
         manualSelectedAcquirer = company || null;
         selectedAcquirerId = company && company.id ? (parseInt(company.id, 10) || 0) : 0;
         if (!manualAcquirerSelect) {
@@ -505,10 +520,21 @@ window.addEventListener('load', function() {
         if (topbarCompany) {
             return topbarCompany;
         }
-        if (selectedAcquirerId > 0) {
-            return findAcquirerCompanyById(selectedAcquirerId);
+        if (initialAcquirerId > 0) {
+            return findAcquirerCompanyById(initialAcquirerId);
         }
         return null;
+    }
+
+    // Empresa a pre-seleccionar quando o documento nao traz evidencia propria:
+    // a ultima escolhida, depois a da topbar / omissao do servidor. Nunca devolve
+    // vazio se ja' houve uma escolha, para o utilizador nao ter de repetir a
+    // seleccao em cada ficheiro da fila.
+    function getFallbackManualAcquirerCompany() {
+        if (lastManualAcquirerCompany && lastManualAcquirerCompany.id) {
+            return findAcquirerCompanyById(lastManualAcquirerCompany.id) || lastManualAcquirerCompany;
+        }
+        return getDefaultManualAcquirerCompany();
     }
 
     function updateManualEfaturaSelectAvailability() {
@@ -526,7 +552,7 @@ window.addEventListener('load', function() {
 
     function runManualAcquirerOcrSuggestion() {
         if (!manualActive || !manualActive.file || !ocrAcquirerUrl) {
-            applyManualAcquirerSelection(null, false);
+            applyManualAcquirerSelection(getFallbackManualAcquirerCompany(), false);
             updateManualEfaturaSelectAvailability();
             return;
         }
@@ -544,7 +570,7 @@ window.addEventListener('load', function() {
             }
             manualOcrCandidateNifs = Array.isArray(res && res.candidate_nifs) ? res.candidate_nifs : [];
             if (!res || !res.success || !res.company || !res.company.id) {
-                applyManualAcquirerSelection(null, false);
+                applyManualAcquirerSelection(getFallbackManualAcquirerCompany(), false);
                 updateManualEfaturaSelectAvailability();
                 return;
             }
@@ -564,7 +590,7 @@ window.addEventListener('load', function() {
         })
         .catch(function() {
             manualOcrCandidateNifs = [];
-            applyManualAcquirerSelection(null, false);
+            applyManualAcquirerSelection(getFallbackManualAcquirerCompany(), false);
             updateManualEfaturaSelectAvailability();
             // OCR suggestion is best-effort only.
         });
@@ -1668,7 +1694,7 @@ window.addEventListener('load', function() {
         resetManualSelection();
         setManualError('');
         resetManualEfaturaSelection();
-        applyManualAcquirerSelection(null, false);
+        applyManualAcquirerSelection(getFallbackManualAcquirerCompany(), false);
         updateManualEfaturaSelectAvailability();
         updateManualPageLabel();
         updateManualQueueInfo();

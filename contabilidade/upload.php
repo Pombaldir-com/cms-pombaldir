@@ -2273,10 +2273,10 @@ if ($qrParallelUploads > $qrParallelUploadsMax) {
 </div>
 
 <div class="modal fade" id="manualQrModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-dialog modal-dialog-scrollable manual-qr-modal-dialog">
         <div class="modal-content">
-            <div class="modal-header">
-                <div>
+            <div class="modal-header manual-qr-modal-header">
+                <div class="manual-qr-header-title">
                     <h5 class="modal-title mb-1"><i class="fa fa-qrcode"></i> Selecionar zona do QR Code</h5>
                     <div class="text-muted small">
                         <span id="manualQrQueueLabel">Ficheiro 1 de 1</span>
@@ -2284,71 +2284,72 @@ if ($qrParallelUploads > $qrParallelUploadsMax) {
                         <span id="manualQrFileName">-</span>
                     </div>
                 </div>
+                <div class="manual-qr-toolbar">
+                    <button type="button" class="btn btn-secondary btn-sm" id="manualQrPrevPageBtn" title="Página anterior" aria-label="Página anterior"><i class="fa fa-chevron-left"></i></button>
+                    <span id="manualQrPageLabel" class="manual-qr-page-label">Página 1 de 1</span>
+                    <button type="button" class="btn btn-secondary btn-sm" id="manualQrNextPageBtn" title="Página seguinte" aria-label="Página seguinte"><i class="fa fa-chevron-right"></i></button>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Zoom da pré-visualização">
+                        <button type="button" class="btn btn-default" id="manualQrZoom100Btn">100%</button>
+                        <button type="button" class="btn btn-default" id="manualQrZoom150Btn">150%</button>
+                        <button type="button" class="btn btn-default" id="manualQrZoom200Btn">200%</button>
+                    </div>
+                    <a href="#" target="_blank" rel="noopener" class="btn btn-default btn-sm" id="manualQrOpenFileBtn"><i class="fa fa-file-pdf-o"></i> Abrir anexo</a>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info">
-                    Abra a página correta, desenhe um retângulo sobre o QR Code e depois clique em <strong>Ler QR selecionado</strong>.
-                </div>
-                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                    <div>
-                        <button type="button" class="btn btn-secondary btn-sm" id="manualQrPrevPageBtn"><i class="fa fa-chevron-left"></i> Página anterior</button>
-                        <span id="manualQrPageLabel" class="mx-2">Página 1 de 1</span>
-                        <button type="button" class="btn btn-secondary btn-sm" id="manualQrNextPageBtn">Página seguinte <i class="fa fa-chevron-right"></i></button>
-                    </div>
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <div class="btn-group btn-group-sm" role="group" aria-label="Zoom da pré-visualização">
-                            <button type="button" class="btn btn-default" id="manualQrZoom100Btn">100%</button>
-                            <button type="button" class="btn btn-default" id="manualQrZoom150Btn">150%</button>
-                            <button type="button" class="btn btn-default" id="manualQrZoom200Btn">200%</button>
+                <div class="manual-qr-layout">
+                    <div class="manual-qr-preview-pane">
+                        <div id="manualQrLoading" class="dataTables_processing panel panel-default d-none" style="display: block;">
+                            <span><i class="fa fa-spinner fa-spin"></i> A gerar pré-visualização...</span>
                         </div>
-                        <a href="#" target="_blank" rel="noopener" class="btn btn-default btn-sm" id="manualQrOpenFileBtn"><i class="fa fa-file-pdf-o"></i> Abrir anexo</a>
+                        <div class="manual-qr-stage">
+                            <div class="manual-qr-canvas-wrap" id="manualQrCanvasWrap">
+                                <img id="manualQrPreviewImage" class="img-responsive" alt="Pré-visualização do documento">
+                                <div id="manualQrSelectionBox"></div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div id="manualQrError" class="alert alert-danger d-none"></div>
-                <div class="x_panel manual-efatura-panel">
-                    <div class="x_title">
-                        <h2><i class="fa fa-search"></i> Sugestao por E-fatura</h2>
-                        <div class="clearfix"></div>
-                    </div>
-                    <div class="x_content">
-                        <p class="text-muted">
-                            Se o QR nao for detetado, pesquise pelo NIF ou nome do emitente e associe um documento importado do E-fatura a este ficheiro.
-                        </p>
-                        <div class="row manual-efatura-row">
-                            <div class="col-md-4 col-sm-12 manual-efatura-col">
-                                <label for="manualQrAcquirerSelect" class="form-label">Empresa</label>
-                                <select id="manualQrAcquirerSelect" class="form-control">
-                                    <option value="">Selecionar empresa...</option>
+                    <div class="manual-qr-side-pane">
+                        <div id="manualQrError" class="alert alert-danger d-none"></div>
+                        <div class="x_panel manual-efatura-panel">
+                            <div class="x_title">
+                                <h2><i class="fa fa-search"></i> Sugestao por E-fatura</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <div class="row manual-efatura-row">
+                                    <div class="col-12 manual-efatura-col">
+                                        <label for="manualQrAcquirerSelect" class="form-label">Empresa</label>
+                                        <select id="manualQrAcquirerSelect" class="form-control">
+                                            <option value="">Selecionar empresa...</option>
 <?php foreach ($uploadAcquirerCompanies as $company): ?>
-                                    <option value="<?= (int) $company['id']; ?>" data-nif="<?= htmlspecialchars((string) $company['nif'], ENT_QUOTES, 'UTF-8'); ?>" <?= $selectedUploadAcquirerCompanyId === (int) $company['id'] ? 'selected' : ''; ?>>
-                                        <?= htmlspecialchars((string) $company['label'], ENT_QUOTES, 'UTF-8'); ?>
-                                    </option>
+                                            <option value="<?= (int) $company['id']; ?>" data-nif="<?= htmlspecialchars((string) $company['nif'], ENT_QUOTES, 'UTF-8'); ?>" <?= $selectedUploadAcquirerCompanyId === (int) $company['id'] ? 'selected' : ''; ?>>
+                                                <?= htmlspecialchars((string) $company['label'], ENT_QUOTES, 'UTF-8'); ?>
+                                            </option>
 <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-md-6 col-sm-12 manual-efatura-col">
-                                <label for="manualQrEfaturaSelect" class="form-label">Documento E-fatura</label>
-                                <select id="manualQrEfaturaSelect" class="form-control"></select>
-                            </div>
-                            <div class="col-md-2 col-sm-12 manual-efatura-col manual-efatura-action">
-                                <label class="form-label d-block">&nbsp;</label>
-                                <button type="button" class="btn btn-primary manual-efatura-apply-btn" id="manualQrApplyEfaturaBtn">
-                                    <i class="fa fa-link"></i> Associar
-                                </button>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 manual-efatura-col">
+                                        <label for="manualQrEfaturaSelect" class="form-label">Documento E-fatura</label>
+                                        <select id="manualQrEfaturaSelect" class="form-control"></select>
+                                    </div>
+                                    <div class="col-12 manual-efatura-col manual-efatura-action">
+                                        <button type="button" class="btn btn-primary manual-efatura-apply-btn" id="manualQrApplyEfaturaBtn">
+                                            <i class="fa fa-link"></i> Associar
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-muted manual-efatura-hint">
+                                    Se o QR nao for detetado, pesquise pelo NIF ou nome do emitente e associe um documento importado do E-fatura a este ficheiro.
+                                </p>
+                                <div id="manualQrEfaturaInfo" class="alert alert-info d-none mt-3"></div>
+                                <div id="manualQrEfaturaError" class="alert alert-danger d-none mt-3"></div>
                             </div>
                         </div>
-                        <div id="manualQrEfaturaInfo" class="alert alert-info d-none mt-3"></div>
-                        <div id="manualQrEfaturaError" class="alert alert-danger d-none mt-3"></div>
-                    </div>
-                </div>
-                <div id="manualQrLoading" class="dataTables_processing panel panel-default d-none" style="display: block;">
-                    <span><i class="fa fa-spinner fa-spin"></i> A gerar pré-visualização...</span>
-                </div>
-                <div class="manual-qr-stage">
-                    <div class="manual-qr-canvas-wrap" id="manualQrCanvasWrap">
-                        <img id="manualQrPreviewImage" class="img-responsive" alt="Pré-visualização do documento">
-                        <div id="manualQrSelectionBox"></div>
+                        <div class="alert alert-info manual-qr-hint">
+                            Abra a página correta, desenhe um retângulo sobre o QR Code e depois clique em <strong>Ler QR selecionado</strong>.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2391,12 +2392,117 @@ if ($qrParallelUploads > $qrParallelUploadsMax) {
 </div>
 
 <style>
+/* Layout em duas colunas, alinhado com a modal de classificacao: documento a
+   esquerda, controlos a direita. As coordenadas da seleccao do QR sao razoes
+   relativas a #manualQrCanvasWrap, pelo que nao dependem desta disposicao. */
+.manual-qr-modal-dialog {
+    width: min(96vw, 1680px);
+    max-width: min(96vw, 1680px);
+}
+
+#manualQrModal .modal-body {
+    overflow-x: hidden;
+}
+
+.manual-qr-layout {
+    display: flex;
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 0;
+}
+
+.manual-qr-preview-pane {
+    flex: 0 0 58%;
+    max-width: 58%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+}
+
+.manual-qr-side-pane {
+    flex: 0 0 42%;
+    max-width: 42%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 320px;
+}
+
+/* Paginacao, zoom e "Abrir anexo" vivem na barra do cabecalho da modal, a direita
+   do titulo e antes do botao de fechar. Os botoes de pagina ficam so' com o icone
+   (a legenda mantem-se no title/aria-label) para a linha nao rebentar. */
+.manual-qr-modal-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.manual-qr-header-title {
+    min-width: 0;
+}
+
+.manual-qr-toolbar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+/* O tema da' margin-bottom/right de 5px aos .btn soltos mas zera-a nos .btn
+   dentro de .btn-group (custom.css). Com align-items:center e' a margin box que
+   fica centrada, pelo que os botoes soltos subiam ~2.5px em relacao ao grupo do
+   zoom. Anulamos as margens e deixamos o `gap` tratar do espacamento. */
+.manual-qr-toolbar .btn,
+.manual-qr-toolbar .btn-group {
+    margin-bottom: 0;
+    margin-right: 0;
+}
+
+.manual-qr-page-label {
+    white-space: nowrap;
+    line-height: 1;
+}
+
+/* Ultimo elemento da coluna: fica encostada ao fundo quando sobra espaco. */
+.manual-qr-hint {
+    margin-top: auto;
+    margin-bottom: 0;
+}
+
 .manual-qr-stage {
+    flex: 1 1 auto;
     max-height: 70vh;
+    min-height: 60vh;
     overflow: auto;
     border: 1px solid #ddd;
     background: #f7f7f7;
     padding: 10px;
+}
+
+@media (max-width: 1199.98px) {
+    .manual-qr-layout {
+        flex-direction: column;
+        min-height: auto;
+    }
+
+    .manual-qr-preview-pane,
+    .manual-qr-side-pane {
+        flex: 1 1 100%;
+        max-width: 100%;
+    }
+
+    .manual-qr-side-pane {
+        min-width: 0;
+    }
+
+    .manual-qr-stage {
+        min-height: 0;
+        max-height: 60vh;
+    }
 }
 
 .manual-qr-canvas-wrap {
@@ -2592,6 +2698,13 @@ if ($qrParallelUploads > $qrParallelUploadsMax) {
 .manual-efatura-action {
     display: flex;
     flex-direction: column;
+}
+
+/* Nota explicativa por baixo do botao Associar. Sem margem inferior para nao
+   somar ao mt-3 dos alertas de resultado que vem a seguir. */
+.manual-efatura-hint {
+    margin-top: 0.25rem;
+    margin-bottom: 0;
 }
 
 .manual-efatura-apply-btn {
