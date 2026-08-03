@@ -203,28 +203,52 @@ window.addEventListener('load', function() {
         return '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + safeFile + '" data-has-receipt-companion="' + receiptFlag + '"><i class="fa fa-trash"></i></button> ' + pdfBtn;
     }
 
-    function getRowFilePath(node) {
-        var filePath = $(node).find('.delete-row').data('file');
-        if (!filePath) {
-            filePath = $(node).find('.open-file').data('file');
-        }
-        return filePath || '';
+    // A ultima celula guarda o HTML dos botoes de accao. Lemos o estado da linha a
+    // partir DOS DADOS e nunca do <tr>: table.rows().nodes() so' devolve nos das
+    // linhas que o DataTables ja' desenhou, por isso as linhas das paginas ainda nao
+    // visitadas ficavam de fora (com 28 linhas e 10 por pagina, so' iam 20 na
+    // importacao, silenciosamente).
+    function parseRowActions(data) {
+        var cells = data || [];
+        var html = cells.length ? String(cells[cells.length - 1] || '') : '';
+        var $actions = $('<div></div>').html(html);
+        var $delete = $actions.find('.delete-row');
+        var $source = $delete.length ? $delete : $actions.find('.open-file');
+        return {
+            pending: $delete.length > 0,
+            file: $source.attr('data-file') || '',
+            hasReceiptCompanion: String($source.attr('data-has-receipt-companion') || '').trim() === '1'
+        };
     }
 
-    function getPendingRowNodes() {
-        return table.rows().nodes().toArray().filter(function(node) {
-            return $(node).find('.delete-row').length > 0;
+    // Indices de TODAS as linhas por importar, independentemente da paginacao.
+    function getPendingRowIndexes() {
+        var indexes = [];
+        table.rows().every(function() {
+            if (parseRowActions(this.data()).pending) {
+                indexes.push(this.index());
+            }
         });
+        return indexes;
+    }
+
+    // Indices de todas as linhas da tabela, desenhadas ou nao.
+    function getAllRowIndexes() {
+        var indexes = [];
+        table.rows().every(function() {
+            indexes.push(this.index());
+        });
+        return indexes;
     }
 
     function removePendingRowsForFile(filePath, fallbackRow) {
         var targetFile = String(filePath || '').trim();
-        var matchingNodes = targetFile ? getPendingRowNodes().filter(function(node) {
-            return getRowFilePath(node) === targetFile;
+        var matchingIndexes = targetFile ? getPendingRowIndexes().filter(function(index) {
+            return parseRowActions(table.row(index).data()).file === targetFile;
         }) : [];
 
-        if (matchingNodes.length) {
-            table.rows(matchingNodes).remove().draw(false);
+        if (matchingIndexes.length) {
+            table.rows(matchingIndexes).remove().draw(false);
             return;
         }
 
@@ -233,17 +257,8 @@ window.addEventListener('load', function() {
         }
     }
 
-    function getRowHasReceiptCompanion(node) {
-        var source = $(node).find('.delete-row');
-        if (!source.length) {
-            source = $(node).find('.open-file');
-        }
-        var value = source.attr('data-has-receipt-companion');
-        return String(value || '').trim() === '1';
-    }
-
     function hasPendingRows() {
-        return getPendingRowNodes().length > 0;
+        return getPendingRowIndexes().length > 0;
     }
 
     function hasPendingUploadWork() {
@@ -271,8 +286,10 @@ window.addEventListener('load', function() {
             if (!data.length) {
                 return;
             }
-            var filePath = getRowFilePath(this.node());
-            data[data.length - 1] = buildActionsHtml(filePath, true, getRowHasReceiptCompanion(this.node()));
+            // Ler dos dados e nao do <tr>: linhas de paginas nao desenhadas nao tem
+            // no, e o filePath vinha vazio, perdendo o ficheiro associado a linha.
+            var info = parseRowActions(data);
+            data[data.length - 1] = buildActionsHtml(info.file, true, info.hasReceiptCompanion);
             this.data(data);
         });
         table.draw(false);
@@ -911,11 +928,11 @@ window.addEventListener('load', function() {
     }
 
     function fileHasPendingInvoiceRow(filePath) {
-        return getPendingRowNodes().some(function(node) {
-            if (getRowFilePath(node) !== filePath) {
+        return getPendingRowIndexes().some(function(index) {
+            var data = table.row(index).data() || [];
+            if (parseRowActions(data).file !== filePath) {
                 return false;
             }
-            var data = table.row(node).data() || [];
             return isInvoiceDocType(data[3] || '');
         });
     }
@@ -926,20 +943,20 @@ window.addEventListener('load', function() {
             return;
         }
 
-        var matchingNodes = table.rows().nodes().toArray().filter(function(node) {
-            return getRowFilePath(node) === targetFile;
+        var matchingIndexes = getAllRowIndexes().filter(function(index) {
+            return parseRowActions(table.row(index).data()).file === targetFile;
         });
-        if (!matchingNodes.length) {
+        if (!matchingIndexes.length) {
             return;
         }
 
-        matchingNodes.forEach(function(node) {
-            var rowApi = table.row(node);
+        matchingIndexes.forEach(function(index) {
+            var rowApi = table.row(index);
             var data = rowApi.data() || [];
             if (!data.length) {
                 return;
             }
-            var imported = $(node).find('.delete-row').length === 0;
+            var imported = !parseRowActions(data).pending;
             data[data.length - 1] = buildActionsHtml(targetFile, imported, hasReceiptCompanion);
             rowApi.data(data);
         });
@@ -964,83 +981,83 @@ window.addEventListener('load', function() {
             return;
         }
 
-        var matchingNodes = getPendingRowNodes().filter(function(node) {
-            return getRowFilePath(node) === targetFile;
+        var matchingIndexes = getPendingRowIndexes().filter(function(index) {
+            return parseRowActions(table.row(index).data()).file === targetFile;
         });
-        if (!matchingNodes.length) {
+        if (!matchingIndexes.length) {
             return;
         }
 
-        var hasInvoice = matchingNodes.some(function(node) {
-            var data = table.row(node).data() || [];
+        var hasInvoice = matchingIndexes.some(function(index) {
+            var data = table.row(index).data() || [];
             return isInvoiceDocType(data[3] || '');
         });
         if (!hasInvoice) {
             return;
         }
 
-        var receiptNodes = matchingNodes.filter(function(node) {
-            var data = table.row(node).data() || [];
+        var receiptIndexes = matchingIndexes.filter(function(index) {
+            var data = table.row(index).data() || [];
             return isReceiptDocType(data[3] || '');
         });
-        if (!receiptNodes.length) {
+        if (!receiptIndexes.length) {
             return;
         }
 
-        table.rows(receiptNodes).remove().draw(false);
+        table.rows(receiptIndexes).remove().draw(false);
     }
 
     function pruneReceiptRowsAcrossTable() {
-        var allNodes = table.rows().nodes().toArray();
-        if (!allNodes.length) {
+        var allIndexes = getAllRowIndexes();
+        if (!allIndexes.length) {
             return;
         }
 
         var grouped = {};
-        allNodes.forEach(function(node) {
-            var filePath = getRowFilePath(node);
+        allIndexes.forEach(function(index) {
+            var data = table.row(index).data() || [];
+            var filePath = parseRowActions(data).file;
             if (!filePath) {
                 return;
             }
             if (!grouped[filePath]) {
                 grouped[filePath] = {
-                    invoiceNodes: [],
-                    receiptNodes: []
+                    invoiceIndexes: [],
+                    receiptIndexes: []
                 };
             }
-            var data = table.row(node).data() || [];
             if (isInvoiceDocType(data[3] || '')) {
-                grouped[filePath].invoiceNodes.push(node);
+                grouped[filePath].invoiceIndexes.push(index);
             } else if (isReceiptDocType(data[3] || '')) {
-                grouped[filePath].receiptNodes.push(node);
+                grouped[filePath].receiptIndexes.push(index);
             }
         });
 
-        var nodesToRemove = [];
+        var indexesToRemove = [];
         var shouldRedraw = false;
         Object.keys(grouped).forEach(function(filePath) {
             var group = grouped[filePath];
-            if (!group || !group.invoiceNodes.length || !group.receiptNodes.length) {
+            if (!group || !group.invoiceIndexes.length || !group.receiptIndexes.length) {
                 return;
             }
 
-            group.invoiceNodes.forEach(function(node) {
-                var rowApi = table.row(node);
+            group.invoiceIndexes.forEach(function(index) {
+                var rowApi = table.row(index);
                 var data = rowApi.data() || [];
                 if (!data.length) {
                     return;
                 }
-                var imported = $(node).find('.delete-row').length === 0;
+                var imported = !parseRowActions(data).pending;
                 data[data.length - 1] = buildActionsHtml(filePath, imported, true);
                 rowApi.data(data);
                 shouldRedraw = true;
             });
 
-            nodesToRemove = nodesToRemove.concat(group.receiptNodes);
+            indexesToRemove = indexesToRemove.concat(group.receiptIndexes);
         });
 
-        if (nodesToRemove.length) {
-            table.rows(nodesToRemove).remove();
+        if (indexesToRemove.length) {
+            table.rows(indexesToRemove).remove();
             shouldRedraw = true;
         }
 
@@ -2285,29 +2302,66 @@ window.addEventListener('load', function() {
         });
     });
 
+    var importInFlight = false;
+
+    // Sem isto, dois cliques rapidos no botao enviavam o mesmo lote duas vezes; a
+    // segunda importacao era descartada pela deteccao de duplicados do servidor, mas
+    // aparecia na consola como "0/20 gravadas" e confundia o diagnostico.
+    function setImportButtonsBusy(busy) {
+        [importBtn, importComprasBtn].forEach(function(btn) {
+            if (btn) {
+                btn.disabled = !!busy;
+            }
+        });
+    }
+
     function handleImport(type) {
-        var nodes = getPendingRowNodes();
-        if (!nodes.length) {
+        if (importInFlight) {
+            return;
+        }
+        var indexes = getPendingRowIndexes();
+        if (!indexes.length) {
             showAlert('Não há dados para importar');
             return;
         }
-        var payload = nodes.map(function(node) {
-            var data = table.row(node).data() || [];
+        var payload = indexes.map(function(index) {
+            var data = table.row(index).data() || [];
+            var info = parseRowActions(data);
             var obj = {};
             for (var i = 0; i < qrKeys.length; i += 1) {
                 obj[qrKeys[i]] = (qrKeys[i] === 'A') ? decodeTableCellRawValue(data[i] || '') : (data[i] || '');
             }
-            obj.filename = $(node).find('.delete-row').data('file') || '';
-            obj.has_receipt_companion = getRowHasReceiptCompanion(node) ? '1' : '0';
+            obj.filename = info.file;
+            obj.has_receipt_companion = info.hasReceiptCompanion ? '1' : '0';
             return obj;
         });
+        importInFlight = true;
+        setImportButtonsBusy(true);
         submitImportRows(payload, type)
-        .then(function() {
-            notifySuccess('Importação concluída');
+        .then(function(res) {
+            var stats = res && res.stats;
+            if (stats) {
+                console.groupCollapsed('[Upload] Importacao: ' + stats.inseridas + '/' + payload.length + ' gravadas');
+                console.log('enviadas pelo browser:', payload.length, stats);
+                if (res.skipped && res.skipped.length) {
+                    console.table(res.skipped);
+                }
+                console.groupEnd();
+            }
+            if (stats && stats.inseridas < payload.length) {
+                notifyError('Importação: ' + stats.inseridas + ' de ' + payload.length
+                    + ' linhas gravadas. Ver detalhe na consola.');
+            } else {
+                notifySuccess('Importação concluída');
+            }
             markCurrentRowsAsImported();
         })
         .catch(function(err) {
             showAlert((err && err.message) ? err.message : 'Falha na importação');
+        })
+        .finally(function() {
+            importInFlight = false;
+            setImportButtonsBusy(false);
         });
     }
 

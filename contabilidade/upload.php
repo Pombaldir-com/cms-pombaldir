@@ -433,9 +433,30 @@ function resolveAccountingUploadPath(string $relativeFile): array {
         return ['ok' => false, 'error' => 'Diretório de uploads indisponível.'];
     }
 
-    $fullPath = realpath(dirname(__DIR__) . '/' . ltrim($relativeFile, '/'));
-    if ($fullPath === false || strpos($fullPath, $baseDir) !== 0 || !is_file($fullPath)) {
-        return ['ok' => false, 'error' => 'Ficheiro inválido.'];
+    $candidate = dirname(__DIR__) . '/' . ltrim($relativeFile, '/');
+    $fullPath = realpath($candidate);
+
+    // These three conditions used to collapse into a single opaque "Ficheiro
+    // inválido.", which made the resulting 400 impossible to diagnose from the
+    // browser. Keep the message shown to the user generic, but record which check
+    // actually failed so the upload log tells us what happened.
+    $reason = '';
+    if ($fullPath === false) {
+        $reason = 'ficheiro inexistente em disco';
+    } elseif (strpos($fullPath, $baseDir) !== 0) {
+        $reason = 'fora da pasta de uploads (base=' . $baseDir . ')';
+    } elseif (!is_file($fullPath)) {
+        $reason = 'caminho existe mas nao e um ficheiro';
+    }
+
+    if ($reason !== '') {
+        logOcrMessage(
+            'resolveAccountingUploadPath falhou: ' . $reason
+            . ' | pedido=' . $relativeFile
+            . ' | resolvido=' . ($fullPath === false ? '(nenhum)' : $fullPath)
+            . ' | slug=' . $slug
+        );
+        return ['ok' => false, 'error' => 'Ficheiro inválido.', 'reason' => $reason];
     }
 
     return [
@@ -1912,6 +1933,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             . 'AND TRIM(COALESCE(field_R, \'\')) = \'\' '
             . 'LIMIT 1'
         );
+        // Contadores de diagnostico: o endpoint respondia apenas {success:true}, o que
+        // tornava impossivel saber porque e' que N linhas enviadas davam M linhas
+        // gravadas. Cada `continue` abaixo incrementa o motivo correspondente.
+        $importStats = [
+            'recebidas' => count($rows),
+            'inseridas' => 0,
+            'saltou_recibo_com_fatura' => 0,
+            'saltou_vazia_repetida' => 0,
+            'saltou_duplicado_composto' => 0,
+            'saltou_duplicado_field_h' => 0,
+        ];
+        $importSkipped = [];
+
         foreach ($rows as $row) {
             $fieldA = trim((string) ($row['A'] ?? ''));
             $fieldB = trim((string) ($row['B'] ?? ''));
@@ -1923,29 +1957,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $filename = trim((string) ($row['filename'] ?? ''));
             $hasDocumentIdentity = ($fieldA !== '' || $fieldB !== '' || $fieldD !== '' || $fieldF !== '' || $fieldG !== '' || $fieldH !== '' || $fieldR !== '');
 
-            if ($filename !== '' && in_array($filename, $filesWithReceiptCompanion, true) && uploadImportDocTypeIsReceipt($fieldD)) {
-                continue;
-            }
+            $skipReason = '';
 
-            if (!$hasDocumentIdentity && $filename !== '') {
+            if ($filename !== '' && in_array($filename, $filesWithReceiptCompanion, true) && uploadImportDocTypeIsReceipt($fieldD)) {
+                $skipReason = 'saltou_recibo_com_fatura';
+            } elseif (!$hasDocumentIdentity && $filename !== '') {
                 $existsBlankByFilename->execute([$importType, $filename]);
                 if ($existsBlankByFilename->fetchColumn()) {
-                    continue;
+                    $skipReason = 'saltou_vazia_repetida';
                 }
             }
 
-            if ($hasDocumentIdentity) {
+            if ($skipReason === '' && $hasDocumentIdentity) {
                 $existsByComposite->execute([$importType, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG, $fieldR]);
                 if ($existsByComposite->fetchColumn()) {
-                    continue;
+                    $skipReason = 'saltou_duplicado_composto';
                 }
             }
 
-            if ($fieldH !== '') {
+            if ($skipReason === '' && $fieldH !== '') {
                 $existsByFieldH->execute([$importType, $fieldH, $fieldA, $fieldB, $fieldD, $fieldF, $fieldG]);
                 if ($existsByFieldH->fetchColumn()) {
-                    continue;
+                    $skipReason = 'saltou_duplicado_field_h';
                 }
+            }
+
+            if ($skipReason !== '') {
+                $importStats[$skipReason]++;
+                $importSkipped[] = [
+                    'motivo' => $skipReason,
+                    'D' => $fieldD,
+                    'G' => $fieldG,
+                    'H' => $fieldH,
+                    'ficheiro' => $filename,
+                ];
+                continue;
             }
 
             $insert->execute([
@@ -1975,6 +2021,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $importType
             ]);
 
+            $importStats['inseridas']++;
             $insertedId = (int) $pdo->lastInsertId();
             if ($insertedId > 0) {
                 $storedRow = [
@@ -1990,7 +2037,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        echo json_encode(['success' => true, 'csrf_token' => $newToken]);
+        // `recebidas` conta as linhas ja' depois de filterUploadRowsPreferInvoicesByFile;
+        // `enviadas_pelo_cliente` e' o numero cru vindo do browser, para distinguir uma
+        // perda no cliente (linhas que nunca chegaram) de uma perda no servidor.
+        $importStats['enviadas_pelo_cliente'] = is_array($data['rows'] ?? null) ? count($data['rows']) : 0;
+        logErpMessage('Importacao: ' . json_encode($importStats, JSON_UNESCAPED_UNICODE));
+        if (!empty($importSkipped)) {
+            logErpMessage('Importacao (linhas saltadas): ' . json_encode($importSkipped, JSON_UNESCAPED_UNICODE));
+        }
+
+        echo json_encode([
+            'success' => true,
+            'stats' => $importStats,
+            'skipped' => $importSkipped,
+            'csrf_token' => $newToken,
+        ]);
         exit;
     } elseif ($action === 'manual-qr') {
         $token = trim((string) ($_POST['csrf_token'] ?? ''));
