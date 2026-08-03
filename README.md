@@ -61,13 +61,6 @@ O projeto disponibiliza um endpoint simples em [`api.php`](api.php) para aceder 
 
 O endpoint responde com informação da taxonomia e a lista de termos associados.
 
-## Área reservada de clientes (Extranet)
-Cada entidade adquirente pode ter contas de acesso à sua área reservada (`client_users`), geridas no separador **Extranet > Gestão de utilizadores** da ficha da entidade. O portal do cliente é servido pelas rotas `t/{tenant}/cliente/...`.
-
-- **Impersonar**: utilizadores de back-office com perfil `superadmin`/`administrador` têm, em cada conta da lista, um botão **Impersonar** que abre a área reservada desse cliente num novo separador, sem necessidade de introduzir credenciais.
-- A impersonação não termina a sessão de back-office; durante a mesma, o portal mostra um banner com a opção **Terminar impersonação**, que regressa à ficha da entidade.
-- Cada início/fim de impersonação fica registado no audit log (`impersonate` / `stop-impersonate`) com o identificador de quem a executou.
-
 ## Assistente AI: memória persistente
 O assistente AI guarda memória e contexto entre sessões na tabela `ai_assistant_logs`.
 

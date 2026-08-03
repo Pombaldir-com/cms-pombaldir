@@ -4722,8 +4722,12 @@ if ($action === 'ready_ids') {
 
     try {
         $scopeBindings = [];
+        // Respeitar o filtro de empresa da DataTable: com empresa selecionada
+        // so devolvemos as linhas dessa empresa; sem selecao devolvemos todas
+        // as que o utilizador ve na tabela.
+        $selectedCompanyNif = trim((string) ($_GET['company'] ?? ''));
         $scopeSql = $importType === 1
-            ? buildCtbCompanyScopeSql(resolveCtbCompanyScopeNifs($isImportOnlyRequest), '', $scopeBindings)
+            ? buildCtbCompanyScopeSql(resolveCtbCompanyScopeNifs($isImportOnlyRequest), $selectedCompanyNif, $scopeBindings)
             : '';
 
         $stmt = $pdo->prepare(

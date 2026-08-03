@@ -1,13 +1,368 @@
 {
     "models": [
         {
-            "company_slug": "zcontas",
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_569",
+            "name": "Despesas de representação",
+            "emitter": "517809320",
+            "acquirer": "519020219",
+            "doc_type": "FS",
+            "scope_key": "emp_569|519020219|FS",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "62662",
+                    "base": "",
+                    "iva": "",
+                    "label": "0"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1207",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-07-31T14:09:24+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_158",
+            "name": "Novo Banco - juros e comissões",
+            "emitter": "513204016",
+            "acquirer": "503405442",
+            "doc_type": "FT",
+            "scope_key": "emp_158|503405442|FT",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "698812",
+                    "base": "",
+                    "iva": "",
+                    "label": "0",
+                    "erp_rubric_code": "JUROS",
+                    "bank_loan_conversion": "1"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1203",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-07-29T16:38:33+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_158",
+            "name": "Portagem VLP",
+            "emitter": "502790024",
+            "acquirer": "503405442",
+            "doc_type": "FT",
+            "scope_key": "emp_158|503405442|FT",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "625133",
+                    "base": "",
+                    "iva": "",
+                    "label": "0%"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                },
+                "custom_1": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "custom_1"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": "",
+                "custom_1": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": [],
+                "custom_1": []
+            },
+            "total_account": "2511101",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-04-20T11:36:35+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_158",
+            "name": "Portagens IVA 100% Dedutível",
+            "emitter": "503933813",
+            "acquirer": "503405442",
+            "doc_type": "FT",
+            "scope_key": "emp_158|503405442|FT",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "0%"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "2432313",
+                    "general_account": "625131",
+                    "base": "",
+                    "iva": "",
+                    "label": "23"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": "04",
+                "custom_1": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": [
+                    {
+                        "cost_center": "04",
+                        "percentage": "100.00",
+                        "value": "0.32"
+                    }
+                ],
+                "custom_1": []
+            },
+            "total_account": "2511101",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-07-29T16:53:01+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
             "tenant_key": "emp_314",
             "name": "Restaurante",
             "emitter": "510501753",
             "acquirer": "513732713",
             "doc_type": "FS",
             "scope_key": "emp_314|513732713|FS",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "62662",
+                    "base": "",
+                    "iva": "",
+                    "label": "0"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "05",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [
+                    {
+                        "cost_center": "05",
+                        "percentage": "100.00",
+                        "value": "25.00"
+                    }
+                ],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1205",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-05-05T17:39:48+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_314",
+            "name": "Restaurante",
+            "emitter": "517198967",
+            "acquirer": "513732713",
+            "doc_type": "FT",
+            "scope_key": "emp_314|513732713|FT",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "62662",
+                    "base": "",
+                    "iva": "",
+                    "label": "0%"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "01",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [
+                    {
+                        "cost_center": "01",
+                        "percentage": "100.00",
+                        "value": "61.40"
+                    }
+                ],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1205",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-04-01T09:03:54+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_158",
+            "name": "Restaurante",
+            "emitter": "506394107",
+            "acquirer": "503405442",
+            "doc_type": "FS",
+            "scope_key": "emp_158|503405442|FS",
             "rates": {
                 "0": {
                     "iva_account": "",
@@ -50,10 +405,64 @@
                 "13": [],
                 "23": []
             },
-            "total_account": "1205",
+            "total_account": "111",
             "ignore_detected_rates": "1",
-            "updated_at": "2026-03-18T15:52:46+00:00"
+            "updated_at": "2026-04-23T15:50:06+00:00"
+        },
+        {
+            "company_slug": "e4fb14ce-0f20-4cb6-879d-b96883a765cf",
+            "tenant_key": "emp_480",
+            "name": "Restaurante",
+            "emitter": "501643125",
+            "acquirer": "516733036",
+            "doc_type": "FS",
+            "scope_key": "emp_480|516733036|FS",
+            "rates": {
+                "0": {
+                    "iva_account": "",
+                    "general_account": "62662",
+                    "base": "",
+                    "iva": "",
+                    "label": "0%"
+                },
+                "6": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "6%"
+                },
+                "13": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "13%"
+                },
+                "23": {
+                    "iva_account": "",
+                    "general_account": "",
+                    "base": "",
+                    "iva": "",
+                    "label": "23%"
+                }
+            },
+            "cost_centers": {
+                "0": "",
+                "6": "",
+                "13": "",
+                "23": ""
+            },
+            "cost_center_breakdowns": {
+                "0": [],
+                "6": [],
+                "13": [],
+                "23": []
+            },
+            "total_account": "1211",
+            "ignore_detected_rates": "1",
+            "updated_at": "2026-04-27T11:45:51+00:00"
         }
     ],
-    "updated_at": "2026-03-30T14:39:09+00:00"
+    "updated_at": "2026-07-31T14:09:24+00:00"
 }

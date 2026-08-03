@@ -3,7 +3,7 @@ require_once __DIR__ . '/functions.php';
 
 startSession();
 requireLogin();
-requireRole(1);
+requireRole(2);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

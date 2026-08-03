@@ -32,3 +32,4 @@ data/efatura_jobs/*.json
 .claude
 .claude/settings.local.json
 attachments/
+vendors/*

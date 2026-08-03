@@ -40,16 +40,6 @@ URL: `contabilidade/classificacao-importacao?import_type=1&type=import`
    - Na própria vista de Classificação, através do botão global `Classificado`; ou
    - Na vista **Importação** (`type=import`), através do botão `Importar Ctb` (quando aplicável por permissão).
 
-## Regras de leitura QR por ficheiro
-
-- Um mesmo PDF pode conter vários QR/documentos; o sistema mantém multiplas faturas `FT`/`FR` do mesmo ficheiro.
-- Se o mesmo ficheiro contiver pelo menos uma fatura (`FT` ou `FR`) e tambem um recibo (`RC` ou `RG`), os recibos sao ignorados.
-- Esta regra e aplicada na grelha de upload, na listagem de classificacao e repetida no backend no momento do `import`, para garantir consistencia.
-- Quando uma fatura e mantida mas o mesmo ficheiro tinha tambem um `RC`/`RG`, a linha fica marcada internamente com contexto de `recibo associado`.
-- Esse contexto nao cria linhas extra; serve para a memoria da sugestao distinguir:
-  - faturas isoladas, em que `Valor Total` tende a apontar para conta do fornecedor;
-  - faturas acompanhadas por recibo no mesmo PDF, em que `Valor Total` pode ser corrigido pelo utilizador para uma conta de bancos.
-
 O payload enviado para o ERP é construído em [`contabilidade/classificacao-importacao.php`](classificacao-importacao.php) e inclui os seguintes campos de formulário:
 
 - `tp = importMovim`
@@ -96,46 +86,15 @@ Parâmetros recomendados para esta chamada (dinâmicos por documento):
 
 - `act=importMovim`
 - `datadoc` (data do documento no formato `YYYY-MM-DD`, vinda do QR)
-- `strNIF` (privilegiar o NIF do emitente; o sistema pode testar candidatos alternativos quando necessário)
+- `strNIF` (NIF do adquirente)
 - `db`
-- `strTpDoc` (tipo documental normalizado para o ERP)
-- `strCodExercicio` (quando disponivel, usar o ano do documento)
-
-Normalizacao documental usada nesta consulta:
-
-- `FT` -> `FT`
-- `FR` / `FTR` -> `FR`
-- `RC` / `RG` -> `RC`
+- `strTpDoc` (tipo documental vindo do QR, ex.: `FT`)
 
 Exemplo:
 
-`GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=504128582&db=emp_566&strCodExercicio=2026&strTpDoc=FT`
+`GET /contabilidade/LigacaoCteTipoDoc?datadoc=2026-01-12&strNIF=513364790&db=emp_306&strTpDoc=FT`
 
 O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
-
-Regras adicionais desta fonte:
-
-- Se o ERP devolver contas por taxa em `strConta` e `strConta_Iva`, essas contas devem ser privilegiadas mesmo quando o plano nao ajuda a mapear a taxa de forma explicita.
-- Em documentos com apenas uma taxa, a conta IVA da ligacao pode ser usada diretamente se a separacao por taxa nao for ambigua.
-- Se `LigacaoCteTipoDoc` nao devolver resultados para o fornecedor/tipo, a aplicacao nao deve inventar `Conta Geral`.
-- Nessa situacao, apenas pode surgir uma sugestao de `Valor Total` para bancos (`12...`) quando a fatura tiver recibo associado no mesmo PDF.
-- A explicacao da sugestao deve mencionar explicitamente quando o fornecedor nao foi encontrado no ERP.
-
-## Regras de classificacao
-
-- Em taxas `0%`, `Conta IVA` deve ficar vazia.
-- A ausencia de `Conta IVA` numa taxa `0%` nao impede o estado `Classificado` (verde).
-- A grelha de classificacao mostra apenas o NIF do emitente na coluna visivel.
-- O botao global `Classificado` importa a configuracao contabilistica efetiva do documento, incluindo `Valor Total` vindo da classificacao generica, mesmo sem abrir antes a modal.
-- Quando a taxa tiver uma `Rub_Codigo` configurada como combustivel:
-  - apenas `50%` do IVA e dedutivel;
-  - os outros `50%` do IVA sao somados ao valor da `Base`;
-  - o total do documento mantem-se.
-- Esta regra de combustivel nao deve alterar logo a linha ao abrir a modal:
-  - so deve ser mostrada/aplicada quando a taxa ja tiver `Conta Geral` e `Conta IVA` validamente preenchidas;
-  - enquanto as contas nao estiverem preenchidas, a modal deve manter os valores brutos lidos do documento.
-- Quando o utilizador preencher as contas na modal, a taxa deve ser recalculada nesse momento se a rubrica for de combustivel.
-- Na importacao CTB, a regra continua a ser obrigatoria mesmo sem reabrir a modal, desde que a linha ja tenha a rubrica/configuracao contabilistica guardada.
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 
@@ -152,55 +111,8 @@ Regras de funcionamento:
 - As sugestões são lidas do endpoint ERP `GET /contabilidade/planocontas`.
 - A chamada é feita no browser para o webservice configurado em `erp_webservice_url`, usando `X-API-KEY`.
 - Sempre que possível, é usada a base de dados ERP do adquirente (`accounting_entities.erp_database`).
-- `accounting_entities.erp_database` e sempre a base ERP `emp_XXX`; `accounting_entities.erp_client_code` guarda o codigo da entidade dentro dessa base e nao deve ser usado como fallback da base ERP.
 - Na modal, o parâmetro `db` é enviado com a base de dados ERP do adquirente associada à linha/documento selecionado.
 - É enviado `EMP` com o valor de **Módulos > Contabilidade > Empresa base** (`accounting_base_company`).
 - Os resultados do plano são mantidos em cache no cliente por contexto (db + NIF adquirente + exercício), para resposta rápida durante a escrita.
 
-## Memoria da sugestao de contas
-
-A sugestao de contas cruza varias fontes:
-
-- historico em `accounting_imports`;
-- regras em `accounting_classifications`;
-- `LigacaoCteTipoDoc`;
-- movimentos ERP;
-- plano de contas ERP como fallback final.
-
-Para a conta de `Valor Total`, a memoria do historico ja nao trata todos os documentos da mesma forma. O fator de memoria passa tambem a distinguir:
-
-- documentos sem `RC`/`RG` no mesmo ficheiro;
-- documentos cuja digitalizacao continha tambem um `RC`/`RG`.
-
-Isto e importante porque, no segundo caso, o utilizador pode trocar a conta do `Valor Total` de fornecedor para uma conta de bancos. Essa decisao passa a ser aprendida e reutilizada apenas para documentos do mesmo contexto, evitando contaminar a sugestao de faturas normais.
-
-Persistencia adicional:
-
-- A classificacao generica passa a guardar tambem `receipt_total_account` para o contexto "fatura com recibo associado".
-- Isto permite recuperar a conta de `Valor Total` mesmo quando o registo individual em `accounting_imports.account` e apagado ou limpo.
-- Os modelos guardados pelo utilizador preservam `Valor Total`, alem das contas por taxa e centros de custo.
-
-## Lançamentos ERP
-
-No fluxo `contabilidade/lancamentos`:
-
-- fechar a modal volta a recarregar a grelha a partir do ERP;
-- a eliminacao do lancamento tenta apagar primeiro os anexos digitais;
-- se a eliminacao do anexo falhar, o lancamento nao e removido;
-- a mensagem de duplicado no ERP passa a indicar a localizacao do lancamento existente;
-- em notas de credito (`NC`), a linha de `Valor Total` e preservada e a natureza debito/credito e ajustada ao tipo documental.
-
 Ou seja, ao chamar o webservice "Importar CTB" são reenviados todos os dados disponíveis no MySQL para cada documento seleccionado, permitindo que o ERP trate a importação com base na informação integral (emitente, adquirente, totais, referências, centro de custo, contas, ficheiro associado, etc.).
-
-## Importacao global com varios adquirentes
-
-Na vista `contabilidade/classificacao-importacao?import_type=1`, o botao global `Classificado` tem de continuar a aceitar documentos de varios adquirentes na mesma operacao.
-
-Regras que nao devem regredir:
-
-- Nao bloquear a importacao com erro de "mais do que um adquirente associado" quando as linhas selecionadas pertencem a varios adquirentes validos.
-- A importacao tem de agrupar as linhas pela base ERP do adquirente (`accounting_entities.erp_database`) e chamar a importacao CTB uma vez por cada base.
-- A modal para escolher a base do adquirente so deve aparecer quando existir exatamente um adquirente sem base ERP definida; nao deve substituir o fluxo multi-adquirente quando as bases ja estao resolvidas.
-- As associacoes de tipo documental QR tambem sao por base ERP do grupo; quando a selecao tiver varias bases, a validacao e a gravacao das associacoes devem respeitar esse agrupamento.
-- Se houver sucesso parcial entre bases ERP, a resposta deve indicar importacao parcial em vez de falhar toda a operacao silenciosamente.
-- Mesmo em resposta agregada por varias bases, a mensagem final nao pode perder os detalhes de documentos ja existentes devolvidos pelo ERP; quando houver duplicados, deve continuar a indicar que o documento ja esta lancado e o nº de diario/lancamento devolvido no `recs.exist`.

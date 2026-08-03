@@ -980,7 +980,11 @@ window.addEventListener('load', function() {
             });
         }
         $companyFilter.on('change', function() {
+            // O conjunto de linhas prontas a importar depende da empresa
+            // filtrada: limpar a cache e recontar para o botao "Importar Ctb".
+            invalidateReadyImportIdsCache();
             dtApi.ajax.reload();
+            updateImportButtonState(true);
         });
         $('#companyFilterWrapper, #importCtbButtonWrapper').removeClass('dt-hidden-until-ready');
     }
@@ -1599,6 +1603,12 @@ window.addEventListener('load', function() {
         query.set('import_type', String(importType));
         if (viewMode !== '') {
             query.set('view_mode', viewMode);
+        }
+        // Importar apenas as linhas da empresa filtrada na tabela; sem empresa
+        // selecionada continuam a ser todas as linhas visiveis.
+        var selectedCompany = getSelectedCompanyNif();
+        if (selectedCompany !== '') {
+            query.set('company', selectedCompany);
         }
         return 'contabilidade/classificacao-importacao/ready-ids?' + query.toString();
     }
