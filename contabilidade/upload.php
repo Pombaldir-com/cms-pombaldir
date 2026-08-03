@@ -255,6 +255,9 @@ function fetchUploadCompanyConfigCandidate(string $database): array {
         if ($id === '' || $name === '') {
             continue;
         }
+        if (!isPlausibleErpCompanyName($name)) {
+            continue;
+        }
         if (!preg_match('/[A-Za-zÀ-ÿ]/u', $name)) {
             continue;
         }
@@ -351,7 +354,7 @@ function fetchUploadCompanyNameByConfigEmpresaId(string $database, string $compa
             continue;
         }
         $candidate = trim((string) ($row['strValor'] ?? $row['name'] ?? $row['nome'] ?? ''));
-        if ($candidate !== '') {
+        if ($candidate !== '' && isPlausibleErpCompanyName($candidate)) {
             return ['ok' => true, 'name' => $candidate, 'error' => ''];
         }
     }
@@ -1741,7 +1744,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $selectedDatabase
             ),
         ];
-        saveAccountingEntity($pdo, $saveData);
+        try {
+            saveAccountingEntity($pdo, $saveData);
+        } catch (RuntimeException | InvalidArgumentException $e) {
+            // Business-rule rejections (e.g. the ERP database is already bound to
+            // another acquirer) must reach the UI as JSON, never as a fatal error
+            // dumped into the response body.
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'error' => trim($e->getMessage()),
+                'csrf_token' => $newToken,
+            ]);
+            exit;
+        }
 
         $stored = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
         echo json_encode([

@@ -706,7 +706,9 @@ window.addEventListener('load', function() {
         .then(function(res) {
             updateCsrfToken(res);
             if (!res || !res.success) {
-                showAcquirerError((res && res.error) ? res.error : 'Nao foi possivel guardar a base de dados do adquirente.');
+                var acquirerErrorText = (res && res.error) ? res.error : 'Nao foi possivel guardar a base de dados do adquirente.';
+                showAcquirerError(acquirerErrorText);
+                notifyError(acquirerErrorText);
                 return;
             }
             if (acquirerModal) {
@@ -717,6 +719,7 @@ window.addEventListener('load', function() {
         })
         .catch(function() {
             showAcquirerError('Erro ao guardar a base de dados do adquirente.');
+            notifyError('Erro ao guardar a base de dados do adquirente.');
         })
         .finally(function() {
             if (acquirerConfirmBtn) {

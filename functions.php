@@ -155,6 +155,45 @@ function getSetting(string $name, ?string $default = null): ?string {
 }
 
 /**
+ * Align PHP's error output with the `debug_mode` setting (Definições > Geral).
+ *
+ * The hosting php.ini ships with `display_errors = On`. Besides leaking paths and
+ * stack traces, that injects HTML into the body of the many JSON/AJAX endpoints
+ * (contabilidade, assistente, SAF-T), which makes the response unparseable and
+ * surfaces to the user as an opaque generic failure. Errors are therefore always
+ * logged and only rendered on screen when debug mode is on.
+ *
+ * Reading the setting can fail before the database is reachable (install, first
+ * migration, DB outage); that falls back to hiding errors, the safe default.
+ *
+ * @return void
+ */
+function configureErrorDisplay(): void {
+    static $resolved = false;
+
+    // Always report and log everything; only the on-screen display is gated.
+    error_reporting(E_ALL);
+    ini_set('log_errors', '1');
+
+    if ($resolved) {
+        return;
+    }
+
+    $debug = false;
+    try {
+        $debug = (int) getSetting('debug_mode', '0') === 1;
+        $resolved = true;
+    } catch (Throwable $e) {
+        // No tenant selected yet, or the database is unreachable. Hide errors for
+        // now and let a later call resolve the real setting.
+        $debug = false;
+    }
+
+    ini_set('display_errors', $debug ? '1' : '0');
+    ini_set('display_startup_errors', $debug ? '1' : '0');
+}
+
+/**
  * Save a named setting value in the database.
  *
  * The SMTP password is stored base64 encoded before being persisted.
@@ -323,6 +362,11 @@ function startSession() {
 
         session_start();
     }
+
+    // Safe earliest point to resolve `debug_mode`: the session (and therefore the
+    // tenant connection) is available, and the cookie parameters above are already
+    // applied, so reading the setting cannot start the session prematurely.
+    configureErrorDisplay();
 }
 
 /**

@@ -1,8 +1,8 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
+// Error display is no longer forced on here: it follows the `debug_mode` setting
+// and is applied by startSession(), which every page calls right after this
+// include. Printing errors unconditionally corrupted the JSON responses of the
+// accounting AJAX endpoints and leaked stack traces in production.
 require_once __DIR__ . '/../functions.php';
 
 use thiagoalessio\TesseractOCR\TesseractOCR;
@@ -2668,6 +2668,46 @@ function isPlaceholderAccountingEntityName(?string $name, string $nif): bool {
     $expectedCompact = 'CLIENTE' . $nif;
 
     return $compact === $expectedCompact;
+}
+
+/**
+ * Determine whether a `strValor` returned by `/tabelas/configEmpresa` can plausibly
+ * be a company name.
+ *
+ * `configEmpresa` maps to `Tbl_Configuracao_Empresa(Id, strValor)`, a generic
+ * key/value settings table: the meaning of a given `Id` differs from one `emp_XXX`
+ * database to the next. Looking up a fixed `Id` therefore sometimes returns an
+ * unrelated setting instead of the company name — most visibly a boolean, which the
+ * ERP serialises as the literal string `False`/`True`. Callers use this guard to
+ * reject such values and fall through to the heuristic scan of every config row.
+ *
+ * @param string $value Raw `strValor` returned by the ERP.
+ * @return bool Whether the value looks like a real company name.
+ */
+function isPlausibleErpCompanyName(string $value): bool {
+    $normalized = trim(preg_replace('/\s+/u', ' ', $value) ?? '');
+    if ($normalized === '' || mb_strlen($normalized) < 3) {
+        return false;
+    }
+
+    // Booleans and numeric flags surfaced by the ERP as strings.
+    $upper = mb_strtoupper($normalized, 'UTF-8');
+    $booleanish = ['FALSE', 'TRUE', 'FALSO', 'VERDADEIRO', 'NULL', 'NONE', 'N/A', 'SIM', 'NAO', 'NÃO'];
+    if (in_array($upper, $booleanish, true)) {
+        return false;
+    }
+
+    // A name must contain letters; pure numbers, dates, money or symbols are settings.
+    if (!preg_match('/[A-Za-zÀ-ÿ]/u', $normalized)) {
+        return false;
+    }
+
+    // Paths, URLs and connection strings are common config values.
+    if (preg_match('#[\\\\/|@]|https?:#i', $normalized)) {
+        return false;
+    }
+
+    return true;
 }
 
 /**

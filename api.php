@@ -1,6 +1,10 @@
 <?php
 require_once __DIR__ . '/functions.php';
 
+// Public JSON endpoint: it never calls startSession(), so gate the error display
+// here so that failures are logged rather than printed into the response.
+configureErrorDisplay();
+
 header('Content-Type: application/json');
 
 if ((int)getSetting('api_enabled', '0') !== 1) {

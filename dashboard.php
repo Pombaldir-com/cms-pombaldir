@@ -25,13 +25,7 @@ $showCompaniesCard = isModuleActive('contabilidade') && hasTable('accounting_ent
 $accountingCards = [];
 if ($showImportCard || $showClassifCard || $showCompaniesCard) {
     if ($showImportCard || $showClassifCard) {
-        $displayErrors = ini_get('display_errors');
-        $displayStartupErrors = ini_get('display_startup_errors');
-        $errorReporting = error_reporting();
         require_once __DIR__ . '/contabilidade/functions.php';
-        ini_set('display_errors', (string) $displayErrors);
-        ini_set('display_startup_errors', (string) $displayStartupErrors);
-        error_reporting($errorReporting);
     }
     $pdo = getPDO();
     if ($showImportCard) {

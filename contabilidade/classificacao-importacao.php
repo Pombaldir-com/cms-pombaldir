@@ -2653,7 +2653,7 @@ function fetchErpConfigEmpresaByDatabase(string $database, string $companyId = '
             continue;
         }
         $candidate = trim((string) ($row['strValor'] ?? $row['nome'] ?? $row['name'] ?? ''));
-        if ($candidate !== '') {
+        if ($candidate !== '' && isPlausibleErpCompanyName($candidate)) {
             $companyName = $candidate;
             break;
         }
@@ -2697,7 +2697,7 @@ function fetchErpConfigEmpresaByDatabase(string $database, string $companyId = '
             continue;
         }
         $candidate = trim((string) ($row['strValor'] ?? $row['nome'] ?? $row['name'] ?? ''));
-        if ($candidate !== '') {
+        if ($candidate !== '' && isPlausibleErpCompanyName($candidate)) {
             return ['ok' => true, 'name' => $candidate, 'error' => ''];
         }
     }
