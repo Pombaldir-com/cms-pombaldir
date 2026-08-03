@@ -155,6 +155,91 @@ function getSetting(string $name, ?string $default = null): ?string {
 }
 
 /**
+ * Maximum size (bytes) a log file may reach before being rotated. Overridable via
+ * the `log_max_bytes` setting; defaults to 5 MB.
+ *
+ * @return int
+ */
+function logMaxBytes(): int {
+    static $configured = null;
+    if ($configured === null) {
+        try {
+            $configured = (int) getSetting('log_max_bytes', '0');
+        } catch (Throwable $e) {
+            $configured = 0;
+        }
+    }
+    return $configured > 0 ? $configured : 5242880;
+}
+
+/**
+ * How many rotated generations to keep (`erp.log.1` ... `erp.log.N`). Overridable
+ * via the `log_keep_files` setting; defaults to 3.
+ *
+ * @return int
+ */
+function logKeepFiles(): int {
+    static $configured = null;
+    if ($configured === null) {
+        try {
+            $configured = (int) getSetting('log_keep_files', '0');
+        } catch (Throwable $e) {
+            $configured = 0;
+        }
+    }
+    return $configured > 0 ? $configured : 3;
+}
+
+/**
+ * Rotate a log file once it exceeds the configured size.
+ *
+ * These logs are append-only and had no bound: `erp.log` grows on every ERP call
+ * (dozens per classification page) and `contabilidade/debug_ai.txt` had reached
+ * ~900 KB. Rotation shifts `x.log` to `x.log.1`, `x.log.1` to `x.log.2` and so on,
+ * discarding the oldest generation, so disk use stays bounded at roughly
+ * (keep + 1) * max size.
+ *
+ * Failures here must never break the caller: logging is a side effect, so every
+ * filesystem operation is silenced and the function simply gives up.
+ *
+ * @param string $logFile Absolute path to the log file.
+ * @return void
+ */
+function rotateLogFileIfNeeded(string $logFile): void {
+    // No maximo uma rotacao por ficheiro por pedido. Sem isto, a stat cache do PHP
+    // devolveria o tamanho antigo nas chamadas seguintes (ha' dezenas por pagina) e
+    // a rotacao repetia-se, empurrando as geracoes e descartando logs validos.
+    static $rotated = [];
+    if (isset($rotated[$logFile])) {
+        return;
+    }
+
+    if (!is_file($logFile)) {
+        return;
+    }
+
+    $size = @filesize($logFile);
+    if ($size === false || $size < logMaxBytes()) {
+        return;
+    }
+
+    $rotated[$logFile] = true;
+
+    $keep = logKeepFiles();
+
+    // Descartar a geracao mais antiga e empurrar as restantes uma casa.
+    @unlink($logFile . '.' . $keep);
+    for ($i = $keep - 1; $i >= 1; $i--) {
+        $from = $logFile . '.' . $i;
+        if (is_file($from)) {
+            @rename($from, $logFile . '.' . ($i + 1));
+        }
+    }
+
+    @rename($logFile, $logFile . '.1');
+}
+
+/**
  * Align PHP's error output with the `debug_mode` setting (Definições > Geral).
  *
  * The hosting php.ini ships with `display_errors = On`. Besides leaking paths and

@@ -33,3 +33,15 @@ data/efatura_jobs/*.json
 .claude/settings.local.json
 attachments/
 vendors/*
+
+# Ambiente Python local (caminhos absolutos da maquina de desenvolvimento)
+.venv/
+venv/
+
+# Configuracao PHP gerada pelo cPanel no servidor: nunca deve ser enviada pelo
+# deploy, sob pena de sobrepor a configuracao real de producao.
+php.ini
+.user.ini
+
+# Logs rodados (erp.log.1, ocr.log.2, ...)
+data/*.log.*

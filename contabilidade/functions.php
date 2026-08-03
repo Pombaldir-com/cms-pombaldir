@@ -15,6 +15,7 @@ use thiagoalessio\TesseractOCR\TesseractOCR;
  */
 function logOcrMessage(string $message): void {
     $logFile = __DIR__ . '/../data/ocr.log';
+    rotateLogFileIfNeeded($logFile);
     $timestamp = date('Y-m-d H:i:s');
     error_log("[$timestamp] $message\n", 3, $logFile);
 }
@@ -27,6 +28,7 @@ function logOcrMessage(string $message): void {
  */
 function logErpMessage(string $message): void {
     $logFile = __DIR__ . '/../data/erp.log';
+    rotateLogFileIfNeeded($logFile);
     $timestamp = date('Y-m-d H:i:s');
     error_log("[$timestamp] $message\n", 3, $logFile);
 }

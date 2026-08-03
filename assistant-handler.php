@@ -898,6 +898,7 @@ function logAiDebug(array $details): void {
     }
     $payload = '[' . date('Y-m-d H:i:s') . '] ' . json_encode($details, JSON_UNESCAPED_UNICODE) . PHP_EOL;
     $path = __DIR__ . '/contabilidade/debug_ai.txt';
+    rotateLogFileIfNeeded($path);
     file_put_contents($path, $payload, FILE_APPEND);
 }
 
