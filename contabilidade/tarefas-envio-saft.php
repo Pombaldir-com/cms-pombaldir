@@ -572,6 +572,13 @@ document.addEventListener('DOMContentLoaded', function () {
     var year = <?= (int) $foreignSalesPeriodYear; ?>;
     var month = <?= (int) $foreignSalesPeriodMonth; ?>;
 
+    var DR_LAST_EMAIL_KEY = 'saftDrLastDestEmail';
+    var destEmailInput = document.getElementById('saft-dr-dest-email');
+    var lastDestEmail = window.localStorage ? localStorage.getItem(DR_LAST_EMAIL_KEY) : null;
+    if (lastDestEmail) {
+        destEmailInput.value = lastDestEmail;
+    }
+
     document.getElementById('saft-dr-add-row').addEventListener('click', function () {
         var tr = document.createElement('tr');
         tr.innerHTML = '<td><input type="text" class="form-control input-sm dr-country" maxlength="2"></td>'
@@ -608,16 +615,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.getElementById('saft-dr-download').addEventListener('click', function () {
-        document.getElementById('saft-dr-download-accountant-nif').value = document.getElementById('saft-dr-accountant-nif').value.trim();
         document.getElementById('saft-dr-download-rows').value = JSON.stringify(collectRows());
         document.getElementById('saft-dr-download-form').submit();
     });
 
     document.getElementById('saft-dr-send').addEventListener('click', function () {
-        var destEmail = document.getElementById('saft-dr-dest-email').value.trim();
+        var destEmail = destEmailInput.value.trim();
         if (!destEmail) {
             showFeedback('warning', 'Indique o email de destino.');
             return;
+        }
+        if (window.localStorage) {
+            localStorage.setItem(DR_LAST_EMAIL_KEY, destEmail);
         }
         var sendBtn = this;
         sendBtn.disabled = true;
@@ -627,7 +636,6 @@ document.addEventListener('DOMContentLoaded', function () {
         params.set('entity_id', entityId);
         params.set('year', year);
         params.set('month', month);
-        params.set('accountant_nif', document.getElementById('saft-dr-accountant-nif').value.trim());
         params.set('dest_email', destEmail);
         params.set('rows', JSON.stringify(collectRows()));
 

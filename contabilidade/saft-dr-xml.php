@@ -37,7 +37,10 @@ if (!$isAdmin && !userHasAccountingEntityTaskPermission('ctb_envio_saft')) {
     $fail(403, 'Acesso negado.');
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !validateCsrfToken($_POST['csrf_token'] ?? '')) {
+// Nao consome o token: o popup pode disparar varias acoes (download,
+// reenviar apos falha, enviar de novo) com o mesmo token embebido na pagina,
+// sem recarregar — um token de uso unico faria a 2a acao falhar sempre.
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !validateCsrfToken($_POST['csrf_token'] ?? '', false)) {
     $fail(400, 'Token CSRF inválido.');
 }
 
