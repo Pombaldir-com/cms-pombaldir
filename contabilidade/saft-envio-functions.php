@@ -5,6 +5,39 @@
 // lancamentos. Documentacao de referencia em ENVIO_SAFT.md.
 
 /**
+ * Normaliza a estrutura de $_FILES de um input com "multiple" (ex.:
+ * saft_file[]) numa lista de arrays no formato de ficheiro unico esperado
+ * por saftHandleUpload() (['name','type','tmp_name','error','size']).
+ * Tambem aceita a estrutura de um input sem "multiple" (um unico ficheiro),
+ * devolvendo-o como lista de um elemento. Slots vazios (nenhum ficheiro
+ * selecionado nessa posicao) sao ignorados.
+ *
+ * @return array<int, array{name:string,type:string,tmp_name:string,error:int,size:int}>
+ */
+function saftNormalizeMultiUpload(array $files): array {
+    if (!isset($files['name'])) {
+        return [];
+    }
+    if (!is_array($files['name'])) {
+        return $files['error'] === UPLOAD_ERR_NO_FILE ? [] : [$files];
+    }
+    $result = [];
+    foreach ($files['name'] as $i => $name) {
+        if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE && $name === '') {
+            continue;
+        }
+        $result[] = [
+            'name' => $name,
+            'type' => $files['type'][$i] ?? '',
+            'tmp_name' => $files['tmp_name'][$i] ?? '',
+            'error' => $files['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+            'size' => $files['size'][$i] ?? 0,
+        ];
+    }
+    return $result;
+}
+
+/**
  * Le o conteudo XML de um ficheiro SAF-T, descomprimindo .zip/.gz se
  * necessario. Ficheiros .zip sao assumidos como contendo um unico XML.
  *

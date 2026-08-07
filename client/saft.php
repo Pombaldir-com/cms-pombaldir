@@ -58,9 +58,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit('Token CSRF inválido');
     }
 
-    // Na extranet do cliente nao e permitido eliminar envios; um novo envio
-    // para o mesmo periodo substitui automaticamente o anterior (ver
-    // saftHandleUpload).
+    // Na extranet do cliente nao e permitido eliminar envios. Podem ser
+    // selecionados varios ficheiros de uma vez; cada um e um envio
+    // independente, e so substitui um envio anterior do mesmo periodo
+    // quando tem o mesmo nome de ficheiro (ver saftHandleUpload).
     $resolveEntity = function (string $fileNif) use ($entityId, $entityNif, $entityName): array {
         if (extractVatNumber($fileNif) !== extractVatNumber($entityNif)) {
             return [
@@ -71,8 +72,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         return ['entity' => ['id' => $entityId, 'nif' => $entityNif, 'name' => $entityName], 'error' => null];
     };
 
-    $result = saftHandleUpload($pdo, $_FILES['saft_file'] ?? [], $resolveEntity, null);
-    $feedback = $result['feedback'];
+    $uploadedFiles = saftNormalizeMultiUpload($_FILES['saft_file'] ?? []);
+    if (!$uploadedFiles) {
+        $feedback = ['type' => 'danger', 'message' => 'Selecione pelo menos um ficheiro SAF-T válido.'];
+    } else {
+        $results = [];
+        foreach ($uploadedFiles as $uploadedFile) {
+            $results[] = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, null);
+        }
+        if (count($results) === 1) {
+            $feedback = $results[0]['feedback'];
+        } else {
+            $successCount = 0;
+            $messages = [];
+            foreach ($results as $r) {
+                if (($r['feedback']['type'] ?? 'danger') !== 'danger') {
+                    $successCount++;
+                }
+                $messages[] = $r['feedback']['message'] ?? '';
+            }
+            $errorCount = count($results) - $successCount;
+            $feedback = [
+                'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
+                'message' => count($results) . ' ficheiros processados (' . $successCount . ' com sucesso'
+                    . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
+            ];
+        }
+    }
 }
 
 $csrfToken = generateCsrfToken();
@@ -195,7 +221,7 @@ require_once __DIR__ . '/header.php';
                     <form method="post" enctype="multipart/form-data" id="saft-upload-form">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
-                        <input type="file" name="saft_file" accept=".xml,.zip,.gz" id="saft-file-input" style="display: none;">
+                        <input type="file" name="saft_file[]" accept=".xml,.zip,.gz" id="saft-file-input" multiple style="display: none;">
                         <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>

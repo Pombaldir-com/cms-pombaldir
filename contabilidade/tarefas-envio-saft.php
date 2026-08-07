@@ -123,12 +123,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             return ['entity' => $matchedEntity, 'error' => null];
         };
 
-        $result = saftHandleUpload($pdo, $_FILES['saft_file'] ?? [], $resolveEntity, $userId);
-        $feedback = $result['feedback'];
-        $foreignSales = $result['foreign_sales'] ?? [];
-        $foreignSalesEntity = $result['entity'] ?? null;
-        $foreignSalesPeriodYear = $result['period_year'] ?? null;
-        $foreignSalesPeriodMonth = $result['period_month'] ?? null;
+        // O input permite selecionar varios ficheiros de uma vez (ex.: SAF-T
+        // de varias empresas/periodos); cada um e processado como um envio
+        // independente por saftHandleUpload().
+        $uploadedFiles = saftNormalizeMultiUpload($_FILES['saft_file'] ?? []);
+        if (!$uploadedFiles) {
+            $feedback = ['type' => 'danger', 'message' => 'Selecione pelo menos um ficheiro SAF-T válido.'];
+        } else {
+            $results = [];
+            foreach ($uploadedFiles as $uploadedFile) {
+                $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId);
+                $results[] = $uploadResult;
+                // So a primeira empresa/periodo com vendas para o estrangeiro
+                // desencadeia o popup da Declaracao Recapitulativa nesta
+                // submissao (evita empilhar varios modais).
+                if (!$foreignSalesEntity && !empty($uploadResult['foreign_sales'])) {
+                    $foreignSales = $uploadResult['foreign_sales'];
+                    $foreignSalesEntity = $uploadResult['entity'] ?? null;
+                    $foreignSalesPeriodYear = $uploadResult['period_year'] ?? null;
+                    $foreignSalesPeriodMonth = $uploadResult['period_month'] ?? null;
+                }
+            }
+
+            if (count($results) === 1) {
+                $feedback = $results[0]['feedback'];
+            } else {
+                $successCount = 0;
+                $messages = [];
+                foreach ($results as $r) {
+                    if (($r['feedback']['type'] ?? 'danger') !== 'danger') {
+                        $successCount++;
+                    }
+                    $messages[] = $r['feedback']['message'] ?? '';
+                }
+                $errorCount = count($results) - $successCount;
+                $feedback = [
+                    'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
+                    'message' => count($results) . ' ficheiros processados (' . $successCount . ' com sucesso'
+                        . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
+                ];
+            }
+        }
     }
 }
 
@@ -360,7 +395,7 @@ require_once __DIR__ . '/../header.php';
                     <form method="post" enctype="multipart/form-data" id="saft-upload-form">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
-                        <input type="file" name="saft_file" accept=".xml,.zip,.gz" id="saft-file-input" style="display: none;">
+                        <input type="file" name="saft_file[]" accept=".xml,.zip,.gz" id="saft-file-input" multiple style="display: none;">
                         <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>
