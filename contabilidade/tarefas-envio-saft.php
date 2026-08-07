@@ -198,21 +198,26 @@ $efaturaTopbarSelector = [
     ),
 ];
 
+$monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+$currentYear = (int) date('Y');
+$lastMonthTimestamp = strtotime('first day of last month');
+$defaultFilterYear = (int) date('Y', $lastMonthTimestamp);
+$defaultFilterMonth = (int) date('n', $lastMonthTimestamp);
+
 // Filtro de periodo (ano/mes) da listagem "Envios efetuados": os mesmos
-// selects de Ano/Mês do formulário de envio, guardados em sessão.
+// selects de Ano/Mês do formulário de envio, guardados em sessão. Por
+// defeito (sem filtro escolhido) mostra so o ultimo mes, em vez do
+// historico completo; o utilizador pode escolher "Todos" manualmente.
 $saftPeriodFilterSessionKey = 'saft_tarefas_period_filter';
 if (array_key_exists('filtro_ano', $_GET) || array_key_exists('filtro_mes', $_GET)) {
     $filterYear = (int) ($_GET['filtro_ano'] ?? 0);
     $filterMonth = (int) ($_GET['filtro_mes'] ?? 0);
     $_SESSION[$saftPeriodFilterSessionKey] = ['year' => $filterYear, 'month' => $filterMonth];
 } else {
-    $storedFilter = $_SESSION[$saftPeriodFilterSessionKey] ?? ['year' => 0, 'month' => 0];
-    $filterYear = (int) ($storedFilter['year'] ?? 0);
-    $filterMonth = (int) ($storedFilter['month'] ?? 0);
+    $storedFilter = $_SESSION[$saftPeriodFilterSessionKey] ?? ['year' => $defaultFilterYear, 'month' => $defaultFilterMonth];
+    $filterYear = (int) ($storedFilter['year'] ?? $defaultFilterYear);
+    $filterMonth = (int) ($storedFilter['month'] ?? $defaultFilterMonth);
 }
-
-$monthNames = [1 => 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-$currentYear = (int) date('Y');
 
 // Listagem: admin ve todos os envios; colaborador so os das suas empresas.
 // Filtros aplicados: empresa (topbar) e periodo ano/mes (selects abaixo).
