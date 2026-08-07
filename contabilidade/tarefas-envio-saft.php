@@ -93,6 +93,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? 'upload';
 
+    if ($action === 'upload_ajax') {
+        // Envio sequencial (um ficheiro por pedido HTTP), para evitar limites
+        // de tamanho de payload de proxies/CDN (ex.: Cloudflare) quando sao
+        // selecionados varios ficheiros SAF-T de uma vez. Ver JS mais abaixo.
+        header('Content-Type: application/json; charset=utf-8');
+
+        if (!empty($_POST['first'])) {
+            unset($_SESSION['saft_pending_dr_popup']);
+        }
+
+        $resolveEntity = function (string $fileNif) use ($pdo, $isAdmin, $allowedEntityIds): array {
+            $matchedEntity = saftResolveEntityByNif($pdo, $fileNif);
+            if ($matchedEntity && !$isAdmin && !in_array((int) $matchedEntity['id'], $allowedEntityIds, true)) {
+                return ['entity' => null, 'error' => 'Não tem permissão para enviar SAF-T da empresa ' . htmlspecialchars($matchedEntity['name']) . ' (NIF ' . htmlspecialchars($matchedEntity['nif']) . ').'];
+            }
+            return ['entity' => $matchedEntity, 'error' => null];
+        };
+
+        $uploadedFile = ($_FILES['saft_file'] ?? null);
+        if (!$uploadedFile) {
+            echo json_encode(['feedback' => ['type' => 'danger', 'message' => 'Ficheiro não recebido.'], 'csrf_token' => generateCsrfToken(true)]);
+            exit;
+        }
+
+        $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId);
+        if (!empty($uploadResult['foreign_sales']) && empty($_SESSION['saft_pending_dr_popup'])) {
+            $_SESSION['saft_pending_dr_popup'] = [
+                'foreign_sales' => $uploadResult['foreign_sales'],
+                'entity' => $uploadResult['entity'] ?? null,
+                'period_year' => $uploadResult['period_year'] ?? null,
+                'period_month' => $uploadResult['period_month'] ?? null,
+            ];
+        }
+
+        echo json_encode(['feedback' => $uploadResult['feedback'], 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+
+    if ($action === 'upload_ajax_finish') {
+        // Agrega os resultados por ficheiro (recolhidos no browser durante o
+        // envio sequencial) na mesma mensagem/popup de sempre, guardados em
+        // sessao para serem mostrados no proximo GET (apos o reload feito
+        // pelo JS no fim do lote).
+        header('Content-Type: application/json; charset=utf-8');
+        $items = json_decode((string) ($_POST['results'] ?? '[]'), true);
+        if (!is_array($items) || !$items) {
+            echo json_encode(['ok' => true, 'csrf_token' => generateCsrfToken(true)]);
+            exit;
+        }
+
+        if (count($items) === 1) {
+            $only = $items[0];
+            $_SESSION['saft_pending_feedback'] = [
+                'type' => (string) ($only['feedback']['type'] ?? 'danger'),
+                'message' => (string) ($only['feedback']['message'] ?? ''),
+            ];
+        } else {
+            $successCount = 0;
+            $normalizedItems = [];
+            foreach ($items as $item) {
+                $ok = ((string) ($item['feedback']['type'] ?? 'danger')) !== 'danger';
+                if ($ok) {
+                    $successCount++;
+                }
+                $normalizedItems[] = [
+                    'ok' => $ok,
+                    'file_name' => (string) ($item['file_name'] ?? ''),
+                    'message' => (string) ($item['feedback']['message'] ?? ''),
+                ];
+            }
+            $errorCount = count($items) - $successCount;
+            $_SESSION['saft_pending_upload_summary'] = [
+                'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
+                'success' => $successCount,
+                'error' => $errorCount,
+                'items' => $normalizedItems,
+            ];
+        }
+
+        echo json_encode(['ok' => true, 'csrf_token' => generateCsrfToken(true)]);
+        exit;
+    }
+
     if ($action === 'delete') {
         $submissionId = (int) ($_POST['submission_id'] ?? 0);
         $stmt = $pdo->prepare('SELECT id, accounting_entity_id, user_id, file_path FROM accounting_saft_submissions WHERE id = ? LIMIT 1');
@@ -124,9 +207,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             return ['entity' => $matchedEntity, 'error' => null];
         };
 
-        // O input permite selecionar varios ficheiros de uma vez (ex.: SAF-T
-        // de varias empresas/periodos); cada um e processado como um envio
-        // independente por saftHandleUpload().
+        // Fallback sem JS: submissao normal do formulario com todos os
+        // ficheiros num so POST (o fluxo normal usa "upload_ajax" acima, um
+        // ficheiro por pedido). O input permite selecionar varios ficheiros
+        // de uma vez; cada um e processado como um envio independente.
         $uploadedFiles = saftNormalizeMultiUpload($_FILES['saft_file'] ?? []);
         if (!$uploadedFiles) {
             $feedback = ['type' => 'danger', 'message' => 'Selecione pelo menos um ficheiro SAF-T válido.'];
@@ -174,6 +258,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+}
+
+// Resultado de um envio sequencial via AJAX (ver acao "upload_ajax_finish"
+// acima e o JS mais abaixo): o browser recarrega a pagina (GET simples) no
+// fim do lote, e a mensagem/popup guardados em sessao sao mostrados aqui,
+// uma unica vez.
+if (!$feedback && !empty($_SESSION['saft_pending_feedback'])) {
+    $feedback = $_SESSION['saft_pending_feedback'];
+    unset($_SESSION['saft_pending_feedback']);
+}
+if (!$uploadSummary && !empty($_SESSION['saft_pending_upload_summary'])) {
+    $uploadSummary = $_SESSION['saft_pending_upload_summary'];
+    unset($_SESSION['saft_pending_upload_summary']);
+}
+if (!$foreignSalesEntity && !empty($_SESSION['saft_pending_dr_popup'])) {
+    $pendingDrPopup = $_SESSION['saft_pending_dr_popup'];
+    $foreignSales = $pendingDrPopup['foreign_sales'] ?? [];
+    $foreignSalesEntity = $pendingDrPopup['entity'] ?? null;
+    $foreignSalesPeriodYear = $pendingDrPopup['period_year'] ?? null;
+    $foreignSalesPeriodMonth = $pendingDrPopup['period_month'] ?? null;
+    unset($_SESSION['saft_pending_dr_popup']);
 }
 
 $csrfToken = generateCsrfToken();
@@ -406,13 +511,14 @@ require_once __DIR__ . '/../header.php';
                         <noscript><button type="submit" class="btn btn-default btn-sm">Filtrar</button></noscript>
                     </form>
                     <?php if ($entities): ?>
-                    <form method="post" enctype="multipart/form-data" id="saft-upload-form">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                    <form method="post" enctype="multipart/form-data" id="saft-upload-form" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="hidden" name="csrf_token" id="saft-upload-csrf" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
                         <input type="file" name="saft_file[]" accept=".xml,.zip,.gz" id="saft-file-input" multiple style="display: none;">
                         <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>
+                        <span id="saft-upload-progress" class="text-muted" style="font-size: 12.5px; display: none;"></span>
                     </form>
                     <?php endif; ?>
                 </div>
@@ -897,14 +1003,65 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var saftUploadTrigger = document.getElementById('saft-upload-trigger');
     var saftFileInput = document.getElementById('saft-file-input');
+    var saftUploadProgress = document.getElementById('saft-upload-progress');
+    var saftUploadCsrfInput = document.getElementById('saft-upload-csrf');
+    var saftUploadUrl = <?= json_encode(BASE_URL . 'contabilidade/tarefas/envio-saft'); ?>;
+
     if (saftUploadTrigger && saftFileInput) {
         saftUploadTrigger.addEventListener('click', function () {
             saftFileInput.click();
         });
         saftFileInput.addEventListener('change', function () {
-            if (saftFileInput.files.length) {
-                document.getElementById('saft-upload-form').submit();
-            }
+            var files = Array.prototype.slice.call(saftFileInput.files);
+            if (!files.length) { return; }
+
+            // Um ficheiro por pedido HTTP (em vez de um unico POST com todos),
+            // para nao esbarrar em limites de tamanho de payload de proxies/CDN
+            // (ex.: Cloudflare) quando sao selecionados varios ficheiros SAF-T.
+            saftUploadTrigger.disabled = true;
+            saftFileInput.disabled = true;
+            saftUploadProgress.style.display = '';
+
+            var results = [];
+            var uploadNext = function (index) {
+                if (index >= files.length) {
+                    var params = new URLSearchParams();
+                    params.set('csrf_token', saftUploadCsrfInput.value);
+                    params.set('action', 'upload_ajax_finish');
+                    params.set('results', JSON.stringify(results));
+                    fetch(saftUploadUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    }).finally(function () {
+                        window.location.reload();
+                    });
+                    return;
+                }
+
+                saftUploadProgress.textContent = 'A enviar ficheiro ' + (index + 1) + ' de ' + files.length + '…';
+
+                var formData = new FormData();
+                formData.append('csrf_token', saftUploadCsrfInput.value);
+                formData.append('action', 'upload_ajax');
+                formData.append('first', index === 0 ? '1' : '0');
+                formData.append('saft_file', files[index]);
+
+                fetch(saftUploadUrl, { method: 'POST', body: formData })
+                    .then(function (response) { return response.json(); })
+                    .then(function (data) {
+                        if (data.csrf_token) {
+                            saftUploadCsrfInput.value = data.csrf_token;
+                        }
+                        results.push({ file_name: files[index].name, feedback: data.feedback });
+                        uploadNext(index + 1);
+                    })
+                    .catch(function () {
+                        results.push({ file_name: files[index].name, feedback: { type: 'danger', message: 'Falha ao enviar o ficheiro.' } });
+                        uploadNext(index + 1);
+                    });
+            };
+            uploadNext(0);
         });
     }
 

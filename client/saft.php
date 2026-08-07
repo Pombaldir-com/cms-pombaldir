@@ -52,53 +52,113 @@ if (($_GET['action'] ?? '') === 'invoices') {
 
 $feedback = null;
 
+// Na extranet do cliente nao e permitido eliminar envios; um novo envio
+// substitui automaticamente um anterior do mesmo periodo so quando tem o
+// mesmo nome de ficheiro (ver saftHandleUpload).
+$resolveEntity = function (string $fileNif) use ($entityId, $entityNif, $entityName): array {
+    if (extractVatNumber($fileNif) !== extractVatNumber($entityNif)) {
+        return [
+            'entity' => null,
+            'error' => 'O ficheiro pertence ao NIF ' . htmlspecialchars($fileNif) . ', diferente do NIF da sua empresa (' . htmlspecialchars($entityNif) . '). Só pode enviar o SAF-T da sua própria empresa.',
+        ];
+    }
+    return ['entity' => ['id' => $entityId, 'nif' => $entityNif, 'name' => $entityName], 'error' => null];
+};
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
         http_response_code(400);
         exit('Token CSRF inválido');
     }
 
-    // Na extranet do cliente nao e permitido eliminar envios. Podem ser
-    // selecionados varios ficheiros de uma vez; cada um e um envio
-    // independente, e so substitui um envio anterior do mesmo periodo
-    // quando tem o mesmo nome de ficheiro (ver saftHandleUpload).
-    $resolveEntity = function (string $fileNif) use ($entityId, $entityNif, $entityName): array {
-        if (extractVatNumber($fileNif) !== extractVatNumber($entityNif)) {
-            return [
-                'entity' => null,
-                'error' => 'O ficheiro pertence ao NIF ' . htmlspecialchars($fileNif) . ', diferente do NIF da sua empresa (' . htmlspecialchars($entityNif) . '). Só pode enviar o SAF-T da sua própria empresa.',
-            ];
-        }
-        return ['entity' => ['id' => $entityId, 'nif' => $entityNif, 'name' => $entityName], 'error' => null];
-    };
+    $action = $_POST['action'] ?? 'upload';
 
-    $uploadedFiles = saftNormalizeMultiUpload($_FILES['saft_file'] ?? []);
-    if (!$uploadedFiles) {
-        $feedback = ['type' => 'danger', 'message' => 'Selecione pelo menos um ficheiro SAF-T válido.'];
-    } else {
-        $results = [];
-        foreach ($uploadedFiles as $uploadedFile) {
-            $results[] = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, null);
+    if ($action === 'upload_ajax') {
+        // Envio sequencial (um ficheiro por pedido HTTP), para evitar limites
+        // de tamanho de payload de proxies/CDN (ex.: Cloudflare) quando sao
+        // selecionados varios ficheiros SAF-T de uma vez. Ver JS mais abaixo.
+        header('Content-Type: application/json; charset=utf-8');
+        $uploadedFile = ($_FILES['saft_file'] ?? null);
+        if (!$uploadedFile) {
+            echo json_encode(['feedback' => ['type' => 'danger', 'message' => 'Ficheiro não recebido.'], 'csrf_token' => generateCsrfToken()]);
+            exit;
         }
-        if (count($results) === 1) {
-            $feedback = $results[0]['feedback'];
-        } else {
-            $successCount = 0;
-            $messages = [];
-            foreach ($results as $r) {
-                if (($r['feedback']['type'] ?? 'danger') !== 'danger') {
-                    $successCount++;
+        $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, null);
+        echo json_encode(['feedback' => $uploadResult['feedback'], 'csrf_token' => generateCsrfToken()]);
+        exit;
+    }
+
+    if ($action === 'upload_ajax_finish') {
+        header('Content-Type: application/json; charset=utf-8');
+        $items = json_decode((string) ($_POST['results'] ?? '[]'), true);
+        if (is_array($items) && $items) {
+            if (count($items) === 1) {
+                $only = $items[0];
+                $_SESSION['saft_client_pending_feedback'] = [
+                    'type' => (string) ($only['feedback']['type'] ?? 'danger'),
+                    'message' => (string) ($only['feedback']['message'] ?? ''),
+                ];
+            } else {
+                $successCount = 0;
+                $messages = [];
+                foreach ($items as $item) {
+                    if (((string) ($item['feedback']['type'] ?? 'danger')) !== 'danger') {
+                        $successCount++;
+                    }
+                    $messages[] = (string) ($item['feedback']['message'] ?? '');
                 }
-                $messages[] = $r['feedback']['message'] ?? '';
+                $errorCount = count($items) - $successCount;
+                $_SESSION['saft_client_pending_feedback'] = [
+                    'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
+                    'message' => count($items) . ' ficheiros processados (' . $successCount . ' com sucesso'
+                        . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
+                ];
             }
-            $errorCount = count($results) - $successCount;
-            $feedback = [
-                'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
-                'message' => count($results) . ' ficheiros processados (' . $successCount . ' com sucesso'
-                    . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
-            ];
+        }
+        echo json_encode(['ok' => true, 'csrf_token' => generateCsrfToken()]);
+        exit;
+    }
+
+    if ($action === 'upload') {
+        // Fallback sem JS: submissao normal do formulario com todos os
+        // ficheiros num so POST (o fluxo normal usa "upload_ajax" acima, um
+        // ficheiro por pedido).
+        $uploadedFiles = saftNormalizeMultiUpload($_FILES['saft_file'] ?? []);
+        if (!$uploadedFiles) {
+            $feedback = ['type' => 'danger', 'message' => 'Selecione pelo menos um ficheiro SAF-T válido.'];
+        } else {
+            $results = [];
+            foreach ($uploadedFiles as $uploadedFile) {
+                $results[] = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, null);
+            }
+            if (count($results) === 1) {
+                $feedback = $results[0]['feedback'];
+            } else {
+                $successCount = 0;
+                $messages = [];
+                foreach ($results as $r) {
+                    if (($r['feedback']['type'] ?? 'danger') !== 'danger') {
+                        $successCount++;
+                    }
+                    $messages[] = $r['feedback']['message'] ?? '';
+                }
+                $errorCount = count($results) - $successCount;
+                $feedback = [
+                    'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
+                    'message' => count($results) . ' ficheiros processados (' . $successCount . ' com sucesso'
+                        . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
+                ];
+            }
         }
     }
+}
+
+// Resultado de um envio sequencial via AJAX: o browser recarrega a pagina
+// (GET simples) no fim do lote, e a mensagem guardada em sessao e mostrada
+// aqui, uma unica vez.
+if (!$feedback && !empty($_SESSION['saft_client_pending_feedback'])) {
+    $feedback = $_SESSION['saft_client_pending_feedback'];
+    unset($_SESSION['saft_client_pending_feedback']);
 }
 
 $csrfToken = generateCsrfToken();
@@ -217,15 +277,16 @@ require_once __DIR__ . '/header.php';
                         <noscript><button type="submit" class="btn btn-default btn-sm">Filtrar</button></noscript>
                     </form>
                 </div>
-                <div id="saftUploadWrapper" class="dt-hidden-until-ready">
+                <div id="saftUploadWrapper" class="dt-hidden-until-ready" style="display: flex; align-items: center; gap: 10px;">
                     <form method="post" enctype="multipart/form-data" id="saft-upload-form">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="csrf_token" id="saft-upload-csrf" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
                         <input type="file" name="saft_file[]" accept=".xml,.zip,.gz" id="saft-file-input" multiple style="display: none;">
                         <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>
                     </form>
+                    <span id="saft-upload-progress" class="text-muted" style="font-size: 12.5px; display: none;"></span>
                 </div>
                 <div class="table-responsive">
                     <table id="saft-submissions-table" class="table table-striped jambo_table">
@@ -407,14 +468,64 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var saftUploadTrigger = document.getElementById('saft-upload-trigger');
     var saftFileInput = document.getElementById('saft-file-input');
+    var saftUploadProgress = document.getElementById('saft-upload-progress');
+    var saftUploadCsrfInput = document.getElementById('saft-upload-csrf');
+    var saftUploadUrl = <?= json_encode(BASE_URL . 't/' . rawurlencode($tenantSlug) . '/cliente/saft'); ?>;
+
     if (saftUploadTrigger && saftFileInput) {
         saftUploadTrigger.addEventListener('click', function () {
             saftFileInput.click();
         });
         saftFileInput.addEventListener('change', function () {
-            if (saftFileInput.files.length) {
-                document.getElementById('saft-upload-form').submit();
-            }
+            var files = Array.prototype.slice.call(saftFileInput.files);
+            if (!files.length) { return; }
+
+            // Um ficheiro por pedido HTTP (em vez de um unico POST com todos),
+            // para nao esbarrar em limites de tamanho de payload de proxies/CDN
+            // (ex.: Cloudflare) quando sao selecionados varios ficheiros SAF-T.
+            saftUploadTrigger.disabled = true;
+            saftFileInput.disabled = true;
+            saftUploadProgress.style.display = '';
+
+            var results = [];
+            var uploadNext = function (index) {
+                if (index >= files.length) {
+                    var params = new URLSearchParams();
+                    params.set('csrf_token', saftUploadCsrfInput.value);
+                    params.set('action', 'upload_ajax_finish');
+                    params.set('results', JSON.stringify(results));
+                    fetch(saftUploadUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: params.toString()
+                    }).finally(function () {
+                        window.location.reload();
+                    });
+                    return;
+                }
+
+                saftUploadProgress.textContent = 'A enviar ficheiro ' + (index + 1) + ' de ' + files.length + '…';
+
+                var formData = new FormData();
+                formData.append('csrf_token', saftUploadCsrfInput.value);
+                formData.append('action', 'upload_ajax');
+                formData.append('saft_file', files[index]);
+
+                fetch(saftUploadUrl, { method: 'POST', body: formData })
+                    .then(function (response) { return response.json(); })
+                    .then(function (data) {
+                        if (data.csrf_token) {
+                            saftUploadCsrfInput.value = data.csrf_token;
+                        }
+                        results.push({ file_name: files[index].name, feedback: data.feedback });
+                        uploadNext(index + 1);
+                    })
+                    .catch(function () {
+                        results.push({ file_name: files[index].name, feedback: { type: 'danger', message: 'Falha ao enviar o ficheiro.' } });
+                        uploadNext(index + 1);
+                    });
+            };
+            uploadNext(0);
         });
     }
 
