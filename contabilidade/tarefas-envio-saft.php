@@ -217,7 +217,36 @@ if (!isset($submissions)) {
     $submissions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-$useDataTables = true;
+// Agrupamento por empresa: uma linha de cabecalho por empresa atribuida ao
+// utilizador nesta tarefa (accordion, fechado por defeito), com a tabela de
+// detalhe atual (envios) por baixo. O periodo de referencia para saber se o
+// SAF-T "do mes em questao" ja foi enviado e o do filtro Ano/Mes; quando o
+// filtro esta em "Todos" assume-se o mes atual.
+$refYear = $filterYear > 0 ? $filterYear : $currentYear;
+$refMonth = $filterMonth > 0 ? $filterMonth : (int) date('n');
+
+$entitiesForList = $selectedEntityFilter > 0
+    ? array_values(array_filter($entities, static fn(array $e): bool => (int) $e['id'] === $selectedEntityFilter))
+    : $entities;
+
+$entityIdsWithRefSubmission = [];
+if ($entitiesForList) {
+    $refEntityIds = array_map(static fn(array $e): int => (int) $e['id'], $entitiesForList);
+    $placeholders = implode(',', array_fill(0, count($refEntityIds), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT accounting_entity_id FROM accounting_saft_submissions
+         WHERE accounting_entity_id IN ({$placeholders}) AND period_year = ? AND period_month = ?"
+    );
+    $stmt->execute(array_merge($refEntityIds, [$refYear, $refMonth]));
+    $entityIdsWithRefSubmission = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+}
+
+$submissionsByEntity = [];
+foreach ($submissions as $submission) {
+    $submissionsByEntity[(int) $submission['accounting_entity_id']][] = $submission;
+}
+
+$useDataTables = false;
 require_once __DIR__ . '/../header.php';
 ?>
 
@@ -250,23 +279,25 @@ require_once __DIR__ . '/../header.php';
     <div class="col-md-12">
         <div class="x_panel">
             <div class="x_title">
-                <h2><i class="fa fa-history"></i> Envios efetuados<?= $isAdmin && $selectedEntityFilter === 0 ? ' (todas as empresas)' : ''; ?></h2>
+                <h2><i class="fa fa-building"></i> Empresas — Envio de SAF-T<?= $isAdmin && $selectedEntityFilter === 0 ? ' (todas as empresas)' : ''; ?></h2>
                 <div class="clearfix"></div>
             </div>
             <div class="x_content">
                 <style>
-                    .dt-hidden-until-ready { display: none !important; }
                     .saft-filter-row {
+                        display: flex;
+                        align-items: center;
+                        flex-wrap: wrap;
+                        justify-content: space-between;
+                        gap: 12px;
                         padding: 6px 0 14px;
                         border-bottom: 1px solid #e6e9ed;
                         margin-bottom: 14px !important;
                     }
-                    .saft-period-filter { gap: 22px; }
-                    .saft-period-filter .saft-period-field { gap: 8px; }
+                    .saft-period-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 22px; }
+                    .saft-period-filter .saft-period-field { display: flex; align-items: center; gap: 8px; }
                     .saft-period-filter .control-label { margin-bottom: 0; white-space: nowrap; }
                     .saft-period-filter select { min-width: 110px; }
-                    .saft-upload-slot { display: flex; align-items: center; justify-content: center; }
-                    .saft-paging-slot .pagination { justify-content: flex-end; }
                     .saft-actions {
                         display: flex !important;
                         align-items: center;
@@ -288,11 +319,24 @@ require_once __DIR__ . '/../header.php';
                         margin: 0 !important;
                         vertical-align: middle;
                     }
+                    .saft-entity-panel { border: 1px solid #e6e9ed; border-radius: 3px; margin-bottom: 10px; overflow: hidden; }
+                    .saft-entity-header {
+                        display: flex; align-items: center; gap: 10px; width: 100%;
+                        padding: 12px 16px; background: #f7f9fb; border: none; text-align: left;
+                    }
+                    button.saft-entity-header { cursor: pointer; }
+                    button.saft-entity-header:hover { background: #eef1f5; }
+                    .saft-entity-header-pending { background: #fdf3e6; }
+                    .saft-entity-name { font-weight: 600; color: #2a3f54; }
+                    .saft-entity-chevron { transition: transform .15s ease; color: #73879c; }
+                    .saft-entity-header[aria-expanded="true"] .saft-entity-chevron { transform: rotate(90deg); }
+                    .saft-entity-count { margin-left: auto; font-size: 12px; color: #73879c; }
+                    .saft-entity-header-pending .saft-entity-count { display: none; }
                 </style>
-                <div id="saftPeriodFilterWrapper" class="dt-hidden-until-ready">
-                    <form method="get" class="d-flex align-items-center flex-wrap saft-period-filter">
+                <div class="saft-filter-row">
+                    <form method="get" class="saft-period-filter">
                         <input type="hidden" name="empresa" value="<?= (int) $selectedEntityFilter; ?>">
-                        <div class="d-flex align-items-center saft-period-field">
+                        <div class="saft-period-field">
                             <label class="control-label">Ano</label>
                             <select class="form-control input-sm" name="filtro_ano" onchange="this.form.submit()">
                                 <option value="0" <?= $filterYear === 0 ? 'selected' : ''; ?>>Todos</option>
@@ -301,7 +345,7 @@ require_once __DIR__ . '/../header.php';
                                 <?php endfor; ?>
                             </select>
                         </div>
-                        <div class="d-flex align-items-center saft-period-field">
+                        <div class="saft-period-field">
                             <label class="control-label">Mês</label>
                             <select class="form-control input-sm" name="filtro_mes" onchange="this.form.submit()">
                                 <option value="0" <?= $filterMonth === 0 ? 'selected' : ''; ?>>Todos</option>
@@ -312,9 +356,7 @@ require_once __DIR__ . '/../header.php';
                         </div>
                         <noscript><button type="submit" class="btn btn-default btn-sm">Filtrar</button></noscript>
                     </form>
-                </div>
-                <?php if ($entities): ?>
-                <div id="saftUploadWrapper" class="dt-hidden-until-ready">
+                    <?php if ($entities): ?>
                     <form method="post" enctype="multipart/form-data" id="saft-upload-form">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
@@ -323,132 +365,166 @@ require_once __DIR__ . '/../header.php';
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>
                     </form>
+                    <?php endif; ?>
                 </div>
+
+                <?php if (!$entitiesForList): ?>
+                    <div class="alert alert-info">Nenhuma empresa para os filtros atuais.</div>
                 <?php endif; ?>
-                <div class="table-responsive">
-                    <table id="saft-submissions-table" class="table table-striped jambo_table">
-                        <thead>
-                            <tr>
-                                <th>Data de envio</th>
-                                <th>Empresa</th>
-                                <th>Período</th>
-                                <th>Ficheiro</th>
-                                <th>Tamanho</th>
-                                <th>Estado</th>
-                                <th>Resposta AT</th>
-                                <th>Valores extraídos</th>
-                                <th class="text-right">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($submissions as $submission): ?>
-                            <tr>
-                                <td data-order="<?= htmlspecialchars($submission['created_at']); ?>"><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) $submission['created_at']))); ?></td>
-                                <td><?= htmlspecialchars((string) $submission['entity_name']); ?><?= trim((string) $submission['entity_nif']) !== '' ? ' <small class="text-muted">(' . htmlspecialchars((string) $submission['entity_nif']) . ')</small>' : ''; ?></td>
-                                <td data-order="<?= (int) $submission['period_year'] * 100 + (int) $submission['period_month']; ?>">
-                                    <?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? $submission['period_month']) . ' ' . $submission['period_year']); ?>
-                                </td>
-                                <td><?= htmlspecialchars($submission['original_filename']); ?></td>
-                                <td data-order="<?= (int) $submission['file_size']; ?>">
-                                    <?php
-                                        $size = (int) $submission['file_size'];
-                                        echo $size >= 1048576
-                                            ? htmlspecialchars(number_format($size / 1048576, 1, ',', '.')) . ' MB'
-                                            : htmlspecialchars(number_format(max(1, round($size / 1024)), 0, ',', '.')) . ' KB';
-                                    ?>
-                                </td>
-                                <td>
-                                    <?php
-                                        $status = (string) ($submission['status'] ?? 'registado');
-                                        $statusClass = $status === 'enviado' ? 'label-success'
-                                            : ($status === 'erro' ? 'label-danger'
-                                            : ($status === 'teste' ? 'label-warning' : 'label-default'));
-                                    ?>
-                                    <span class="label <?= $statusClass; ?>"><?= htmlspecialchars(ucfirst($status)); ?></span>
-                                </td>
-                                <td>
-                                    <?php
-                                        $atCode = trim((string) ($submission['at_response_code'] ?? ''));
-                                        $atDetails = [];
-                                        if ($atCode !== '') {
-                                            $atDetails[] = 'Código: ' . $atCode;
-                                        }
-                                        if (trim((string) ($submission['at_id_ficheiro'] ?? '')) !== '') {
-                                            $atDetails[] = 'Ficheiro AT n.º ' . trim((string) $submission['at_id_ficheiro']);
-                                        }
-                                        if (trim((string) ($submission['at_total_faturas'] ?? '')) !== '') {
-                                            $atDetails[] = 'Faturas: ' . trim((string) $submission['at_total_faturas'])
-                                                . ' | Créditos: ' . trim((string) ($submission['at_total_creditos'] ?? '—'))
-                                                . ' | Débitos: ' . trim((string) ($submission['at_total_debitos'] ?? '—'));
-                                        }
-                                        $atTooltipParts = [];
-                                        if (trim((string) ($submission['at_warning'] ?? '')) !== '') {
-                                            $atTooltipParts[] = 'Aviso: ' . trim((string) $submission['at_warning']);
-                                        }
-                                        if (trim((string) ($submission['at_errors'] ?? '')) !== '') {
-                                            $atTooltipParts[] = 'Erros: ' . trim((string) $submission['at_errors']);
-                                        }
-                                    ?>
-                                    <?php if ($atDetails): ?>
-                                        <small<?= $atTooltipParts ? ' title="' . htmlspecialchars(implode("\n", $atTooltipParts), ENT_QUOTES) . '"' : ''; ?>>
-                                            <?= htmlspecialchars(implode(' · ', $atDetails)); ?>
-                                            <?php if ($atTooltipParts): ?><i class="fa fa-info-circle text-warning"></i><?php endif; ?>
-                                        </small>
-                                    <?php elseif ($atTooltipParts): ?>
-                                        <small class="text-danger" title="<?= htmlspecialchars(implode("\n", $atTooltipParts), ENT_QUOTES); ?>">
-                                            <?= htmlspecialchars(mb_strimwidth(implode(' ', $atTooltipParts), 0, 80, '…')); ?>
-                                        </small>
-                                    <?php else: ?>
-                                        <span class="text-muted">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php
-                                        $extractionError = trim((string) ($submission['saft_extraction_error'] ?? ''));
-                                        $numberOfEntries = $submission['saft_number_of_entries'] ?? null;
-                                    ?>
-                                    <?php if ($extractionError !== ''): ?>
-                                        <small class="text-danger" title="<?= htmlspecialchars($extractionError, ENT_QUOTES); ?>">
-                                            <i class="fa fa-exclamation-triangle"></i> Falha na extração
-                                        </small>
-                                    <?php elseif ($numberOfEntries !== null): ?>
-                                        <small>
-                                            <?= (int) $numberOfEntries; ?> faturas
-                                            · Débito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_debit'] ?? 0), 2, ',', '.')); ?>
-                                            · Crédito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_credit'] ?? 0), 2, ',', '.')); ?>
-                                        </small>
-                                    <?php else: ?>
-                                        <span class="text-muted">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="text-right" style="white-space: nowrap;">
-                                    <div class="saft-actions">
-                                        <?php if (($submission['saft_number_of_entries'] ?? null) !== null): ?>
-                                        <button type="button" class="btn btn-xs btn-default saft-icon-btn saft-view-invoices"
-                                            title="Ver faturas"
-                                            data-submission-id="<?= (int) $submission['id']; ?>"
-                                            data-entity-name="<?= htmlspecialchars((string) $submission['entity_name'], ENT_QUOTES); ?>"
-                                            data-period="<?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? '') . ' ' . $submission['period_year'], ENT_QUOTES); ?>">
-                                            <i class="fa fa-list"></i>
-                                        </button>
-                                        <?php endif; ?>
-                                        <a class="btn btn-xs btn-default saft-icon-btn" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>" title="Transferir">
-                                            <i class="fa fa-download"></i>
-                                        </a>
-                                        <form method="post" class="saft-actions-form" onsubmit="return confirm('Eliminar este envio de SAF-T?');">
-                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="submission_id" value="<?= (int) $submission['id']; ?>">
-                                            <button type="submit" class="btn btn-xs btn-danger saft-icon-btn" title="Eliminar">
-                                                <i class="fa fa-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
+
+                <div class="saft-entity-accordion">
+                <?php foreach ($entitiesForList as $entity):
+                    $entityId = (int) $entity['id'];
+                    $isPending = !in_array($entityId, $entityIdsWithRefSubmission, true);
+                    $entitySubmissions = $submissionsByEntity[$entityId] ?? [];
+                    $collapseId = 'saft-entity-detail-' . $entityId;
+                    $entityLabel = htmlspecialchars((string) $entity['name'])
+                        . (trim((string) $entity['nif']) !== '' ? ' <small class="text-muted">(' . htmlspecialchars((string) $entity['nif']) . ')</small>' : '');
+                ?>
+                    <div class="saft-entity-panel">
+                    <?php if ($isPending): ?>
+                        <div class="saft-entity-header saft-entity-header-pending">
+                            <i class="fa fa-exclamation-triangle text-warning"></i>
+                            <span class="saft-entity-name"><?= $entityLabel; ?></span>
+                            <span class="label label-warning">
+                                SAF-T de <?= htmlspecialchars($monthNames[$refMonth] ?? $refMonth); ?>/<?= $refYear; ?> ainda não enviado
+                            </span>
+                        </div>
+                    <?php else: ?>
+                        <button type="button" class="saft-entity-header" data-bs-toggle="collapse" data-bs-target="#<?= $collapseId; ?>" aria-expanded="false" aria-controls="<?= $collapseId; ?>">
+                            <i class="fa fa-chevron-right saft-entity-chevron"></i>
+                            <span class="saft-entity-name"><?= $entityLabel; ?></span>
+                            <span class="label label-success">Enviado</span>
+                            <span class="saft-entity-count"><?= count($entitySubmissions); ?> envio<?= count($entitySubmissions) === 1 ? '' : 's'; ?></span>
+                        </button>
+                        <div class="collapse" id="<?= $collapseId; ?>">
+                            <div class="table-responsive">
+                                <table class="table table-striped" style="margin-bottom: 0;">
+                                    <thead>
+                                        <tr>
+                                            <th>Data de envio</th>
+                                            <th>Período</th>
+                                            <th>Ficheiro</th>
+                                            <th>Tamanho</th>
+                                            <th>Estado</th>
+                                            <th>Resposta AT</th>
+                                            <th>Valores extraídos</th>
+                                            <th class="text-right">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($entitySubmissions as $submission): ?>
+                                        <tr>
+                                            <td><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) $submission['created_at']))); ?></td>
+                                            <td>
+                                                <?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? $submission['period_month']) . ' ' . $submission['period_year']); ?>
+                                            </td>
+                                            <td><?= htmlspecialchars($submission['original_filename']); ?></td>
+                                            <td>
+                                                <?php
+                                                    $size = (int) $submission['file_size'];
+                                                    echo $size >= 1048576
+                                                        ? htmlspecialchars(number_format($size / 1048576, 1, ',', '.')) . ' MB'
+                                                        : htmlspecialchars(number_format(max(1, round($size / 1024)), 0, ',', '.')) . ' KB';
+                                                ?>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                    $status = (string) ($submission['status'] ?? 'registado');
+                                                    $statusClass = $status === 'enviado' ? 'label-success'
+                                                        : ($status === 'erro' ? 'label-danger'
+                                                        : ($status === 'teste' ? 'label-warning' : 'label-default'));
+                                                ?>
+                                                <span class="label <?= $statusClass; ?>"><?= htmlspecialchars(ucfirst($status)); ?></span>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                    $atCode = trim((string) ($submission['at_response_code'] ?? ''));
+                                                    $atDetails = [];
+                                                    if ($atCode !== '') {
+                                                        $atDetails[] = 'Código: ' . $atCode;
+                                                    }
+                                                    if (trim((string) ($submission['at_id_ficheiro'] ?? '')) !== '') {
+                                                        $atDetails[] = 'Ficheiro AT n.º ' . trim((string) $submission['at_id_ficheiro']);
+                                                    }
+                                                    if (trim((string) ($submission['at_total_faturas'] ?? '')) !== '') {
+                                                        $atDetails[] = 'Faturas: ' . trim((string) $submission['at_total_faturas'])
+                                                            . ' | Créditos: ' . trim((string) ($submission['at_total_creditos'] ?? '—'))
+                                                            . ' | Débitos: ' . trim((string) ($submission['at_total_debitos'] ?? '—'));
+                                                    }
+                                                    $atTooltipParts = [];
+                                                    if (trim((string) ($submission['at_warning'] ?? '')) !== '') {
+                                                        $atTooltipParts[] = 'Aviso: ' . trim((string) $submission['at_warning']);
+                                                    }
+                                                    if (trim((string) ($submission['at_errors'] ?? '')) !== '') {
+                                                        $atTooltipParts[] = 'Erros: ' . trim((string) $submission['at_errors']);
+                                                    }
+                                                ?>
+                                                <?php if ($atDetails): ?>
+                                                    <small<?= $atTooltipParts ? ' title="' . htmlspecialchars(implode("\n", $atTooltipParts), ENT_QUOTES) . '"' : ''; ?>>
+                                                        <?= htmlspecialchars(implode(' · ', $atDetails)); ?>
+                                                        <?php if ($atTooltipParts): ?><i class="fa fa-info-circle text-warning"></i><?php endif; ?>
+                                                    </small>
+                                                <?php elseif ($atTooltipParts): ?>
+                                                    <small class="text-danger" title="<?= htmlspecialchars(implode("\n", $atTooltipParts), ENT_QUOTES); ?>">
+                                                        <?= htmlspecialchars(mb_strimwidth(implode(' ', $atTooltipParts), 0, 80, '…')); ?>
+                                                    </small>
+                                                <?php else: ?>
+                                                    <span class="text-muted">—</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                    $extractionError = trim((string) ($submission['saft_extraction_error'] ?? ''));
+                                                    $numberOfEntries = $submission['saft_number_of_entries'] ?? null;
+                                                ?>
+                                                <?php if ($extractionError !== ''): ?>
+                                                    <small class="text-danger" title="<?= htmlspecialchars($extractionError, ENT_QUOTES); ?>">
+                                                        <i class="fa fa-exclamation-triangle"></i> Falha na extração
+                                                    </small>
+                                                <?php elseif ($numberOfEntries !== null): ?>
+                                                    <small>
+                                                        <?= (int) $numberOfEntries; ?> faturas
+                                                        · Débito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_debit'] ?? 0), 2, ',', '.')); ?>
+                                                        · Crédito: <?= htmlspecialchars(number_format((float) ($submission['saft_total_credit'] ?? 0), 2, ',', '.')); ?>
+                                                    </small>
+                                                <?php else: ?>
+                                                    <span class="text-muted">—</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td class="text-right" style="white-space: nowrap;">
+                                                <div class="saft-actions">
+                                                    <?php if (($submission['saft_number_of_entries'] ?? null) !== null): ?>
+                                                    <button type="button" class="btn btn-xs btn-default saft-icon-btn saft-view-invoices"
+                                                        title="Ver faturas"
+                                                        data-submission-id="<?= (int) $submission['id']; ?>"
+                                                        data-entity-name="<?= htmlspecialchars((string) $submission['entity_name'], ENT_QUOTES); ?>"
+                                                        data-period="<?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? '') . ' ' . $submission['period_year'], ENT_QUOTES); ?>">
+                                                        <i class="fa fa-list"></i>
+                                                    </button>
+                                                    <?php endif; ?>
+                                                    <a class="btn btn-xs btn-default saft-icon-btn" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>" title="Transferir">
+                                                        <i class="fa fa-download"></i>
+                                                    </a>
+                                                    <form method="post" class="saft-actions-form" onsubmit="return confirm('Eliminar este envio de SAF-T?');">
+                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                                        <input type="hidden" name="action" value="delete">
+                                                        <input type="hidden" name="submission_id" value="<?= (int) $submission['id']; ?>">
+                                                        <button type="submit" class="btn btn-xs btn-danger saft-icon-btn" title="Eliminar">
+                                                            <i class="fa fa-trash"></i>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
                 </div>
             </div>
         </div>
@@ -699,29 +775,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    if (window.jQuery && $.fn.DataTable) {
-        $('#saft-submissions-table').DataTable({
-            language: { url: 'vendors/datatables.net/i18n/pt-PT.json' },
-            order: [[0, 'desc']],
-            columnDefs: [{ targets: -1, orderable: false }],
-            dom: "<'row mb-2 align-items-center saft-filter-row'" +
-                    "<'col-sm-12 col-md-2'l>" +
-                    "<'col-sm-12 col-md-4 saft-period-slot'>" +
-                    "<'col-sm-12 col-md-2 saft-upload-slot'>" +
-                    "<'col-sm-12 col-md-4'f>" +
-                 ">" +
-                 "rt" +
-                 "<'row mt-2 align-items-center'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7 saft-paging-slot'p>>",
-            // language.url carrega de forma assincrona, por isso os slots do
-            // cabecalho so existem depois do initComplete (ver AGENTS.md).
-            initComplete: function () {
-                var $dtWrapper = $('#saft-submissions-table').closest('.dt-container');
-                $('#saftPeriodFilterWrapper').appendTo($dtWrapper.find('.saft-period-slot')).removeClass('dt-hidden-until-ready');
-                $('#saftUploadWrapper').appendTo($dtWrapper.find('.saft-upload-slot')).removeClass('dt-hidden-until-ready');
-            }
-        });
-    }
-
     var saftUploadTrigger = document.getElementById('saft-upload-trigger');
     var saftFileInput = document.getElementById('saft-file-input');
     if (saftUploadTrigger && saftFileInput) {

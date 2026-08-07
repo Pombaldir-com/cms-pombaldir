@@ -567,15 +567,17 @@ function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity
         return ['feedback' => ['type' => 'danger', 'message' => 'Falha ao gravar o ficheiro.'], 'submission_id' => null];
     }
 
-    // So se permite um envio por empresa/periodo: o envio anterior para o
-    // mesmo ano/mes e substituido pelo mais recente (ficheiro e registo,
-    // incluindo faturas extraidas via cascade).
+    // Podem existir varios ficheiros distintos para a mesma empresa/periodo
+    // (ex.: exportacoes separadas). So se substitui o envio anterior quando
+    // e o MESMO ficheiro (igual nome original) para o mesmo ano/mes —
+    // tratado como atualizacao desse ficheiro (registo e faturas extraidas
+    // via cascade sao apagados e recriados).
     $previousStmt = $pdo->prepare(
         'SELECT id, file_path FROM accounting_saft_submissions
-         WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ?
+         WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ? AND original_filename = ?
          LIMIT 1'
     );
-    $previousStmt->execute([$entityId, $periodYear, $periodMonth]);
+    $previousStmt->execute([$entityId, $periodYear, $periodMonth, $originalName]);
     $previousSubmission = $previousStmt->fetch(PDO::FETCH_ASSOC);
     if ($previousSubmission) {
         $previousFullPath = dirname(__DIR__) . '/' . ltrim((string) $previousSubmission['file_path'], '/');
