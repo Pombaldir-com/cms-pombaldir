@@ -176,7 +176,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($action === 'delete') {
+    if ($action === 'mark_manual') {
+        $entityIdToMark = (int) ($_POST['entity_id'] ?? 0);
+        $markYear = (int) ($_POST['period_year'] ?? 0);
+        $markMonth = (int) ($_POST['period_month'] ?? 0);
+        $reason = (string) ($_POST['reason'] ?? '');
+        if (!in_array($entityIdToMark, $allowedEntityIds, true)) {
+            $feedback = ['type' => 'danger', 'message' => 'Sem permissão para esta empresa.'];
+        } elseif ($markYear <= 0 || $markMonth <= 0 || $markMonth > 12) {
+            $feedback = ['type' => 'danger', 'message' => 'Período inválido.'];
+        } else {
+            $markResult = saftMarkPeriodAsManual($pdo, $entityIdToMark, $markYear, $markMonth, $userId, $reason);
+            $feedback = $markResult['feedback'];
+        }
+    } elseif ($action === 'delete') {
         $submissionId = (int) ($_POST['submission_id'] ?? 0);
         $stmt = $pdo->prepare('SELECT id, accounting_entity_id, user_id, file_path FROM accounting_saft_submissions WHERE id = ? LIMIT 1');
         $stmt->execute([$submissionId]);
@@ -403,6 +416,7 @@ foreach ($submissions as $submission) {
 $useDataTables = false;
 require_once __DIR__ . '/../header.php';
 ?>
+<script src="<?= BASE_URL; ?>vendors/sweetalert2/dist/sweetalert2.all.min.js"></script>
 
 <div class="page-title">
     <div class="title_left">
@@ -473,10 +487,12 @@ require_once __DIR__ . '/../header.php';
                         margin: 0 !important;
                         vertical-align: middle;
                     }
-                    .saft-entity-panel { border: 1px solid #e6e9ed; border-radius: 3px; margin-bottom: 10px; overflow: hidden; }
+                    .saft-entity-panel { border: 1px solid #e6e9ed; border-radius: 3px; margin-bottom: 10px; }
+                    .saft-entity-panel .collapse { overflow: hidden; border-radius: 0 0 2px 2px; }
                     .saft-entity-header {
                         display: flex; align-items: center; gap: 10px; width: 100%;
                         padding: 12px 16px; background: #f7f9fb; border: none; text-align: left;
+                        border-radius: 2px;
                     }
                     button.saft-entity-header { cursor: pointer; }
                     button.saft-entity-header:hover { background: #eef1f5; }
@@ -486,6 +502,9 @@ require_once __DIR__ . '/../header.php';
                     .saft-entity-header[aria-expanded="true"] .saft-entity-chevron { transform: rotate(90deg); }
                     .saft-entity-count { margin-left: auto; font-size: 12px; color: #73879c; }
                     .saft-entity-header-pending .saft-entity-count { display: none; }
+                    .saft-entity-mark-dropdown { margin-left: auto; }
+                    .saft-entity-mark-dropdown form { margin: 0; }
+                    .label-default-outline { background: #eef1f5 !important; color: #73879c !important; font-weight: 600; }
                 </style>
                 <div class="saft-filter-row">
                     <form method="get" class="saft-period-filter">
@@ -544,6 +563,29 @@ require_once __DIR__ . '/../header.php';
                             <span class="label label-warning">
                                 SAF-T de <?= htmlspecialchars($monthNames[$refMonth] ?? $refMonth); ?>/<?= $refYear; ?> ainda não enviado
                             </span>
+                            <div class="dropdown saft-entity-mark-dropdown">
+                                <button type="button" class="btn btn-xs btn-default dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Marcar como enviado sem carregar ficheiro">
+                                    <i class="fa fa-check"></i> Marcar como enviado
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <?php foreach (saftManualReasonLabels() as $reasonKey => $reasonLabel): ?>
+                                    <li>
+                                        <form method="post" class="saft-confirm-form"
+                                            data-confirm-title="Marcar como &quot;<?= htmlspecialchars($reasonLabel, ENT_QUOTES); ?>&quot;?"
+                                            data-confirm-text="<?= htmlspecialchars(((string) $entity['name']) . ' — SAF-T de ' . ($monthNames[$refMonth] ?? $refMonth) . '/' . $refYear, ENT_QUOTES); ?>"
+                                            data-confirm-button="Marcar">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                            <input type="hidden" name="action" value="mark_manual">
+                                            <input type="hidden" name="entity_id" value="<?= $entityId; ?>">
+                                            <input type="hidden" name="period_year" value="<?= (int) $refYear; ?>">
+                                            <input type="hidden" name="period_month" value="<?= (int) $refMonth; ?>">
+                                            <input type="hidden" name="reason" value="<?= htmlspecialchars($reasonKey); ?>">
+                                            <button type="submit" class="dropdown-item"><?= htmlspecialchars($reasonLabel); ?></button>
+                                        </form>
+                                    </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
                         </div>
                     <?php else: ?>
                         <button type="button" class="saft-entity-header" data-bs-toggle="collapse" data-bs-target="#<?= $collapseId; ?>" aria-expanded="false" aria-controls="<?= $collapseId; ?>">
@@ -568,29 +610,40 @@ require_once __DIR__ . '/../header.php';
                                         </tr>
                                     </thead>
                                     <tbody>
-                                    <?php foreach ($entitySubmissions as $submission): ?>
+                                    <?php foreach ($entitySubmissions as $submission):
+                                        $isManualEntry = !empty($submission['is_manual_entry']);
+                                    ?>
                                         <tr>
                                             <td><?= htmlspecialchars(date('d/m/Y H:i', strtotime((string) $submission['created_at']))); ?></td>
                                             <td>
                                                 <?= htmlspecialchars(($monthNames[(int) $submission['period_month']] ?? $submission['period_month']) . ' ' . $submission['period_year']); ?>
                                             </td>
-                                            <td><?= htmlspecialchars($submission['original_filename']); ?></td>
                                             <td>
-                                                <?php
+                                                <?php if ($isManualEntry): ?>
+                                                    <i class="fa fa-hand-paper-o text-muted" title="Marcado manualmente, sem ficheiro"></i>
+                                                <?php endif; ?>
+                                                <?= htmlspecialchars($submission['original_filename']); ?>
+                                            </td>
+                                            <td>
+                                                <?php if ($isManualEntry): ?>
+                                                    <span class="text-muted">—</span>
+                                                <?php else:
                                                     $size = (int) $submission['file_size'];
                                                     echo $size >= 1048576
                                                         ? htmlspecialchars(number_format($size / 1048576, 1, ',', '.')) . ' MB'
                                                         : htmlspecialchars(number_format(max(1, round($size / 1024)), 0, ',', '.')) . ' KB';
-                                                ?>
+                                                endif; ?>
                                             </td>
                                             <td>
                                                 <?php
                                                     $status = (string) ($submission['status'] ?? 'registado');
                                                     $statusClass = $status === 'enviado' ? 'label-success'
                                                         : ($status === 'erro' ? 'label-danger'
-                                                        : ($status === 'teste' ? 'label-warning' : 'label-default'));
+                                                        : ($status === 'dispensado' ? 'label-default-outline'
+                                                        : ($status === 'teste' ? 'label-warning' : 'label-default')));
+                                                    $statusLabel = $status === 'dispensado' ? 'Dispensado' : ucfirst($status);
                                                 ?>
-                                                <span class="label <?= $statusClass; ?>"><?= htmlspecialchars(ucfirst($status)); ?></span>
+                                                <span class="label <?= $statusClass; ?>"><?= htmlspecialchars($statusLabel); ?></span>
                                             </td>
                                             <td>
                                                 <?php
@@ -658,10 +711,16 @@ require_once __DIR__ . '/../header.php';
                                                         <i class="fa fa-list"></i>
                                                     </button>
                                                     <?php endif; ?>
+                                                    <?php if (!$isManualEntry): ?>
                                                     <a class="btn btn-xs btn-default saft-icon-btn" href="<?= htmlspecialchars(BASE_URL . ltrim((string) $submission['file_path'], '/')); ?>" download="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>" title="Transferir">
                                                         <i class="fa fa-download"></i>
                                                     </a>
-                                                    <form method="post" class="saft-actions-form" onsubmit="return confirm('Eliminar este envio de SAF-T?');">
+                                                    <?php endif; ?>
+                                                    <form method="post" class="saft-actions-form saft-confirm-form"
+                                                        data-confirm-title="Eliminar este envio?"
+                                                        data-confirm-text="<?= htmlspecialchars($submission['original_filename'], ENT_QUOTES); ?>"
+                                                        data-confirm-button="Eliminar"
+                                                        data-confirm-danger="1">
                                                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                                                         <input type="hidden" name="action" value="delete">
                                                         <input type="hidden" name="submission_id" value="<?= (int) $submission['id']; ?>">
@@ -1127,6 +1186,32 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return escapeHtml(value);
     }
+
+    // Confirmacao via SweetAlert2 (em vez do confirm() nativo do browser)
+    // para as acoes destrutivas/irreversiveis desta pagina (eliminar envio,
+    // marcar manualmente como enviado).
+    document.querySelectorAll('form.saft-confirm-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            if (form.dataset.confirmed === '1' || !window.Swal) { return; }
+            e.preventDefault();
+            Swal.fire({
+                title: form.dataset.confirmTitle || 'Confirma?',
+                text: form.dataset.confirmText || '',
+                icon: form.dataset.confirmDanger ? 'warning' : 'question',
+                showCancelButton: true,
+                confirmButtonText: form.dataset.confirmButton || 'Confirmar',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: form.dataset.confirmDanger ? '#d9534f' : '#1abb9c',
+                cancelButtonColor: '#73879c',
+                reverseButtons: true
+            }).then(function (result) {
+                if (result.isConfirmed) {
+                    form.dataset.confirmed = '1';
+                    form.submit();
+                }
+            });
+        });
+    });
 });
 </script>
 

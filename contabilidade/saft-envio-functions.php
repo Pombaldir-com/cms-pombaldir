@@ -5,6 +5,63 @@
 // lancamentos. Documentacao de referencia em ENVIO_SAFT.md.
 
 /**
+ * Motivos possiveis para marcar manualmente uma empresa/periodo como
+ * "tratado" sem enviar aqui o ficheiro SAF-T (ver saftMarkPeriodAsManual()).
+ */
+function saftManualReasonLabels(): array {
+    return [
+        'cliente' => 'Enviado pelo cliente',
+        'sem_vendas' => 'Sem vendas no período',
+    ];
+}
+
+/**
+ * Marca uma empresa/periodo como "tratado" sem ficheiro (ex.: o proprio
+ * cliente ja enviou o SAF-T diretamente, ou nao houve vendas no periodo),
+ * para deixar de aparecer como pendente na tarefa de envio. Cria um registo
+ * "leve" em accounting_saft_submissions (sem ficheiro/faturas associadas);
+ * repetir a marcacao com o mesmo motivo/periodo atualiza o registo existente
+ * em vez de duplicar.
+ *
+ * @return array{id: int, feedback: array{type:string,message:string}}
+ */
+function saftMarkPeriodAsManual(PDO $pdo, int $entityId, int $periodYear, int $periodMonth, ?int $userId, string $reason): array {
+    $labels = saftManualReasonLabels();
+    if (!isset($labels[$reason])) {
+        return ['id' => 0, 'feedback' => ['type' => 'danger', 'message' => 'Motivo inválido.']];
+    }
+    $label = $labels[$reason];
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_saft_submissions
+            (accounting_entity_id, user_id, period_year, period_month, original_filename, file_path, file_size, status, is_manual_entry, manual_reason)
+         VALUES (?, ?, ?, ?, ?, \'\', 0, \'dispensado\', 1, ?)
+         ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), user_id = VALUES(user_id), status = \'dispensado\',
+            is_manual_entry = 1, manual_reason = VALUES(manual_reason), created_at = CURRENT_TIMESTAMP'
+    );
+    $stmt->execute([$entityId, $userId, $periodYear, $periodMonth, $label, $reason]);
+
+    $submissionId = (int) $pdo->lastInsertId();
+    if ($submissionId === 0) {
+        // ON DUPLICATE KEY UPDATE nao devolve o id inserido originalmente.
+        $lookup = $pdo->prepare(
+            'SELECT id FROM accounting_saft_submissions
+             WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ? AND original_filename = ? LIMIT 1'
+        );
+        $lookup->execute([$entityId, $periodYear, $periodMonth, $label]);
+        $submissionId = (int) ($lookup->fetchColumn() ?: 0);
+    }
+
+    logAuditAction('create', 'accounting_saft_submission', $submissionId, [
+        'accounting_entity_id' => $entityId,
+        'period' => $periodYear . '-' . $periodMonth,
+        'manual_reason' => $reason,
+    ]);
+
+    return ['id' => $submissionId, 'feedback' => ['type' => 'success', 'message' => 'Período marcado como "' . $label . '".']];
+}
+
+/**
  * Normaliza a estrutura de $_FILES de um input com "multiple" (ex.:
  * saft_file[]) numa lista de arrays no formato de ficheiro unico esperado
  * por saftHandleUpload() (['name','type','tmp_name','error','size']).
