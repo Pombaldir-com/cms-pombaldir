@@ -31,6 +31,25 @@ window.addEventListener('load', function() {
         }
     });
 
+    var foreignSalesAlert = document.getElementById('saft-foreign-sales-alert');
+
+    function showForeignSalesAlert(foreignSales) {
+        if (!foreignSalesAlert || !foreignSales || typeof foreignSales !== 'object') {
+            return;
+        }
+        var customerIds = Object.keys(foreignSales);
+        if (!customerIds.length) {
+            return;
+        }
+        var html = '<strong>Alerta!</strong> Vendas intracomunitárias e/ou para países terceiros.<br>';
+        html += customerIds.map(function(customerId) {
+            var invoices = foreignSales[customerId].invoices || [];
+            return '<strong>' + customerId + '</strong>: ' + invoices.join(', ');
+        }).join('<br>');
+        foreignSalesAlert.innerHTML = html;
+        foreignSalesAlert.classList.remove('d-none');
+    }
+
     dz.on('success', function(file, response) {
         var data = response;
         if (typeof response === 'string') {
@@ -39,6 +58,7 @@ window.addEventListener('load', function() {
         if (data.csrf_token && csrfInput) {
             csrfInput.value = data.csrf_token;
         }
+        showForeignSalesAlert(data.foreignSales);
         if (Array.isArray(data.transactions)) {
             data.transactions.forEach(function(tx) {
                 var actions = '<button type="button" class="btn btn-xs btn-danger delete-row" data-file="' + data.file + '">Eliminar</button> ' +

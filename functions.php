@@ -797,6 +797,151 @@ function sendSystemEmail(string $toEmail, string $subject, string $body, bool $i
     }
 }
 
+/**
+ * Como sendSystemEmail(), mas com um unico ficheiro anexo (multipart/mixed).
+ * Usa o mesmo transporte SMTP/mail() configurado nas Definicoes.
+ */
+function sendSystemEmailWithAttachment(
+    string $toEmail,
+    string $subject,
+    string $body,
+    string $attachmentContent,
+    string $attachmentFilename,
+    string $attachmentMimeType = 'application/octet-stream'
+): void {
+    $smtpHost = trim((string) getSetting('smtp_host', ''));
+    $fromEmail = trim((string) getSetting('system_email_from_email', ''));
+    if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
+        $fromEmail = trim((string) getSetting('smtp_user', ''));
+    }
+    if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
+        $host = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost')) ?? 'localhost');
+        $fromEmail = 'noreply@' . ($host !== '' ? $host : 'localhost');
+    }
+    $fromName = trim((string) getSetting('system_email_from_name', ''));
+    if ($fromName === '') {
+        $fromName = trim((string) getSetting('app_name', 'CMS'));
+    }
+
+    $boundary = 'AICRM-' . bin2hex(random_bytes(16));
+    $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
+    $safeFilename = preg_replace('/[^A-Za-z0-9._-]+/', '_', $attachmentFilename) ?: 'anexo';
+
+    $messageBody = "--{$boundary}\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\n"
+        . "Content-Transfer-Encoding: base64\r\n\r\n"
+        . chunk_split(base64_encode($body))
+        . "--{$boundary}\r\n"
+        . "Content-Type: {$attachmentMimeType}; name=\"{$safeFilename}\"\r\n"
+        . "Content-Transfer-Encoding: base64\r\n"
+        . "Content-Disposition: attachment; filename=\"{$safeFilename}\"\r\n\r\n"
+        . chunk_split(base64_encode($attachmentContent))
+        . "--{$boundary}--";
+
+    if ($smtpHost !== '') {
+        sendSystemMimeMessageViaSmtp($smtpHost, $toEmail, $encodedSubject, $messageBody, $boundary, $fromEmail, $fromName);
+        return;
+    }
+
+    if (!function_exists('mail')) {
+        throw new RuntimeException('Nao existe transporte de email configurado.');
+    }
+    $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"{$boundary}\"";
+    if (!@mail($toEmail, $encodedSubject, $messageBody, $headers, '-f ' . $fromEmail)) {
+        throw new RuntimeException('Falha ao enviar email pelo transporte local.');
+    }
+}
+
+/**
+ * Liga ao SMTP configurado e envia uma mensagem MIME ja construida (usado
+ * por sendSystemEmailWithAttachment()). Repete a plumbing de baixo nivel de
+ * sendSystemEmailViaSmtp() em vez de a reaproveitar porque aqui o
+ * Content-Type/boundary ja vem definido pelo chamador.
+ */
+function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $encodedSubject, string $mimeBody, string $boundary, string $fromEmail, string $fromName): void {
+    $port = (int) getSetting('smtp_port', '0');
+    $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
+    $username = trim((string) getSetting('smtp_user', ''));
+    $password = (string) getSetting('smtp_pass', '');
+    if ($port <= 0) {
+        $port = $encryption === 'ssl' ? 465 : 587;
+    }
+
+    $clientHost = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost.localdomain')) ?? 'localhost.localdomain');
+    $remoteHost = $encryption === 'ssl' ? 'ssl://' . $host : $host;
+    $socket = @stream_socket_client($remoteHost . ':' . $port, $errno, $errstr, 20, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        throw new RuntimeException('Falha ao ligar ao SMTP: ' . $errstr);
+    }
+    stream_set_timeout($socket, 20);
+
+    $expect = function ($socket, array $codes, string $context) {
+        $response = '';
+        while (!feof($socket)) {
+            $line = fgets($socket, 515);
+            if ($line === false) {
+                break;
+            }
+            $response .= $line;
+            if (strlen($line) >= 4 && $line[3] === ' ') {
+                break;
+            }
+        }
+        if ($response === '') {
+            throw new RuntimeException('Resposta vazia do servidor SMTP em ' . $context . '.');
+        }
+        $code = (int) substr($response, 0, 3);
+        if (!in_array($code, $codes, true)) {
+            throw new RuntimeException('SMTP falhou em ' . $context . ': ' . trim($response));
+        }
+        return $response;
+    };
+    $command = function ($socket, string $cmd, array $codes, string $context) use ($expect) {
+        fwrite($socket, $cmd . "\r\n");
+        return $expect($socket, $codes, $context);
+    };
+
+    $expect($socket, [220], 'ligacao inicial');
+    $command($socket, 'EHLO ' . $clientHost, [250], 'EHLO');
+
+    if ($encryption === 'tls') {
+        $command($socket, 'STARTTLS', [220], 'STARTTLS');
+        if (@stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT) !== true) {
+            fclose($socket);
+            throw new RuntimeException('Nao foi possivel ativar TLS no SMTP.');
+        }
+        $command($socket, 'EHLO ' . $clientHost, [250], 'EHLO pos-TLS');
+    }
+
+    if ($username !== '') {
+        $command($socket, 'AUTH LOGIN', [334], 'AUTH LOGIN');
+        $command($socket, base64_encode($username), [334], 'SMTP utilizador');
+        $command($socket, base64_encode($password), [235], 'SMTP password');
+    }
+
+    $envelopeFrom = $username !== '' && strpos($username, '@') !== false ? $username : $fromEmail;
+    $command($socket, 'MAIL FROM:<' . $envelopeFrom . '>', [250], 'MAIL FROM');
+    $command($socket, 'RCPT TO:<' . $toEmail . '>', [250, 251], 'RCPT TO');
+    $command($socket, 'DATA', [354], 'DATA');
+
+    $headers = implode("\r\n", [
+        'To: ' . $toEmail,
+        'From: ' . $fromName . ' <' . $fromEmail . '>',
+        'Subject: ' . $encodedSubject,
+        'Date: ' . date(DATE_RFC2822),
+        'Message-ID: <' . uniqid('dr_', true) . '@' . $clientHost . '>',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
+        'X-Mailer: AICRM',
+    ]);
+    $rawMessage = $headers . "\r\n\r\n" . $mimeBody;
+    $rawMessage = preg_replace("/(?m)^\\./", '..', $rawMessage) ?? $rawMessage;
+    fwrite($socket, $rawMessage . "\r\n.\r\n");
+    $expect($socket, [250], 'corpo da mensagem');
+    @fwrite($socket, "QUIT\r\n");
+    fclose($socket);
+}
+
 function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName, bool $isHtml = false): void {
     $port = (int) getSetting('smtp_port', '0');
     $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));

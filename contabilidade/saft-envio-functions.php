@@ -66,7 +66,9 @@ function saftReadFileContent(string $filePath, ?string $extensionHint = null): s
  *   invoices: array<int, array{invoice_no: string, atcud: ?string, invoice_type: ?string,
  *     invoice_status: ?string, invoice_date: ?string, system_entry_date: ?string,
  *     customer_id: ?string, source_id: ?string, tax_payable: ?string, net_total: ?string,
- *     gross_total: ?string}>
+ *     gross_total: ?string}>,
+ *   foreign_sales: array<string, array{country: string, tax_id: string, value: float,
+ *     invoices: array<int, string>}>
  * }
  */
 function saftExtractInvoiceData(string $xmlContent): array {
@@ -80,6 +82,7 @@ function saftExtractInvoiceData(string $xmlContent): array {
         'total_debit' => null,
         'total_credit' => null,
         'invoices' => [],
+        'foreign_sales' => [],
     ];
 
     $previous = libxml_use_internal_errors(true);
@@ -100,6 +103,24 @@ function saftExtractInvoiceData(string $xmlContent): array {
         $result['company_name'] = saftXmlValue($header->CompanyName ?? null);
     }
 
+    // Pais de faturacao e NIF de cada cliente, para deteccao de vendas
+    // intracomunitarias e/ou para paises terceiros e pre-preenchimento da
+    // Declaracao Recapitulativa de IVA.
+    $customerCountries = [];
+    $customerTaxIds = [];
+    if (isset($xml->MasterFiles->Customer)) {
+        foreach ($xml->MasterFiles->Customer as $customer) {
+            $customerId = (string) $customer->CustomerID;
+            foreach ($customer->BillingAddress as $billingAddress) {
+                $customerCountries[$customerId] = (string) $billingAddress->Country;
+            }
+            $taxId = saftXmlValue($customer->CustomerTaxID ?? null);
+            if ($taxId !== null) {
+                $customerTaxIds[$customerId] = $taxId;
+            }
+        }
+    }
+
     $salesInvoices = $xml->SourceDocuments->SalesInvoices ?? null;
     if ($salesInvoices === null) {
         return $result;
@@ -111,20 +132,35 @@ function saftExtractInvoiceData(string $xmlContent): array {
     $result['total_credit'] = saftXmlValue($salesInvoices->TotalCredit ?? null);
 
     foreach ($salesInvoices->Invoice as $invoice) {
+        $invoiceNo = (string) ($invoice->InvoiceNo ?? '');
+        $customerId = saftXmlValue($invoice->CustomerID ?? null);
+        $invoiceStatus = saftXmlValue($invoice->DocumentStatus->InvoiceStatus ?? null);
+
         $result['invoices'][] = [
-            'invoice_no' => (string) ($invoice->InvoiceNo ?? ''),
+            'invoice_no' => $invoiceNo,
             'atcud' => saftXmlValue($invoice->ATCUD ?? null),
             'invoice_type' => saftXmlValue($invoice->InvoiceType ?? null),
-            'invoice_status' => saftXmlValue($invoice->DocumentStatus->InvoiceStatus ?? null),
+            'invoice_status' => $invoiceStatus,
             'invoice_date' => saftXmlValue($invoice->InvoiceDate ?? null),
             'system_entry_date' => saftXmlValue($invoice->SystemEntryDate ?? null),
-            'customer_id' => saftXmlValue($invoice->CustomerID ?? null),
+            'customer_id' => $customerId,
             'source_id' => saftXmlValue($invoice->SourceID ?? null),
             'tax_payable' => saftXmlValue($invoice->DocumentTotals->TaxPayable ?? null),
             'net_total' => saftXmlValue($invoice->DocumentTotals->NetTotal ?? null),
             'gross_total' => saftXmlValue($invoice->DocumentTotals->GrossTotal ?? null),
         ];
+
+        $country = $customerId !== null ? ($customerCountries[$customerId] ?? '') : '';
+        if ($customerId !== null && $country !== '' && $country !== 'PT' && $country !== 'Desconhecido' && $invoiceStatus === 'N') {
+            $result['foreign_sales'][$customerId]['country'] = $country;
+            $result['foreign_sales'][$customerId]['tax_id'] = $customerTaxIds[$customerId] ?? '';
+            $result['foreign_sales'][$customerId]['invoices'][] = $invoiceNo;
+            $result['foreign_sales'][$customerId]['value'] =
+                ($result['foreign_sales'][$customerId]['value'] ?? 0) + (float) ($invoice->DocumentTotals->NetTotal ?? 0);
+        }
     }
+
+    ksort($result['foreign_sales']);
 
     return $result;
 }
@@ -162,16 +198,18 @@ function saftDerivePeriod(array $headerData): ?array {
 /**
  * Guarda o cabecalho/totais extraidos na submissao e as faturas em
  * accounting_saft_invoices. Nao lanca excecao: erros ficam registados em
- * saft_extraction_error para nao bloquear o fluxo de envio.
+ * saft_extraction_error para nao bloquear o fluxo de envio. Devolve os dados
+ * extraidos (incluindo foreign_sales) para uso no feedback do upload, ou
+ * null se a extracao falhar.
  */
-function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath): void {
+function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath): ?array {
     try {
         $xmlContent = saftReadFileContent($filePath);
         $data = saftExtractInvoiceData($xmlContent);
     } catch (Throwable $e) {
         $pdo->prepare('UPDATE accounting_saft_submissions SET saft_extraction_error = ? WHERE id = ?')
             ->execute([$e->getMessage(), $submissionId]);
-        return;
+        return null;
     }
 
     $pdo->prepare(
@@ -191,7 +229,7 @@ function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath)
     ]);
 
     if (!$data['invoices']) {
-        return;
+        return $data;
     }
 
     $insertStmt = $pdo->prepare(
@@ -221,6 +259,8 @@ function saftPersistExtractedData(PDO $pdo, int $submissionId, string $filePath)
             $invoice['gross_total'],
         ]);
     }
+
+    return $data;
 }
 
 /**
@@ -574,7 +614,8 @@ function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity
     // Extrai faturas e totais do proprio ficheiro SAF-T para cruzamento
     // posterior com a contabilidade e lancamentos. Nao bloqueia o envio se
     // falhar.
-    saftPersistExtractedData($pdo, $submissionId, $fullPath);
+    $extracted = saftPersistExtractedData($pdo, $submissionId, $fullPath);
+    $foreignSales = $extracted['foreign_sales'] ?? [];
 
     // Submissao a AT via FACTEMICLI, quando o jar esta configurado e a
     // empresa tem credencial do portal. Continua sempre o envio mesmo com
@@ -655,5 +696,104 @@ function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity
     }
     $feedback['message'] = 'Empresa identificada: ' . $matchedEntity['name'] . ' (NIF ' . $matchedEntity['nif'] . '). ' . $feedback['message'];
 
-    return ['feedback' => $feedback, 'submission_id' => $submissionId];
+    return [
+        'feedback' => $feedback,
+        'submission_id' => $submissionId,
+        'foreign_sales' => $foreignSales,
+        'entity' => $matchedEntity,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+    ];
+}
+
+/**
+ * Constroi o XML da Declaracao Recapitulativa de IVA (schema DRIVAWeb da AT,
+ * http://www.at.gov.pt/2019/DRIVAWeb/schema), a partir das vendas
+ * intracomunitarias/pais terceiro detetadas num SAF-T e confirmadas/editadas
+ * pelo utilizador.
+ *
+ * A estrutura e a numeracao dos campos seguem o modelo oficial "Declaracao
+ * Recapitulativa" (Portal das Financas) e um XML exportado real:
+ *  - quadro01/f1: NIF do sujeito passivo (a propria empresa, nao o cliente).
+ *  - quadro02/f1: tipo de declaracao (1 = 1a declaracao do periodo).
+ *  - quadro03/f1,f2: ano e mes do periodo.
+ *  - quadro0405/table/tableItem: uma linha por adquirente+tipo de operacao
+ *    (f2 prefixo pais, f3 NIF do adquirente, f4 valor em centimos, f5 tipo:
+ *    1 = transmissao de bens, 4 = operacao triangular, 5 = prestacao de
+ *    servicos); f10/f17/f18 = somas por tipo (1/4/5), f19 = soma total.
+ *  - quadro06/f1: NIF do contabilista certificado (quando aplicavel).
+ *  - quadro07/table: transferencias de bens a consignacao (nao suportado
+ *    por este formulario; enviado sempre vazio).
+ *
+ * @param array{
+ *   nif: string, year: int, month: int, accountant_nif?: string,
+ *   rows: array<int, array{country: string, nif: string, value: float, type: string}>
+ * } $params
+ */
+function saftBuildDeclaracaoRecapitulativaXml(array $params): string {
+    $dom = new DOMDocument('1.0', 'UTF-8');
+    $dom->formatOutput = true;
+
+    $ns = 'http://www.at.gov.pt/2019/DRIVAWeb/schema';
+    $dr = $dom->createElementNS($ns, 'dr');
+    $dr->setAttribute('version', '1.0');
+    $dom->appendChild($dr);
+    $rosto = $dom->createElement('rosto');
+    $dr->appendChild($rosto);
+
+    $addField = function (DOMElement $parent, string $tag, string $value) use ($dom): DOMElement {
+        $el = $dom->createElement($tag, htmlspecialchars($value, ENT_XML1));
+        $parent->appendChild($el);
+        return $el;
+    };
+
+    $quadro01 = $dom->createElement('quadro01');
+    $rosto->appendChild($quadro01);
+    $addField($quadro01, 'f1', extractVatNumber((string) $params['nif']));
+
+    $quadro02 = $dom->createElement('quadro02');
+    $rosto->appendChild($quadro02);
+    $addField($quadro02, 'f1', '1');
+
+    $quadro03 = $dom->createElement('quadro03');
+    $rosto->appendChild($quadro03);
+    $addField($quadro03, 'f1', (string) (int) $params['year']);
+    $addField($quadro03, 'f2', str_pad((string) (int) $params['month'], 2, '0', STR_PAD_LEFT));
+
+    $quadro0405 = $dom->createElement('quadro0405');
+    $rosto->appendChild($quadro0405);
+
+    $sumByType = ['1' => 0, '4' => 0, '5' => 0];
+    $table = $dom->createElement('table');
+    foreach ($params['rows'] as $row) {
+        $type = (string) $row['type'];
+        if (!isset($sumByType[$type])) {
+            continue;
+        }
+        $valueCents = (int) round(((float) $row['value']) * 100);
+        $sumByType[$type] += $valueCents;
+
+        $item = $dom->createElement('tableItem');
+        $addField($item, 'f2', strtoupper((string) $row['country']));
+        $addField($item, 'f3', (string) $row['nif']);
+        $addField($item, 'f4', (string) $valueCents);
+        $addField($item, 'f5', $type);
+        $table->appendChild($item);
+    }
+
+    $addField($quadro0405, 'f10', (string) $sumByType['1']);
+    $addField($quadro0405, 'f17', (string) $sumByType['4']);
+    $addField($quadro0405, 'f18', (string) $sumByType['5']);
+    $addField($quadro0405, 'f19', (string) ($sumByType['1'] + $sumByType['4'] + $sumByType['5']));
+    $quadro0405->appendChild($table);
+
+    $quadro06 = $dom->createElement('quadro06');
+    $rosto->appendChild($quadro06);
+    $addField($quadro06, 'f1', extractVatNumber((string) ($params['accountant_nif'] ?? '')));
+
+    $quadro07 = $dom->createElement('quadro07');
+    $rosto->appendChild($quadro07);
+    $quadro07->appendChild($dom->createElement('table'));
+
+    return (string) $dom->saveXML();
 }

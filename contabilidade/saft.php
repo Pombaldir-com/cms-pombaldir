@@ -117,6 +117,8 @@ $csrfToken = generateCsrfToken();
     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
 </form>
 
+<div id="saft-foreign-sales-alert" class="alert alert-danger d-none" role="alert"></div>
+
 <div id="saft-results">
     <table id="saft-table" class="table table-striped">
         <thead>

@@ -58,3 +58,7 @@ A documentação detalhada do domínio vive nos ficheiros abaixo. **Ler o fichei
 - [AI_ASSISTANT_IDENTITY.md](AI_ASSISTANT_IDENTITY.md) — identidade do assistente por tenant (resolução por NIF da empresa).
 - [contabilidade/IMPORTAR_CTB.md](contabilidade/IMPORTAR_CTB.md) — detalhe do webservice "Importar CTB", vistas e matriz de permissões.
 - [docs/database-cleanup-audit.md](docs/database-cleanup-audit.md) — auditoria de tabelas ativas vs. removidas.
+
+## Intranet legacy
+
+A aplicação anterior (intranet legacy, pré-migração para este CRM) vive em `/Users/nelsonsantos/Sites2026/intranet.zcontas.pt/intranet` (repo local separado, só leitura). Ao portar uma funcionalidade legacy para este projeto, consultar primeiro o código antigo lá para confirmar a lógica/formato exatos — não adivinhar a partir de capturas de ecrã ou memória. Ver [AGENTS.md](AGENTS.md) (secção "Legacy (intranet.zcontas.pt)") para o ponto de entrada já mapeado (declaração recapitulativa / vendas intracomunitárias em `data/gest_clientes.php`).

@@ -79,6 +79,10 @@ if (($_GET['action'] ?? '') === 'invoices') {
 }
 
 $feedback = null; // ['type' => 'success'|'danger', 'message' => string]
+$foreignSales = [];
+$foreignSalesEntity = null;
+$foreignSalesPeriodYear = null;
+$foreignSalesPeriodMonth = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -121,6 +125,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $result = saftHandleUpload($pdo, $_FILES['saft_file'] ?? [], $resolveEntity, $userId);
         $feedback = $result['feedback'];
+        $foreignSales = $result['foreign_sales'] ?? [];
+        $foreignSalesEntity = $result['entity'] ?? null;
+        $foreignSalesPeriodYear = $result['period_year'] ?? null;
+        $foreignSalesPeriodMonth = $result['period_month'] ?? null;
     }
 }
 
@@ -226,6 +234,7 @@ require_once __DIR__ . '/../header.php';
     <?= htmlspecialchars($feedback['message']); ?>
 </div>
 <?php endif; ?>
+
 
 <?php if (!$entities): ?>
 <div class="row">
@@ -445,6 +454,205 @@ require_once __DIR__ . '/../header.php';
         </div>
     </div>
 </div>
+
+<?php if ($foreignSales && $foreignSalesEntity):
+    $foreignInvoiceCount = 0;
+    foreach ($foreignSales as $sale) {
+        $foreignInvoiceCount += count($sale['invoices']);
+    }
+    $foreignCustomerCount = count($foreignSales);
+    $drRows = [];
+    foreach ($foreignSales as $customerId => $sale) {
+        $drRows[] = [
+            'customer_id' => (string) $customerId,
+            'country' => strtoupper((string) ($sale['country'] ?? substr((string) $customerId, 0, 2))),
+            'nif' => (string) ($sale['tax_id'] ?? ''),
+            'value' => round((float) ($sale['value'] ?? 0), 2),
+            'type' => '5',
+            'invoices' => $sale['invoices'],
+        ];
+    }
+?>
+<div class="modal fade" id="saft-foreign-sales-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
+        <div class="modal-content saft-foreign-sales-modal-content">
+            <div class="modal-header saft-foreign-sales-header">
+                <div class="saft-foreign-sales-icon"><i class="fa fa-exclamation-triangle"></i></div>
+                <div class="saft-foreign-sales-heading">
+                    <h5 class="modal-title">Alerta! Vendas intracomunitárias e/ou para países terceiros</h5>
+                    <span class="saft-foreign-sales-subtitle">
+                        <?= (int) $foreignCustomerCount; ?> cliente<?= $foreignCustomerCount === 1 ? '' : 's'; ?>
+                        &middot; <?= (int) $foreignInvoiceCount; ?> fatura<?= $foreignInvoiceCount === 1 ? '' : 's'; ?>
+                    </span>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p class="text-muted" style="font-size: 12.5px;">
+                    Dados de partida para a Declaração Recapitulativa de IVA (período
+                    <strong><?= str_pad((string) $foreignSalesPeriodMonth, 2, '0', STR_PAD_LEFT); ?>/<?= (int) $foreignSalesPeriodYear; ?></strong>).
+                    O NIF do adquirente e o tipo de operação (bens/triangular/serviços) vêm por defeito do SAF-T
+                    e devem ser confirmados/corrigidos antes de gerar o ficheiro.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" id="saft-dr-table" style="margin-bottom: 10px;">
+                        <thead style="background: #f7f9fb;">
+                            <tr>
+                                <th style="width: 90px;">País</th>
+                                <th>NIF Adquirente</th>
+                                <th style="width: 140px;">Valor (€)</th>
+                                <th style="width: 180px;">Tipo de operação</th>
+                                <th style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="saft-dr-table-body">
+                            <?php foreach ($drRows as $i => $row): ?>
+                            <tr title="Faturas: <?= htmlspecialchars(implode(', ', $row['invoices'])); ?>">
+                                <td><input type="text" class="form-control input-sm dr-country" maxlength="2" value="<?= htmlspecialchars($row['country']); ?>"></td>
+                                <td><input type="text" class="form-control input-sm dr-nif" value="<?= htmlspecialchars($row['nif']); ?>" placeholder="NIF do adquirente"></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control input-sm dr-value" value="<?= htmlspecialchars((string) $row['value']); ?>"></td>
+                                <td>
+                                    <select class="form-control input-sm dr-type">
+                                        <option value="1">1 - Transmissão de bens</option>
+                                        <option value="4">4 - Operação triangular</option>
+                                        <option value="5" selected>5 - Prestação de serviços</option>
+                                    </select>
+                                </td>
+                                <td class="text-center"><button type="button" class="btn btn-xs btn-link text-danger dr-remove-row" title="Remover linha"><i class="fa fa-trash"></i></button></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-xs btn-default" id="saft-dr-add-row"><i class="fa fa-plus"></i> Adicionar linha</button>
+
+                <div class="row" style="margin-top: 16px;">
+                    <div class="col-sm-6 form-group">
+                        <label style="font-size: 12px;">Email de destino (para "Enviar Ficheiro")</label>
+                        <input type="email" class="form-control input-sm" id="saft-dr-dest-email">
+                    </div>
+                </div>
+                <div id="saft-dr-feedback" class="alert d-none" style="font-size: 12.5px; padding: 8px 12px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
+                <button type="button" class="btn btn-primary" id="saft-dr-download"><i class="fa fa-paperclip"></i> Download Ficheiro</button>
+                <button type="button" class="btn btn-primary" id="saft-dr-send"><i class="fa fa-envelope"></i> Enviar Ficheiro</button>
+            </div>
+        </div>
+    </div>
+</div>
+<form id="saft-dr-download-form" method="post" action="<?= htmlspecialchars(BASE_URL . 'contabilidade/saft-dr-xml.php'); ?>" style="display:none;" target="_blank">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+    <input type="hidden" name="action" value="download">
+    <input type="hidden" name="entity_id" value="<?= (int) $foreignSalesEntity['id']; ?>">
+    <input type="hidden" name="year" value="<?= (int) $foreignSalesPeriodYear; ?>">
+    <input type="hidden" name="month" value="<?= (int) $foreignSalesPeriodMonth; ?>">
+    <input type="hidden" name="rows" id="saft-dr-download-rows">
+</form>
+<style>
+.saft-foreign-sales-header{align-items:flex-start;gap:14px;}
+.saft-foreign-sales-icon{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:#fdecea;color:#d9534f;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.saft-foreign-sales-heading{flex:1 1 auto;min-width:0;}
+.saft-foreign-sales-heading .modal-title{color:#c0392b;font-size:16px;line-height:1.35;margin-bottom:2px;}
+.saft-foreign-sales-subtitle{display:block;font-size:12px;color:#73879c;}
+#saft-dr-table input.form-control, #saft-dr-table select.form-control{font-size:12.5px;height:30px;padding:4px 8px;}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var modalElement = document.getElementById('saft-foreign-sales-modal');
+    if (modalElement && window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    }
+
+    var tableBody = document.getElementById('saft-dr-table-body');
+    var feedbackEl = document.getElementById('saft-dr-feedback');
+    var csrfToken = <?= json_encode($csrfToken); ?>;
+    var entityId = <?= (int) $foreignSalesEntity['id']; ?>;
+    var year = <?= (int) $foreignSalesPeriodYear; ?>;
+    var month = <?= (int) $foreignSalesPeriodMonth; ?>;
+
+    document.getElementById('saft-dr-add-row').addEventListener('click', function () {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td><input type="text" class="form-control input-sm dr-country" maxlength="2"></td>'
+            + '<td><input type="text" class="form-control input-sm dr-nif" placeholder="NIF do adquirente"></td>'
+            + '<td><input type="number" step="0.01" min="0" class="form-control input-sm dr-value" value="0"></td>'
+            + '<td><select class="form-control input-sm dr-type"><option value="1">1 - Transmissão de bens</option><option value="4">4 - Operação triangular</option><option value="5" selected>5 - Prestação de serviços</option></select></td>'
+            + '<td class="text-center"><button type="button" class="btn btn-xs btn-link text-danger dr-remove-row" title="Remover linha"><i class="fa fa-trash"></i></button></td>';
+        tableBody.appendChild(tr);
+    });
+
+    tableBody.addEventListener('click', function (e) {
+        var btn = e.target.closest('.dr-remove-row');
+        if (btn) {
+            btn.closest('tr').remove();
+        }
+    });
+
+    function collectRows() {
+        var rows = [];
+        tableBody.querySelectorAll('tr').forEach(function (tr) {
+            rows.push({
+                country: tr.querySelector('.dr-country').value.trim(),
+                nif: tr.querySelector('.dr-nif').value.trim(),
+                value: parseFloat(tr.querySelector('.dr-value').value) || 0,
+                type: tr.querySelector('.dr-type').value
+            });
+        });
+        return rows;
+    }
+
+    function showFeedback(type, message) {
+        feedbackEl.className = 'alert alert-' + type;
+        feedbackEl.textContent = message;
+    }
+
+    document.getElementById('saft-dr-download').addEventListener('click', function () {
+        document.getElementById('saft-dr-download-accountant-nif').value = document.getElementById('saft-dr-accountant-nif').value.trim();
+        document.getElementById('saft-dr-download-rows').value = JSON.stringify(collectRows());
+        document.getElementById('saft-dr-download-form').submit();
+    });
+
+    document.getElementById('saft-dr-send').addEventListener('click', function () {
+        var destEmail = document.getElementById('saft-dr-dest-email').value.trim();
+        if (!destEmail) {
+            showFeedback('warning', 'Indique o email de destino.');
+            return;
+        }
+        var sendBtn = this;
+        sendBtn.disabled = true;
+        var params = new URLSearchParams();
+        params.set('csrf_token', csrfToken);
+        params.set('action', 'send');
+        params.set('entity_id', entityId);
+        params.set('year', year);
+        params.set('month', month);
+        params.set('accountant_nif', document.getElementById('saft-dr-accountant-nif').value.trim());
+        params.set('dest_email', destEmail);
+        params.set('rows', JSON.stringify(collectRows()));
+
+        fetch('<?= htmlspecialchars(BASE_URL . 'contabilidade/saft-dr-xml.php'); ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params.toString()
+        }).then(function (response) { return response.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    showFeedback('success', 'Ficheiro enviado para ' + destEmail + '.');
+                } else {
+                    showFeedback('danger', 'Falha ao enviar: ' + (data.error || 'erro desconhecido.'));
+                }
+            })
+            .catch(function () {
+                showFeedback('danger', 'Falha ao enviar o ficheiro.');
+            })
+            .finally(function () {
+                sendBtn.disabled = false;
+            });
+    });
+});
+</script>
+<?php endif; ?>
 
 <div class="modal fade" id="saft-invoices-modal" tabindex="-1" role="dialog" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">

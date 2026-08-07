@@ -105,3 +105,8 @@ Regras ao mexer em DataTables:
 - Requires PHP (and a web server if not using the PHP built-in server).
 - Quick start: `php -S localhost:8000 router.php`
 - Ensure the database is configured in `data/db.php` before logging in.
+
+## Legacy (intranet.zcontas.pt)
+- A aplicacao anterior (intranet legacy) vive em `/Users/nelsonsantos/Sites2026/intranet.zcontas.pt/intranet` (repo local separado, so leitura, so para consulta de logica/UX antiga).
+- Ex.: `data/gest_clientes.php` contem a logica legacy de deteccao de vendas intracomunitarias/pais terceiro (durante o processamento do SAF-T) e o popup com os botoes "Download Ficheiro" / "Enviar Ficheiro" para a Declaracao Recapitulativa (gera um `.txt` fixo `RECAP-<timestamp>.txt` em `uploadDir/tmp`, download via `window.php?act=download`, envio por email via accao `mailsendadmin`, destino configuravel em `destRecapitulativa`).
+- Ao portar funcionalidade legacy para este projeto, confirmar sempre no codigo antigo o formato de dados exato antes de reimplementar — nao adivinhar a partir de capturas de ecra.

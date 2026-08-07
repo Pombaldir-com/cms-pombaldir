@@ -82,6 +82,7 @@ if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
 }
 
 $transactions = [];
+$foreignSales = [];
 try {
     $xml = simplexml_load_file($targetPath);
     if ($xml !== false) {
@@ -97,6 +98,32 @@ try {
                 ];
             }
         }
+
+        // Vendas intracomunitárias e/ou para países terceiros: cliente com país
+        // de faturação diferente de Portugal.
+        $customerCountries = [];
+        if (isset($xml->MasterFiles->Customer)) {
+            foreach ($xml->MasterFiles->Customer as $customer) {
+                $customerId = (string) $customer->CustomerID;
+                foreach ($customer->BillingAddress as $billingAddress) {
+                    $customerCountries[$customerId] = (string) $billingAddress->Country;
+                }
+            }
+        }
+
+        if (isset($xml->SourceDocuments->SalesInvoices->Invoice)) {
+            foreach ($xml->SourceDocuments->SalesInvoices->Invoice as $invoice) {
+                $customerId = (string) $invoice->CustomerID;
+                $country = $customerCountries[$customerId] ?? '';
+                $invoiceStatus = (string) ($invoice->DocumentStatus->InvoiceStatus ?? '');
+
+                if ($country !== '' && $country !== 'PT' && $country !== 'Desconhecido' && $invoiceStatus === 'N') {
+                    $foreignSales[$customerId]['country'] = $country;
+                    $foreignSales[$customerId]['invoices'][] = (string) $invoice->InvoiceNo;
+                }
+            }
+        }
+        ksort($foreignSales);
     }
 } catch (Throwable $e) {
     // ignore parse errors
@@ -108,6 +135,7 @@ echo json_encode([
     'success' => true,
     'file' => $relativePath,
     'transactions' => $transactions,
+    'foreignSales' => $foreignSales,
     'csrf_token' => $newToken,
 ]);
 
