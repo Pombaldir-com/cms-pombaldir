@@ -79,6 +79,7 @@ if (($_GET['action'] ?? '') === 'invoices') {
 }
 
 $feedback = null; // ['type' => 'success'|'danger', 'message' => string]
+$uploadSummary = null; // ['type' => ..., 'success' => int, 'error' => int, 'items' => [['ok'=>bool,'file_name'=>string,'message'=>string]]]
 $foreignSales = [];
 $foreignSalesEntity = null;
 $foreignSalesPeriodYear = null;
@@ -133,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $results = [];
             foreach ($uploadedFiles as $uploadedFile) {
                 $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId);
+                $uploadResult['file_name'] = (string) ($uploadedFile['name'] ?? '');
                 $results[] = $uploadResult;
                 // So a primeira empresa/periodo com vendas para o estrangeiro
                 // desencadeia o popup da Declaracao Recapitulativa nesta
@@ -149,18 +151,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $feedback = $results[0]['feedback'];
             } else {
                 $successCount = 0;
-                $messages = [];
+                $items = [];
                 foreach ($results as $r) {
-                    if (($r['feedback']['type'] ?? 'danger') !== 'danger') {
+                    $ok = ($r['feedback']['type'] ?? 'danger') !== 'danger';
+                    if ($ok) {
                         $successCount++;
                     }
-                    $messages[] = $r['feedback']['message'] ?? '';
+                    $items[] = [
+                        'ok' => $ok,
+                        'file_name' => $r['file_name'],
+                        'message' => (string) ($r['feedback']['message'] ?? ''),
+                    ];
                 }
                 $errorCount = count($results) - $successCount;
-                $feedback = [
+
+                $uploadSummary = [
                     'type' => $errorCount > 0 ? ($successCount > 0 ? 'warning' : 'danger') : 'success',
-                    'message' => count($results) . ' ficheiros processados (' . $successCount . ' com sucesso'
-                        . ($errorCount > 0 ? ', ' . $errorCount . ' com erro' : '') . '). ' . implode(' | ', $messages),
+                    'success' => $successCount,
+                    'error' => $errorCount,
+                    'items' => $items,
                 ];
             }
         }
@@ -571,6 +580,62 @@ require_once __DIR__ . '/../header.php';
     </div>
 </div>
 
+<?php if ($uploadSummary): ?>
+<div class="modal fade" id="saft-upload-summary-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content saft-upload-summary-modal-content">
+            <div class="modal-header saft-upload-summary-header saft-upload-summary-header-<?= htmlspecialchars($uploadSummary['type']); ?>">
+                <div class="saft-upload-summary-icon">
+                    <i class="fa <?= $uploadSummary['type'] === 'success' ? 'fa-check' : ($uploadSummary['type'] === 'danger' ? 'fa-times' : 'fa-exclamation-triangle'); ?>"></i>
+                </div>
+                <div class="saft-upload-summary-heading">
+                    <h5 class="modal-title">Envio de SAF-T</h5>
+                    <span class="saft-upload-summary-subtitle">
+                        <?= count($uploadSummary['items']); ?> ficheiros processados
+                        &middot; <?= (int) $uploadSummary['success']; ?> com sucesso
+                        <?php if ($uploadSummary['error'] > 0): ?>&middot; <?= (int) $uploadSummary['error']; ?> com erro<?php endif; ?>
+                    </span>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body" style="padding: 0;">
+                <ul class="list-unstyled saft-upload-summary-list" style="margin-bottom: 0;">
+                    <?php foreach ($uploadSummary['items'] as $item): ?>
+                        <li class="saft-upload-summary-item">
+                            <i class="fa <?= $item['ok'] ? 'fa-check-circle text-success' : 'fa-times-circle text-danger'; ?>"></i>
+                            <div class="saft-upload-summary-item-body">
+                                <strong><?= htmlspecialchars($item['file_name']); ?></strong>
+                                <span><?= htmlspecialchars($item['message']); ?></span>
+                            </div>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<style>
+.saft-upload-summary-header{align-items:flex-start;gap:14px;}
+.saft-upload-summary-icon{flex:0 0 auto;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.saft-upload-summary-header-success .saft-upload-summary-icon{background:#eafaf6;color:#1abb9c;}
+.saft-upload-summary-header-warning .saft-upload-summary-icon{background:#fdf3e6;color:#f39c12;}
+.saft-upload-summary-header-danger .saft-upload-summary-icon{background:#fdecea;color:#d9534f;}
+.saft-upload-summary-heading{flex:1 1 auto;min-width:0;}
+.saft-upload-summary-heading .modal-title{color:#2a3f54;font-size:16px;line-height:1.35;margin-bottom:2px;}
+.saft-upload-summary-subtitle{display:block;font-size:12px;color:#73879c;}
+.saft-upload-summary-list{max-height:60vh;}
+.saft-upload-summary-item{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid #eef1f5;}
+.saft-upload-summary-item:last-child{border-bottom:none;}
+.saft-upload-summary-item i{margin-top:2px;}
+.saft-upload-summary-item-body{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.saft-upload-summary-item-body strong{color:#2a3f54;font-size:13px;word-break:break-all;}
+.saft-upload-summary-item-body span{color:#73879c;font-size:12.5px;}
+</style>
+<?php endif; ?>
+
 <?php if ($foreignSales && $foreignSalesEntity):
     $foreignInvoiceCount = 0;
     foreach ($foreignSales as $sale) {
@@ -597,7 +662,9 @@ require_once __DIR__ . '/../header.php';
                 <div class="saft-foreign-sales-heading">
                     <h5 class="modal-title">Alerta! Vendas intracomunitárias e/ou para países terceiros</h5>
                     <span class="saft-foreign-sales-subtitle">
-                        <?= (int) $foreignCustomerCount; ?> cliente<?= $foreignCustomerCount === 1 ? '' : 's'; ?>
+                        <strong><?= htmlspecialchars((string) $foreignSalesEntity['name']); ?></strong>
+                        <?php if (trim((string) $foreignSalesEntity['nif']) !== ''): ?> (NIF <?= htmlspecialchars((string) $foreignSalesEntity['nif']); ?>)<?php endif; ?>
+                        &middot; <?= (int) $foreignCustomerCount; ?> cliente<?= $foreignCustomerCount === 1 ? '' : 's'; ?>
                         &middot; <?= (int) $foreignInvoiceCount; ?> fatura<?= $foreignInvoiceCount === 1 ? '' : 's'; ?>
                     </span>
                 </div>
@@ -676,11 +743,6 @@ require_once __DIR__ . '/../header.php';
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    var modalElement = document.getElementById('saft-foreign-sales-modal');
-    if (modalElement && window.bootstrap) {
-        bootstrap.Modal.getOrCreateInstance(modalElement).show();
-    }
-
     var tableBody = document.getElementById('saft-dr-table-body');
     var feedbackEl = document.getElementById('saft-dr-feedback');
     var csrfToken = <?= json_encode($csrfToken); ?>;
@@ -815,6 +877,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // O resumo de envio (varios ficheiros) mostra-se primeiro, se existir;
+    // o popup da Declaracao Recapitulativa so abre depois de o fechar, para
+    // nao empilhar dois modais ao mesmo tempo.
+    if (window.bootstrap) {
+        var uploadSummaryModalElement = document.getElementById('saft-upload-summary-modal');
+        var foreignSalesModalElement = document.getElementById('saft-foreign-sales-modal');
+        if (uploadSummaryModalElement) {
+            if (foreignSalesModalElement) {
+                uploadSummaryModalElement.addEventListener('hidden.bs.modal', function () {
+                    bootstrap.Modal.getOrCreateInstance(foreignSalesModalElement).show();
+                }, { once: true });
+            }
+            bootstrap.Modal.getOrCreateInstance(uploadSummaryModalElement).show();
+        } else if (foreignSalesModalElement) {
+            bootstrap.Modal.getOrCreateInstance(foreignSalesModalElement).show();
+        }
+    }
+
     var saftUploadTrigger = document.getElementById('saft-upload-trigger');
     var saftFileInput = document.getElementById('saft-file-input');
     if (saftUploadTrigger && saftFileInput) {
