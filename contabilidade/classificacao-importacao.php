@@ -3918,6 +3918,50 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
                     'resolved' => $ligacaoTotalAccounts,
                 ],
             ],
+            'mysql_history' => [
+                'acquirer_nif' => $acquirerNif,
+                'doc_type' => $docType,
+                'emitter' => $emitter,
+                'samples' => (int) ($historyTally['samples'] ?? 0),
+                'rates' => $historyTally['rates'] ?? [],
+                'totals' => $historyTally['totals'] ?? [],
+            ],
+            'mysql_classification_rules' => [
+                'doc_type' => $docType,
+                'emitter' => $emitter,
+                'acquirer' => $acquirerRaw !== '' ? $acquirerRaw : $acquirerNif,
+                'samples' => (int) ($ruleTally['samples'] ?? 0),
+                'rates' => $ruleTally['rates'] ?? [],
+                'totals' => $ruleTally['totals'] ?? [],
+            ],
+            'backoffice_instructions' => [
+                'source_order' => is_array($backofficeInstructions['source_order'] ?? null) ? $backofficeInstructions['source_order'] : [],
+                'rules_count' => (int) ($backofficeInstructions['count'] ?? 0),
+                'rates' => $backofficeInstructionRates,
+                'operation_notes' => is_array($backofficeInstructions['operation_notes'] ?? null) ? $backofficeInstructions['operation_notes'] : [],
+                'total_account' => $backofficeInstructions['total_account'] ?? null,
+            ],
+            'erp_movimentos' => [
+                'query' => [
+                    'strAbrevTpDoc' => $docType,
+                    'strNumContrib' => $acquirerNif,
+                    'db' => $database,
+                ],
+                'row_count' => count($movementRows),
+                'accounts' => $movementAccounts,
+                'rows' => $movementRows,
+            ],
+            'erp_planocontas' => [
+                'query' => [
+                    'strCodExercicio' => date('Y'),
+                    'strNumContrib' => $acquirerNif,
+                    'db' => $database,
+                ],
+                'row_count' => count($planRows),
+                'general_accounts' => array_keys($planAccounts),
+                'iva_accounts' => array_keys($planIvaAccounts),
+                'rows' => $planRows,
+            ],
         ];
     }
 

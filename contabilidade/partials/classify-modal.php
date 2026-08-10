@@ -424,8 +424,11 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                                 </select>
                                             </div>
                                             <?php if ($classifyModalCanManageEntityAiInstructions): ?>
-                                            <button type="button" class="btn btn-sm btn-outline-primary" id="entityPairAiInstructionsBtn" title="Instruções IA" aria-label="Instruções IA">
+                                            <button type="button" class="btn btn-sm btn-outline-primary position-relative" id="entityPairAiInstructionsBtn" title="Instruções IA" aria-label="Instruções IA">
                                                 <i class="fa fa-android"></i>
+                                                <span id="entityPairAiInstructionsBadge" class="position-absolute top-0 start-100 translate-middle p-1 bg-warning border border-light rounded-circle d-none" title="Existem Instruções IA guardadas para este emitente/adquirente">
+                                                    <span class="visually-hidden">Instruções IA definidas</span>
+                                                </span>
                                             </button>
                                             <?php endif; ?>
                                         </div>

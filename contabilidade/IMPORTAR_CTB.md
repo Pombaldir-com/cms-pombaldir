@@ -108,19 +108,24 @@ Exemplo:
 
 O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
 
-### Debug: dados brutos do `LigacaoCteTipoDoc`
+### Debug: dados brutos de todas as fontes de sugestão
 
-Com `debug_mode` ativo (Definições > Geral), a resposta de `suggestion-explanation` inclui um bloco `debug.ligacao_cte_tipo_doc` com:
+Com `debug_mode` ativo (Definições > Geral), a resposta de `suggestion-explanation` inclui um bloco `debug` com uma sub-chave por fonte consultada nesta reanálise — não só `LigacaoCteTipoDoc`:
 
-- todas as combinações BD/NIF tentadas, a origem de cada BD candidata (`database_candidate_sources`) e quantas linhas cada uma devolveu (`attempts`, incluindo `source` por tentativa);
-- as BDs de outras empresas usadas por terem histórico deste emitente (`emitter_history_databases`) e a BD de fallback final (`default_database_fallback`);
-- a BD finalmente usada (`resolved_database`);
-- as linhas brutas devolvidas pelo ERP (`rows`, com `strTipo`, `strConta`, `strConta_Iva`, `strContaEntidade`, `PC_Descricao`);
-- o agrupamento por taxa (`per_rate`) e as contas de valor total candidatas (`total_accounts`).
+- `ligacao_cte_tipo_doc`: todas as combinações BD/NIF tentadas, a origem de cada BD candidata (`database_candidate_sources`, incluindo `emitter_history_databases` — bases de outras empresas com histórico deste emitente — e `default_database_fallback`), a BD finalmente usada (`resolved_database`), as linhas brutas do ERP (`rows`) e o agrupamento por taxa (`per_rate`);
+- `erp_movimentos`: linhas devolvidas por `contabilidade/movimentos` e a contagem de ocorrências por conta (`accounts`);
+- `erp_planocontas`: linhas devolvidas por `contabilidade/planocontas` e as contas gerais/IVA disponíveis nesse plano;
+- `mysql_history`: amostras usadas de `accounting_imports` (histórico de classificações manuais) e as contas mais frequentes por taxa;
+- `mysql_classification_rules`: idem, a partir de `accounting_classifications`;
+- `backoffice_instructions`: instruções ativas (globais em Definições e/ou por par emitente/adquirente em `accounting_entity_ai_instructions`), a ordem de origem (`source_order`) e as contas extraídas por taxa.
 
-Na modal "Explicação da sugestão", este bloco aparece como um `<details>` colapsável "Debug: dados brutos Ligação Cte Tipo Doc ERP", com tabelas de tentativas/linhas e o JSON completo. Sem `debug_mode` ativo, o bloco `debug` não é incluído na resposta.
+Cada sub-bloco existe **só quando o endpoint efetivamente encontrou dados nessa fonte** (ex.: se não há instruções guardadas para o par emitente/adquirente, `backoffice_instructions` não aparece com dados relevantes). Isto é importante para diagnosticar de onde vem uma conta sugerida que não parece bater certo com o `LigacaoCteTipoDoc`: pode ter vindo de Movimentos ERP, Plano de Contas, Histórico MySQL ou Regras — a resposta completa deixa isso auditável.
 
-Nas tabelas e no JSON completo, as contas que coincidem com a sugestão final aplicada pelo agente (Conta Geral, Conta IVA por taxa, ou Conta de Valor Total) ficam realçadas a amarelo (`<mark>`), para o IT identificar rapidamente de onde veio cada valor sugerido dentro dos dados brutos do ERP.
+Na modal "Explicação da sugestão", cada sub-bloco aparece como uma secção `<details>` colapsável própria, com o JSON correspondente. Sem `debug_mode` ativo, o bloco `debug` não é incluído na resposta.
+
+No JSON de cada secção, as contas que coincidem com a sugestão final aplicada pelo agente (Conta Geral, Conta IVA por taxa, ou Conta de Valor Total) ficam realçadas a amarelo (`<mark>`), para o IT identificar rapidamente de onde veio cada valor.
+
+Adicionalmente, no topo da modal aparece sempre um aviso com a **origem real** reportada pelo próprio agente no momento em que aplicou a sugestão (`window.aiSuggestionSources`, ex.: "Instruções IA da entidade", "Histórico MySQL", "Movimentos ERP") — esta é a fonte de verdade; os blocos de debug acima são uma reanálise feita a posteriori para fins de diagnóstico e podem, em casos raros, não coincidir exatamente (ex.: dados do ERP entretanto alterados).
 
 ## Modal de Classificação: auto-sugestão de contas por escrita
 

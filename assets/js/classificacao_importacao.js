@@ -620,6 +620,7 @@ window.addEventListener('load', function() {
                 return;
             }
             currentEntityPairAiInstructions = String((res && res.instructions) || '').trim();
+            updateEntityPairAiInstructionsIndicator();
             showSuccess((res && res.message) || 'Instruções IA guardadas.');
         }).catch(function(err) {
             showError((err && err.message) || 'Erro ao guardar as Instruções IA.');
@@ -2648,6 +2649,7 @@ window.addEventListener('load', function() {
     var aiSuggestBtn = document.getElementById('aiSuggestAccountsBtn');
     var aiSuggestCorrectionBtn = document.getElementById('aiSuggestCorrectionBtn');
     var entityPairAiInstructionsBtn = document.getElementById('entityPairAiInstructionsBtn');
+    var entityPairAiInstructionsBadge = document.getElementById('entityPairAiInstructionsBadge');
     var classifyTableOverlay = document.getElementById('classifyTableOverlay');
     var aiSuggestionExplainBtn = document.getElementById('aiSuggestionExplainBtn');
     var vatRateRowTemplate = document.getElementById('vatRateRowTemplate');
@@ -2665,6 +2667,20 @@ window.addEventListener('load', function() {
     var classificationModels = [];
     var currentEntityPairAiInstructions = '';
     var currentCanManageEntityPairAiInstructions = false;
+
+    function updateEntityPairAiInstructionsIndicator() {
+        var hasInstructions = !!(currentEntityPairAiInstructions && currentEntityPairAiInstructions.trim());
+        if (entityPairAiInstructionsBadge) {
+            entityPairAiInstructionsBadge.classList.toggle('d-none', !hasInstructions);
+        }
+        if (entityPairAiInstructionsBtn) {
+            entityPairAiInstructionsBtn.classList.toggle('btn-outline-primary', !hasInstructions);
+            entityPairAiInstructionsBtn.classList.toggle('btn-primary', hasInstructions);
+            entityPairAiInstructionsBtn.title = hasInstructions
+                ? 'Instruções IA (já existem instruções guardadas para este emitente/adquirente)'
+                : 'Instruções IA (nenhuma instrução guardada para este emitente/adquirente)';
+        }
+    }
     var currentDocumentFieldValues = {};
     var currentBankLoanDocumentLines = [];
     var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
@@ -4364,6 +4380,7 @@ window.addEventListener('load', function() {
             entityPairAiInstructionsBtn.disabled = !currentCanManageEntityPairAiInstructions;
             entityPairAiInstructionsBtn.classList.toggle('disabled', !currentCanManageEntityPairAiInstructions);
         }
+        updateEntityPairAiInstructionsIndicator();
 
         storedRowRates = (response.row_rates && typeof response.row_rates === 'object') ? response.row_rates : {};
         storedDefaultRates = (response.rates && typeof response.rates === 'object') ? response.rates : {};
@@ -8703,7 +8720,28 @@ window.addEventListener('load', function() {
             + '<pre class="mb-0" style="max-height:260px;overflow:auto;font-size:11px;">' + highlightSuggestedAccountsInJson(JSON.stringify(ligacao, null, 2), suggestedAccounts) + '</pre></div>';
 
         html += '</div></details></div>';
+
+        html += buildDebugJsonSectionHtml('Debug: Movimentos ERP (contabilidade/movimentos)', debug.erp_movimentos, suggestedAccounts);
+        html += buildDebugJsonSectionHtml('Debug: Plano de Contas ERP (contabilidade/planocontas)', debug.erp_planocontas, suggestedAccounts);
+        html += buildDebugJsonSectionHtml('Debug: Histórico MySQL (accounting_imports)', debug.mysql_history, suggestedAccounts);
+        html += buildDebugJsonSectionHtml('Debug: Regras de classificação (accounting_classifications)', debug.mysql_classification_rules, suggestedAccounts);
+        html += buildDebugJsonSectionHtml('Debug: Instruções do backoffice (Definições / Fornecedores)', debug.backoffice_instructions, suggestedAccounts);
+
         return html;
+    }
+
+    function buildDebugJsonSectionHtml(title, data, suggestedAccounts) {
+        if (!data || typeof data !== 'object') {
+            return '';
+        }
+        return '<div class="mb-3">'
+            + '<details>'
+            + '<summary class="text-muted" style="cursor:pointer;">' + escapeHtml(title) + '</summary>'
+            + '<div class="mt-2">'
+            + '<pre class="mb-0" style="max-height:260px;overflow:auto;font-size:11px;">' + highlightSuggestedAccountsInJson(JSON.stringify(data, null, 2), suggestedAccounts) + '</pre>'
+            + '</div>'
+            + '</details>'
+            + '</div>';
     }
 
     var suggestionExplainModalEl = null;
@@ -8953,6 +8991,7 @@ window.addEventListener('load', function() {
             currentTotalAccount = '';
             currentEntityPairAiInstructions = '';
             currentCanManageEntityPairAiInstructions = false;
+            updateEntityPairAiInstructionsIndicator();
             currentCostCenterDistributionRate = '';
             currentBankLoanConversionActive = false;
             if (totalAccountInput) {
@@ -9094,6 +9133,7 @@ window.addEventListener('load', function() {
         classificationModels = [];
         currentEntityPairAiInstructions = '';
         currentCanManageEntityPairAiInstructions = false;
+        updateEntityPairAiInstructionsIndicator();
         currentDocumentFieldValues = normalizeDocumentFieldMap(parseJsonAttribute(btn, 'data-qr-fields') || {});
         currentBankLoanDocumentLines = [];
         renderDocumentFieldInputs();
