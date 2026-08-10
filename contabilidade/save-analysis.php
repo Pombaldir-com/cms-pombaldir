@@ -990,20 +990,18 @@ function normalizeClassificationModelTenantKey($value): string {
     return substr($tenantKey, 0, 120);
 }
 
-function buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType): string {
+/**
+ * Chave de ambito dos modelos de classificacao partilhados.
+ *
+ * Os modelos sao globais por emitente + tipo de documento: um modelo criado
+ * ao classificar um fornecedor numa empresa fica disponivel para o mesmo
+ * fornecedor em qualquer outra empresa/adquirente, porque a estrutura do
+ * documento (linhas, taxas, conta de valor total) e uma caracteristica do
+ * emitente, nao da empresa que o recebeu.
+ */
+function buildClassificationModelScopeKey($emitter, $docType): string {
     $parts = [
-        normalizeClassificationModelTenantKey($tenantKey),
-        normalizeSupplierPartyValue($acquirer),
-        normalizeDocTypeValue($docType),
-    ];
-    return implode('|', $parts);
-}
-
-function buildLegacyClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType): string {
-    $parts = [
-        normalizeClassificationModelTenantKey($tenantKey),
         normalizeSupplierPartyValue($emitter),
-        normalizeSupplierPartyValue($acquirer),
         normalizeDocTypeValue($docType),
     ];
     return implode('|', $parts);
@@ -1078,9 +1076,12 @@ function loadAllSharedClassificationModels(): array {
             continue;
         }
 
+        // Contas/taxas aprendidas do fornecedor (numero de linhas, taxas de IVA,
+        // conta de valor total). O requisito de centro de custo por taxa viaja
+        // dentro de 'rates' (campo 'cost_center_required'); os codigos/repartição
+        // concretos NUNCA sao guardados no modelo, porque o centro de custo e uma
+        // caracteristica da empresa/entidade que classifica, nao do fornecedor.
         $rates = stripAccountingAmounts(is_array($model['rates'] ?? null) ? $model['rates'] : []);
-        $costCenters = sanitizeCostCenterValues($model['cost_centers'] ?? []);
-        $costCenterBreakdowns = sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []);
         $metadata = sanitizeAccountingMetadata([
             'total_account' => $model['total_account'] ?? '',
             'ignore_detected_rates' => '1',
@@ -1094,10 +1095,10 @@ function loadAllSharedClassificationModels(): array {
             'emitter' => $emitter,
             'acquirer' => $acquirer,
             'doc_type' => $docType,
-            'scope_key' => buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType),
+            'scope_key' => buildClassificationModelScopeKey($emitter, $docType),
             'rates' => $rates,
-            'cost_centers' => $costCenters,
-            'cost_center_breakdowns' => $costCenterBreakdowns,
+            'cost_centers' => [],
+            'cost_center_breakdowns' => [],
             'total_account' => $metadata['total_account'] ?? '',
             'ignore_detected_rates' => '1',
             'updated_at' => trim((string) ($model['updated_at'] ?? '')),
@@ -1111,49 +1112,29 @@ function loadAllSharedClassificationModels(): array {
     return $result;
 }
 
+/**
+ * Modelos disponiveis para um emitente + tipo de documento, independentemente
+ * do adquirente/empresa em que foram criados (ambito global por emitente).
+ */
 function loadSharedClassificationModels(PDO $pdo, $emitter, $acquirer, $docType, string $tenantKey = ''): array {
-    $resolvedTenantKey = $tenantKey !== ''
-        ? normalizeClassificationModelTenantKey($tenantKey)
-        : resolveClassificationModelTenantKey($pdo, [
-            'emitter' => $emitter,
-            'acquirer' => $acquirer,
-        ]);
-    $companySlug = normalizeClassificationModelTenantKey((string) (getCompanySlug() ?? ''));
-    $candidateScopeKeys = array_values(array_unique(array_filter([
-        buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType),
-        buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
-        buildLegacyClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType),
-        buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType),
-    ], static function ($value): bool {
-        return $value !== '||';
-    })));
-    if (empty($candidateScopeKeys)) {
+    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
+    if ($scopeKey === '|') {
         return [];
     }
 
     $models = loadAllSharedClassificationModels();
-    $preferredScopeKey = buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
     $filtered = [];
     foreach ($models as $model) {
-        $modelScopeKey = (string) ($model['scope_key'] ?? '');
-        if (!in_array($modelScopeKey, $candidateScopeKeys, true)) {
+        if ((string) ($model['scope_key'] ?? '') !== $scopeKey) {
             continue;
         }
         $nameKey = function_exists('mb_strtolower')
             ? mb_strtolower((string) ($model['name'] ?? ''), 'UTF-8')
             : strtolower((string) ($model['name'] ?? ''));
-        $priority = $modelScopeKey === $preferredScopeKey ? 2 : 1;
-        if (!isset($filtered[$nameKey]) || $priority > (int) ($filtered[$nameKey]['_priority'] ?? 0)) {
-            $model['_priority'] = $priority;
-            $filtered[$nameKey] = $model;
-        }
+        $filtered[$nameKey] = $model;
     }
 
     $filtered = array_values($filtered);
-    foreach ($filtered as $index => $model) {
-        unset($filtered[$index]['_priority']);
-    }
-
     usort($filtered, static function (array $a, array $b): int {
         return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
     });
@@ -1199,11 +1180,12 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
     if ($name === '') {
         throw new RuntimeException('Indique um nome para o modelo.');
     }
-    if ($acquirer === '') {
-        throw new RuntimeException('Modelo sem adquirente válido.');
+    if ($emitter === '') {
+        throw new RuntimeException('Modelo sem emitente válido.');
     }
 
     $models = loadAllSharedClassificationModels();
+    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
     $normalized = [
         'company_slug' => $companySlug,
         'tenant_key' => $tenantKey,
@@ -1211,31 +1193,24 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
         'emitter' => $emitter,
         'acquirer' => $acquirer,
         'doc_type' => $docType,
-        'scope_key' => buildClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType),
+        'scope_key' => $scopeKey,
+        // Aprende linhas/taxas e conta de valor total do fornecedor. O
+        // requisito de centro de custo por taxa ('cost_center_required')
+        // viaja dentro de 'rates'; os codigos/repartição concretos nunca
+        // sao guardados aqui — sao sempre por empresa/entidade.
         'rates' => stripAccountingAmounts(is_array($model['rates'] ?? null) ? $model['rates'] : []),
-        'cost_centers' => sanitizeCostCenterValues($model['cost_centers'] ?? []),
-        'cost_center_breakdowns' => sanitizeCostCenterBreakdownValues($model['cost_center_breakdowns'] ?? []),
+        'cost_centers' => [],
+        'cost_center_breakdowns' => [],
         'total_account' => trim((string) ($model['total_account'] ?? '')),
         'ignore_detected_rates' => '1',
         'updated_at' => date('c'),
     ];
 
-    $legacyScopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
-    $legacyEmitterScopeKey = buildLegacyClassificationModelScopeKey($tenantKey, $emitter, $acquirer, $docType);
-    $legacyCompanyEmitterScopeKey = buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
     $updated = false;
     foreach ($models as $index => $existing) {
         if (
             strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
-            && normalizeSupplierPartyValue($existing['acquirer'] ?? '') === $acquirer
-            && normalizeDocTypeValue($existing['doc_type'] ?? '') === $docType
-            && (
-                normalizeClassificationModelTenantKey($existing['tenant_key'] ?? '') === $tenantKey
-                || (string) ($existing['scope_key'] ?? '') === $normalized['scope_key']
-                || (string) ($existing['scope_key'] ?? '') === $legacyScopeKey
-                || (string) ($existing['scope_key'] ?? '') === $legacyEmitterScopeKey
-                || (string) ($existing['scope_key'] ?? '') === $legacyCompanyEmitterScopeKey
-            )
+            && (string) ($existing['scope_key'] ?? '') === $scopeKey
         ) {
             $models[$index] = $normalized;
             $updated = true;
@@ -1256,19 +1231,9 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
 }
 
 function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType, $name, string $tenantKey = ''): bool {
-    $companySlug = normalizeClassificationModelTenantKey((string) (getCompanySlug() ?? ''));
-    $resolvedTenantKey = $tenantKey !== ''
-        ? normalizeClassificationModelTenantKey($tenantKey)
-        : resolveClassificationModelTenantKey($pdo, [
-            'emitter' => $emitter,
-            'acquirer' => $acquirer,
-        ]);
-    $scopeKey = buildClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
-    $legacyScopeKey = buildClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
-    $legacyEmitterScopeKey = buildLegacyClassificationModelScopeKey($resolvedTenantKey, $emitter, $acquirer, $docType);
-    $legacyCompanyEmitterScopeKey = buildLegacyClassificationModelScopeKey($companySlug, $emitter, $acquirer, $docType);
+    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
     $modelName = sanitizeClassificationModelName($name);
-    if (($scopeKey === '||' && $legacyScopeKey === '||') || $modelName === '') {
+    if ($scopeKey === '|' || $modelName === '') {
         return false;
     }
 
@@ -1277,7 +1242,7 @@ function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType
     $deleted = false;
 
     foreach ($models as $model) {
-        $sameScope = in_array((string) ($model['scope_key'] ?? ''), [$scopeKey, $legacyScopeKey, $legacyEmitterScopeKey, $legacyCompanyEmitterScopeKey], true);
+        $sameScope = (string) ($model['scope_key'] ?? '') === $scopeKey;
         $sameName = strcasecmp((string) ($model['name'] ?? ''), $modelName) === 0;
         if ($sameScope && $sameName) {
             $deleted = true;
