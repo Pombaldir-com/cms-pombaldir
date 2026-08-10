@@ -96,6 +96,19 @@ Exemplo:
 
 O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleção final da linha correta por taxa usando `PC_Descricao` e os dados do documento.
 
+### Debug: dados brutos do `LigacaoCteTipoDoc`
+
+Com `debug_mode` ativo (Definições > Geral), a resposta de `suggestion-explanation` inclui um bloco `debug.ligacao_cte_tipo_doc` com:
+
+- todas as combinações BD/NIF tentadas e quantas linhas cada uma devolveu (`attempts`);
+- a BD finalmente usada (`resolved_database`);
+- as linhas brutas devolvidas pelo ERP (`rows`, com `strTipo`, `strConta`, `strConta_Iva`, `strContaEntidade`, `PC_Descricao`);
+- o agrupamento por taxa (`per_rate`) e as contas de valor total candidatas (`total_accounts`).
+
+Na modal "Explicação da sugestão", este bloco aparece como um `<details>` colapsável "Debug: dados brutos Ligação Cte Tipo Doc ERP", com tabelas de tentativas/linhas e o JSON completo. Sem `debug_mode` ativo, o bloco `debug` não é incluído na resposta.
+
+Nas tabelas e no JSON completo, as contas que coincidem com a sugestão final aplicada pelo agente (Conta Geral, Conta IVA por taxa, ou Conta de Valor Total) ficam realçadas a amarelo (`<mark>`), para o IT identificar rapidamente de onde veio cada valor sugerido dentro dos dados brutos do ERP.
+
 ## Modal de Classificação: auto-sugestão de contas por escrita
 
 Na modal de **Classificação** (`import_type=1`), os campos:

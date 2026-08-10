@@ -8522,7 +8522,138 @@ window.addEventListener('load', function() {
             html += '</div>';
         }
 
+        html += buildSuggestionDebugHtml(response.debug, collectSuggestedAccountsForDebug(response));
+
         return html || '<p>Sem detalhes de explicação disponíveis.</p>';
+    }
+
+    function collectSuggestedAccountsForDebug(response) {
+        var values = {};
+        if (response && response.rates && typeof response.rates === 'object') {
+            Object.keys(response.rates).forEach(function(rateKey) {
+                var info = response.rates[rateKey] || {};
+                var suggested = info.suggested && typeof info.suggested === 'object' ? info.suggested : {};
+                [suggested.general_account, suggested.iva_account].forEach(function(value) {
+                    value = String(value || '').trim();
+                    if (value) {
+                        values[value] = true;
+                    }
+                });
+            });
+        }
+        if (response && response.total_account && typeof response.total_account === 'object') {
+            var totalValue = String(response.total_account.suggested || '').trim();
+            if (totalValue) {
+                values[totalValue] = true;
+            }
+        }
+        return Object.keys(values);
+    }
+
+    function escapeRegExp(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function highlightSuggestedAccountsInJson(jsonText, suggestedAccounts) {
+        var escaped = escapeHtml(jsonText);
+        if (!Array.isArray(suggestedAccounts) || !suggestedAccounts.length) {
+            return escaped;
+        }
+        var sorted = suggestedAccounts.slice().sort(function(a, b) {
+            return String(b).length - String(a).length;
+        });
+        sorted.forEach(function(value) {
+            var quoted = '&quot;' + escapeHtml(String(value)) + '&quot;';
+            var pattern = new RegExp(escapeRegExp(quoted), 'g');
+            escaped = escaped.replace(pattern, '&quot;<mark class="bg-warning" title="Conta sugerida pelo agente">' + escapeHtml(String(value)) + '</mark>&quot;');
+        });
+        return escaped;
+    }
+
+    function buildSuggestionDebugHtml(debug, suggestedAccounts) {
+        if (!debug || typeof debug !== 'object') {
+            return '';
+        }
+        var ligacao = debug.ligacao_cte_tipo_doc;
+        if (!ligacao || typeof ligacao !== 'object') {
+            return '';
+        }
+
+        var html = '<div class="mb-3">'
+            + '<details>'
+            + '<summary class="text-muted" style="cursor:pointer;">Debug: dados brutos Ligação Cte Tipo Doc ERP</summary>'
+            + '<div class="mt-2">';
+
+        html += '<div class="mb-2"><small class="text-muted">'
+            + 'BD resolvida: ' + escapeHtml(String(ligacao.resolved_database || 'n/d'))
+            + ' | NIFs tentados: ' + escapeHtml((ligacao.nif_candidates || []).join(', ') || 'n/d')
+            + ' | BDs tentadas: ' + escapeHtml((ligacao.database_candidates || []).join(', ') || 'n/d')
+            + '</small></div>';
+
+        var attempts = Array.isArray(ligacao.attempts) ? ligacao.attempts : [];
+        if (attempts.length > 0) {
+            html += '<div class="mb-2"><strong>Tentativas de pesquisa</strong>'
+                + '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
+                + '<thead><tr><th>BD</th><th>NIF</th><th>strTpDoc</th><th>datadoc</th><th>Linhas</th><th>Encontrado</th></tr></thead><tbody>';
+            attempts.forEach(function(attempt) {
+                var query = attempt && attempt.query ? attempt.query : {};
+                html += '<tr>'
+                    + '<td>' + escapeHtml(String(attempt.database || '-')) + '</td>'
+                    + '<td>' + escapeHtml(String(attempt.nif || '-')) + '</td>'
+                    + '<td>' + escapeHtml(String(query.strTpDoc || '-')) + '</td>'
+                    + '<td>' + escapeHtml(String(query.datadoc || '-')) + '</td>'
+                    + '<td>' + escapeHtml(String(attempt.row_count || 0)) + '</td>'
+                    + '<td>' + (attempt.matched ? 'Sim' : 'Não') + '</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+        }
+
+        var hasSuggestedAccounts = Array.isArray(suggestedAccounts) && suggestedAccounts.length > 0;
+        var suggestedSet = {};
+        if (hasSuggestedAccounts) {
+            suggestedAccounts.forEach(function(value) {
+                suggestedSet[String(value)] = true;
+            });
+        }
+
+        function highlightAccountCell(value) {
+            var text = String(value || '-');
+            var cellHtml = escapeHtml(text);
+            if (value !== undefined && value !== null && suggestedSet[String(value).trim()]) {
+                cellHtml = '<mark class="bg-warning" title="Conta sugerida pelo agente">' + cellHtml + '</mark>';
+            }
+            return cellHtml;
+        }
+
+        var rows = Array.isArray(ligacao.rows) ? ligacao.rows : [];
+        if (rows.length > 0) {
+            if (hasSuggestedAccounts) {
+                html += '<div class="mb-2"><small><mark class="bg-warning">■</mark> conta selecionada pelo agente como sugestão final</small></div>';
+            }
+            html += '<div class="mb-2"><strong>Linhas devolvidas (' + rows.length + ')</strong>'
+                + '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
+                + '<thead><tr><th>strTipo</th><th>strConta</th><th>strConta_Iva</th><th>strContaEntidade</th><th>PC_Descricao</th></tr></thead><tbody>';
+            rows.forEach(function(row) {
+                row = row && typeof row === 'object' ? row : {};
+                html += '<tr>'
+                    + '<td>' + escapeHtml(String(row.strTipo || '-')) + '</td>'
+                    + '<td>' + highlightAccountCell(row.strConta) + '</td>'
+                    + '<td>' + highlightAccountCell(row.strConta_Iva) + '</td>'
+                    + '<td>' + highlightAccountCell(row.strContaEntidade) + '</td>'
+                    + '<td>' + escapeHtml(String(row.PC_Descricao || '-')) + '</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+        } else {
+            html += '<div class="mb-2 text-muted">Sem linhas devolvidas pelo ERP.</div>';
+        }
+
+        html += '<div class="mb-0"><small class="text-muted">JSON completo (realçado a amarelo: contas selecionadas pelo agente):</small>'
+            + '<pre class="mb-0" style="max-height:260px;overflow:auto;font-size:11px;">' + highlightSuggestedAccountsInJson(JSON.stringify(ligacao, null, 2), suggestedAccounts) + '</pre></div>';
+
+        html += '</div></details></div>';
+        return html;
     }
 
     var suggestionExplainModalEl = null;

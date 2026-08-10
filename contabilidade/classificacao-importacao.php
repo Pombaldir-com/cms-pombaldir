@@ -3350,6 +3350,8 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
 
     $ligacaoRows = [];
     $ligacaoPerRate = [];
+    $ligacaoQueryBase = [];
+    $ligacaoDebugAttempts = [];
     $ligacaoDocType = normalizeSuggestionLigacaoDocType($docType);
     $ligacaoLineTypes = resolveSuggestionLigacaoLineTypes($docType);
     $ligacaoRateLineType = $ligacaoLineTypes['rate'];
@@ -3382,13 +3384,18 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         }
         foreach ($databaseCandidates as $databaseCandidate) {
             foreach ($ligacaoNifCandidates as $ligacaoNifCandidate) {
-                $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', $ligacaoQueryBase + [
+                $ligacaoAttemptQuery = $ligacaoQueryBase + [
                     'strNIF' => $ligacaoNifCandidate,
-                ], $databaseCandidate);
-                if (empty($ligacaoPayload)) {
-                    continue;
-                }
-                $candidateRows = extractErpRowsFromPayload($ligacaoPayload);
+                ];
+                $ligacaoPayload = fetchErpJsonForSuggestion('/contabilidade/LigacaoCteTipoDoc', $ligacaoAttemptQuery, $databaseCandidate);
+                $candidateRows = !empty($ligacaoPayload) ? extractErpRowsFromPayload($ligacaoPayload) : [];
+                $ligacaoDebugAttempts[] = [
+                    'database' => $databaseCandidate,
+                    'nif' => $ligacaoNifCandidate,
+                    'query' => $ligacaoAttemptQuery,
+                    'row_count' => count($candidateRows),
+                    'matched' => !empty($candidateRows),
+                ];
                 if (empty($candidateRows)) {
                     continue;
                 }
@@ -3792,7 +3799,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
         $totalReasons[] = 'Sem evidências suficientes nas fontes disponíveis para a conta de valor total.';
     }
 
-    echo json_encode([
+    $suggestionExplanationResponse = [
         'success' => true,
         'csrf_token' => generateCsrfToken(),
         'summary' => [
@@ -3823,7 +3830,27 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'reasons' => $totalReasons,
         ],
         'rates' => $explanations,
-    ], JSON_UNESCAPED_UNICODE);
+    ];
+
+    if (getSetting('debug_mode', '0') === '1') {
+        $suggestionExplanationResponse['debug'] = [
+            'ligacao_cte_tipo_doc' => [
+                'nif_candidates' => $ligacaoNifCandidates,
+                'database_candidates' => $databaseCandidates,
+                'resolved_database' => $database,
+                'attempts' => $ligacaoDebugAttempts,
+                'rows' => $ligacaoRows,
+                'per_rate' => $ligacaoPerRate,
+                'total_accounts' => [
+                    'credit' => $ligacaoTotalCreditAccounts,
+                    'entity' => $ligacaoTotalEntityAccounts,
+                    'resolved' => $ligacaoTotalAccounts,
+                ],
+            ],
+        ];
+    }
+
+    echo json_encode($suggestionExplanationResponse, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
