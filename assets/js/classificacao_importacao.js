@@ -9392,6 +9392,10 @@ window.addEventListener('load', function() {
                 csrfInput.value = res.csrf_token;
             }
             if (res.success) {
+                if (res.warning) {
+                    // A classificacao foi guardada; so o modelo partilhado falhou.
+                    showNotice('warning', res.warning);
+                }
                 var responseCostCenters = null;
                 if (Object.prototype.hasOwnProperty.call(res, 'cost_centers')) {
                     responseCostCenters = res.cost_centers;
@@ -9650,7 +9654,8 @@ window.addEventListener('load', function() {
         var costCenterCatalogPromise = loadCostCenterCatalogForDocument(documentDbValue, docDateValue, { silent: true });
         var params = new URLSearchParams({
             action: 'lines',
-            id: id
+            id: id,
+            csrf_token: csrfInput ? csrfInput.value : ''
         });
         fetchJson('contabilidade/save-analysis.php?' + params.toString())
             .then(function(res) {

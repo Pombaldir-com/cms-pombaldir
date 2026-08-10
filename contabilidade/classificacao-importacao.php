@@ -76,6 +76,31 @@ if (!function_exists('resolveClassificationStorageIdentifiers')) {
     }
 }
 
+if (!function_exists('resetClassificationAccountPayloadCache')) {
+    /**
+     * Limpa a cache de regras de classificacao do pedido actual. Tem de ser
+     * chamada por qualquer rotina que altere `accounting_classifications` no
+     * mesmo pedido, para que as leituras seguintes nao devolvam valores antigos.
+     */
+    function resetClassificationAccountPayloadCache(): void {
+        fetchClassificationAccountPayload_cache(true);
+    }
+
+    /**
+     * Armazenamento da cache. Separado da funcao de leitura para poder ser
+     * limpo sem depender de uma variavel estatica de outra funcao.
+     *
+     * @return array<string,string>
+     */
+    function &fetchClassificationAccountPayload_cache(bool $reset = false): array {
+        static $cache = [];
+        if ($reset) {
+            $cache = [];
+        }
+        return $cache;
+    }
+}
+
 if (!function_exists('fetchClassificationAccountPayload')) {
     function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docType, array $importRow = []): string {
         $candidates = [];
@@ -98,9 +123,13 @@ if (!function_exists('fetchClassificationAccountPayload')) {
         $candidates[] = $rawLegacy;
 
         $seen = [];
-        $stmt = $pdo->prepare(
-            'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
-        );
+        $stmt = null;
+        // Esta funcao e chamada uma vez por linha da listagem, com ate 3 queries
+        // cada. Numa vista de importacao com milhares de documentos pendentes
+        // isso sao dezenas de milhares de queries por pedido, quase todas
+        // repetidas (o mesmo fornecedor aparece em muitos documentos). A cache e
+        // por pedido; ver resetClassificationAccountPayloadCache().
+        $cache = &fetchClassificationAccountPayload_cache();
 
         foreach ($candidates as $candidate) {
             [$candidateEmitter, $candidateAcquirer, $candidateDocType] = $candidate;
@@ -109,10 +138,20 @@ if (!function_exists('fetchClassificationAccountPayload')) {
                 continue;
             }
             $seen[$signature] = true;
-            $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
-            $payload = $stmt->fetchColumn();
-            if (is_string($payload) && trim($payload) !== '') {
-                return $payload;
+
+            if (!array_key_exists($signature, $cache)) {
+                if ($stmt === null) {
+                    $stmt = $pdo->prepare(
+                        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+                    );
+                }
+                $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
+                $payload = $stmt->fetchColumn();
+                $cache[$signature] = is_string($payload) ? $payload : '';
+            }
+
+            if (trim($cache[$signature]) !== '') {
+                return $cache[$signature];
             }
         }
 
@@ -1227,6 +1266,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     }, $documents);
 
     $documentsWithoutLines = [];
+    $documentsUnbalanced = [];
     foreach ($documentsPayload as &$documentPayload) {
         $originalAccountConfig = (string) ($documentPayload['account'] ?? '');
         $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfiguration($pdo, $documentPayload);
@@ -1240,12 +1280,18 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         $documentPayload['account_lines'] = $accountLines;
         $documentPayload['account'] = $accountLines;
 
+        $docLabel = trim((string) ($documentPayload['field_G'] ?? ''));
+        if ($docLabel === '') {
+            $docLabel = 'ID ' . ($documentPayload['id'] ?? '?');
+        }
+
         if (empty($accountLines)) {
-            $docLabel = trim((string) ($documentPayload['field_G'] ?? ''));
-            if ($docLabel === '') {
-                $docLabel = 'ID ' . ($documentPayload['id'] ?? '?');
-            }
             $documentsWithoutLines[] = $docLabel;
+        } elseif (!accountingLinesAreBalanced($accountLines)) {
+            // Nunca enviar um lancamento que nao fecha: a causa mais comum e uma
+            // base (tipicamente a isenta) sem conta de gasto atribuida, que nao
+            // gera linha a debito mas continua incluida no total a credito.
+            $documentsUnbalanced[] = $docLabel . ' (diferenca ' . number_format(computeAccountingLinesImbalance($accountLines), 2, ',', ' ') . ')';
         }
     }
     unset($documentPayload);
@@ -1253,6 +1299,15 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     if (!empty($documentsWithoutLines)) {
         $result['error'] = 'Existem documentos sem linhas contabilísticas configuradas: ' . implode(', ', $documentsWithoutLines);
         $result['error_detail'] = $result['error'];
+        return $result;
+    }
+
+    if (!empty($documentsUnbalanced)) {
+        $result['error'] = 'Existem documentos cujo lançamento não fecha (débito ≠ crédito): '
+            . implode('; ', $documentsUnbalanced)
+            . '. Verifique se todas as bases têm conta atribuída, incluindo a base isenta.';
+        $result['error_detail'] = $result['error'];
+        logErpMessage('Importação CTB abortada por lançamento desequilibrado. Detalhe: ' . $result['error']);
         return $result;
     }
 
@@ -2207,6 +2262,10 @@ function clearInvalidSuggestionHistoryForContext(PDO $pdo, array $args): array {
                 $rulesCleared++;
             }
         }
+    }
+
+    if ($rulesCleared > 0) {
+        resetClassificationAccountPayloadCache();
     }
 
     return ['history_cleared' => $historyCleared, 'rules_cleared' => $rulesCleared];

@@ -3642,6 +3642,12 @@ function extractDecimalAmount($value): ?string {
         }
     } elseif ($hasComma) {
         $normalized = str_replace(',', '.', $normalized);
+    } elseif ($hasDot && preg_match('/^-?\d{1,3}(\.\d{3})+$/', $normalized) === 1) {
+        // Formato portugues sem casas decimais ("1.234" = mil duzentos e trinta
+        // e quatro). Sem isto o ponto era lido como separador decimal e o valor
+        // ficava mil vezes menor. Montantes reais escrevem-se "1.234,56", pelo
+        // que grupos de exactamente 3 digitos so podem ser milhares.
+        $normalized = str_replace('.', '', $normalized);
     }
 
     $normalized = preg_replace('/[^0-9.\-]/', '', $normalized);
@@ -4168,6 +4174,17 @@ function mergeAccountingAccounts(array $base, array $override): array {
     $baseSanitized = sanitizeAccountInput($base);
     $overrideSanitized = sanitizeAccountInput($override);
 
+    // sanitizeAccountInput preenche sempre as taxas por omissao (0/6/13/23) com
+    // valores vazios. Sem esta distincao, uma taxa que o formulario nem sequer
+    // mostrou entraria no override como "vazia" e apagaria a conta aprendida
+    // para essa taxa. So se aplica o override as taxas realmente submetidas; a
+    // remocao explicita de uma taxa e tratada a parte, via removed_rates.
+    $overrideRaw = (isset($override['rates']) && is_array($override['rates'])) ? $override['rates'] : $override;
+    $explicitOverrideRates = [];
+    foreach (array_keys($overrideRaw) as $overrideRateKey) {
+        $explicitOverrideRates[(string) $overrideRateKey] = true;
+    }
+
     $allRates = array_unique(array_merge(array_keys($baseSanitized), array_keys($overrideSanitized)));
     $result = [];
 
@@ -4197,7 +4214,7 @@ function mergeAccountingAccounts(array $base, array $override): array {
             $result[$rate]['base_source_field'] = $baseSanitized[$rate]['base_source_field'];
         }
 
-        if (array_key_exists($rate, $overrideSanitized)) {
+        if (array_key_exists($rate, $overrideSanitized) && isset($explicitOverrideRates[(string) $rate])) {
             foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion', 'cost_center_required', 'base_source_field'] as $field) {
                 if (array_key_exists($field, $overrideSanitized[$rate])) {
                     $result[$rate][$field] = $overrideSanitized[$rate][$field];
@@ -4700,7 +4717,17 @@ function computeImportRateSummaries(array $row): array {
         $totalBase = 0.0;
     }
 
-    $base0 = $totalBase - $base6 - $base13 - $base23;
+    // Base isenta: o QR da AT ja fornece o valor no campo I2. Usa-se sempre que
+    // esteja presente; a subtracao (total - impostos - bases tributaveis) fica
+    // como recurso para documentos manuais/sem QR. Derivar por subtracao quando
+    // o I2 existe faz com que qualquer imprecisao nos totais (imposto do selo,
+    // taxas regionais) seja silenciosamente absorvida pela linha do isento.
+    $declaredBase0 = extractDecimalAmount($row['field_I2'] ?? null);
+    if ($declaredBase0 !== null && $declaredBase0 !== '') {
+        $base0 = (float) $declaredBase0;
+    } else {
+        $base0 = $totalBase - $base6 - $base13 - $base23;
+    }
     if (!is_finite($base0)) {
         $base0 = 0.0;
     }
@@ -4714,7 +4741,10 @@ function computeImportRateSummaries(array $row): array {
             'iva_value' => 0.0,
             'base_display' => $formatAmount($base0),
             'iva_display' => $formatAmount(0.0),
-            'require_general' => false,
+            // Havendo base isenta o documento tem de ter conta de gasto: sem ela
+            // a linha nao e gerada para o ERP e o lancamento fica desequilibrado
+            // exactamente nesse valor.
+            'require_general' => abs($base0) > 0.005,
             'require_iva' => false,
         ],
         '6' => [
@@ -5275,6 +5305,48 @@ function buildDocumentAccountingLines(array $document): array {
     }
 
     return $lines;
+}
+
+/**
+ * Diferenca entre o total a debito e o total a credito de um conjunto de linhas.
+ *
+ * Um lancamento valido tem de fechar a zero. Valores positivos indicam excesso
+ * de debito (tipicamente base/IVA classificados acima do total do documento);
+ * negativos indicam falta de debito (tipicamente uma base sem conta atribuida,
+ * como a linha de isento).
+ *
+ * @param array<int,array<string,mixed>> $lines
+ */
+function computeAccountingLinesImbalance(array $lines): float {
+    $debit = 0.0;
+    $credit = 0.0;
+
+    foreach ($lines as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $amount = isset($line['fltValor']) ? (float) $line['fltValor'] : 0.0;
+        if (!is_finite($amount)) {
+            continue;
+        }
+        if (strtoupper(trim((string) ($line['strDeb_Cre'] ?? 'D'))) === 'C') {
+            $credit += $amount;
+        } else {
+            $debit += $amount;
+        }
+    }
+
+    return round($debit - $credit, 2);
+}
+
+/**
+ * Verifica se as linhas fecham (debito = credito), com a tolerancia habitual de
+ * arredondamento ao centimo.
+ *
+ * @param array<int,array<string,mixed>> $lines
+ */
+function accountingLinesAreBalanced(array $lines, float $tolerance = 0.01): bool {
+    return abs(computeAccountingLinesImbalance($lines)) <= $tolerance;
 }
 
 ?>

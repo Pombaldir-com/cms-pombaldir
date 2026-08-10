@@ -171,7 +171,22 @@ function normalizeSubmittedEditableAccountingImportFields($value): array {
     return $result;
 }
 
-function buildDerivedEditableAccountingImportAmountFields(array $rates): array {
+/**
+ * Deriva os campos de montante do documento a partir das taxas classificadas.
+ *
+ * Devolve apenas os campos que devem ser reescritos: os que nao constarem do
+ * resultado ficam com o valor que ja tinham no documento. Isto e deliberado —
+ * os totais lidos do QR da AT sao a verdade sobre o documento e nao podem ser
+ * substituidos pelo somatorio das taxas classificadas (esse somatorio ignora o
+ * imposto do selo e as taxas regionais).
+ *
+ * @param array<string,mixed> $rates          Taxas classificadas.
+ * @param array<string,mixed> $existingRow    Linha actual de accounting_imports.
+ * @param bool                $isManualDocument Documento introduzido a mao (sem
+ *                            QR): ai os totais sao derivados das taxas, porque
+ *                            nao existe outra fonte para o total do documento.
+ */
+function buildDerivedEditableAccountingImportAmountFields(array $rates, array $existingRow = [], bool $isManualDocument = false): array {
     $result = [
         'field_I3' => '',
         'field_I4' => '',
@@ -232,6 +247,12 @@ function buildDerivedEditableAccountingImportAmountFields(array $rates): array {
         $seenFields[$ivaField] = true;
     }
 
+    // Nenhuma taxa trouxe montantes: nao ha nada a derivar. Devolver os campos a
+    // vazio apagaria os valores lidos do QR, por isso nao se reescreve nada.
+    if (!$hasAnyAmount) {
+        return [];
+    }
+
     foreach ($aggregated as $fieldName => $value) {
         if (!isset($result[$fieldName])) {
             continue;
@@ -246,7 +267,17 @@ function buildDerivedEditableAccountingImportAmountFields(array $rates): array {
         $result[$fieldName] = '0.00';
     }
 
-    if ($hasAnyAmount) {
+    // Total de impostos e total do documento. Num documento com QR o total lido
+    // e a verdade sobre o documento: inclui imposto do selo (field_M) e taxas
+    // regionais que o somatorio das taxas classificadas desconhece, pelo que
+    // reescreve-lo falsificaria o total. Ja num documento manual o total nao tem
+    // outra origem senao as taxas introduzidas, e tem de acompanha-las.
+    $existingTotal = extractDecimalAmount($existingRow['field_O'] ?? '');
+    $hasExistingTotal = ($existingTotal !== null && $existingTotal !== '' && abs((float) $existingTotal) >= 0.005);
+
+    if ($hasExistingTotal && !$isManualDocument) {
+        unset($result['field_N'], $result['field_O']);
+    } else {
         $result['field_N'] = number_format($totalIva, 2, '.', '');
         $result['field_O'] = number_format($totalDocument, 2, '.', '');
     }
@@ -264,23 +295,95 @@ function applyDefaultEditableAccountingImportFields(array &$row): void {
     if (trim((string) ($row['field_E'] ?? '')) === '') {
         $row['field_E'] = 'N';
     }
-    if (trim((string) ($row['field_F'] ?? '')) === '') {
-        $row['field_F'] = date('Y-m-d');
-    }
+    // field_F (data do documento) nao tem valor por omissao: preenche-la com a
+    // data de hoje gravava uma data inventada num documento cuja data nao foi
+    // lida. Fica vazia para que o utilizador tenha de a indicar.
 }
 
+/**
+ * Entidade adquirente (accounting_entities.id) associada a uma linha de
+ * accounting_imports, pelo mesmo caminho que a listagem usa para decidir se o
+ * botao "Classificar" fica activo: NIF do adquirente -> base ERP -> entidade.
+ */
+function resolveAccountingImportAcquirerEntityId(PDO $pdo, array $importRow): int {
+    static $cache = [];
+
+    $acquirerNif = '';
+    foreach ([(string) ($importRow['field_B'] ?? ''), (string) ($importRow['field_C'] ?? '')] as $candidate) {
+        $candidateNif = extractVatNumber($candidate);
+        if ($candidateNif !== '') {
+            $acquirerNif = $candidateNif;
+            break;
+        }
+    }
+    if ($acquirerNif === '') {
+        return 0;
+    }
+    if (array_key_exists($acquirerNif, $cache)) {
+        return $cache[$acquirerNif];
+    }
+
+    $entityId = 0;
+    try {
+        $entity = findAccountingEntity($pdo, $acquirerNif);
+        $database = is_array($entity) ? resolveAccountingEntityDatabase($entity) : '';
+        if (trim($database) !== '') {
+            $acquirerEntity = findAccountingAcquirerEntityByDatabase($pdo, $database);
+            $entityId = (int) ($acquirerEntity['id'] ?? 0);
+        }
+        if ($entityId <= 0 && is_array($entity) && ($entity['entity_type'] ?? '') === 'acquirer') {
+            $entityId = (int) ($entity['id'] ?? 0);
+        }
+    } catch (Throwable $throwable) {
+        $entityId = 0;
+    }
+
+    $cache[$acquirerNif] = $entityId;
+    return $entityId;
+}
+
+/**
+ * Autorizacao para classificar documentos CTB.
+ *
+ * Espelha exactamente a regra da listagem ([classificacao-importacao.php]):
+ * administradores (role <= 2) podem tudo; os restantes precisam da permissao
+ * `ctb_classificar_docs` atribuida a entidade adquirente daquele documento.
+ * A permissao de departamento sozinha nao chega — de outro modo um tecnico
+ * conseguiria classificar ou apagar por POST documentos de empresas que nem
+ * sequer consegue ver na listagem.
+ */
 function requireCtbClassificationPermission(PDO $pdo, ?int $importId = null): void {
-    if (userHasDepartmentPermission('ctb_classificar_docs')) {
+    $user = currentUser();
+    if ($user && ((int) ($user['role'] ?? 3)) <= 2) {
         return;
     }
 
     if ($importId !== null && $importId > 0) {
-        $stmt = $pdo->prepare('SELECT import_type FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT import_type, field_B, field_C FROM accounting_imports WHERE id = ? LIMIT 1');
         $stmt->execute([$importId]);
-        $importType = (int) $stmt->fetchColumn();
-        if ($importType !== 1) {
+        $importRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        // A analise de linhas de compras (import_type != 1) nunca exigiu esta
+        // permissao; mantem-se o comportamento anterior.
+        if ($importRow && (int) ($importRow['import_type'] ?? 0) !== 1) {
             return;
         }
+
+        if ($importRow) {
+            $entityId = resolveAccountingImportAcquirerEntityId($pdo, $importRow);
+            if ($entityId > 0 && userHasAccountingEntityTaskPermission('ctb_classificar_docs', $entityId)) {
+                return;
+            }
+            http_response_code(403);
+            echo json_encode(['error' => 'Sem permissao para classificar documentos desta empresa.', 'csrf_token' => generateCsrfToken(true)]);
+            exit;
+        }
+    }
+
+    // Sem documento concreto (ex.: gestao de modelos): basta ter a permissao em
+    // alguma entidade, ou a permissao de departamento.
+    if (userHasAccountingEntityTaskPermission('ctb_classificar_docs') || userHasDepartmentPermission('ctb_classificar_docs')) {
+        return;
     }
 
     http_response_code(403);
@@ -995,7 +1098,18 @@ function loadAllSharedClassificationModels(): array {
     }
 
     $raw = @file_get_contents($path);
-    if (!is_string($raw) || trim($raw) === '') {
+    if (!is_string($raw)) {
+        return [];
+    }
+
+    return normalizeSharedClassificationModelsPayload($raw);
+}
+
+/**
+ * Normaliza o conteudo bruto do ficheiro de modelos partilhados.
+ */
+function normalizeSharedClassificationModelsPayload(string $raw): array {
+    if (trim($raw) === '') {
         return [];
     }
 
@@ -1090,13 +1204,7 @@ function loadSharedClassificationModels(PDO $pdo, $emitter, $acquirer, $docType,
     return $filtered;
 }
 
-function saveSharedClassificationModels(array $models): void {
-    $path = getSharedClassificationModelPath();
-    $dir = dirname($path);
-    if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
-    }
-
+function encodeSharedClassificationModelsPayload(array $models): string {
     $payload = [
         'models' => array_values($models),
         'updated_at' => date('c'),
@@ -1107,8 +1215,56 @@ function saveSharedClassificationModels(array $models): void {
         throw new RuntimeException('Não foi possível serializar os modelos.');
     }
 
-    if (@file_put_contents($path, $json . PHP_EOL, LOCK_EX) === false) {
-        throw new RuntimeException('Não foi possível guardar os modelos partilhados.');
+    return $json . PHP_EOL;
+}
+
+/**
+ * Le, altera e reescreve o ficheiro de modelos partilhados sob lock exclusivo.
+ *
+ * O ficheiro e partilhado por todas as empresas e utilizadores. Ler e escrever
+ * em passos separados (mesmo com LOCK_EX so na escrita) faz com que gravacoes
+ * simultaneas percam modelos: o segundo a gravar parte de uma leitura anterior
+ * a alteracao do primeiro. O lock tem de cobrir a leitura e a escrita.
+ *
+ * @param callable(array):array $mutator Recebe os modelos actuais e devolve
+ *                                       [novosModelos, valorDeRetorno].
+ * @return mixed O valor de retorno devolvido pelo mutator.
+ */
+function withSharedClassificationModelsLock(callable $mutator) {
+    $path = getSharedClassificationModelPath();
+    $dir = dirname($path);
+    if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+        throw new RuntimeException('Não foi possível criar a pasta dos modelos partilhados.');
+    }
+
+    $handle = @fopen($path, 'c+');
+    if ($handle === false) {
+        throw new RuntimeException('Não foi possível abrir os modelos partilhados.');
+    }
+
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            throw new RuntimeException('Não foi possível bloquear os modelos partilhados.');
+        }
+
+        $raw = stream_get_contents($handle);
+        $models = normalizeSharedClassificationModelsPayload(is_string($raw) ? $raw : '');
+
+        [$updatedModels, $returnValue] = $mutator($models);
+
+        if ($updatedModels !== null) {
+            $json = encodeSharedClassificationModelsPayload($updatedModels);
+            rewind($handle);
+            if (ftruncate($handle, 0) === false || fwrite($handle, $json) === false) {
+                throw new RuntimeException('Não foi possível guardar os modelos partilhados.');
+            }
+            fflush($handle);
+        }
+
+        return $returnValue;
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
     }
 }
 
@@ -1132,7 +1288,6 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
         throw new RuntimeException('Modelo sem emitente válido.');
     }
 
-    $models = loadAllSharedClassificationModels();
     $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
     $normalized = [
         'company_slug' => $companySlug,
@@ -1154,24 +1309,24 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
         'updated_at' => date('c'),
     ];
 
-    // Remover todas as ocorrencias com o mesmo nome+ambito (podem existir
-    // duplicados herdados do esquema antigo por-adquirente ou criados por
-    // gravacoes concorrentes) e inserir a versao atual uma unica vez.
-    $models = array_values(array_filter($models, static function (array $existing) use ($name, $scopeKey): bool {
-        return !(
-            strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
-            && (string) ($existing['scope_key'] ?? '') === $scopeKey
-        );
-    }));
-    $models[] = $normalized;
+    return withSharedClassificationModelsLock(static function (array $models) use ($name, $scopeKey, $normalized): array {
+        // Remover todas as ocorrencias com o mesmo nome+ambito (podem existir
+        // duplicados herdados do esquema antigo por-adquirente) e inserir a
+        // versao atual uma unica vez.
+        $models = array_values(array_filter($models, static function (array $existing) use ($name, $scopeKey): bool {
+            return !(
+                strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
+                && (string) ($existing['scope_key'] ?? '') === $scopeKey
+            );
+        }));
+        $models[] = $normalized;
 
-    usort($models, static function (array $a, array $b): int {
-        return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+        usort($models, static function (array $a, array $b): int {
+            return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+        });
+
+        return [$models, $normalized];
     });
-
-    saveSharedClassificationModels($models);
-
-    return $normalized;
 }
 
 function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType, $name, string $tenantKey = ''): bool {
@@ -1181,25 +1336,23 @@ function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType
     }
     $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
 
-    $models = loadAllSharedClassificationModels();
-    $filtered = [];
-    $deleted = false;
+    return (bool) withSharedClassificationModelsLock(static function (array $models) use ($scopeKey, $modelName): array {
+        $filtered = [];
+        $deleted = false;
 
-    foreach ($models as $model) {
-        $sameScope = (string) ($model['scope_key'] ?? '') === $scopeKey;
-        $sameName = strcasecmp((string) ($model['name'] ?? ''), $modelName) === 0;
-        if ($sameScope && $sameName) {
-            $deleted = true;
-            continue;
+        foreach ($models as $model) {
+            $sameScope = (string) ($model['scope_key'] ?? '') === $scopeKey;
+            $sameName = strcasecmp((string) ($model['name'] ?? ''), $modelName) === 0;
+            if ($sameScope && $sameName) {
+                $deleted = true;
+                continue;
+            }
+            $filtered[] = $model;
         }
-        $filtered[] = $model;
-    }
 
-    if ($deleted) {
-        saveSharedClassificationModels($filtered);
-    }
-
-    return $deleted;
+        // Nada removido: devolver null evita reescrever o ficheiro sem motivo.
+        return [$deleted ? $filtered : null, $deleted];
+    });
 }
 
 /**
@@ -1350,6 +1503,16 @@ $action = $_GET['action'] ?? $_POST['action'] ?? '';
 if ($action === 'lines') {
     if (!isLoggedIn() || getCompanySlug() === null) {
         http_response_code(403);
+        exit;
+    }
+    // Esta accao escreve na BD (cache de line_items e do fallback do QR), por
+    // isso valida CSRF como as restantes. Valida sem consumir o token: varios
+    // caminhos de saida daqui nao devolvem token novo, e consumi-lo deixaria o
+    // cliente sem token valido ate recarregar a pagina.
+    if (!validateCsrfToken($_GET['csrf_token'] ?? '', false)) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Token CSRF inválido', 'csrf_token' => generateCsrfToken(true)]);
         exit;
     }
     $id = $_GET['id'] ?? '';
@@ -1583,7 +1746,8 @@ if (!isLoggedIn() || getCompanySlug() === null) {
     exit;
 }
 
-$canManageEntityAiInstructions = userHasDepartmentPermission('ctb_classificar_docs');
+$canManageEntityAiInstructions = userHasDepartmentPermission('ctb_classificar_docs')
+    || userHasAccountingEntityTaskPermission('ctb_classificar_docs');
 
 if ($action === 'save_entity_ai_instructions') {
     $token = $_POST['csrf_token'] ?? '';
@@ -1677,6 +1841,10 @@ if ($action === 'get') {
     $rowAccounts = normalizeAccountingAccounts(null);
     $rowMetadata = normalizeAccountingMetadata(null);
     $rowCostCenters = buildEmptyCostCenterMap();
+    // So era inicializada dentro do ramo com id: abrir o modal sem documento
+    // (classificacao manual) chegava a serializeCostCenters() com a variavel por
+    // definir, o que em PHP 8 rebenta com TypeError (espera array, recebe null).
+    $rowCostCenterBreakdowns = buildEmptyCostCenterBreakdownMap();
     $originalSnapshot = [];
     $summaries = [];
     $rowRequirements = [];
@@ -2052,7 +2220,8 @@ if ($action === 'get') {
             }
         }
 
-        foreach (buildDerivedEditableAccountingImportAmountFields($rowAccounts) as $fieldName => $fieldValue) {
+        $isManualDocumentSave = (($submittedMetadata['manual_document_fields'] ?? '0') === '1');
+        foreach (buildDerivedEditableAccountingImportAmountFields($rowAccounts, $importRow, $isManualDocumentSave) as $fieldName => $fieldValue) {
             $importRow[$fieldName] = $fieldValue;
         }
         $summaries = computeImportRateSummaries($importRow);
@@ -2133,18 +2302,6 @@ if ($action === 'get') {
             : $rowAccounts;
 
         $savedModel = null;
-        if ($saveModelName !== '') {
-            $savedModel = upsertSharedClassificationModel($pdo, [
-                'name' => $saveModelName,
-                'emitter' => $a,
-                'acquirer' => $b,
-                'doc_type' => $d,
-                'tenant_key' => $tenantKey,
-                'acquirer_database' => $tenantKey,
-                'rates' => stripAccountingAmounts($rowAccounts),
-                'total_account' => $submittedMetadata['total_account'] ?? '',
-            ]);
-        }
 
         $editableFieldColumns = getEditableAccountingImportFieldColumns();
         $updateAssignments = [];
@@ -2173,7 +2330,34 @@ if ($action === 'get') {
             $stmt2->execute([$classificationEmitter, $classificationAcquirer, $classificationDocType, $serializedClass]);
         }
         $pdo->commit();
-        echo json_encode([
+
+        // Os modelos partilhados vivem num ficheiro, fora da transacao: gravar
+        // so depois do commit evita ficar com um modelo guardado para uma
+        // classificacao que afinal reverteu. Como ja nao ha transacao para
+        // reverter, uma falha aqui e reportada como aviso — a classificacao em
+        // si esta guardada e nao deve aparecer ao utilizador como erro.
+        $modelWarning = '';
+        if ($saveModelName !== '') {
+            try {
+                $savedModel = upsertSharedClassificationModel($pdo, [
+                    'name' => $saveModelName,
+                    'emitter' => $a,
+                    'acquirer' => $b,
+                    'doc_type' => $d,
+                    'tenant_key' => $tenantKey,
+                    'acquirer_database' => $tenantKey,
+                    'rates' => stripAccountingAmounts($rowAccounts),
+                    'total_account' => $submittedMetadata['total_account'] ?? '',
+                ]);
+            } catch (Throwable $modelThrowable) {
+                error_log('save-analysis model error: ' . $modelThrowable->getMessage());
+                $modelWarning = 'A classificação foi guardada, mas não foi possível guardar o modelo "' . $saveModelName . '".';
+            }
+        }
+
+        echo json_encode(array_filter([
+            'warning' => $modelWarning,
+        ]) + [
             'success' => true,
             'csrf_token' => generateCsrfToken(),
             'row_rates' => $responseRowRates,
@@ -2199,13 +2383,17 @@ if ($action === 'get') {
             $pdo->rollBack();
         }
         http_response_code(500);
-        // Log the underlying exception for debugging and expose the message in
-        // the JSON response so the caller can act accordingly.
         error_log('save-analysis error: ' . $e->getMessage());
-        echo json_encode([
-            'error' => 'Erro ao guardar: ' . $e->getMessage(),
+        // O detalhe da excepcao so vai para o cliente em modo debug: fora disso
+        // expunha estrutura interna (tabelas, colunas, SQL) na resposta.
+        $errorPayload = [
+            'error' => 'Erro ao guardar a classificação.',
             'csrf_token' => generateCsrfToken()
-        ]);
+        ];
+        if (getSetting('debug_mode', '0') === '1') {
+            $errorPayload['error_detail'] = $e->getMessage();
+        }
+        echo json_encode($errorPayload);
     }
     exit;
 } elseif ($action === 'save_lines') {
@@ -2343,8 +2531,24 @@ if ($action === 'get') {
     $idValue = is_numeric($id) ? (int) $id : 0;
     requireCtbClassificationPermission($pdo, $idValue > 0 ? $idValue : null);
     try {
+        $stmtRemoved = $pdo->prepare('SELECT field_A, field_B, field_D, field_G, filename FROM accounting_imports WHERE id = ? LIMIT 1');
+        $stmtRemoved->execute([$id]);
+        $removedRow = $stmtRemoved->fetch(PDO::FETCH_ASSOC) ?: [];
+
         $stmt = $pdo->prepare('DELETE FROM accounting_imports WHERE id = ?');
         $stmt->execute([$id]);
+
+        // O ficheiro em disco nao e apagado de proposito: o mesmo PDF pode estar
+        // associado a mais do que um registo (fatura + recibo).
+        logAuditAction('delete', 'accounting_imports', $idValue > 0 ? $idValue : null, [
+            'emitter' => $removedRow['field_A'] ?? '',
+            'acquirer' => $removedRow['field_B'] ?? '',
+            'doc_type' => $removedRow['field_D'] ?? '',
+            'doc_number' => $removedRow['field_G'] ?? '',
+            'filename' => $removedRow['filename'] ?? '',
+            'source' => 'classification_list',
+        ]);
+
         echo json_encode(['success' => true, 'csrf_token' => generateCsrfToken()]);
     } catch (Exception $e) {
         http_response_code(500);
