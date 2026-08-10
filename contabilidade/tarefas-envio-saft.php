@@ -35,14 +35,14 @@ if (!hasTable('accounting_saft_submissions')) {
 function getSaftTaskEntities(PDO $pdo, bool $isAdmin, int $userId): array {
     if ($isAdmin) {
         $stmt = $pdo->query(
-            "SELECT id, nif, name FROM accounting_entities
+            "SELECT id, nif, name, erp_database FROM accounting_entities
              WHERE entity_type = 'acquirer'
              ORDER BY name ASC"
         );
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
     $stmt = $pdo->prepare(
-        "SELECT ae.id, ae.nif, ae.name
+        "SELECT ae.id, ae.nif, ae.name, ae.erp_database
          FROM accounting_entities ae
          INNER JOIN accounting_entity_admin_task_permissions aep
              ON aep.accounting_entity_id = ae.id
@@ -317,9 +317,20 @@ $efaturaTopbarSelector = [
     'entities' => array_merge(
         [['value' => '0', 'label' => 'Todas as empresas']],
         array_map(static function (array $entity): array {
+            $erpDatabase = resolveAccountingEntityDatabase($entity);
+            $companyCode = '';
+            if (preg_match('/^emp[_-]?(\d+)$/i', $erpDatabase, $matches)) {
+                $companyCode = ltrim($matches[1], '0');
+                if ($companyCode === '') {
+                    $companyCode = '0';
+                }
+            }
+            $entityName = (string) $entity['name'];
+            $label = $companyCode !== '' ? $companyCode . ' - ' . $entityName : $entityName;
+            $label .= trim((string) $entity['nif']) !== '' ? ' (' . $entity['nif'] . ')' : '';
             return [
                 'value' => (string) $entity['id'],
-                'label' => (string) $entity['name'] . (trim((string) $entity['nif']) !== '' ? ' (' . $entity['nif'] . ')' : ''),
+                'label' => $label,
             ];
         }, $entities)
     ),
