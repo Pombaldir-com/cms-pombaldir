@@ -1479,16 +1479,14 @@ return;
                                                                             autocomplete="new-password"
                                                                             value="<?= htmlspecialchars($additionalFieldValue); ?>"
                                                                         >
-                                                                        <span class="input-group-btn">
-                                                                            <button
-                                                                                type="button"
-                                                                                class="btn btn-default password-toggle-btn"
-                                                                                data-target="#<?= htmlspecialchars($additionalFieldInputId); ?>"
-                                                                                aria-label="Mostrar password"
-                                                                            >
-                                                                                <i class="fa fa-eye"></i>
-                                                                            </button>
-                                                                        </span>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="btn btn-default password-toggle-btn"
+                                                                            data-target="#<?= htmlspecialchars($additionalFieldInputId); ?>"
+                                                                            aria-label="Mostrar password"
+                                                                        >
+                                                                            <i class="fa fa-eye"></i>
+                                                                        </button>
                                                                     </div>
                                                                 <?php elseif ($additionalFieldType === 'integer'): ?>
                                                                     <input type="number" step="1" name="<?= htmlspecialchars($additionalFieldName); ?>" class="form-control" autocomplete="off" value="<?= htmlspecialchars($additionalFieldValue); ?>">

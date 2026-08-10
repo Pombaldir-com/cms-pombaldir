@@ -3395,7 +3395,8 @@ button,
 }
 
 .btn-group-vertical .btn,
-.btn-group .btn {
+.btn-group .btn,
+.input-group .btn {
     margin-bottom: 0;
     margin-right: 0;
 }
