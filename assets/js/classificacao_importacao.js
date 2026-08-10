@@ -8413,11 +8413,47 @@ window.addEventListener('load', function() {
         });
     }
 
+    var AI_SUGGESTION_SOURCE_LABELS = {
+        user_classification_corrections: 'Correções manuais anteriores do utilizador (histórico)',
+        bank_settings_erp: 'Modo Banco (Definições + Ligação ERP)',
+        mysql_history: 'Histórico MySQL (documentos já classificados)',
+        erp_planocontas: 'Plano de Contas ERP (fallback)',
+        erp_ligacao_cte_tipo_doc: 'Ligação Cte Tipo Doc ERP (parametrização por fornecedor)',
+        mysql_classification_rules: 'Regras de classificação guardadas (accounting_classifications)',
+        ai_prompt_extra_classification_rules: 'Instruções adicionais do backoffice (Definições > IA)',
+        entity_pair_ai_instructions: 'Instruções IA da entidade (Fornecedores > Instruções IA)',
+        erp_movimentos: 'Movimentos ERP'
+    };
+
+    function buildRealSuggestionSourceHtml() {
+        var sources = Array.isArray(window.aiSuggestionSources) ? window.aiSuggestionSources : null;
+        if (!sources) {
+            return '<div class="alert alert-secondary py-2 mb-3">'
+                + '<strong>Origem da sugestão aplicada:</strong> desconhecida (esta explicação não tem associada uma resposta do agente nesta sessão; os dados abaixo são uma reconstrução best-effort e podem não coincidir a 100% com o que foi aplicado).'
+                + '</div>';
+        }
+        if (!sources.length) {
+            return '<div class="alert alert-secondary py-2 mb-3">'
+                + '<strong>Origem da sugestão aplicada:</strong> nenhuma fonte reportada pelo agente.'
+                + '</div>';
+        }
+        var labels = sources.map(function(key) {
+            return escapeHtml(AI_SUGGESTION_SOURCE_LABELS[key] || key);
+        });
+        return '<div class="alert alert-warning py-2 mb-3">'
+            + '<strong>Origem da sugestão aplicada (reportada pelo agente ao classificar):</strong>'
+            + '<ul class="mb-0 mt-1">'
+            + labels.map(function(label) { return '<li>' + label + '</li>'; }).join('')
+            + '</ul>'
+            + '<small class="d-block mt-2 text-muted">As evidências detalhadas abaixo são uma reanálise feita agora pelo endpoint de explicação e servem para depuração; podem não refletir exatamente os mesmos valores/pesos usados no momento em que a sugestão foi aplicada.</small>'
+            + '</div>';
+    }
+
     function buildSuggestionExplanationHtml(response) {
         if (!response || typeof response !== 'object' || !response.rates || typeof response.rates !== 'object') {
             return '<p>Sem detalhes de explicação disponíveis.</p>';
         }
-        var html = '';
+        var html = buildRealSuggestionSourceHtml();
         if (response.summary && typeof response.summary === 'object') {
             var summary = response.summary;
             if (String(summary.bank_mode || '0') === '1') {
@@ -8587,18 +8623,32 @@ window.addEventListener('load', function() {
         html += '<div class="mb-2"><small class="text-muted">'
             + 'BD resolvida: ' + escapeHtml(String(ligacao.resolved_database || 'n/d'))
             + ' | NIFs tentados: ' + escapeHtml((ligacao.nif_candidates || []).join(', ') || 'n/d')
-            + ' | BDs tentadas: ' + escapeHtml((ligacao.database_candidates || []).join(', ') || 'n/d')
+            + ' | BDs tentadas (por ordem): ' + escapeHtml((ligacao.database_candidates || []).join(' → ') || 'n/d')
             + '</small></div>';
+
+        if (Array.isArray(ligacao.emitter_history_databases) && ligacao.emitter_history_databases.length > 0) {
+            html += '<div class="mb-2"><small class="text-muted">'
+                + 'BDs de outras empresas com histórico deste emitente (tentadas antes do fallback): '
+                + escapeHtml(ligacao.emitter_history_databases.join(', '))
+                + '</small></div>';
+        }
+        if (ligacao.default_database_fallback) {
+            html += '<div class="mb-2"><small class="text-muted">'
+                + 'BD de fallback (Empresa base, Definições): ' + escapeHtml(String(ligacao.default_database_fallback))
+                + '</small></div>';
+        }
 
         var attempts = Array.isArray(ligacao.attempts) ? ligacao.attempts : [];
         if (attempts.length > 0) {
             html += '<div class="mb-2"><strong>Tentativas de pesquisa</strong>'
                 + '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
-                + '<thead><tr><th>BD</th><th>NIF</th><th>strTpDoc</th><th>datadoc</th><th>Linhas</th><th>Encontrado</th></tr></thead><tbody>';
+                + '<thead><tr><th>BD</th><th>Origem</th><th>NIF</th><th>strTpDoc</th><th>datadoc</th><th>Linhas</th><th>Encontrado</th></tr></thead><tbody>';
             attempts.forEach(function(attempt) {
                 var query = attempt && attempt.query ? attempt.query : {};
-                html += '<tr>'
+                var rowClass = attempt.matched ? ' class="table-success"' : '';
+                html += '<tr' + rowClass + '>'
                     + '<td>' + escapeHtml(String(attempt.database || '-')) + '</td>'
+                    + '<td>' + escapeHtml(String(attempt.source || '-')) + '</td>'
                     + '<td>' + escapeHtml(String(attempt.nif || '-')) + '</td>'
                     + '<td>' + escapeHtml(String(query.strTpDoc || '-')) + '</td>'
                     + '<td>' + escapeHtml(String(query.datadoc || '-')) + '</td>'

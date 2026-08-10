@@ -82,6 +82,18 @@ Para escolher a linha correta por taxa de IVA, a regra principal deve ser:
 
 Os campos `fltVatRate`, `fltTaxaValor` e equivalentes podem vir preenchidos a `0`/`.000000`, por isso nao devem ser usados como fonte principal para descobrir a taxa.
 
+### Ordem de pesquisa de bases ERP (`database_candidates`)
+
+Para a pesquisa em `LigacaoCteTipoDoc` no endpoint de explicação, as bases ERP candidatas são tentadas por esta ordem (a primeira combinação BD+NIF que devolver linhas é usada):
+
+1. BD resolvida do contexto atual do documento (adquirente/emitente já identificados);
+2. BD do emitente (`accounting_entities`, quando o emitente também é uma entidade conhecida);
+3. BD do adquirente (`accounting_entities`);
+4. **BDs de outras empresas onde este mesmo emitente já apareceu em `accounting_imports`** (por `field_C`/`field_A`, ordenado por mais recente), via `findAccountingEntityDatabasesForEmitterHistory()` — até 5 bases distintas, excluindo as já tentadas acima;
+5. BD "Empresa base" (Definições > Contabilidade, `accounting_base_company`) — fallback final, só tentado se nenhuma das anteriores devolveu resultado.
+
+Esta ordem existe porque a ligação fornecedor→contas no ERP é parametrizada por empresa; se o fornecedor ainda não estiver configurado na base do adquirente atual mas já tiver sido classificado noutra empresa cliente, essa base tem prioridade sobre o fallback genérico da empresa base.
+
 Parâmetros recomendados para esta chamada (dinâmicos por documento):
 
 - `act=importMovim`
@@ -100,7 +112,8 @@ O webservice devolve as linhas candidatas, mas a aplicação é que faz a seleç
 
 Com `debug_mode` ativo (Definições > Geral), a resposta de `suggestion-explanation` inclui um bloco `debug.ligacao_cte_tipo_doc` com:
 
-- todas as combinações BD/NIF tentadas e quantas linhas cada uma devolveu (`attempts`);
+- todas as combinações BD/NIF tentadas, a origem de cada BD candidata (`database_candidate_sources`) e quantas linhas cada uma devolveu (`attempts`, incluindo `source` por tentativa);
+- as BDs de outras empresas usadas por terem histórico deste emitente (`emitter_history_databases`) e a BD de fallback final (`default_database_fallback`);
 - a BD finalmente usada (`resolved_database`);
 - as linhas brutas devolvidas pelo ERP (`rows`, com `strTipo`, `strConta`, `strConta_Iva`, `strContaEntidade`, `PC_Descricao`);
 - o agrupamento por taxa (`per_rate`) e as contas de valor total candidatas (`total_accounts`).

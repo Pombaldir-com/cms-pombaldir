@@ -2415,6 +2415,51 @@ function extractTotalAccountFromPayloadString(?string $json): string {
     return '';
 }
 
+/**
+ * Bases ERP (emp_XXX) de outras empresas adquirentes onde este emitente ja
+ * apareceu em documentos anteriores, por ordem de recencia. Usado como
+ * candidato intermedio na pesquisa de LigacaoCteTipoDoc, antes do fallback
+ * para a "Empresa base" (Modulos > Contabilidade), ja que a ligacao
+ * fornecedor->contas costuma estar parametrizada por empresa no ERP e pode
+ * so existir na base de outra empresa que ja trabalhou com este emitente.
+ */
+function findAccountingEntityDatabasesForEmitterHistory(PDO $pdo, string $emitterNif, array $excludeDatabases = [], int $limit = 5): array {
+    $emitterNif = trim($emitterNif);
+    if ($emitterNif === '') {
+        return [];
+    }
+
+    $stmt = $pdo->prepare('SELECT id, field_B FROM accounting_imports WHERE field_C = ? OR field_A LIKE ? ORDER BY id DESC LIMIT 50');
+    $stmt->execute([$emitterNif, '%' . $emitterNif . '%']);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $excludeDatabases = array_values(array_filter(array_map('trim', $excludeDatabases), static function (string $value): bool {
+        return $value !== '';
+    }));
+
+    $databases = [];
+    foreach ($rows as $row) {
+        $acquirerNif = extractVatNumber((string) ($row['field_B'] ?? ''));
+        if ($acquirerNif === '') {
+            continue;
+        }
+        $entity = findAccountingEntity($pdo, $acquirerNif);
+        if (!is_array($entity)) {
+            continue;
+        }
+        $database = resolveAccountingEntityDatabase($entity);
+        if ($database === '' || in_array($database, $excludeDatabases, true) || in_array($database, $databases, true)) {
+            continue;
+        }
+        $databases[] = $database;
+        if (count($databases) >= $limit) {
+            break;
+        }
+    }
+
+    return $databases;
+}
+
 function fetchErpJsonForSuggestion(string $path, array $query, string $database = '', bool $bypassCache = false): array {
     $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
     $token = trim((string) getSetting('erp_token', ''));
@@ -3364,12 +3409,34 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
     ], static function ($value): bool {
         return is_string($value) && trim($value) !== '';
     })));
-    $databaseCandidates = array_values(array_unique(array_filter([
+    $primaryDatabaseCandidates = array_values(array_unique(array_filter([
         $database,
         $emitterDatabase,
         $acquirerDatabase,
-        resolveErpDatabaseIdentifier(''),
     ], static function ($value): bool {
+        return is_string($value) && trim($value) !== '';
+    })));
+    $emitterHistoryDatabaseCandidates = findAccountingEntityDatabasesForEmitterHistory($pdo, $emitterNif, $primaryDatabaseCandidates);
+    $defaultDatabaseCandidate = resolveErpDatabaseIdentifier('');
+
+    $databaseCandidateSources = [];
+    foreach ($primaryDatabaseCandidates as $candidateDb) {
+        $databaseCandidateSources[$candidateDb] = 'contexto atual (emitente/adquirente)';
+    }
+    foreach ($emitterHistoryDatabaseCandidates as $candidateDb) {
+        if (!isset($databaseCandidateSources[$candidateDb])) {
+            $databaseCandidateSources[$candidateDb] = 'histórico do emitente noutra empresa';
+        }
+    }
+    if ($defaultDatabaseCandidate !== '' && !isset($databaseCandidateSources[$defaultDatabaseCandidate])) {
+        $databaseCandidateSources[$defaultDatabaseCandidate] = 'empresa base (fallback, Definições)';
+    }
+
+    $databaseCandidates = array_values(array_unique(array_filter(array_merge(
+        $primaryDatabaseCandidates,
+        $emitterHistoryDatabaseCandidates,
+        [$defaultDatabaseCandidate]
+    ), static function ($value): bool {
         return is_string($value) && trim($value) !== '';
     })));
     if ($ligacaoDocType !== '' && $docDate !== '' && !empty($ligacaoNifCandidates) && !empty($databaseCandidates)) {
@@ -3391,6 +3458,7 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
                 $candidateRows = !empty($ligacaoPayload) ? extractErpRowsFromPayload($ligacaoPayload) : [];
                 $ligacaoDebugAttempts[] = [
                     'database' => $databaseCandidate,
+                    'source' => $databaseCandidateSources[$databaseCandidate] ?? '',
                     'nif' => $ligacaoNifCandidate,
                     'query' => $ligacaoAttemptQuery,
                     'row_count' => count($candidateRows),
@@ -3837,6 +3905,9 @@ if ($action === 'suggestion_explanation' && $_SERVER['REQUEST_METHOD'] === 'POST
             'ligacao_cte_tipo_doc' => [
                 'nif_candidates' => $ligacaoNifCandidates,
                 'database_candidates' => $databaseCandidates,
+                'database_candidate_sources' => $databaseCandidateSources,
+                'emitter_history_databases' => $emitterHistoryDatabaseCandidates,
+                'default_database_fallback' => $defaultDatabaseCandidate,
                 'resolved_database' => $database,
                 'attempts' => $ligacaoDebugAttempts,
                 'rows' => $ligacaoRows,
