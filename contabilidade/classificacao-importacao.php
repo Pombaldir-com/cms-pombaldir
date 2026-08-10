@@ -402,7 +402,7 @@ if (hasTable('accounting_entities')) {
 
             if ($companyCode !== '') {
                 $companyName = $name !== '' ? $name : $nif;
-                $label = $databaseRef . ' (' . $companyCode . ' - ' . $companyName . ')';
+                $label = $companyCode . ' - ' . $companyName;
             } else {
                 $label = $name !== '' && $name !== $nif ? ($name . ' - ' . $nif) : $nif;
             }

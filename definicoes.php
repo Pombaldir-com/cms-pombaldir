@@ -1029,7 +1029,12 @@ require_once __DIR__ . '/header.php';
                                                 $selectedPermissions = $currentDepartmentPermissions[$deptId] ?? [];
                                             ?>
                                             <tr>
-                                                <td><?= htmlspecialchars($department['name'] ?? ''); ?></td>
+                                                <td>
+                                                    <?= htmlspecialchars($department['name'] ?? ''); ?>
+                                                    <?php if ($deptId === getBaselineDepartmentId()): ?>
+                                                        <br><span class="label label-info" title="Aplicadas automaticamente a todos os tecnicos, mesmo sem atribuicao a este departamento">Perfil base (todos os tecnicos)</span>
+                                                    <?php endif; ?>
+                                                </td>
                                                 <td>
                                                     <select class="form-control js-permissions" name="department_permissions[<?= $deptId; ?>][]" multiple>
                                                         <?php foreach ($permissionOptions as $permissionKey => $permissionLabel): ?>

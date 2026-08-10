@@ -2429,6 +2429,7 @@ function getBaseDepartmentPermissionOptions(): array {
     return [
         'compras_upload' => 'Compras -> Upload',
         'entidades_editar' => 'Entidades - Editar',
+        'entidades_campos_adicionais_ver' => 'Entidades - Ver Campos Adicionais',
         'ctb_classificar_docs' => 'CTB Classificacao Docs',
         'ctb_importar_docs' => 'CTB Importar Docs',
         'ctb_lancamentos_aceder' => 'CTB Lancamentos - Aceder',
@@ -2442,6 +2443,54 @@ function getBaseDepartmentPermissionOptions(): array {
         'ai_suggest_vat' => 'Assistente AI - Sugerir contas IVA',
         'ai_approve_docs' => 'Assistente AI - Aprovar/Rejeitar docs',
     ];
+}
+
+/**
+ * "Tecnico (Base)" e um departamento especial: as suas permissoes aplicam-se
+ * automaticamente a todos os utilizadores com role = 3 (tecnico), mesmo que
+ * nao estejam formalmente atribuidos a este departamento. Serve para definir
+ * um conjunto minimo de permissoes que todos os tecnicos devem ter, sem
+ * depender da atribuicao manual de departamentos. Ver AGENTS.md ("Perfil
+ * base Tecnico") para o racional completo.
+ */
+const BASELINE_DEPARTMENT_NAME = 'Tecnico (Base)';
+
+function getBaselineDepartmentDefaultPermissions(): array {
+    return [
+        'entidades_campos_adicionais_ver',
+    ];
+}
+
+function getBaselineDepartmentId(): int {
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $taxonomyId = getDepartmentTaxonomyId();
+    if (!$taxonomyId) {
+        return $cached = 0;
+    }
+
+    $storedId = (int) (getSetting('baseline_department_id', '0') ?? '0');
+    if ($storedId > 0) {
+        $term = getTerm($storedId);
+        if ($term && (int) ($term['taxonomy_id'] ?? 0) === $taxonomyId) {
+            return $cached = $storedId;
+        }
+    }
+
+    foreach (getTerms($taxonomyId) as $term) {
+        if ($term['name'] === BASELINE_DEPARTMENT_NAME) {
+            $id = (int) $term['id'];
+            setSetting('baseline_department_id', (string) $id);
+            return $cached = $id;
+        }
+    }
+
+    $id = createTerm($taxonomyId, BASELINE_DEPARTMENT_NAME);
+    setSetting('baseline_department_id', (string) $id);
+    return $cached = $id;
 }
 
 function normalizeDepartmentPermissionKey(string $permission, array $customPermissions = []): ?string {
@@ -2545,13 +2594,9 @@ function getDepartmentPermissionOptions(): array {
 
 function getDepartmentPermissions(): array {
     $raw = getSetting('department_permissions', '');
-    if ($raw === null || trim($raw) === '') {
-        return [];
-    }
-
-    $decoded = json_decode($raw, true);
+    $decoded = ($raw !== null && trim($raw) !== '') ? json_decode($raw, true) : null;
     if (!is_array($decoded)) {
-        return [];
+        $decoded = [];
     }
 
     $allowed = array_keys(getDepartmentPermissionOptions());
@@ -2576,6 +2621,15 @@ function getDepartmentPermissions(): array {
         $result[$deptId] = array_values(array_unique($clean));
     }
 
+    // Enquanto ninguem configurar explicitamente as permissoes do
+    // departamento base "Tecnico (Base)" em Definicoes, aplica-se o valor
+    // por omissao. Assim que for guardado uma vez a partir da UI, o valor
+    // explicito (mesmo vazio) passa a prevalecer.
+    $baselineDeptId = getBaselineDepartmentId();
+    if ($baselineDeptId > 0 && !array_key_exists($baselineDeptId, $decoded)) {
+        $result[$baselineDeptId] = getBaselineDepartmentDefaultPermissions();
+    }
+
     return $result;
 }
 
@@ -2594,6 +2648,12 @@ function userHasDepartmentPermission(string $permission): bool {
     }
 
     $departments = getUserDepartmentTermIds($userId);
+    $baselineDeptId = getBaselineDepartmentId();
+    if ($baselineDeptId > 0 && !in_array($baselineDeptId, $departments, true)) {
+        // Permissoes do departamento base aplicam-se a todos os tecnicos
+        // (role 3), independentemente de estarem atribuidos a ele.
+        $departments[] = $baselineDeptId;
+    }
     if (!$departments) {
         return false;
     }

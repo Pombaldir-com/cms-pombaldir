@@ -27,6 +27,10 @@ $canManageClientAdmin = ((int) ($user['role'] ?? 3)) <= 2;
 // passam sempre via userHasDepartmentPermission; nao-admins precisam da
 // permissao de departamento "Entidades - Editar".
 $canEditEntities = userHasDepartmentPermission('entidades_editar');
+// Ver o separador "Campos Adicionais" (inclui campos do tipo senha) e uma
+// permissao base atribuida a todos os tecnicos pelo departamento "Tecnico
+// (Base)" (ver getBaselineDepartmentId() em functions.php).
+$canViewAdditionalFields = userHasDepartmentPermission('entidades_campos_adicionais_ver');
 $adminTaskDefinitions = getAccountingEntityAdminTaskDefinitions();
 $typeSlug = trim((string) ($_GET['tipo'] ?? 'empresas'));
 $typeSlug = $typeSlug !== '' ? $typeSlug : 'empresas';
@@ -1230,7 +1234,7 @@ return;
                                 <li class="nav-item">
                                     <a class="nav-link active" data-bs-toggle="tab" data-bs-target="#cliente-detalhes" href="javascript:void(0);" role="tab">Detalhes</a>
                                 </li>
-                                <?php if ($additionalClientFields): ?>
+                                <?php if ($additionalClientFields && $canViewAdditionalFields): ?>
                                     <li class="nav-item">
                                         <a class="nav-link" data-bs-toggle="tab" data-bs-target="#cliente-campos-adicionais" href="javascript:void(0);" role="tab">Campos Adicionais</a>
                                     </li>
@@ -1421,7 +1425,7 @@ return;
                                             </div>
                                         </div>
                                     </div>
-                                    <?php if ($additionalClientFields): ?>
+                                    <?php if ($additionalClientFields && $canViewAdditionalFields): ?>
                                         <div class="tab-pane fade" id="cliente-campos-adicionais" role="tabpanel">
                                             <div class="erp-form-section">
                                                 <div class="row erp-additional-fields-row">

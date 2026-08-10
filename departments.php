@@ -31,6 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_department_id'
         $term = getTerm($idDel);
         if (!$term || (int) $term['taxonomy_id'] !== $taxonomyId) {
             $listErrors[] = 'Departamento invalido.';
+        } elseif ($idDel === getBaselineDepartmentId()) {
+            $listErrors[] = 'O departamento "' . BASELINE_DEPARTMENT_NAME . '" e o perfil base aplicado automaticamente a todos os tecnicos e nao pode ser eliminado.';
         } elseif (isDepartmentTermInUse($idDel)) {
             $listErrors[] = 'Nao pode eliminar departamentos com utilizadores associados.';
         } else {
@@ -122,7 +124,12 @@ if ($action === 'list'):
                 <?php foreach ($departments as $department): ?>
                     <tr>
                         <td><?= (int) $department['id']; ?></td>
-                        <td><?= htmlspecialchars($department['name']); ?></td>
+                        <td>
+                            <?= htmlspecialchars($department['name']); ?>
+                            <?php if ((int) $department['id'] === getBaselineDepartmentId()): ?>
+                                <span class="label label-info" title="Permissoes aplicadas automaticamente a todos os tecnicos, mesmo sem atribuicao">Perfil base</span>
+                            <?php endif; ?>
+                        </td>
                         <td><?= (int) ($department['user_count'] ?? 0); ?></td>
                         <td class="text-end">
                             <a href="<?= BASE_URL ?>tabelas/departamentos/edit/<?= (int) $department['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
