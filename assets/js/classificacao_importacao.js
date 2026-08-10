@@ -7580,10 +7580,21 @@ window.addEventListener('load', function() {
         });
     }
 
+    function getPlainCostCenterValue(rate) {
+        var info = rateInputs[rate] || null;
+        if (info && info.costCenter) {
+            var fieldValue = String(info.costCenter.value || '').trim();
+            if (fieldValue !== '') {
+                return fieldValue;
+            }
+        }
+        return String(currentCostCenters[rate] || '').trim();
+    }
+
     function getCostCenterDistributionSummary(rate) {
         var rows = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []);
         if (!rows.length) {
-            return '';
+            return getPlainCostCenterValue(rate);
         }
         var labels = rows.map(function(row) {
             return row.cost_center + ' (' + (row.percentage || '0.00') + '%)';
@@ -7601,7 +7612,10 @@ window.addEventListener('load', function() {
         var btnEl = info.row.querySelector('.cost-center-distribution-btn');
         var summaryEl = info.row.querySelector('.cost-center-distribution-summary');
         var required = isRateCostCenterRequired(rate);
-        var hasValue = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []).length > 0;
+        // Um centro de custo simples (sem reparticao) tambem conta como
+        // preenchido: e o formato usado quando vem das Instrucoes IA.
+        var hasValue = normalizeCostCenterDistributionRows(currentCostCenterBreakdowns[rate] || []).length > 0
+            || getPlainCostCenterValue(rate) !== '';
         if (selectEl) {
             selectEl.classList.add('d-none');
         }
@@ -8062,7 +8076,11 @@ window.addEventListener('load', function() {
         if (info.costCenter) {
             var storedValue = Object.prototype.hasOwnProperty.call(currentCostCenters, rate) ? currentCostCenters[rate] : '';
             if (info.costCenter.value !== storedValue) {
-                info.costCenter.value = storedValue;
+                // Repor via setCostCenterFieldOptions: uma atribuicao direta a
+                // .value e ignorada se o codigo nao existir entre as opcoes do
+                // catalogo (por exemplo, um centro de custo vindo das Instrucoes
+                // IA ou com o catalogo ERP ainda por carregar).
+                setCostCenterFieldOptions(info.costCenter, storedValue);
             }
         }
         syncFuelRubricAdjustmentForRate(rate, { formatBase: true });
