@@ -4501,9 +4501,6 @@ window.addEventListener('load', function() {
             applyCostCenterBreakdownValues(response.cost_center_breakdowns);
             currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
         }
-        if (response.suggested_cost_centers && typeof response.suggested_cost_centers === 'object') {
-            applySuggestedCostCenters(response.suggested_cost_centers);
-        }
 
         var restored = restoreSavedRates();
         rebuildRequirementsForCurrentButton();
@@ -7876,26 +7873,6 @@ window.addEventListener('load', function() {
         return Object.keys(values).some(function(rate) {
             return values[rate] !== '';
         });
-    }
-
-    function applySuggestedCostCenters(value) {
-        var suggested = normalizeCostCenterValues(value);
-        var current = getCostCenterValues();
-        var merged = {};
-        var changed = false;
-        Object.keys(current).forEach(function(rate) {
-            var currentValue = String(current[rate] || '').trim();
-            var suggestedValue = String(suggested[rate] || '').trim();
-            if (currentValue === '' && suggestedValue !== '') {
-                merged[rate] = suggestedValue;
-                changed = true;
-            } else {
-                merged[rate] = currentValue;
-            }
-        });
-        if (changed) {
-            applyCostCenterValues(merged, { skipEnsure: true });
-        }
     }
 
     function hasAccountData(entry) {

@@ -439,7 +439,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                             placeholder="Nome do modelo, ex.: Restaurante"
                                             maxlength="120"
                                         >
-                                        <small class="text-muted d-block mt-1">O modelo guarda apenas linhas, contas e centros de custo. A base e o IVA mostrados vêm sempre do QR Code/documento atual.</small>
+                                        <small class="text-muted d-block mt-1">O modelo guarda apenas linhas e contas. A base e o IVA vêm sempre do QR Code/documento atual. Os centros de custo nunca são guardados no modelo: introduza-os manualmente ou automatize-os nas Instruções IA para este emitente/adquirente.</small>
                                     </div>
                                 </div>
                             </div>

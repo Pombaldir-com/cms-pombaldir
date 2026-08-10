@@ -288,58 +288,6 @@ function requireCtbClassificationPermission(PDO $pdo, ?int $importId = null): vo
     exit;
 }
 
-function suggestHistoricalCostCenters(PDO $pdo, string $emitter, string $acquirer, string $docType, int $excludeId = 0): array {
-    $emitter = trim($emitter);
-    $acquirer = trim($acquirer);
-    $docType = trim($docType);
-    if ($emitter === '' || $acquirer === '' || $docType === '') {
-        return buildEmptyCostCenterMap();
-    }
-
-    $sql = 'SELECT cost_center FROM accounting_imports '
-        . 'WHERE field_A = ? AND field_B = ? AND field_D = ? AND cost_center IS NOT NULL AND cost_center <> "" ';
-    $params = [$emitter, $acquirer, $docType];
-    if ($excludeId > 0) {
-        $sql .= 'AND id <> ? ';
-        $params[] = $excludeId;
-    }
-    $sql .= 'ORDER BY id DESC LIMIT 200';
-
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    if (!$rows) {
-        return buildEmptyCostCenterMap();
-    }
-
-    $tallies = [];
-    foreach ($rows as $row) {
-        $costCenters = normalizeCostCenters($row['cost_center'] ?? '');
-        foreach ($costCenters as $rate => $value) {
-            $rateKey = (string) $rate;
-            $code = trim((string) $value);
-            if ($code === '') {
-                continue;
-            }
-            if (!isset($tallies[$rateKey])) {
-                $tallies[$rateKey] = [];
-            }
-            $tallies[$rateKey][$code] = ($tallies[$rateKey][$code] ?? 0) + 1;
-        }
-    }
-
-    $result = buildEmptyCostCenterMap(array_keys($tallies));
-    foreach ($tallies as $rate => $map) {
-        if (!is_array($map) || empty($map)) {
-            continue;
-        }
-        arsort($map);
-        $result[$rate] = (string) array_key_first($map);
-    }
-
-    return $result;
-}
-
 function suggestHistoricalTotalAccount(PDO $pdo, array $context, int $excludeId = 0): string {
     $emitter = trim((string) ($context['emitter'] ?? ''));
     $acquirer = trim((string) ($context['acquirer'] ?? ''));
@@ -1840,14 +1788,6 @@ if ($action === 'get') {
         }
     }
 
-    $suggestedCostCenters = suggestHistoricalCostCenters(
-        $pdo,
-        (string) $a,
-        (string) $b,
-        (string) $d,
-        $idValue
-    );
-
     echo json_encode([
         'rates' => $classificationAccounts,
         'row_rates' => $rowAccounts,
@@ -1855,7 +1795,6 @@ if ($action === 'get') {
         'cost_center' => serializeCostCenters($rowCostCenters, $rowCostCenterBreakdowns),
         'cost_centers' => $rowCostCenters,
         'cost_center_breakdowns' => $rowCostCenterBreakdowns,
-        'suggested_cost_centers' => $suggestedCostCenters,
         'total_account' => $classificationTotalAccount,
         'row_total_account' => $rowMetadata['total_account'] ?? '',
         'has_receipt_companion' => $rowMetadata['has_receipt_companion'] ?? '0',
@@ -2203,8 +2142,6 @@ if ($action === 'get') {
                 'tenant_key' => $tenantKey,
                 'acquirer_database' => $tenantKey,
                 'rates' => stripAccountingAmounts($rowAccounts),
-                'cost_centers' => $costCentersData,
-                'cost_center_breakdowns' => $costCenterBreakdownsData,
                 'total_account' => $submittedMetadata['total_account'] ?? '',
             ]);
         }
