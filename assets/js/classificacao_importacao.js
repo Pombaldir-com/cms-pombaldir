@@ -4501,6 +4501,9 @@ window.addEventListener('load', function() {
             applyCostCenterBreakdownValues(response.cost_center_breakdowns);
             currentBtn.setAttribute('data-cost-center-breakdowns', JSON.stringify(getCostCenterBreakdownValues()));
         }
+        if (response.suggested_cost_centers && typeof response.suggested_cost_centers === 'object') {
+            applySuggestedCostCenters(response.suggested_cost_centers);
+        }
 
         var restored = restoreSavedRates();
         rebuildRequirementsForCurrentButton();
@@ -4923,8 +4926,8 @@ window.addEventListener('load', function() {
         currentRateData = cloneJsonValue(selectedModel.rates, {});
         storedRowRates = {};
         storedDefaultRates = {};
-        currentCostCenters = cloneJsonValue(selectedModel.cost_centers, {});
-        currentCostCenterBreakdowns = cloneJsonValue(selectedModel.cost_center_breakdowns, {});
+        // Modelos nao transportam centros de custo (sao por empresa/entidade):
+        // preservar os valores atuais/sugeridos da linha em vez de os limpar.
         currentTotalAccount = selectedModel.total_account;
         currentIgnoreDetectedRates = true;
         currentClassificationModelName = selectedModel.name;

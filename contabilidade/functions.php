@@ -3775,6 +3775,19 @@ function normalizeAccountingAccounts(?string $json): array {
                     $result[$keyString]['bank_loan_conversion'] = normalizeAccountingMetadataFlag($value['bank_loan_conversion']);
                 }
 
+                if (array_key_exists('cost_center_required', $value)) {
+                    $costCenterFlag = trim((string) $value['cost_center_required']);
+                    if ($costCenterFlag === '1' || strcasecmp($costCenterFlag, 'true') === 0) {
+                        $result[$keyString]['cost_center_required'] = '1';
+                    }
+                }
+                if (array_key_exists('base_source_field', $value)) {
+                    $baseSourceCandidate = extractStringValue($value['base_source_field'], ['field', 'value', 'name', 'code']);
+                    if ($baseSourceCandidate !== null && trim($baseSourceCandidate) !== '') {
+                        $result[$keyString]['base_source_field'] = trim($baseSourceCandidate);
+                    }
+                }
+
                 $baseValue = null;
                 if (array_key_exists('base_value', $value)) {
                     $baseValue = extractDecimalAmount($value['base_value']);
@@ -4177,9 +4190,15 @@ function mergeAccountingAccounts(array $base, array $override): array {
         if (isset($baseSanitized[$rate]['bank_loan_conversion'])) {
             $result[$rate]['bank_loan_conversion'] = $baseSanitized[$rate]['bank_loan_conversion'];
         }
+        if (isset($baseSanitized[$rate]['cost_center_required'])) {
+            $result[$rate]['cost_center_required'] = $baseSanitized[$rate]['cost_center_required'];
+        }
+        if (isset($baseSanitized[$rate]['base_source_field'])) {
+            $result[$rate]['base_source_field'] = $baseSanitized[$rate]['base_source_field'];
+        }
 
         if (array_key_exists($rate, $overrideSanitized)) {
-            foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion'] as $field) {
+            foreach (['iva_account', 'general_account', 'base', 'iva', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion', 'cost_center_required', 'base_source_field'] as $field) {
                 if (array_key_exists($field, $overrideSanitized[$rate])) {
                     $result[$rate][$field] = $overrideSanitized[$rate][$field];
                 }

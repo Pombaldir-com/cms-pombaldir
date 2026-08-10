@@ -1117,10 +1117,10 @@ function loadAllSharedClassificationModels(): array {
  * do adquirente/empresa em que foram criados (ambito global por emitente).
  */
 function loadSharedClassificationModels(PDO $pdo, $emitter, $acquirer, $docType, string $tenantKey = ''): array {
-    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
-    if ($scopeKey === '|') {
+    if (normalizeSupplierPartyValue($emitter) === '') {
         return [];
     }
+    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
 
     $models = loadAllSharedClassificationModels();
     $filtered = [];
@@ -1206,20 +1206,16 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
         'updated_at' => date('c'),
     ];
 
-    $updated = false;
-    foreach ($models as $index => $existing) {
-        if (
+    // Remover todas as ocorrencias com o mesmo nome+ambito (podem existir
+    // duplicados herdados do esquema antigo por-adquirente ou criados por
+    // gravacoes concorrentes) e inserir a versao atual uma unica vez.
+    $models = array_values(array_filter($models, static function (array $existing) use ($name, $scopeKey): bool {
+        return !(
             strcasecmp((string) ($existing['name'] ?? ''), $name) === 0
             && (string) ($existing['scope_key'] ?? '') === $scopeKey
-        ) {
-            $models[$index] = $normalized;
-            $updated = true;
-            break;
-        }
-    }
-    if (!$updated) {
-        $models[] = $normalized;
-    }
+        );
+    }));
+    $models[] = $normalized;
 
     usort($models, static function (array $a, array $b): int {
         return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
@@ -1231,11 +1227,11 @@ function upsertSharedClassificationModel(PDO $pdo, array $model): array {
 }
 
 function deleteSharedClassificationModel(PDO $pdo, $emitter, $acquirer, $docType, $name, string $tenantKey = ''): bool {
-    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
     $modelName = sanitizeClassificationModelName($name);
-    if ($scopeKey === '|' || $modelName === '') {
+    if (normalizeSupplierPartyValue($emitter) === '' || $modelName === '') {
         return false;
     }
+    $scopeKey = buildClassificationModelScopeKey($emitter, $docType);
 
     $models = loadAllSharedClassificationModels();
     $filtered = [];
@@ -2122,17 +2118,6 @@ if ($action === 'get') {
         }
         $summaries = computeImportRateSummaries($importRow);
         [, $rowRequirements] = buildClassificationRequirements($summaries, $rowAccounts, $submittedMetadata);
-        $missingCostCenterRates = [];
-        foreach ($rowRequirements as $rate => $requirement) {
-            if (empty($requirement['cost_center'])) {
-                continue;
-            }
-            $costCenterValue = trim((string) ($costCentersData[$rate] ?? ''));
-            $distributionRows = sanitizeCostCenterBreakdownRows($costCenterBreakdownsData[$rate] ?? []);
-            if ($costCenterValue === '' && empty($distributionRows)) {
-                $missingCostCenterRates[] = (string) $rate;
-            }
-        }
 
         $normalizeRatesForComparison = static function (array $rates): array {
             $normalized = sanitizeAccountInput($rates);
