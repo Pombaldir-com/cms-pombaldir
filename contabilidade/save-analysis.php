@@ -12,35 +12,6 @@ startSession();
 
 
 /**
- * Normalize a supplier party identifier (emitter/acquirer).
- */
-function normalizeSupplierPartyValue($value): string {
-    $string = trim((string) ($value ?? ''));
-    if ($string === '') {
-        return '';
-    }
-
-    if (function_exists('mb_substr')) {
-        return mb_substr($string, 0, 255, 'UTF-8');
-    }
-
-    return substr($string, 0, 255);
-}
-
-function normalizeDocTypeValue($value): string {
-    $string = trim((string) ($value ?? ''));
-    if ($string === '') {
-        return '';
-    }
-
-    if (function_exists('mb_substr')) {
-        return mb_substr($string, 0, 50, 'UTF-8');
-    }
-
-    return substr($string, 0, 50);
-}
-
-/**
  * Uppercase helper compatible with environments without mbstring.
  */
 function supplierToUpper(string $value): string {
@@ -484,70 +455,6 @@ function suggestHistoricalTotalAccount(PDO $pdo, array $context, int $excludeId 
     }
 
     return $bestAccount;
-}
-
-function buildClassificationPartyKey($value, $fallbackVat = ''): string {
-    $fallbackVat = trim((string) ($fallbackVat ?? ''));
-    $vat = extractVatNumber($fallbackVat !== '' ? $fallbackVat : (string) $value);
-    if ($vat !== '') {
-        return $vat;
-    }
-    return normalizeSupplierPartyValue($value);
-}
-
-function resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, array $importRow = []): array {
-    $resolvedEmitterSource = array_key_exists('field_A', $importRow) ? $importRow['field_A'] : $emitter;
-    $resolvedEmitterVat = array_key_exists('field_C', $importRow) ? $importRow['field_C'] : '';
-    $resolvedAcquirerSource = array_key_exists('field_B', $importRow) ? $importRow['field_B'] : $acquirer;
-    $resolvedDocType = array_key_exists('field_D', $importRow) ? $importRow['field_D'] : $docType;
-
-    return [
-        buildClassificationPartyKey($resolvedEmitterSource, $resolvedEmitterVat),
-        buildClassificationPartyKey($resolvedAcquirerSource),
-        normalizeDocTypeValue($resolvedDocType),
-    ];
-}
-
-function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docType, array $importRow = []): string {
-    $candidates = [];
-
-    $resolved = resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, $importRow);
-    $candidates[] = $resolved;
-
-    $normalizedLegacy = [
-        normalizeSupplierPartyValue($emitter),
-        normalizeSupplierPartyValue($acquirer),
-        normalizeDocTypeValue($docType),
-    ];
-    $candidates[] = $normalizedLegacy;
-
-    $rawLegacy = [
-        trim((string) ($emitter ?? '')),
-        trim((string) ($acquirer ?? '')),
-        trim((string) ($docType ?? '')),
-    ];
-    $candidates[] = $rawLegacy;
-
-    $seen = [];
-    $stmt = $pdo->prepare(
-        'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
-    );
-
-    foreach ($candidates as $candidate) {
-        [$candidateEmitter, $candidateAcquirer, $candidateDocType] = $candidate;
-        $signature = $candidateEmitter . '|' . $candidateAcquirer . '|' . $candidateDocType;
-        if ($candidateEmitter === '' || $candidateAcquirer === '' || $candidateDocType === '' || isset($seen[$signature])) {
-            continue;
-        }
-        $seen[$signature] = true;
-        $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
-        $payload = $stmt->fetchColumn();
-        if (is_string($payload) && trim($payload) !== '') {
-            return $payload;
-        }
-    }
-
-    return '';
 }
 
 function classificationHasAnyMappedAccount(array $rates): bool {
@@ -1002,17 +909,6 @@ function persistEmitterTypeValue(PDO $pdo, string $entityFieldValue, string $typ
             : '',
         'emitter_type' => $normalizedType === 'bank' ? '1' : ($normalizedType === 'insurance' ? '2' : '0'),
     ]);
-}
-
-function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
-    $normalizedFlag = trim($receiptCompanionFlag) === '1' ? '1' : '0';
-    if ($normalizedFlag === '1') {
-        $receiptTotalAccount = trim((string) ($metadata['receipt_total_account'] ?? ''));
-        if ($receiptTotalAccount !== '') {
-            return $receiptTotalAccount;
-        }
-    }
-    return trim((string) ($metadata['total_account'] ?? ''));
 }
 
 function getSharedClassificationModelPath(): string {

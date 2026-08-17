@@ -4960,6 +4960,223 @@ function buildClassificationRequirements(array $summaries, array $accounts, arra
     return [$payload, $requirements];
 }
 
+function normalizeSupplierPartyValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 255, 'UTF-8');
+    }
+
+    return substr($string, 0, 255);
+}
+
+function normalizeDocTypeValue($value): string {
+    $string = trim((string) ($value ?? ''));
+    if ($string === '') {
+        return '';
+    }
+
+    if (function_exists('mb_substr')) {
+        return mb_substr($string, 0, 50, 'UTF-8');
+    }
+
+    return substr($string, 0, 50);
+}
+
+function buildClassificationPartyKey($value, $fallbackVat = ''): string {
+    $fallbackVat = trim((string) ($fallbackVat ?? ''));
+    $vat = extractVatNumber($fallbackVat !== '' ? $fallbackVat : (string) $value);
+    if ($vat !== '') {
+        return $vat;
+    }
+    return normalizeSupplierPartyValue($value);
+}
+
+function resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, array $importRow = []): array {
+    $resolvedEmitterSource = array_key_exists('field_A', $importRow) ? $importRow['field_A'] : $emitter;
+    $resolvedEmitterVat = array_key_exists('field_C', $importRow) ? $importRow['field_C'] : '';
+    $resolvedAcquirerSource = array_key_exists('field_B', $importRow) ? $importRow['field_B'] : $acquirer;
+    $resolvedDocType = array_key_exists('field_D', $importRow) ? $importRow['field_D'] : $docType;
+
+    return [
+        buildClassificationPartyKey($resolvedEmitterSource, $resolvedEmitterVat),
+        buildClassificationPartyKey($resolvedAcquirerSource),
+        normalizeDocTypeValue($resolvedDocType),
+    ];
+}
+
+/**
+ * Limpa a cache de regras de classificacao do pedido actual. Tem de ser
+ * chamada por qualquer rotina que altere `accounting_classifications` no
+ * mesmo pedido, para que as leituras seguintes nao devolvam valores antigos.
+ */
+function resetClassificationAccountPayloadCache(): void {
+    fetchClassificationAccountPayload_cache(true);
+}
+
+/**
+ * Armazenamento da cache. Separado da funcao de leitura para poder ser
+ * limpo sem depender de uma variavel estatica de outra funcao.
+ *
+ * @return array<string,string>
+ */
+function &fetchClassificationAccountPayload_cache(bool $reset = false): array {
+    static $cache = [];
+    if ($reset) {
+        $cache = [];
+    }
+    return $cache;
+}
+
+function fetchClassificationAccountPayload(PDO $pdo, $emitter, $acquirer, $docType, array $importRow = []): string {
+    $candidates = [];
+
+    $resolved = resolveClassificationStorageIdentifiers($emitter, $acquirer, $docType, $importRow);
+    $candidates[] = $resolved;
+
+    $normalizedLegacy = [
+        normalizeSupplierPartyValue($emitter),
+        normalizeSupplierPartyValue($acquirer),
+        normalizeDocTypeValue($docType),
+    ];
+    $candidates[] = $normalizedLegacy;
+
+    $rawLegacy = [
+        trim((string) ($emitter ?? '')),
+        trim((string) ($acquirer ?? '')),
+        trim((string) ($docType ?? '')),
+    ];
+    $candidates[] = $rawLegacy;
+
+    $seen = [];
+    $stmt = null;
+    // Esta funcao e chamada uma vez por linha da listagem, com ate 3 queries
+    // cada. Numa vista de importacao com milhares de documentos pendentes
+    // isso sao dezenas de milhares de queries por pedido, quase todas
+    // repetidas (o mesmo fornecedor aparece em muitos documentos). A cache e
+    // por pedido; ver resetClassificationAccountPayloadCache().
+    $cache = &fetchClassificationAccountPayload_cache();
+
+    foreach ($candidates as $candidate) {
+        [$candidateEmitter, $candidateAcquirer, $candidateDocType] = $candidate;
+        $signature = $candidateEmitter . '|' . $candidateAcquirer . '|' . $candidateDocType;
+        if ($candidateEmitter === '' || $candidateAcquirer === '' || $candidateDocType === '' || isset($seen[$signature])) {
+            continue;
+        }
+        $seen[$signature] = true;
+
+        if (!array_key_exists($signature, $cache)) {
+            if ($stmt === null) {
+                $stmt = $pdo->prepare(
+                    'SELECT account FROM accounting_classifications WHERE emitter = ? AND acquirer = ? AND doc_type = ? LIMIT 1'
+                );
+            }
+            $stmt->execute([$candidateEmitter, $candidateAcquirer, $candidateDocType]);
+            $payload = $stmt->fetchColumn();
+            $cache[$signature] = is_string($payload) ? $payload : '';
+        }
+
+        if (trim($cache[$signature]) !== '') {
+            return $cache[$signature];
+        }
+    }
+
+    return '';
+}
+
+function resolveClassificationTotalAccountForContext(array $metadata, string $receiptCompanionFlag = '0'): string {
+    $normalizedFlag = trim($receiptCompanionFlag) === '1' ? '1' : '0';
+    if ($normalizedFlag === '1') {
+        $receiptTotalAccount = trim((string) ($metadata['receipt_total_account'] ?? ''));
+        if ($receiptTotalAccount !== '') {
+            return $receiptTotalAccount;
+        }
+    }
+    return trim((string) ($metadata['total_account'] ?? ''));
+}
+
+function resolveDisplayClassificationAccounts(array $defaultAccounts, array $rowAccounts): array {
+    $baseSanitized = sanitizeAccountInput($defaultAccounts);
+    $rowSanitized = sanitizeAccountInput($rowAccounts);
+    $allRates = array_values(array_unique(array_merge(array_keys($baseSanitized), array_keys($rowSanitized))));
+    $result = [];
+
+    foreach ($allRates as $rate) {
+        $defaultEntry = $baseSanitized[$rate] ?? [];
+        $rowEntry = $rowSanitized[$rate] ?? [];
+        $entry = $defaultEntry;
+
+        foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion'] as $field) {
+            $rowValue = isset($rowEntry[$field]) ? trim((string) $rowEntry[$field]) : '';
+            if ($rowValue !== '') {
+                $entry[$field] = $rowValue;
+            }
+        }
+
+        $rowCostCenterRequired = trim((string) ($rowEntry['cost_center_required'] ?? ''));
+        if ($rowCostCenterRequired === '1') {
+            $entry['cost_center_required'] = '1';
+        } elseif (!empty($defaultEntry['cost_center_required'])) {
+            $entry['cost_center_required'] = '1';
+        }
+
+        $result[$rate] = $entry;
+    }
+
+    return $result;
+}
+
+/**
+ * Same effective-configuration merge as classificacao-importacao.php's
+ * resolveEffectiveDocumentAccountingConfiguration(), minus the fuel rubric
+ * code lookup (resolveDocumentLigacaoRubricCodes), which calls the ERP
+ * webservice live. Used by contexts that render many rows at once (e.g. the
+ * e-fatura documents list) where a per-row ERP round trip is not acceptable;
+ * accounts missing an erp_rubric_code purely because that lookup was skipped
+ * are the one known accuracy trade-off.
+ */
+function resolveEffectiveDocumentAccountingConfigurationWithoutErpLookup(PDO $pdo, array $document): string {
+    $rowPayload = (string) ($document['account'] ?? '');
+    $rowAccounts = normalizeAccountingAccounts($rowPayload);
+    $rowMetadata = normalizeAccountingMetadata($rowPayload);
+    $classificationPayload = fetchClassificationAccountPayload(
+        $pdo,
+        (string) ($document['field_A'] ?? ''),
+        (string) ($document['field_B'] ?? ''),
+        (string) ($document['field_D'] ?? ''),
+        $document
+    );
+    $classificationMetadata = defaultAccountingMetadata();
+    $effectiveAccounts = $rowAccounts;
+    $effectiveMetadata = $rowMetadata;
+
+    if (trim($classificationPayload) !== '') {
+        $classificationAccounts = normalizeAccountingAccounts($classificationPayload);
+        $classificationMetadata = normalizeAccountingMetadata($classificationPayload);
+        $effectiveAccounts = resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts);
+
+        if (trim((string) ($effectiveMetadata['total_account'] ?? '')) === '') {
+            $effectiveMetadata['total_account'] = resolveClassificationTotalAccountForContext(
+                $classificationMetadata,
+                $rowMetadata['has_receipt_companion'] ?? '0'
+            );
+        }
+
+        if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
+            $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
+        }
+    }
+
+    if (trim($classificationPayload) === '' && $effectiveAccounts === $rowAccounts) {
+        return $rowPayload;
+    }
+
+    return serializeAccountingAccounts($effectiveAccounts, $effectiveMetadata, $rowMetadata);
+}
+
 /**
  * Determine the button class for a classification row based on requirements.
  *

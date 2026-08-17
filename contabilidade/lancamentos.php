@@ -333,6 +333,29 @@ require_once __DIR__ . '/../header.php';
 $currentYear = (int) date('Y');
 $yearOptions = [$currentYear, $currentYear - 1];
 $csrfToken = generateCsrfToken();
+
+// Deep-link support: open a specific movimento's edit modal directly (used by
+// the e-fatura documentos page to jump straight to "Editar lançamento").
+$openLancamentoId = trim((string) ($_GET['open_id'] ?? ''));
+$openLancamentoSearch = trim((string) ($_GET['q'] ?? ''));
+// cab_id (Movimentos_Ctb_Cab.Id) appears to be scoped per diario, not globally
+// unique across a whole exercicio, so matching by Id alone can grab a
+// different movimento from another diario. NIF + total disambiguate it.
+$openLancamentoNif = preg_replace('/\D+/', '', (string) ($_GET['open_nif'] ?? '')) ?? '';
+$openLancamentoTotal = trim((string) ($_GET['open_total'] ?? ''));
+$initialExercicio = trim((string) ($_GET['strCodExercicio'] ?? ''));
+$initialMes = trim((string) ($_GET['intMes'] ?? ''));
+if ($initialExercicio !== '' && ctype_digit($initialExercicio) && !in_array((int) $initialExercicio, $yearOptions, true)) {
+    $yearOptions[] = (int) $initialExercicio;
+    sort($yearOptions);
+    $yearOptions = array_reverse($yearOptions);
+}
+if ($initialExercicio === '' || !ctype_digit($initialExercicio)) {
+    $initialExercicio = (string) $currentYear;
+}
+if ($initialMes === '' || !ctype_digit($initialMes)) {
+    $initialMes = date('n');
+}
 ?>
 <style>
 #lancamentos-table thead tr:nth-child(2) th.no-sort::before,
@@ -353,7 +376,7 @@ $csrfToken = generateCsrfToken();
         <div class="x_content">
             <div id="lancamentos-top-filters" class="d-none d-flex align-items-center">
                 <input type="hidden" class="dt-filter" data-field="db" data-default="<?= htmlspecialchars($selectedDatabase); ?>" value="<?= htmlspecialchars($selectedDatabase); ?>">
-                <select class="form-select dt-filter" style="min-width: 95px; height: 38px;" data-field="strCodExercicio" data-default="<?= htmlspecialchars((string) $currentYear); ?>">
+                <select class="form-select dt-filter" style="min-width: 95px; height: 38px;" data-field="strCodExercicio" data-default="<?= htmlspecialchars($initialExercicio); ?>">
                     <?php foreach ($yearOptions as $year): ?>
                         <option value="<?= htmlspecialchars((string) $year); ?>"><?= htmlspecialchars((string) $year); ?></option>
                     <?php endforeach; ?>
@@ -363,7 +386,7 @@ $csrfToken = generateCsrfToken();
                 <thead>
                     <tr>
                         <th width="10%" class="text-center"><input type="text" class="form-control dt-filter" style="height: 38px;" data-field="intCodDiario" data-default="" placeholder="Diário"></th>
-                        <th width="10%" class="text-center"><input type="text" class="form-control dt-filter" style="height: 38px;" data-field="intMes" data-default="<?= htmlspecialchars(date('n')); ?>" placeholder="Mês"></th>
+                        <th width="10%" class="text-center"><input type="text" class="form-control dt-filter" style="height: 38px;" data-field="intMes" data-default="<?= htmlspecialchars($initialMes); ?>" placeholder="Mês"></th>
                         <th width="10%"></th>
                         <th width="15%"><input type="text" class="form-control dt-filter" style="height: 38px;" data-field="strAbrevTpDoc" data-default="" placeholder="Tipo Doc"></th>
                         <th></th>
@@ -1756,6 +1779,26 @@ $pageScripts = <<<'JS'
             }
         });
     }
+    var pendingOpenLancamentoId = window.lancamentosOpenId || '';
+    var pendingOpenLancamentoNotified = false;
+    if (pendingOpenLancamentoId) {
+        // Deep link: only scope the ERP fetch by exercicio (the same scope
+        // efatura.php's "Verificar no ERP" probe uses and has proven to find
+        // the record) - mes/diario/tipo doc are cleared so a mismatch there
+        // (e.g. the movimento posted under a different intMes than the
+        // invoice date) can't hide the target row from the auto-open scan.
+        $filters.each(function() {
+            var field = this.getAttribute('data-field');
+            if (field === 'strCodExercicio') {
+                var defaultValue = this.getAttribute('data-default');
+                if (defaultValue !== null) {
+                    this.value = defaultValue;
+                }
+            } else if (field === 'intMes' || field === 'intCodDiario' || field === 'strAbrevTpDoc') {
+                this.value = '';
+            }
+        });
+    }
 
     function getErpHeaders() {
         return erpToken
@@ -1791,6 +1834,7 @@ $pageScripts = <<<'JS'
         order: [[2, 'desc']],
         lengthMenu: [[20, 50, 100], [20, 50, 100]],
         pageLength: 20,
+        search: pendingOpenLancamentoId && window.lancamentosOpenSearch ? { search: window.lancamentosOpenSearch } : undefined,
         columns: [
             { data: 'intCodDiario' },
             { data: 'formattedDate' },
@@ -1847,19 +1891,36 @@ $pageScripts = <<<'JS'
                 callback({ data: [], recordsTotal: 0, recordsFiltered: 0, draw: data.draw });
                 return;
             }
+            // The ERP webservice has no free-text search parameter (only strCodExercicio/
+            // intCodDiario/intMes/strAbrevTpDoc/limit/offset), so the DataTables "Pesquisa"
+            // box can't be forwarded as a query param. Instead, while a search term is
+            // active, fetch a larger batch and filter/paginate it client-side.
+            var searchValue = String((data.search && data.search.value) || '').trim().toLowerCase();
+            var requestedLength = parseInt(data.length, 10) || 20;
+            var searchFetchLimit = 2000;
             var params = {
                 db: '',
                 strCodExercicio: '',
                 intCodDiario: '',
                 intMes: '',
                 strAbrevTpDoc: '',
-                limit: parseInt(data.length, 10) || 20,
-                offset: Math.floor((parseInt(data.start, 10) || 0) / (parseInt(data.length, 10) || 20))
+                limit: searchValue !== '' ? searchFetchLimit : requestedLength,
+                offset: searchValue !== '' ? 0 : Math.floor((parseInt(data.start, 10) || 0) / requestedLength)
             };
             $filters.each(function() {
                 var field = this.getAttribute('data-field');
-                if (field) {
-                    params[field] = this.value;
+                if (!field) {
+                    return;
+                }
+                var value = this.value;
+                // Send filters only when they have a value. Some ERP-SINC filters
+                // treat an explicitly present-but-empty query param (e.g. intMes=)
+                // differently from an omitted one, which can silently exclude
+                // every record instead of leaving that filter unrestricted.
+                if (value === '' || value === null || typeof value === 'undefined') {
+                    delete params[field];
+                } else {
+                    params[field] = value;
                 }
             });
             var url = erpBaseUrl + '/contabilidade/movimentos';
@@ -1906,6 +1967,69 @@ $pageScripts = <<<'JS'
                     };
                 });
                 var total = resp && typeof resp.iTotalRecords !== 'undefined' ? parseInt(resp.iTotalRecords, 10) : formatted.length;
+
+                if (pendingOpenLancamentoId) {
+                    var openNif = String(window.lancamentosOpenNif || '').replace(/\D+/g, '');
+                    var openTotal = parseFloat(String(window.lancamentosOpenTotal || '').replace(',', '.'));
+                    var openMatch = formatted.filter(function(row) {
+                        if (String(row.Id || '') !== String(pendingOpenLancamentoId)) {
+                            return false;
+                        }
+                        // cab_id (Id) is scoped per diario, not globally unique across
+                        // an exercicio, so also require the NIF and total to match -
+                        // otherwise we risk opening an unrelated movimento from a
+                        // different diario that happens to reuse the same Id.
+                        if (openNif) {
+                            var rowNif = String(row.strFArchTaxPayer || '').replace(/\D+/g, '');
+                            if (rowNif !== openNif) {
+                                return false;
+                            }
+                        }
+                        if (!isNaN(openTotal)) {
+                            var rowTotal = parseFloat(String(row.total || row.fltFArchTotal || '').replace(',', '.'));
+                            if (isNaN(rowTotal) || Math.abs(rowTotal - openTotal) > 0.01) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    })[0];
+                    if (openMatch) {
+                        pendingOpenLancamentoId = '';
+                        setTimeout(function() {
+                            if (classifyModal && typeof populateEditorModal === 'function') {
+                                populateEditorModal(openMatch);
+                                if (typeof loadCostCenterCatalogForDocument === 'function') {
+                                    loadCostCenterCatalogForDocument();
+                                }
+                                classifyModal.show();
+                            }
+                        }, 0);
+                    } else if (!pendingOpenLancamentoNotified) {
+                        pendingOpenLancamentoNotified = true;
+                        setTimeout(function() {
+                            alert('Nao foi possivel encontrar automaticamente o lancamento pedido. Ajusta os filtros (diario/mes/exercicio) e procura manualmente.');
+                        }, 0);
+                    }
+                }
+
+                if (searchValue !== '') {
+                    var searchableFields = ['intNumDiario', 'formattedDate', 'strAbrevTpDoc', 'strNumDoc', 'strFArchTaxPayer', 'total'];
+                    var matched = formatted.filter(function(row) {
+                        return searchableFields.some(function(field) {
+                            return String(row[field] || '').toLowerCase().indexOf(searchValue) !== -1;
+                        });
+                    });
+                    var pageStart = parseInt(data.start, 10) || 0;
+                    var pageData = matched.slice(pageStart, pageStart + requestedLength);
+                    callback({
+                        draw: data.draw,
+                        recordsTotal: isNaN(total) ? 0 : total,
+                        recordsFiltered: matched.length,
+                        data: pageData
+                    });
+                    return;
+                }
+
                 var filtered = resp && typeof resp.iTotalDisplayRecords !== 'undefined' ? parseInt(resp.iTotalDisplayRecords, 10) : total;
                 callback({
                     draw: data.draw,
@@ -2464,5 +2588,9 @@ $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetti
     . "window.lancamentosCanDelete = " . json_encode($canDeleteLocalImports, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosDeleteLocalUrl = " . json_encode((string) (BASE_URL . 'contabilidade/lancamentos?action=delete_local_import'), JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosCsrfToken = " . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenId = " . json_encode($openLancamentoId, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenSearch = " . json_encode($openLancamentoSearch, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenNif = " . json_encode($openLancamentoNif, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenTotal = " . json_encode($openLancamentoTotal, JSON_UNESCAPED_UNICODE) . ";\n"
     . $pageScripts;
 require_once __DIR__ . '/../footer.php';

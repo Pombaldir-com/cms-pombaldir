@@ -108,6 +108,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($postAction === 'send_missing_docs_email') {
         handleEfaturaSendMissingDocsEmail($pdo, $selectedEntityId, $user);
+    } elseif ($postAction === 'verify_ctb_import') {
+        handleEfaturaVerifyCtbImport($pdo, $user);
     }
 }
 
@@ -122,7 +124,6 @@ $entities = [];
 $selectedEntity = null;
 $selectedCredential = null;
 $latestJob = null;
-$documents = [];
 $jobs = [];
 $stats = [
     'companies' => 0,
@@ -144,7 +145,6 @@ if ($tablesReady) {
         }
     }
     $selectedCredential = $selectedEntityId > 0 ? efaturaFetchCredential($pdo, $selectedEntityId) : null;
-    $documents = efaturaFetchDocuments($pdo, $selectedEntityId);
     $jobs = efaturaFetchJobs($pdo, $selectedEntityId, $view === 'sincronizacoes' ? 100 : 10);
     $latestJob = $jobs[0] ?? null;
     $stats = efaturaFetchStats($pdo);
@@ -643,6 +643,7 @@ window.efaturaSyncStatusUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/
 window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=documents_data', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaMissingDocsPreviewUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=missing_docs_preview', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaMissingDocsSendUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos', JSON_UNESCAPED_UNICODE) . ';
+window.efaturaCsrfToken = ' . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ';
 window.efaturaSelectedEntityId = ' . (int) $selectedEntityId . ';
 window.efaturaDocumentsDateStorageKey = ' . json_encode('efatura_documents_date_range:' . (int) $selectedEntityId, JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDateFilter = (function() {
@@ -1260,6 +1261,9 @@ $pageScripts .= '
             })
                 .then(function(response) {
                     return response.json().then(function(data) {
+                        if (data && data.csrf_token) {
+                            window.efaturaCsrfToken = data.csrf_token;
+                        }
                         if (!response.ok || !data || !data.ok) {
                             var errorMessage = data && data.error ? data.error : "Nao foi possivel enviar o email.";
                             throw new Error(errorMessage);
@@ -1288,6 +1292,65 @@ $pageScripts .= '
             showAlert("", "");
         });
     }
+})();
+';
+
+$pageScripts .= '
+(function() {
+    document.addEventListener("click", function(event) {
+        var button = event.target.closest ? event.target.closest(".efatura-verify-ctb-btn") : null;
+        if (!button || button.disabled) {
+            return;
+        }
+        event.preventDefault();
+        var documentId = button.getAttribute("data-document-id");
+        if (!documentId || !window.fetch) {
+            return;
+        }
+        if (!confirm("Verificar no ERP se este movimento ainda existe? Se ja nao existir, o documento volta a ficar por importar.")) {
+            return;
+        }
+
+        var originalHtml = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = "<i class=\"fa fa-spinner fa-spin\"></i>";
+
+        var formData = new FormData();
+        formData.append("csrf_token", window.efaturaCsrfToken || "");
+        formData.append("action", "verify_ctb_import");
+        formData.append("document_id", documentId);
+
+        fetch(window.efaturaMissingDocsSendUrl, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin"
+        })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (data && data.csrf_token) {
+                        window.efaturaCsrfToken = data.csrf_token;
+                    }
+                    if (!response.ok || !data || !data.ok) {
+                        throw new Error(data && data.error ? data.error : "Falha ao verificar o movimento.");
+                    }
+                    return data;
+                });
+            })
+            .then(function(data) {
+                alert(data.message || (data.exists ? "Movimento confirmado no ERP." : "Movimento ja nao existe no ERP."));
+                if (data.cleared && typeof efaturaDocumentsTable !== "undefined" && efaturaDocumentsTable && efaturaDocumentsTable.ajax && typeof efaturaDocumentsTable.ajax.reload === "function") {
+                    efaturaDocumentsTable.ajax.reload(null, false);
+                } else {
+                    button.disabled = false;
+                    button.innerHTML = originalHtml;
+                }
+            })
+            .catch(function(error) {
+                alert(error && error.message ? error.message : "Erro ao verificar o movimento.");
+                button.disabled = false;
+                button.innerHTML = originalHtml;
+            });
+    });
 })();
 ';
 
@@ -1621,40 +1684,6 @@ function efaturaFetchCredential(PDO $pdo, int $entityId): ?array {
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
-function efaturaFetchDocuments(PDO $pdo, int $entityId = 0): array {
-    $linkSelect = '';
-    $linkJoin = '';
-    if (accountingImportsEfaturaLinkReady()) {
-        $linkSelect = ',
-            COALESCE(ai.has_upload, 0) AS has_upload,
-            COALESCE(ai.has_classification, 0) AS has_classification,
-            COALESCE(ai.has_ctb_import, 0) AS has_ctb_import';
-        $linkJoin = "
-            LEFT JOIN (
-                SELECT
-                    efatura_document_id,
-                    1 AS has_upload,
-                    MAX(CASE WHEN TRIM(COALESCE(account, '')) <> '' THEN 1 ELSE 0 END) AS has_classification,
-                    MAX(CASE WHEN TRIM(COALESCE(cab_id, '')) <> '' THEN 1 ELSE 0 END) AS has_ctb_import
-                FROM accounting_imports
-                WHERE efatura_document_id IS NOT NULL
-                GROUP BY efatura_document_id
-            ) ai ON ai.efatura_document_id = d.id";
-    }
-    $sql = "SELECT d.*, ae.name AS entity_name{$linkSelect}
-            FROM efatura_documents d
-            JOIN accounting_entities ae ON ae.id = d.entity_id{$linkJoin}";
-    $params = [];
-    if ($entityId > 0) {
-        $sql .= " WHERE d.entity_id = ?";
-        $params[] = $entityId;
-    }
-    $sql .= " ORDER BY d.invoice_date DESC, d.id DESC LIMIT 500";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-}
-
 function efaturaParseDocumentFilters(array $source): array {
     $searchRaw = '';
     if (isset($source['search']) && is_array($source['search'])) {
@@ -1729,14 +1758,12 @@ function efaturaBuildDocumentLinkSql(): array {
     if (accountingImportsEfaturaLinkReady()) {
         $linkSelect = ',
             COALESCE(ai.has_upload, 0) AS has_upload,
-            COALESCE(ai.has_classification, 0) AS has_classification,
-            COALESCE(ai.has_ctb_import, 0) AS has_ctb_import';
+            ai.ai_id';
         $linkJoin = ' LEFT JOIN (
                 SELECT
                     efatura_document_id,
                     1 AS has_upload,
-                    MAX(CASE WHEN TRIM(COALESCE(account, \'\')) <> \'\' THEN 1 ELSE 0 END) AS has_classification,
-                    MAX(CASE WHEN TRIM(COALESCE(cab_id, \'\')) <> \'\' THEN 1 ELSE 0 END) AS has_ctb_import
+                    MAX(id) AS ai_id
                 FROM accounting_imports
                 WHERE efatura_document_id IS NOT NULL
                 GROUP BY efatura_document_id
@@ -1748,24 +1775,34 @@ function efaturaBuildDocumentLinkSql(): array {
 
 function efaturaResolveDocumentImportState(PDO $pdo, array $row, ?PDOStatement $importStatusStmt = null): array {
     $hasUpload = (int) ($row['has_upload'] ?? 0) === 1;
-    $hasClassification = (int) ($row['has_classification'] ?? 0) === 1;
-    $hasCtbImport = (int) ($row['has_ctb_import'] ?? 0) === 1;
+    $importId = (int) ($row['ai_id'] ?? 0);
 
     if (!$hasUpload && $importStatusStmt instanceof PDOStatement) {
         $match = reconcileEfaturaDocumentWithAccountingImport($pdo, (int) ($row['id'] ?? 0), $row);
         if ($match && !empty($match['id'])) {
             $hasUpload = true;
-            $importStatusStmt->execute([(int) $match['id']]);
-            $importRow = $importStatusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-            $hasClassification = trim((string) ($importRow['account'] ?? '')) !== '';
-            $hasCtbImport = trim((string) ($importRow['cab_id'] ?? '')) !== '';
+            $importId = (int) $match['id'];
         }
+    }
+
+    $hasClassification = false;
+    $hasCtbImport = false;
+    $cabId = '';
+
+    if ($importId > 0 && $importStatusStmt instanceof PDOStatement) {
+        $importStatusStmt->execute([$importId]);
+        $importRow = $importStatusStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $cabId = trim((string) ($importRow['cab_id'] ?? ''));
+        $hasCtbImport = $cabId !== '';
+        $hasClassification = trim((string) ($importRow['account'] ?? '')) !== ''
+            && efaturaComputeClassificationReadiness($pdo, $importRow);
     }
 
     return [
         'has_upload' => $hasUpload,
         'has_classification' => $hasClassification,
         'has_ctb_import' => $hasCtbImport,
+        'cab_id' => $cabId,
     ];
 }
 
@@ -1792,7 +1829,34 @@ function efaturaBuildImportStatusLookup(PDO $pdo): ?PDOStatement {
     if (!accountingImportsEfaturaLinkReady()) {
         return null;
     }
-    return $pdo->prepare('SELECT account, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
+    return $pdo->prepare(
+        'SELECT account, cab_id, field_A, field_B, field_D,
+                field_I2, field_I3, field_I4, field_I5, field_I6, field_I7, field_I8, field_N, field_O, cost_center
+         FROM accounting_imports WHERE id = ? LIMIT 1'
+    );
+}
+
+/**
+ * Whether an accounting_imports row's classification is complete enough to be
+ * considered "Classificado" - mirrors classificacao-importacao.php's own
+ * definition (determineClassificationButtonClass() returning btn-success),
+ * minus the fuel rubric ERP lookup (see
+ * resolveEffectiveDocumentAccountingConfigurationWithoutErpLookup()) since
+ * this runs once per row in a list rather than a single row under user action.
+ */
+function efaturaComputeClassificationReadiness(PDO $pdo, array $importRow): bool {
+    $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfigurationWithoutErpLookup($pdo, $importRow);
+    $accounts = normalizeAccountingAccounts($effectiveAccountConfig);
+    $accountMetadata = normalizeAccountingMetadata($effectiveAccountConfig);
+    $summaries = computeImportRateSummaries($importRow);
+    [$payload, $requirements] = buildClassificationRequirements($summaries, $accounts, $accountMetadata);
+    if (($accountMetadata['ignore_detected_rates'] ?? '0') === '1') {
+        $payload = filterVisibleAccountingRates($accounts);
+    }
+    $payload = adjustAccountingRatesForDisplay($payload);
+    $costCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
+
+    return determineClassificationButtonClass($requirements, $payload, $accountMetadata, $costCenters) === 'btn-success';
 }
 
 function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
@@ -1822,8 +1886,6 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         6 => 'd.tax_payable',
         7 => 'd.gross_total',
         8 => 'has_upload',
-        9 => 'has_classification',
-        10 => 'has_ctb_import',
     ];
     $orderBy = $orderableColumns[$orderColumn] ?? 'd.invoice_date';
 
@@ -1842,7 +1904,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $filteredStmt->execute($params);
     $recordsFiltered = (int) $filteredStmt->fetchColumn();
 
-    $dataSql = 'SELECT d.*, ae.name AS entity_name' . $linkSelect
+    $dataSql = 'SELECT d.*, ae.name AS entity_name, ae.erp_database AS entity_erp_database' . $linkSelect
         . $baseFrom
         . $whereSql
         . ' ORDER BY ' . $orderBy . ' ' . $orderDir . ', d.id ' . $orderDir
@@ -1851,6 +1913,9 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $dataStmt->execute($params);
     $rows = $dataStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $importStatusStmt = efaturaBuildImportStatusLookup($pdo);
+    $canVerifyCtbImport = userHasDepartmentPermission('ctb_importar_docs');
+    $currentUserForLancamentosCheck = currentUser();
+    $canEditLancamentos = ((int) ($currentUserForLancamentosCheck['role'] ?? 3)) === 1 || userHasDepartmentPermission('ctb_lancamentos_aceder');
 
     $data = [];
     foreach ($rows as $row) {
@@ -1867,6 +1932,30 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
             $statusBadgeClass = $hasCtbImport ? 'badge-success' : ($hasClassification ? 'badge-info' : ($hasUpload ? 'badge-warning' : 'badge-secondary'));
             $statusBadgeLabel = $hasCtbImport ? 'Importado CTB' : ($hasClassification ? 'Classificado' : ($hasUpload ? 'Por classificar' : 'Em falta'));
         }
+        $ctbStatusHtml = '<span class="badge ' . $statusBadgeClass . '">' . $statusBadgeLabel . '</span>';
+        if ($hasCtbImport && !$isCancelled && $canVerifyCtbImport) {
+            $ctbStatusHtml .= ' <button type="button" class="btn btn-xs btn-default efatura-verify-ctb-btn" data-document-id="'
+                . (int) ($row['id'] ?? 0) . '" title="Verificar se o movimento ainda existe no ERP">'
+                . '<i class="fa fa-refresh"></i></button>';
+        }
+        if ($hasCtbImport && !$isCancelled && $canEditLancamentos) {
+            $cabId = trim((string) ($state['cab_id'] ?? ''));
+            $entityErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($row['entity_erp_database'] ?? ''));
+            $invoiceDateForLink = trim((string) ($row['invoice_date'] ?? ''));
+            if ($cabId !== '' && $entityErpDatabase !== '' && $invoiceDateForLink !== '') {
+                $editUrl = BASE_URL . 'contabilidade/lancamentos?' . http_build_query([
+                    'empresa' => $entityErpDatabase,
+                    'open_id' => $cabId,
+                    'strCodExercicio' => substr($invoiceDateForLink, 0, 4),
+                    'intMes' => (string) (int) substr($invoiceDateForLink, 5, 2),
+                    'q' => (string) ($row['invoice_no'] ?? ''),
+                    'open_nif' => (string) ($row['issuer_vat'] ?? ''),
+                    'open_total' => (string) ($row['gross_total'] ?? ''),
+                ], '', '&', PHP_QUERY_RFC3986);
+                $ctbStatusHtml .= ' <a href="' . htmlspecialchars($editUrl, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" class="btn btn-xs btn-default" title="Editar lancamento">'
+                    . '<i class="fa fa-pencil"></i></a>';
+            }
+        }
         $data[] = [
             'invoice_date' => (string) ($row['invoice_date'] ?? ''),
             'issuer_name' => (string) ($row['issuer_name'] ?? ''),
@@ -1878,7 +1967,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
             'gross_total' => number_format((float) ($row['gross_total'] ?? 0), 2, ',', ' '),
             'upload_status' => '<span class="badge ' . ($hasUpload ? 'badge-success' : 'badge-secondary') . '">' . ($hasUpload ? 'Upload' : 'Sem upload') . '</span>',
             'classification_status' => '<span class="badge ' . ($hasClassification ? 'badge-info' : 'badge-secondary') . '">' . ($hasClassification ? 'Classificado' : 'Por classificar') . '</span>',
-            'ctb_status' => '<span class="badge ' . $statusBadgeClass . '">' . $statusBadgeLabel . '</span>',
+            'ctb_status' => $ctbStatusHtml,
             'DT_RowClass' => $isCancelled ? 'efatura-document-row-cancelled' : (!$hasUpload ? 'efatura-document-row-missing' : ''),
             'DT_RowAttr' => ['data-status' => $status, 'data-uploaded' => $hasUpload ? '1' : '0'],
         ];
@@ -1891,6 +1980,180 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+function handleEfaturaVerifyCtbImport(PDO $pdo, array $user): void {
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        if (!userHasDepartmentPermission('ctb_importar_docs')) {
+            http_response_code(403);
+            echo json_encode([
+                'ok' => false,
+                'error' => 'Sem permissoes para verificar importacoes CTB.',
+                'csrf_token' => generateCsrfToken(true),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $documentId = (int) ($_POST['document_id'] ?? 0);
+        if ($documentId <= 0) {
+            throw new RuntimeException('Documento invalido.');
+        }
+
+        $docStmt = $pdo->prepare('SELECT id, entity_id, invoice_date, issuer_vat, gross_total FROM efatura_documents WHERE id = ? LIMIT 1');
+        $docStmt->execute([$documentId]);
+        $documentRow = $docStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($documentRow === null) {
+            throw new RuntimeException('Documento nao encontrado.');
+        }
+
+        $importRow = null;
+        if (accountingImportsEfaturaLinkReady()) {
+            $linkStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE efatura_document_id = ? LIMIT 1');
+            $linkStmt->execute([$documentId]);
+            $importRow = $linkStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        if ($importRow === null) {
+            $match = reconcileEfaturaDocumentWithAccountingImport($pdo, $documentId, $documentRow);
+            if ($match && !empty($match['id'])) {
+                $matchStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
+                $matchStmt->execute([(int) $match['id']]);
+                $importRow = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            }
+        }
+
+        $cabId = trim((string) ($importRow['cab_id'] ?? ''));
+        if ($importRow === null || $cabId === '') {
+            throw new RuntimeException('Este documento nao tem uma importacao CTB registada.');
+        }
+
+        $entityStmt = $pdo->prepare('SELECT erp_database FROM accounting_entities WHERE id = ? LIMIT 1');
+        $entityStmt->execute([(int) $documentRow['entity_id']]);
+        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $erpDatabase = resolveAccountingEntityDatabase($entityRow);
+        if ($erpDatabase === '') {
+            throw new RuntimeException('Empresa sem base de dados ERP configurada.');
+        }
+
+        $invoiceDate = trim((string) ($documentRow['invoice_date'] ?? ''));
+        $exercicio = $invoiceDate !== '' ? substr($invoiceDate, 0, 4) : '';
+        if ($exercicio === '') {
+            throw new RuntimeException('Documento sem data de fatura valida.');
+        }
+
+        $issuerVat = trim((string) ($documentRow['issuer_vat'] ?? ''));
+        $grossTotal = (float) ($documentRow['gross_total'] ?? 0);
+
+        $lookup = efaturaFindErpMovimentoById($erpDatabase, $exercicio, $cabId, $issuerVat, $grossTotal);
+        if (!$lookup['success']) {
+            throw new RuntimeException($lookup['error'] !== '' ? $lookup['error'] : 'Falha ao consultar o ERP.');
+        }
+
+        if ($lookup['found']) {
+            echo json_encode([
+                'ok' => true,
+                'exists' => true,
+                'cleared' => false,
+                'message' => 'Confirmado: o movimento (Id ' . $cabId . ') existe no ERP.',
+                'csrf_token' => generateCsrfToken(true),
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $clearStmt = $pdo->prepare('UPDATE accounting_imports SET cab_id = NULL WHERE id = ?');
+        $clearStmt->execute([(int) $importRow['id']]);
+
+        logAuditAction('ctb_import_verify_cleared', 'accounting_imports', (int) $importRow['id'], [
+            'document_id' => $documentId,
+            'entity_id' => (int) $documentRow['entity_id'],
+            'previous_cab_id' => $cabId,
+            'erp_database' => $erpDatabase,
+            'verified_by' => (int) ($user['id'] ?? 0),
+        ]);
+        logErpMessage('Verificacao CTB: movimento ' . $cabId . ' ja nao existe no ERP (' . $erpDatabase . '). Documento ' . $documentId . ', import ' . (int) $importRow['id'] . '. cab_id limpo.');
+
+        echo json_encode([
+            'ok' => true,
+            'exists' => false,
+            'cleared' => true,
+            'message' => 'O movimento (Id ' . $cabId . ') ja nao existe no ERP. O documento foi marcado como por importar novamente.',
+            'csrf_token' => generateCsrfToken(true),
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'error' => $e->getMessage(),
+            'csrf_token' => generateCsrfToken(true),
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
+
+/**
+ * Scan the ERP-SINC "movimentos" listing for the given accounting year and
+ * report whether a movement with the given header Id still exists.
+ *
+ * Best effort: the local accounting_imports table only stores the header Id
+ * (cab_id), not the diario/mes it was posted under, so this scans the whole
+ * exercicio (capped) instead of a single diario/mes. The Id (cab_id) appears
+ * to be scoped per diario rather than unique across the whole exercicio, so
+ * matching by Id alone can find an unrelated movimento from another diario
+ * that happens to reuse the same Id - the NIF and total of the counterparty
+ * line disambiguate that before accepting a match.
+ */
+function efaturaFindErpMovimentoById(string $database, string $exercicio, string $cabId, string $expectedNif = '', float $expectedTotal = 0.0): array {
+    $limit = 2000;
+    $path = 'contabilidade/movimentos?' . http_build_query([
+        'strCodExercicio' => $exercicio,
+        'limit' => $limit,
+        'offset' => 0,
+    ], '', '&', PHP_QUERY_RFC3986);
+
+    $response = callErpJsonEndpoint($path, 'GET', null, true, $database);
+    if (empty($response['success'])) {
+        return ['success' => false, 'found' => false, 'error' => trim((string) ($response['error'] ?? 'Falha ao consultar o ERP.'))];
+    }
+
+    $payload = $response['data'];
+    $rows = [];
+    if (is_array($payload)) {
+        if (isset($payload['aaData']) && is_array($payload['aaData'])) {
+            $rows = $payload['aaData'];
+        } elseif (isset($payload['data']) && is_array($payload['data'])) {
+            $rows = $payload['data'];
+        } elseif (array_is_list($payload)) {
+            $rows = $payload;
+        }
+    }
+
+    $expectedNifDigits = preg_replace('/\D+/', '', $expectedNif) ?? '';
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $rowId = trim((string) ($row['Id'] ?? $row['id'] ?? ''));
+        if ($rowId === '' || $rowId !== trim($cabId)) {
+            continue;
+        }
+        if ($expectedNifDigits !== '') {
+            $rowNifDigits = preg_replace('/\D+/', '', (string) ($row['strFArchTaxPayer'] ?? '')) ?? '';
+            if ($rowNifDigits !== $expectedNifDigits) {
+                continue;
+            }
+        }
+        if ($expectedTotal > 0.0) {
+            $rowTotal = (float) ($row['fltFArchTotal'] ?? 0);
+            if (abs($rowTotal - $expectedTotal) > 0.01) {
+                continue;
+            }
+        }
+        return ['success' => true, 'found' => true, 'error' => ''];
+    }
+
+    return ['success' => true, 'found' => false, 'error' => ''];
 }
 
 function handleEfaturaMissingDocsPreview(PDO $pdo, int $selectedEntityId, array $user): void {
@@ -1995,12 +2258,14 @@ function handleEfaturaSendMissingDocsEmail(PDO $pdo, int $selectedEntityId, arra
         echo json_encode([
             'ok' => true,
             'message' => 'Email enviado com sucesso.',
+            'csrf_token' => generateCsrfToken(true),
         ], JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
         http_response_code(400);
         echo json_encode([
             'ok' => false,
             'error' => $e->getMessage(),
+            'csrf_token' => generateCsrfToken(true),
         ], JSON_UNESCAPED_UNICODE);
     }
     exit;
