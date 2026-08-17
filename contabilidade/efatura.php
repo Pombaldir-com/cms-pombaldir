@@ -576,7 +576,7 @@ require_once __DIR__ . '/../header.php';
     </div>
 </div>
 <div class="modal fade" id="efaturaMissingDocsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h4 class="modal-title">Enviar faltas de documentos</h4>
@@ -591,6 +591,7 @@ require_once __DIR__ . '/../header.php';
                 <form id="efaturaMissingDocsForm">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
                     <input type="hidden" name="action" value="send_missing_docs_email">
+                    <input type="hidden" id="efaturaMissingDocsBodyInput" name="body">
                     <div class="row">
                         <div class="col-sm-6 col-12">
                             <div class="form-group">
@@ -604,13 +605,13 @@ require_once __DIR__ . '/../header.php';
                                 <select class="form-control" id="efaturaMissingDocsFrom" name="from_email"></select>
                             </div>
                         </div>
-                        <div class="col-sm-12 col-12">
+                        <div class="col-sm-4 col-12">
                             <div class="form-group">
                                 <label for="efaturaMissingDocsReplyTo">Responder para</label>
                                 <input type="text" class="form-control" id="efaturaMissingDocsReplyTo" name="reply_to" autocomplete="off">
                             </div>
                         </div>
-                        <div class="col-sm-12 col-12">
+                        <div class="col-sm-8 col-12">
                             <div class="form-group">
                                 <label for="efaturaMissingDocsSubject">Assunto</label>
                                 <input type="text" class="form-control" id="efaturaMissingDocsSubject" name="subject" autocomplete="off">
@@ -619,7 +620,7 @@ require_once __DIR__ . '/../header.php';
                         <div class="col-sm-12 col-12">
                             <div class="form-group" style="margin-bottom:0;">
                                 <label for="efaturaMissingDocsBody">Mensagem</label>
-                                <textarea class="form-control" id="efaturaMissingDocsBody" name="body" rows="16"></textarea>
+                                <div class="form-control efatura-missing-docs-body" id="efaturaMissingDocsBody" contenteditable="true"></div>
                             </div>
                         </div>
                     </div>
@@ -636,7 +637,7 @@ require_once __DIR__ . '/../header.php';
 </div>
 <?php
 $pageScripts = 'var efaturaStyle = document.createElement("style");
-efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .row:last-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:right;}#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{display:flex;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter,.efatura-documents-date-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label,.efatura-documents-date-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-documents-date-filter .form-control{width:250px;min-width:250px;background:#fff;cursor:pointer;}.efatura-documents-date-filter .btn{white-space:nowrap;}.efatura-documents-missing-slot{display:flex;align-items:center;}.efatura-documents-missing-slot .btn{white-space:nowrap;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child,#efatura-documents-table_wrapper .row:last-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter,.efatura-documents-date-filter,.efatura-documents-missing-slot{width:100%;}.efatura-documents-status-filter .form-control,.efatura-documents-date-filter .form-control{width:100%;min-width:0;}.efatura-documents-missing-slot .btn{width:100%;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:left;}}";
+efaturaStyle.textContent = ".efatura-side-panel .x_content{padding:20px;}.efatura-form-grid>div{margin-bottom:15px;}.efatura-form-grid>div:last-child{margin-bottom:0;}.efatura-checkbox{margin:0;}.efatura-checkbox label{margin-bottom:0;font-weight:600;color:#4f6278;}.efatura-company-card{background:#f8fafc;border:1px solid #d8e2ee;border-radius:10px;padding:18px 18px;}.efatura-company-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}.efatura-company-card h4{margin:0;line-height:1.35;color:#506784;}.efatura-company-card .badge{background:#e8f1fb !important;color:#35506d !important;border:1px solid #c7d8eb;}.efatura-company-meta{row-gap:12px;}.efatura-company-meta strong{color:#5b738e;}.efatura-meta-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#7d8fa4;margin-bottom:4px;}.efatura-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px;}.efatura-inline-form{margin:0;}.efatura-sync-note{color:#73879c;font-size:12px;}.efatura-page .x_title .panel_toolbox{min-width:auto;}#efatura-documents-table th:first-child,#efatura-documents-table td:first-child{white-space:nowrap;width:1%;}#efatura-documents-table_wrapper .row:first-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:auto;}#efatura-documents-table_wrapper .efatura-documents-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}#efatura-documents-table_wrapper .dt-length,#efatura-documents-table_wrapper .dataTables_length{margin:0;}#efatura-documents-table_wrapper .dt-length label,#efatura-documents-table_wrapper .dataTables_length label{margin:0;display:flex;align-items:center;gap:8px;}#efatura-documents-table_wrapper .dt-layout-end,#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{margin-top:10px;}#efatura-documents-table_wrapper .row:last-child{display:flex;align-items:center;justify-content:space-between;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:right;}#efatura-documents-table_wrapper .dt-paging,#efatura-documents-table_wrapper .dataTables_paginate{display:flex;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .pagination,#efatura-documents-table_wrapper .dataTables_paginate .pagination{gap:0;margin:0;justify-content:flex-end;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.page-item,#efatura-documents-table_wrapper .dataTables_paginate .page-item{margin:0 3px;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-link{padding:6px 9px !important;background:#ddd !important;border:1px solid #ddd !important;color:#73879c !important;border-radius:5px !important;box-shadow:none !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.active .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.active .page-link:hover{background:#169f85 !important;border-color:#169f85 !important;color:#fff !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-link:hover{background:#ccc !important;border-color:#ccc !important;color:#2a3f54 !important;}#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link,#efatura-documents-table_wrapper .dt-paging .dt-paging-button.disabled .page-link:hover,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link,#efatura-documents-table_wrapper .dataTables_paginate .page-item.disabled .page-link:hover{background:#ddd !important;border-color:#ddd !important;color:#9aa7b4 !important;opacity:1;}#efatura-documents-table_wrapper .dt-paging .ellipsis,#efatura-documents-table_wrapper .dataTables_paginate .ellipsis{padding:6px 4px;color:#73879c;}#efatura-documents-table_wrapper .paging_full_numbers{width:auto;height:auto;line-height:normal;}.efatura-documents-status-filter,.efatura-documents-date-filter{display:flex;align-items:center;gap:8px;margin:0;}.efatura-documents-status-filter label,.efatura-documents-date-filter label{margin:0;font-weight:600;color:#5b738e;}.efatura-documents-status-filter .form-control{width:170px;min-width:170px;}.efatura-documents-date-filter .form-control{width:250px;min-width:250px;background:#fff;cursor:pointer;}.efatura-documents-date-filter .btn{white-space:nowrap;}.efatura-documents-missing-slot{display:flex;align-items:center;}.efatura-documents-missing-slot .btn{white-space:nowrap;}.efatura-document-row-cancelled td{background:#fbe9e7 !important;color:#7f2d2d !important;}.efatura-document-row-cancelled a,.efatura-document-row-cancelled span,.efatura-document-row-cancelled strong{color:inherit !important;}.efatura-document-row-missing td{background:#fff8e1 !important;}.efatura-selection-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;margin-bottom:16px;border:1px solid #d6e1ee;border-radius:10px;background:linear-gradient(135deg,#f8fbff 0%,#eef4fb 100%);}.efatura-selection-label{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6f86a1;margin-bottom:4px;}.efatura-selection-banner strong{display:block;font-size:18px;line-height:1.3;color:#33475b;}.efatura-selection-meta{display:block;margin-top:4px;color:#607790;font-size:12px;}.efatura-selection-banner .badge{background:#dfeafb !important;color:#45627f !important;border:1px solid #c6d8ef;}.efatura-company-name{font-weight:700;color:#33475b;}.efatura-company-subtext{margin-top:3px;font-size:12px;color:#6d84a0;}.efatura-company-row-active td{background:#edf4fd !important;color:#33475b !important;}.efatura-company-row-active .badge-default{background:#dde8f6 !important;color:#4c6684 !important;}.efatura-company-row-active .badge-success{background:#d9f2e7 !important;color:#2f6b4f !important;}.efatura-company-row-active .efatura-company-subtext{color:#5e7895;}.efatura-action-stack{display:flex;flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;white-space:nowrap;min-width:150px;}.efatura-action-stack .btn{margin:0;}.efatura-side-panel{margin-bottom:18px;}.efatura-side-panel .alert{margin-bottom:15px;}.efatura-page .badge-secondary{background:#e5ebf2 !important;color:#576c84 !important;}.efatura-page .badge-success{background:#dff4ea !important;color:#2d6c50 !important;}.efatura-page .badge-default{background:#edf2f7 !important;color:#607790 !important;}.efatura-page .efatura-job-status.badge-danger{background:#d9534f !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-info,.efatura-page .badge-info{background:#2f7edb !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-warning,.efatura-page .badge-warning{background:#f0ad4e !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-success{background:#26b99a !important;color:#fff !important;}.efatura-page .efatura-job-status.badge-secondary{background:#73879c !important;color:#fff !important;}#efatura-companies-table td:last-child,#efatura-companies-table th:last-child{white-space:nowrap;width:1%;}#efatura-companies-table td:nth-child(2),#efatura-companies-table th:nth-child(2),#efatura-companies-table td:nth-child(3),#efatura-companies-table th:nth-child(3),#efatura-companies-table td:nth-child(4),#efatura-companies-table th:nth-child(4),#efatura-companies-table td:nth-child(5),#efatura-companies-table th:nth-child(5),#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2),#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5),#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){white-space:nowrap;}#efatura-jobs-table td:nth-child(2),#efatura-jobs-table th:nth-child(2){min-width:200px;}#efatura-jobs-table td:nth-child(5),#efatura-jobs-table th:nth-child(5){min-width:170px;}#efatura-jobs-mini-table td:nth-child(4),#efatura-jobs-mini-table th:nth-child(4){min-width:80px;}@media (max-width: 991px){.efatura-selection-banner{flex-direction:column;align-items:flex-start;}.efatura-action-stack{flex-direction:column;align-items:stretch;min-width:0;white-space:normal;}.efatura-toolbar{flex-direction:column;align-items:stretch;}#efatura-documents-table_wrapper .row:first-child,#efatura-documents-table_wrapper .row:last-child{display:block;}#efatura-documents-table_wrapper .dt-search,#efatura-documents-table_wrapper .dataTables_filter{margin-left:0;}#efatura-documents-table_wrapper .efatura-documents-controls{align-items:stretch;}.efatura-documents-status-filter,.efatura-documents-date-filter,.efatura-documents-missing-slot{width:100%;}.efatura-documents-status-filter .form-control,.efatura-documents-date-filter .form-control{width:100%;min-width:0;}.efatura-documents-missing-slot .btn{width:100%;}#efatura-documents-table_wrapper .row:last-child .col-sm-6:last-child,#efatura-documents-table_wrapper .row:last-child .col-12:last-child{text-align:left;}}.efatura-missing-docs-body{min-height:340px;max-height:60vh;overflow-y:auto;background:#fff;font-size:13px;line-height:1.55;color:#33475b;}.efatura-missing-docs-body:focus{outline:none;border-color:#66afe9;box-shadow:0 0 0 2px rgba(102,175,233,.25);}.efatura-missing-docs-body table{width:100%;border-collapse:collapse;}.efatura-missing-docs-body p{margin:0 0 12px;}";
 document.head.appendChild(efaturaStyle);
 window.efaturaSyncStatusUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/sync-status', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=documents_data', JSON_UNESCAPED_UNICODE) . ';
@@ -985,6 +986,7 @@ $pageScripts .= '
     var replyToEl = document.getElementById("efaturaMissingDocsReplyTo");
     var subjectEl = document.getElementById("efaturaMissingDocsSubject");
     var bodyEl = document.getElementById("efaturaMissingDocsBody");
+    var bodyInputEl = document.getElementById("efaturaMissingDocsBodyInput");
     var sendBtn = document.getElementById("efaturaMissingDocsSendBtn");
     var previewState = null;
 
@@ -1050,14 +1052,36 @@ $pageScripts .= '
             subjectEl.value = "";
         }
         if (bodyEl) {
-            bodyEl.value = "";
+            bodyEl.innerHTML = "";
+        }
+        if (bodyInputEl) {
+            bodyInputEl.value = "";
         }
         updateSummary(null);
+    }
+
+    function escapeHtml(value) {
+        return String(value || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/\'/g, "&#39;");
     }
 
     function renderTemplate(template, values) {
         return String(template || "").replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi, function(match, key) {
             return Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] || "") : "";
+        });
+    }
+
+    function renderTemplateHtml(template, values) {
+        return String(template || "").replace(/{{\\s*([a-z0-9_]+)\\s*}}/gi, function(match, key) {
+            if (!Object.prototype.hasOwnProperty.call(values, key)) {
+                return "";
+            }
+            var value = String(values[key] || "");
+            return key === "documents_list" ? value : escapeHtml(value);
         });
     }
 
@@ -1088,7 +1112,10 @@ $pageScripts .= '
             subjectEl.value = renderTemplate(previewState.subject_template || "", renderValues);
         }
         if (bodyEl) {
-            bodyEl.value = renderTemplate(previewState.body_template || "", renderValues);
+            bodyEl.innerHTML = renderTemplateHtml(previewState.body_template || "", renderValues);
+        }
+        if (bodyInputEl) {
+            bodyInputEl.value = bodyEl ? bodyEl.innerHTML : "";
         }
     }
 
@@ -1201,6 +1228,12 @@ $pageScripts .= '
         });
     }
 
+    if (bodyEl && bodyInputEl) {
+        bodyEl.addEventListener("input", function() {
+            bodyInputEl.value = bodyEl.innerHTML;
+        });
+    }
+
     if (sendBtn && formEl) {
         sendBtn.addEventListener("click", function() {
             if (!previewState) {
@@ -1210,6 +1243,10 @@ $pageScripts .= '
             if (!window.fetch) {
                 showAlert("danger", "O browser nao suporta pedidos assincronos.");
                 return;
+            }
+
+            if (bodyEl && bodyInputEl) {
+                bodyInputEl.value = bodyEl.innerHTML;
             }
 
             var formData = new FormData(formEl);
@@ -1912,7 +1949,7 @@ function handleEfaturaSendMissingDocsEmail(PDO $pdo, int $selectedEntityId, arra
         }
 
         $subject = trim((string) ($_POST['subject'] ?? ''));
-        $body = trim((string) ($_POST['body'] ?? ''));
+        $body = efaturaSanitizeEmailHtmlBody((string) ($_POST['body'] ?? ''));
         if ($subject === '') {
             throw new RuntimeException('O assunto e obrigatorio.');
         }
@@ -2066,15 +2103,13 @@ function efaturaExtractErpEntityRow($payload): array {
 
 function efaturaResolveMissingDocsTemplates(): array {
     $defaultSubject = 'E-fatura - documentos em falta para {{entity_display}}';
-    $defaultBody = "Exmos. Senhores,\n\n"
-        . "Na conferência dos documentos de {{entity_name}} (NIF {{entity_nif}}), identificámos {{missing_count}} documento(s) no E-fatura sem o respetivo upload para classificação contabilística.\n\n"
-        . "Filtros considerados: {{filters_summary}}\n\n"
-        . "Agradecemos o envio do papel ou PDF dos seguintes documentos:\n"
-        . "{{documents_list}}\n\n"
-        . "Se algum destes documentos já tiver sido entregue, podem ignorar a respetiva linha.\n\n"
-        . "Com os melhores cumprimentos,\n"
-        . "{{sender_name}}\n"
-        . "{{sender_email}}";
+    $defaultBody = '<p>Exmos. Senhores,</p>'
+        . '<p>Na conferência dos documentos de {{entity_name}} (NIF {{entity_nif}}), identificámos {{missing_count}} documento(s) no E-fatura sem o respetivo upload para classificação contabilística.</p>'
+        . '<p>Filtros considerados: {{filters_summary}}</p>'
+        . '<p>Agradecemos o envio do papel ou PDF dos seguintes documentos:</p>'
+        . '{{documents_list}}'
+        . '<p>Se algum destes documentos já tiver sido entregue, podem ignorar a respetiva linha.</p>'
+        . '<p>Com os melhores cumprimentos,<br>{{sender_name}}<br>{{sender_email}}</p>';
 
     return [
         'subject' => trim((string) getSetting('efatura_missing_docs_email_subject_template', $defaultSubject)),
@@ -2084,7 +2119,7 @@ function efaturaResolveMissingDocsTemplates(): array {
 
 function efaturaBuildMissingDocsPlaceholders(array $entityContext, array $missingDocuments, array $filters): array {
     $dateGenerated = date('Y-m-d H:i');
-    $documentsList = efaturaBuildMissingDocumentLinesText($missingDocuments);
+    $documentsList = efaturaBuildMissingDocumentLinesHtml($missingDocuments);
 
     return [
         'entity_name' => (string) ($entityContext['entity_name'] ?? ''),
@@ -2111,27 +2146,46 @@ function efaturaBuildMissingDocsPlaceholders(array $entityContext, array $missin
     ];
 }
 
-function efaturaBuildMissingDocumentLinesText(array $documents): string {
-    $lines = [];
+function efaturaBuildMissingDocumentLinesHtml(array $documents): string {
+    $cellStyle = 'padding:8px 12px;border-bottom:1px solid #e3e8ef;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#33475b;';
+    $headStyle = 'padding:9px 12px;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:.03em;text-transform:uppercase;color:#ffffff;';
+
+    $rows = '';
+    $index = 0;
     foreach ($documents as $row) {
-        $invoiceDate = trim((string) ($row['invoice_date'] ?? ''));
-        $invoiceType = trim((string) ($row['invoice_type'] ?? ''));
-        $invoiceNo = trim((string) ($row['invoice_no'] ?? ''));
-        $issuerName = trim((string) ($row['issuer_name'] ?? ''));
-        $issuerVat = trim((string) ($row['issuer_vat'] ?? ''));
-        $grossTotal = number_format((float) ($row['gross_total'] ?? 0), 2, ',', ' ');
-        $parts = [
-            $invoiceDate,
-            trim($invoiceType . ' ' . $invoiceNo),
-            $issuerName,
-        ];
-        if ($issuerVat !== '') {
-            $parts[] = 'NIF ' . $issuerVat;
-        }
-        $parts[] = 'Total ' . $grossTotal . ' EUR';
-        $lines[] = '- ' . efaturaJoinNonEmpty($parts, ' | ');
+        $invoiceDate = htmlspecialchars(trim((string) ($row['invoice_date'] ?? '')), ENT_QUOTES, 'UTF-8');
+        $docRef = htmlspecialchars(efaturaJoinNonEmpty([(string) ($row['invoice_type'] ?? ''), (string) ($row['invoice_no'] ?? '')], ' '), ENT_QUOTES, 'UTF-8');
+        $issuerName = htmlspecialchars(trim((string) ($row['issuer_name'] ?? '')), ENT_QUOTES, 'UTF-8');
+        $issuerVat = htmlspecialchars(trim((string) ($row['issuer_vat'] ?? '')), ENT_QUOTES, 'UTF-8');
+        $grossTotal = htmlspecialchars(number_format((float) ($row['gross_total'] ?? 0), 2, ',', ' '), ENT_QUOTES, 'UTF-8');
+        $bg = $index % 2 === 0 ? '#ffffff' : '#f4f7fb';
+
+        $rows .= '<tr style="background:' . $bg . ';">'
+            . '<td style="' . $cellStyle . 'white-space:nowrap;">' . $invoiceDate . '</td>'
+            . '<td style="' . $cellStyle . '">' . $docRef . '</td>'
+            . '<td style="' . $cellStyle . '">' . $issuerName . '</td>'
+            . '<td style="' . $cellStyle . 'white-space:nowrap;">' . $issuerVat . '</td>'
+            . '<td style="' . $cellStyle . 'text-align:right;white-space:nowrap;">' . $grossTotal . ' EUR</td>'
+            . '</tr>';
+        $index++;
     }
-    return implode("\n", $lines);
+
+    $header = '<tr style="background:#33475b;">'
+        . '<th style="' . $headStyle . '">Data</th>'
+        . '<th style="' . $headStyle . '">Documento</th>'
+        . '<th style="' . $headStyle . '">Emitente</th>'
+        . '<th style="' . $headStyle . '">NIF</th>'
+        . '<th style="' . $headStyle . 'text-align:right;">Total</th>'
+        . '</tr>';
+
+    $caption = '<caption style="caption-side:top;text-align:left;padding:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#73879c;">'
+        . count($documents) . ' documento(s) sem upload</caption>';
+
+    return '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e3e8ef;margin:12px 0;">'
+        . $caption
+        . '<thead>' . $header . '</thead>'
+        . '<tbody>' . $rows . '</tbody>'
+        . '</table>';
 }
 
 function efaturaBuildMissingDocsFilterSummary(array $filters): string {
@@ -2261,6 +2315,17 @@ function efaturaJoinNonEmpty(array $parts, string $separator): string {
     return implode($separator, $filtered);
 }
 
+function efaturaSanitizeEmailHtmlBody(string $html): string {
+    $html = trim($html);
+    if ($html === '') {
+        return '';
+    }
+    $html = preg_replace('#<(script|style|iframe|object|embed)\b[^>]*>.*?</\1>#is', '', $html) ?? $html;
+    $html = preg_replace('#\son\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html) ?? $html;
+    $html = preg_replace('#(href|src)\s*=\s*("|\')\s*javascript:[^"\']*\2#i', '$1=$2#$2', $html) ?? $html;
+    return trim($html);
+}
+
 function efaturaSendEmail(array $message): void {
     $smtpHost = trim((string) getSetting('smtp_host', ''));
     if ($smtpHost !== '') {
@@ -2368,7 +2433,7 @@ function efaturaBuildEmailHeaders(array $message, bool $includeToHeader = false,
     $headers[] = 'Date: ' . date(DATE_RFC2822);
     $headers[] = 'Message-ID: <' . uniqid('efatura_', true) . '@' . efaturaSmtpClientHost() . '>';
     $headers[] = 'MIME-Version: 1.0';
-    $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+    $headers[] = 'Content-Type: text/html; charset=UTF-8';
     $headers[] = 'Content-Transfer-Encoding: base64';
     $headers[] = 'X-Mailer: AICRM E-fatura';
     return implode("\r\n", $headers);
