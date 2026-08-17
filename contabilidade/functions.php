@@ -2528,6 +2528,17 @@ function saveAccountingEntity(PDO $pdo, array $data): void {
         $existing = findAccountingEntity($pdo, $nif);
     }
 
+    if ($entityType === 'acquirer') {
+        if ($erpDatabase === '' && is_array($existing) && !empty($existing['id'])) {
+            // An update that omits erp_database must never blank out a value the
+            // entity already had — only an explicit non-empty value may change it.
+            $erpDatabase = normalizeAccountingEntityDatabaseKey((string) ($existing['erp_database'] ?? ''));
+        }
+        if ($erpDatabase === '') {
+            throw new RuntimeException('E obrigatorio indicar a base de dados ERP (empresa) desta entidade.');
+        }
+    }
+
     if ($entityType === 'acquirer' && $erpDatabase !== '') {
         $existingByDatabase = findAccountingAcquirerEntityByDatabase($pdo, $erpDatabase);
         if (

@@ -211,7 +211,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $submittedErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
                 $entityErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
                 $erpDatabase = $submittedErpDatabase !== '' ? $submittedErpDatabase : $entityErpDatabase;
-                if ($erpDatabase === '') {
+
+                if ($isSuperAdmin && $submittedErpDatabase !== '' && $submittedErpDatabase !== $entityErpDatabase) {
+                    try {
+                        saveAccountingEntity($pdo, [
+                            'nif' => (string) ($entity['nif'] ?? ''),
+                            'name' => (string) ($entity['name'] ?? ''),
+                            'erp_database' => $submittedErpDatabase,
+                            'erp_client_code' => (string) ($entity['erp_client_code'] ?? ''),
+                            'entity_type' => 'acquirer',
+                        ]);
+                        $entityErpDatabase = $submittedErpDatabase;
+                        $erpDatabase = $submittedErpDatabase;
+                        logAuditAction('update', 'accounting_entity_erp_database', $entityId, [
+                            'entity_id' => $entityId,
+                            'nif' => (string) ($entity['nif'] ?? ''),
+                            'erp_database' => $submittedErpDatabase,
+                            'changed_by' => (int) ($user['id'] ?? 0),
+                        ]);
+                    } catch (RuntimeException | InvalidArgumentException $e) {
+                        $flashType = 'error';
+                        $flashMessage = trim($e->getMessage());
+                    }
+                }
+
+                if ($flashType === 'error' && $flashMessage !== '') {
+                    // Base de dados invalida; nao prosseguir com a sincronizacao ERP.
+                } elseif ($erpDatabase === '') {
                     $flashType = 'error';
                     $flashMessage = 'A empresa nao tem base de dados ERP configurada.';
                 } else {
@@ -287,6 +313,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
+    }
+
+    if ($action === 'set-entity-erp-database') {
+        $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
+        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
+        if ($returnUrl === null) {
+            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug);
+        }
+
+        if (!$isSuperAdmin) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para alterar a base de dados ERP.', 403);
+        }
+
+        $newErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
+
+        $stmt = $pdo->prepare(
+            'SELECT ' . appendAccountingEntityUuidSelectColumn('id, nif, name, erp_database, erp_client_code, entity_type') . ' FROM accounting_entities WHERE id = ? LIMIT 1'
+        );
+        $stmt->execute([$entityId]);
+        $entity = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        if (!$entity) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Entidade nao encontrada.', 404);
+        }
+        if (($entity['entity_type'] ?? '') !== 'acquirer') {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Tipo de entidade invalido.', 400);
+        }
+
+        $entity = ensureAccountingEntityRouteRow($pdo, $entity);
+        $returnUrl .= '/' . rawurlencode(getAccountingEntityRouteKey($entity));
+
+        try {
+            saveAccountingEntity($pdo, [
+                'nif' => (string) ($entity['nif'] ?? ''),
+                'name' => (string) ($entity['name'] ?? ''),
+                'erp_database' => $newErpDatabase,
+                'erp_client_code' => (string) ($entity['erp_client_code'] ?? ''),
+                'entity_type' => 'acquirer',
+            ]);
+        } catch (RuntimeException | InvalidArgumentException $e) {
+            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', trim($e->getMessage()), 409);
+        }
+
+        logAuditAction('update', 'accounting_entity_erp_database', $entityId, [
+            'entity_id' => $entityId,
+            'nif' => (string) ($entity['nif'] ?? ''),
+            'erp_database' => $newErpDatabase,
+            'changed_by' => (int) ($user['id'] ?? 0),
+        ]);
+
+        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', 'Base de dados ERP atualizada.');
     }
 
     if ($action === 'save-client-user') {
@@ -1041,6 +1118,54 @@ return;
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
+            <?php if ($consultEntity && $isSuperAdmin && ($consultEntity['entity_type'] ?? '') === 'acquirer' && !$erpClient): ?>
+                <?php $currentEntityDatabase = normalizeAccountingEntityDatabaseKey((string) ($consultEntity['erp_database'] ?? '')); ?>
+                <div class="row">
+                    <div class="col-md-12">
+                        <div style="border:1px solid #e6e9ed;border-radius:3px;padding:15px 15px 5px;margin-bottom:18px;background:#fff;">
+                            <h3 style="margin:0 0 12px;font-size:15px;font-weight:600;color:#34495e;"><i class="fa fa-database" style="margin-right:6px;color:#1abb9c;"></i> Base de dados ERP (admin)</h3>
+                            <form method="post" id="adminErpDatabaseForm" class="form-horizontal">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                <input type="hidden" name="action" value="set-entity-erp-database">
+                                <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
+                                <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
+                                <div class="row">
+                                    <div class="col-md-4 col-sm-12">
+                                        <div class="form-group">
+                                            <label class="control-label">Base de dados ERP</label>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="adminErpDatabaseInput" name="erp_database" value="<?= htmlspecialchars($currentEntityDatabase); ?>" placeholder="emp_XXX">
+                                                <span class="input-group-btn">
+                                                    <button type="submit" class="btn btn-warning">
+                                                        <i class="fa fa-save"></i> Guardar
+                                                    </button>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                (function() {
+                    var form = document.getElementById('adminErpDatabaseForm');
+                    var input = document.getElementById('adminErpDatabaseInput');
+                    if (!form || !input) {
+                        return;
+                    }
+                    form.addEventListener('submit', function(event) {
+                        if (String(input.value || '').trim() === '') {
+                            event.preventDefault();
+                            alert('Indica a base de dados ERP.');
+                        } else if (!confirm('Alterar a base de dados ERP desta empresa?')) {
+                            event.preventDefault();
+                        }
+                    });
+                })();
+                </script>
+            <?php endif; ?>
             <?php if ($consultRouteKey !== '' && ($erpError !== '' || !$erpClient)): ?>
                 <?php
                     $erpErrorDisplay = preg_replace('/\\s*URL:\\s*\\S+\\s*/i', ' ', $erpError);
@@ -1315,7 +1440,6 @@ return;
                                 <input type="hidden" name="action" value="update-erp-client-details">
                                 <input type="hidden" name="entity_id" value="<?= (int) ($consultEntity['id'] ?? 0); ?>">
                                 <input type="hidden" name="erp_record_id" value="<?= (int) ($erpClientForm['id'] ?? 0); ?>">
-                                <input type="hidden" name="erp_database" value="<?= htmlspecialchars((string) $erpClientDatabase); ?>">
                                 <input type="hidden" name="return_url" value="<?= htmlspecialchars(BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug) . '/' . rawurlencode(getAccountingEntityRouteKey($consultEntity))); ?>">
                                 <input type="hidden" name="nif" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>">
                                 <input type="hidden" name="name" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>">
@@ -1326,7 +1450,7 @@ return;
                                         <div class="erp-form-section">
                                             <h3 class="erp-form-section-title"><i class="fa fa-building-o"></i> Identificação</h3>
                                             <div class="row">
-                                                <div class="col-md-3 col-sm-12">
+                                                <div class="col-md-2 col-sm-12">
                                                     <div class="form-group">
                                                         <label class="control-label">NIF</label>
                                                         <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['nif']); ?>" readonly>
@@ -1338,12 +1462,23 @@ return;
                                                         <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['name']); ?>" readonly>
                                                     </div>
                                                 </div>
-                                                <div class="col-md-3 col-sm-12">
+                                                <div class="col-md-2 col-sm-12">
                                                     <div class="form-group">
                                                         <label class="control-label">Nº Cliente</label>
                                                         <input type="text" class="form-control erp-readonly-field" value="<?= htmlspecialchars((string) $erpClientForm['number']); ?>" readonly>
                                                     </div>
                                                 </div>
+                                                <?php if ($isSuperAdmin): ?>
+                                                <?php $consultEntityOwnDatabase = normalizeAccountingEntityDatabaseKey((string) ($consultEntity['erp_database'] ?? '')); ?>
+                                                <div class="col-md-2 col-sm-12">
+                                                    <div class="form-group">
+                                                        <label class="control-label">Base de dados ERP (admin)</label>
+                                                        <input type="text" class="form-control" name="erp_database" value="<?= htmlspecialchars($consultEntityOwnDatabase); ?>" placeholder="emp_XXX">
+                                                    </div>
+                                                </div>
+                                                <?php else: ?>
+                                                <input type="hidden" name="erp_database" value="<?= htmlspecialchars((string) $erpClientDatabase); ?>">
+                                                <?php endif; ?>
                                             </div>
                                         </div>
                                         <div class="erp-form-section">
