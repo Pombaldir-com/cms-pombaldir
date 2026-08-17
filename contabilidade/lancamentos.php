@@ -343,6 +343,18 @@ $openLancamentoSearch = trim((string) ($_GET['q'] ?? ''));
 // different movimento from another diario. NIF + total disambiguate it.
 $openLancamentoNif = preg_replace('/\D+/', '', (string) ($_GET['open_nif'] ?? '')) ?? '';
 $openLancamentoTotal = trim((string) ($_GET['open_total'] ?? ''));
+// When the caller already knows the diario (e.g. resolved via the ERP just
+// before building the link), pass it through so the deep-link fetch can be
+// scoped to it directly instead of scanning every diario in the exercicio.
+$openLancamentoDiario = trim((string) ($_GET['intCodDiario'] ?? ($_GET['diario'] ?? '')));
+// Some locally-stored cab_id values are only a placeholder recorded when the
+// ERP confirmed "documento ja lancado" by natural key (see
+// buildExistingMovementCabId() in classificacao-importacao.php), not a real
+// movimento Id - open_id is then meaningless for matching. When the caller
+// resolved the movimento's intNum_Diario (efatura.php's "Editar lancamento"
+// button always tries to), prefer matching on it instead - reliable once the
+// fetch is scoped to the diario/mes above, and works for both cab_id shapes.
+$openLancamentoNumDiario = trim((string) ($_GET['open_num_diario'] ?? ''));
 $initialExercicio = trim((string) ($_GET['strCodExercicio'] ?? ''));
 $initialMes = trim((string) ($_GET['intMes'] ?? ''));
 if ($initialExercicio !== '' && ctype_digit($initialExercicio) && !in_array((int) $initialExercicio, $yearOptions, true)) {
@@ -1782,19 +1794,28 @@ $pageScripts = <<<'JS'
     var pendingOpenLancamentoId = window.lancamentosOpenId || '';
     var pendingOpenLancamentoNotified = false;
     if (pendingOpenLancamentoId) {
-        // Deep link: only scope the ERP fetch by exercicio (the same scope
-        // efatura.php's "Verificar no ERP" probe uses and has proven to find
-        // the record) - mes/diario/tipo doc are cleared so a mismatch there
-        // (e.g. the movimento posted under a different intMes than the
-        // invoice date) can't hide the target row from the auto-open scan.
+        // Deep link: scope the ERP fetch by exercicio and mes (both keep the
+        // "Verificar no ERP" probe result: exercicio is always sent; mes comes
+        // from the invoice date, or from the ERP-confirmed value once the
+        // "Editar lancamento" button resolves it). A wide, diario-unscoped
+        // fetch for a whole exercicio can hold more rows than our 2000-row
+        // cap, silently dropping the target before the scan ever reaches it -
+        // narrowing by mes keeps the fetch small enough to actually contain
+        // it. tipo doc is cleared since we have no reliable value for it. When
+        // the caller already resolved the diario (window.lancamentosOpenDiario),
+        // use it directly - narrows/speeds up the fetch further and sidesteps
+        // the Id-reused-across-diarios collision entirely.
+        var pendingOpenDiario = String(window.lancamentosOpenDiario || '').trim();
         $filters.each(function() {
             var field = this.getAttribute('data-field');
-            if (field === 'strCodExercicio') {
+            if (field === 'strCodExercicio' || field === 'intMes') {
                 var defaultValue = this.getAttribute('data-default');
                 if (defaultValue !== null) {
                     this.value = defaultValue;
                 }
-            } else if (field === 'intMes' || field === 'intCodDiario' || field === 'strAbrevTpDoc') {
+            } else if (field === 'intCodDiario') {
+                this.value = pendingOpenDiario;
+            } else if (field === 'strAbrevTpDoc') {
                 this.value = '';
             }
         });
@@ -1971,14 +1992,22 @@ $pageScripts = <<<'JS'
                 if (pendingOpenLancamentoId) {
                     var openNif = String(window.lancamentosOpenNif || '').replace(/\D+/g, '');
                     var openTotal = parseFloat(String(window.lancamentosOpenTotal || '').replace(',', '.'));
+                    var openNumDiario = String(window.lancamentosOpenNumDiario || '').trim();
                     var openMatch = formatted.filter(function(row) {
-                        if (String(row.Id || '') !== String(pendingOpenLancamentoId)) {
+                        // Some locally-stored cab_id values are only a natural-key
+                        // placeholder (see buildExistingMovementCabId() PHP-side),
+                        // not a real ERP Id - open_id is meaningless for those, so
+                        // prefer matching by the resolved intNum_Diario when present.
+                        // Otherwise fall back to Id, which is scoped per diario (not
+                        // globally unique across an exercicio) - hence still also
+                        // requiring NIF/total to match below either way.
+                        if (openNumDiario) {
+                            if (String(row.intNumDiario || '') !== openNumDiario) {
+                                return false;
+                            }
+                        } else if (String(row.Id || '') !== String(pendingOpenLancamentoId)) {
                             return false;
                         }
-                        // cab_id (Id) is scoped per diario, not globally unique across
-                        // an exercicio, so also require the NIF and total to match -
-                        // otherwise we risk opening an unrelated movimento from a
-                        // different diario that happens to reuse the same Id.
                         if (openNif) {
                             var rowNif = String(row.strFArchTaxPayer || '').replace(/\D+/g, '');
                             if (rowNif !== openNif) {
@@ -2592,5 +2621,7 @@ $pageScripts = "window.erpLancamentosBaseUrl = " . json_encode((string) getSetti
     . "window.lancamentosOpenSearch = " . json_encode($openLancamentoSearch, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosOpenNif = " . json_encode($openLancamentoNif, JSON_UNESCAPED_UNICODE) . ";\n"
     . "window.lancamentosOpenTotal = " . json_encode($openLancamentoTotal, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenDiario = " . json_encode($openLancamentoDiario, JSON_UNESCAPED_UNICODE) . ";\n"
+    . "window.lancamentosOpenNumDiario = " . json_encode($openLancamentoNumDiario, JSON_UNESCAPED_UNICODE) . ";\n"
     . $pageScripts;
 require_once __DIR__ . '/../footer.php';

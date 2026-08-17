@@ -49,6 +49,10 @@ if ($action === 'missing_docs_preview') {
     handleEfaturaMissingDocsPreview($pdo, $selectedEntityId, $user);
 }
 
+if ($action === 'resolve_ctb_location') {
+    handleEfaturaResolveCtbLocation($pdo);
+}
+
 $tablesReady = efaturaTablesReady();
 $canManageCredentials = userHasDepartmentPermission('ctb_efatura_credenciais');
 $canSync = userHasDepartmentPermission('ctb_efatura_sincronizar');
@@ -644,6 +648,7 @@ window.efaturaDocumentsDataUrl = ' . json_encode(BASE_URL . 'contabilidade/efatu
 window.efaturaMissingDocsPreviewUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=missing_docs_preview', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaMissingDocsSendUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaCsrfToken = ' . json_encode($csrfToken, JSON_UNESCAPED_UNICODE) . ';
+window.efaturaResolveCtbLocationUrl = ' . json_encode(BASE_URL . 'contabilidade/efatura/documentos?action=resolve_ctb_location', JSON_UNESCAPED_UNICODE) . ';
 window.efaturaSelectedEntityId = ' . (int) $selectedEntityId . ';
 window.efaturaDocumentsDateStorageKey = ' . json_encode('efatura_documents_date_range:' . (int) $selectedEntityId, JSON_UNESCAPED_UNICODE) . ';
 window.efaturaDocumentsDateFilter = (function() {
@@ -1354,6 +1359,67 @@ $pageScripts .= '
 })();
 ';
 
+$pageScripts .= '
+(function() {
+    document.addEventListener("click", function(event) {
+        var button = event.target.closest ? event.target.closest(".efatura-edit-lancamento-btn") : null;
+        if (!button || button.disabled) {
+            return;
+        }
+        event.preventDefault();
+        var documentId = button.getAttribute("data-document-id");
+        var baseUrl = button.getAttribute("data-edit-url");
+        if (!documentId || !baseUrl) {
+            return;
+        }
+
+        // Open the tab synchronously (on the click gesture) so popup blockers
+        // do not swallow it once the diario lookup below resolves async;
+        // navigate that tab once the final URL (with or without diario) is known.
+        var newTab = window.open("about:blank", "_blank");
+
+        function navigate(url) {
+            if (newTab && !newTab.closed) {
+                newTab.location = url;
+            } else {
+                window.open(url, "_blank");
+            }
+        }
+
+        if (!window.fetch || !window.efaturaResolveCtbLocationUrl) {
+            navigate(baseUrl);
+            return;
+        }
+
+        fetch(window.efaturaResolveCtbLocationUrl + "&document_id=" + encodeURIComponent(documentId), {
+            credentials: "same-origin"
+        })
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                var url = baseUrl;
+                if (data && data.ok && data.found) {
+                    if (data.diario) {
+                        url += "&intCodDiario=" + encodeURIComponent(data.diario);
+                    }
+                    if (data.mes) {
+                        url += "&intMes=" + encodeURIComponent(data.mes);
+                    }
+                    // Prefer matching by intNum_Diario: reliable once diario/mes
+                    // scope the fetch, and works even when the local cab_id was
+                    // only ever a placeholder (no real ERP Id known for it).
+                    if (data.num_diario) {
+                        url += "&open_num_diario=" + encodeURIComponent(data.num_diario);
+                    }
+                }
+                navigate(url);
+            })
+            .catch(function() {
+                navigate(baseUrl);
+            });
+    });
+})();
+';
+
 require_once __DIR__ . '/../footer.php';
 
 function handleEfaturaSyncStatus(PDO $pdo): void {
@@ -1938,6 +2004,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
                 . (int) ($row['id'] ?? 0) . '" title="Verificar se o movimento ainda existe no ERP">'
                 . '<i class="fa fa-refresh"></i></button>';
         }
+        $invoiceNoHtml = htmlspecialchars((string) ($row['invoice_no'] ?? ''), ENT_QUOTES, 'UTF-8');
         if ($hasCtbImport && !$isCancelled && $canEditLancamentos) {
             $cabId = trim((string) ($state['cab_id'] ?? ''));
             $entityErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($row['entity_erp_database'] ?? ''));
@@ -1952,15 +2019,16 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
                     'open_nif' => (string) ($row['issuer_vat'] ?? ''),
                     'open_total' => (string) ($row['gross_total'] ?? ''),
                 ], '', '&', PHP_QUERY_RFC3986);
-                $ctbStatusHtml .= ' <a href="' . htmlspecialchars($editUrl, ENT_QUOTES, 'UTF-8') . '" target="_blank" rel="noopener" class="btn btn-xs btn-default" title="Editar lancamento">'
-                    . '<i class="fa fa-pencil"></i></a>';
+                $invoiceNoHtml = '<a href="#" class="efatura-edit-lancamento-btn" data-document-id="'
+                    . (int) ($row['id'] ?? 0) . '" data-edit-url="' . htmlspecialchars($editUrl, ENT_QUOTES, 'UTF-8')
+                    . '" title="Abrir lancamento na contabilidade">' . $invoiceNoHtml . '</a>';
             }
         }
         $data[] = [
             'invoice_date' => (string) ($row['invoice_date'] ?? ''),
             'issuer_name' => (string) ($row['issuer_name'] ?? ''),
             'issuer_vat' => (string) ($row['issuer_vat'] ?? ''),
-            'invoice_no' => (string) ($row['invoice_no'] ?? ''),
+            'invoice_no' => $invoiceNoHtml,
             'invoice_type' => (string) ($row['invoice_type'] ?? ''),
             'net_total' => number_format((float) ($row['net_total'] ?? 0), 2, ',', ' '),
             'tax_payable' => number_format((float) ($row['tax_payable'] ?? 0), 2, ',', ' '),
@@ -1979,6 +2047,129 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         'recordsFiltered' => $recordsFiltered,
         'data' => $data,
     ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/**
+ * Load everything needed to look up a document's CTB movement in the ERP:
+ * the linked accounting_imports row (cab_id), the entity's erp_database, and
+ * the exercicio/NIF/total used to disambiguate matches. Shared by the
+ * "Verificar no ERP" and "Editar lancamento" (diario resolution) actions.
+ *
+ * @throws RuntimeException with a user-facing message on any missing piece.
+ */
+function efaturaLoadCtbVerificationContext(PDO $pdo, int $documentId): array {
+    $docStmt = $pdo->prepare('SELECT id, entity_id, invoice_date, issuer_vat, gross_total FROM efatura_documents WHERE id = ? LIMIT 1');
+    $docStmt->execute([$documentId]);
+    $documentRow = $docStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($documentRow === null) {
+        throw new RuntimeException('Documento nao encontrado.');
+    }
+
+    $importRow = null;
+    if (accountingImportsEfaturaLinkReady()) {
+        $linkStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE efatura_document_id = ? LIMIT 1');
+        $linkStmt->execute([$documentId]);
+        $importRow = $linkStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+    if ($importRow === null) {
+        $match = reconcileEfaturaDocumentWithAccountingImport($pdo, $documentId, $documentRow);
+        if ($match && !empty($match['id'])) {
+            $matchStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
+            $matchStmt->execute([(int) $match['id']]);
+            $importRow = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+    }
+
+    $cabId = trim((string) ($importRow['cab_id'] ?? ''));
+    if ($importRow === null || $cabId === '') {
+        throw new RuntimeException('Este documento nao tem uma importacao CTB registada.');
+    }
+
+    $entityStmt = $pdo->prepare('SELECT erp_database FROM accounting_entities WHERE id = ? LIMIT 1');
+    $entityStmt->execute([(int) $documentRow['entity_id']]);
+    $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $erpDatabase = resolveAccountingEntityDatabase($entityRow);
+    if ($erpDatabase === '') {
+        throw new RuntimeException('Empresa sem base de dados ERP configurada.');
+    }
+
+    $invoiceDate = trim((string) ($documentRow['invoice_date'] ?? ''));
+    $exercicio = $invoiceDate !== '' ? substr($invoiceDate, 0, 4) : '';
+    if ($exercicio === '') {
+        throw new RuntimeException('Documento sem data de fatura valida.');
+    }
+
+    return [
+        'document' => $documentRow,
+        'import' => $importRow,
+        'cab_id' => $cabId,
+        'erp_database' => $erpDatabase,
+        'exercicio' => $exercicio,
+        'issuer_vat' => trim((string) ($documentRow['issuer_vat'] ?? '')),
+        'gross_total' => (float) ($documentRow['gross_total'] ?? 0),
+    ];
+}
+
+/**
+ * Upgrade a synthetic "existing|..." cab_id placeholder to the real numeric
+ * ERP Id once a verification confirms it and returns that Id. No-op when the
+ * stored cab_id was already numeric, or the ERP didn't return an Id.
+ */
+function efaturaHealCtbImportCabId(PDO $pdo, int $importId, string $currentCabId, string $discoveredId): void {
+    if ($importId <= 0 || $discoveredId === '' || $discoveredId === $currentCabId) {
+        return;
+    }
+    if (efaturaParseExistingMovementCabId($currentCabId) === null) {
+        return;
+    }
+    $stmt = $pdo->prepare('UPDATE accounting_imports SET cab_id = ? WHERE id = ?');
+    $stmt->execute([$discoveredId, $importId]);
+    logErpMessage('Verificacao CTB: cab_id placeholder "' . $currentCabId . '" substituido pelo Id real ' . $discoveredId . ' (import ' . $importId . ').');
+}
+
+function handleEfaturaResolveCtbLocation(PDO $pdo): void {
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        if (!userHasDepartmentPermission('ctb_importar_docs') && !userHasDepartmentPermission('ctb_lancamentos_aceder')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Sem permissoes.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $documentId = (int) ($_GET['document_id'] ?? 0);
+        if ($documentId <= 0) {
+            throw new RuntimeException('Documento invalido.');
+        }
+
+        $context = efaturaLoadCtbVerificationContext($pdo, $documentId);
+        $lookup = efaturaLookupErpMovimento(
+            $context['erp_database'],
+            $context['exercicio'],
+            $context['cab_id'],
+            $context['issuer_vat'],
+            $context['gross_total']
+        );
+        if (!$lookup['success']) {
+            throw new RuntimeException($lookup['error'] !== '' ? $lookup['error'] : 'Falha ao consultar o ERP.');
+        }
+
+        if ($lookup['found']) {
+            efaturaHealCtbImportCabId($pdo, (int) $context['import']['id'], $context['cab_id'], (string) ($lookup['id'] ?? ''));
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'found' => (bool) $lookup['found'],
+            'diario' => (string) ($lookup['diario'] ?? ''),
+            'mes' => (string) ($lookup['mes'] ?? ''),
+            'num_diario' => (string) ($lookup['num_diario'] ?? ''),
+        ], JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    }
     exit;
 }
 
@@ -2001,56 +2192,19 @@ function handleEfaturaVerifyCtbImport(PDO $pdo, array $user): void {
             throw new RuntimeException('Documento invalido.');
         }
 
-        $docStmt = $pdo->prepare('SELECT id, entity_id, invoice_date, issuer_vat, gross_total FROM efatura_documents WHERE id = ? LIMIT 1');
-        $docStmt->execute([$documentId]);
-        $documentRow = $docStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if ($documentRow === null) {
-            throw new RuntimeException('Documento nao encontrado.');
-        }
+        $context = efaturaLoadCtbVerificationContext($pdo, $documentId);
+        $documentRow = $context['document'];
+        $importRow = $context['import'];
+        $cabId = $context['cab_id'];
+        $erpDatabase = $context['erp_database'];
 
-        $importRow = null;
-        if (accountingImportsEfaturaLinkReady()) {
-            $linkStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE efatura_document_id = ? LIMIT 1');
-            $linkStmt->execute([$documentId]);
-            $importRow = $linkStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        }
-        if ($importRow === null) {
-            $match = reconcileEfaturaDocumentWithAccountingImport($pdo, $documentId, $documentRow);
-            if ($match && !empty($match['id'])) {
-                $matchStmt = $pdo->prepare('SELECT id, cab_id FROM accounting_imports WHERE id = ? LIMIT 1');
-                $matchStmt->execute([(int) $match['id']]);
-                $importRow = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-            }
-        }
-
-        $cabId = trim((string) ($importRow['cab_id'] ?? ''));
-        if ($importRow === null || $cabId === '') {
-            throw new RuntimeException('Este documento nao tem uma importacao CTB registada.');
-        }
-
-        $entityStmt = $pdo->prepare('SELECT erp_database FROM accounting_entities WHERE id = ? LIMIT 1');
-        $entityStmt->execute([(int) $documentRow['entity_id']]);
-        $entityRow = $entityStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        $erpDatabase = resolveAccountingEntityDatabase($entityRow);
-        if ($erpDatabase === '') {
-            throw new RuntimeException('Empresa sem base de dados ERP configurada.');
-        }
-
-        $invoiceDate = trim((string) ($documentRow['invoice_date'] ?? ''));
-        $exercicio = $invoiceDate !== '' ? substr($invoiceDate, 0, 4) : '';
-        if ($exercicio === '') {
-            throw new RuntimeException('Documento sem data de fatura valida.');
-        }
-
-        $issuerVat = trim((string) ($documentRow['issuer_vat'] ?? ''));
-        $grossTotal = (float) ($documentRow['gross_total'] ?? 0);
-
-        $lookup = efaturaFindErpMovimentoById($erpDatabase, $exercicio, $cabId, $issuerVat, $grossTotal);
+        $lookup = efaturaLookupErpMovimento($erpDatabase, $context['exercicio'], $cabId, $context['issuer_vat'], $context['gross_total']);
         if (!$lookup['success']) {
             throw new RuntimeException($lookup['error'] !== '' ? $lookup['error'] : 'Falha ao consultar o ERP.');
         }
 
         if ($lookup['found']) {
+            efaturaHealCtbImportCabId($pdo, (int) $importRow['id'], $cabId, (string) ($lookup['id'] ?? ''));
             echo json_encode([
                 'ok' => true,
                 'exists' => true,
@@ -2092,28 +2246,42 @@ function handleEfaturaVerifyCtbImport(PDO $pdo, array $user): void {
 }
 
 /**
- * Scan the ERP-SINC "movimentos" listing for the given accounting year and
- * report whether a movement with the given header Id still exists.
- *
- * Best effort: the local accounting_imports table only stores the header Id
- * (cab_id), not the diario/mes it was posted under, so this scans the whole
- * exercicio (capped) instead of a single diario/mes. The Id (cab_id) appears
- * to be scoped per diario rather than unique across the whole exercicio, so
- * matching by Id alone can find an unrelated movimento from another diario
- * that happens to reuse the same Id - the NIF and total of the counterparty
- * line disambiguate that before accepting a match.
+ * Parse the synthetic cab_id placeholder buildExistingMovementCabId() (in
+ * classificacao-importacao.php) stores when the ERP confirms a document was
+ * "ja lancado" but its response only carries the natural key (database +
+ * exercicio + diario + mes + num_diario), not the movement's real numeric
+ * Id: "existing|<database>|<exercicio>|<diario>|<mes>|<num_diario>". Returns
+ * null for a plain numeric (or any other shaped) cab_id.
  */
-function efaturaFindErpMovimentoById(string $database, string $exercicio, string $cabId, string $expectedNif = '', float $expectedTotal = 0.0): array {
-    $limit = 2000;
-    $path = 'contabilidade/movimentos?' . http_build_query([
-        'strCodExercicio' => $exercicio,
-        'limit' => $limit,
-        'offset' => 0,
-    ], '', '&', PHP_QUERY_RFC3986);
+function efaturaParseExistingMovementCabId(string $cabId): ?array {
+    if (strpos($cabId, 'existing|') !== 0) {
+        return null;
+    }
+    $parts = explode('|', $cabId);
+    if (count($parts) !== 6) {
+        // buildExistingMovementCabId() drops empty fields before joining, so a
+        // partial key (e.g. diario unknown) can't be told apart positionally
+        // from a differently-shaped value - safer to treat as unparseable.
+        return null;
+    }
+    return [
+        'database' => trim($parts[1]),
+        'exercicio' => trim($parts[2]),
+        'diario' => trim($parts[3]),
+        'mes' => trim($parts[4]),
+        'num_diario' => trim($parts[5]),
+    ];
+}
 
+/**
+ * Fetch a page of the ERP-SINC "movimentos" listing and normalize it to a
+ * plain row array regardless of which wrapper key the payload used.
+ */
+function efaturaFetchErpMovimentosRows(string $database, array $queryParams): array {
+    $path = 'contabilidade/movimentos?' . http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986);
     $response = callErpJsonEndpoint($path, 'GET', null, true, $database);
     if (empty($response['success'])) {
-        return ['success' => false, 'found' => false, 'error' => trim((string) ($response['error'] ?? 'Falha ao consultar o ERP.'))];
+        return ['success' => false, 'rows' => [], 'error' => trim((string) ($response['error'] ?? 'Falha ao consultar o ERP.'))];
     }
 
     $payload = $response['data'];
@@ -2128,9 +2296,97 @@ function efaturaFindErpMovimentoById(string $database, string $exercicio, string
         }
     }
 
-    $expectedNifDigits = preg_replace('/\D+/', '', $expectedNif) ?? '';
+    return ['success' => true, 'rows' => $rows, 'error' => ''];
+}
 
-    foreach ($rows as $row) {
+function efaturaRowMatchesExpectedNifAndTotal(array $row, string $expectedNifDigits, float $expectedTotal): bool {
+    if ($expectedNifDigits !== '') {
+        $rowNifDigits = preg_replace('/\D+/', '', (string) ($row['strFArchTaxPayer'] ?? '')) ?? '';
+        if ($rowNifDigits !== $expectedNifDigits) {
+            return false;
+        }
+    }
+    if ($expectedTotal > 0.0) {
+        $rowTotal = (float) ($row['fltFArchTotal'] ?? 0);
+        if (abs($rowTotal - $expectedTotal) > 0.01) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function efaturaMovimentoLookupResult(array $row): array {
+    return [
+        'success' => true,
+        'found' => true,
+        'error' => '',
+        'id' => trim((string) ($row['Id'] ?? $row['id'] ?? '')),
+        'diario' => trim((string) ($row['intCodDiario'] ?? '')),
+        'num_diario' => trim((string) ($row['intNum_Diario'] ?? '')),
+        'mes' => trim((string) ($row['intMes'] ?? '')),
+    ];
+}
+
+function efaturaMovimentoNotFoundResult(): array {
+    return ['success' => true, 'found' => false, 'error' => '', 'id' => '', 'diario' => '', 'num_diario' => '', 'mes' => ''];
+}
+
+/**
+ * Locate a document's CTB movement in the ERP-SINC "movimentos" listing,
+ * whichever shape its local cab_id has (see efaturaParseExistingMovementCabId()):
+ *
+ * - Plain numeric cab_id: scans the whole exercicio (capped, since the local
+ *   table doesn't store which diario/mes it was posted under) for a matching
+ *   Id. The Id appears to be scoped per diario rather than unique across the
+ *   whole exercicio, so the NIF and total of the counterparty line
+ *   disambiguate a match before it's accepted.
+ * - "existing|..." composite placeholder: the diario/mes are already known,
+ *   so the fetch is scoped tightly to them and the match is by intNum_Diario
+ *   (+ NIF/total) instead of Id - both faster and immune to the Id collision
+ *   above. The real Id comes back from the matched row when found, letting
+ *   the caller "heal" the placeholder into a proper Id for next time.
+ */
+function efaturaLookupErpMovimento(string $database, string $exercicio, string $cabId, string $expectedNif = '', float $expectedTotal = 0.0): array {
+    $expectedNifDigits = preg_replace('/\D+/', '', $expectedNif) ?? '';
+    $composite = efaturaParseExistingMovementCabId($cabId);
+
+    if ($composite !== null) {
+        $queryParams = ['strCodExercicio' => $composite['exercicio'] !== '' ? $composite['exercicio'] : $exercicio, 'limit' => 500, 'offset' => 0];
+        if ($composite['diario'] !== '') {
+            $queryParams['intCodDiario'] = $composite['diario'];
+        }
+        if ($composite['mes'] !== '') {
+            $queryParams['intMes'] = $composite['mes'];
+        }
+
+        $fetch = efaturaFetchErpMovimentosRows($database, $queryParams);
+        if (!$fetch['success']) {
+            return ['success' => false, 'found' => false, 'error' => $fetch['error']];
+        }
+
+        foreach ($fetch['rows'] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rowNumDiario = trim((string) ($row['intNum_Diario'] ?? ''));
+            if ($rowNumDiario === '' || $rowNumDiario !== $composite['num_diario']) {
+                continue;
+            }
+            if (!efaturaRowMatchesExpectedNifAndTotal($row, $expectedNifDigits, $expectedTotal)) {
+                continue;
+            }
+            return efaturaMovimentoLookupResult($row);
+        }
+
+        return efaturaMovimentoNotFoundResult();
+    }
+
+    $fetch = efaturaFetchErpMovimentosRows($database, ['strCodExercicio' => $exercicio, 'limit' => 2000, 'offset' => 0]);
+    if (!$fetch['success']) {
+        return ['success' => false, 'found' => false, 'error' => $fetch['error']];
+    }
+
+    foreach ($fetch['rows'] as $row) {
         if (!is_array($row)) {
             continue;
         }
@@ -2138,22 +2394,13 @@ function efaturaFindErpMovimentoById(string $database, string $exercicio, string
         if ($rowId === '' || $rowId !== trim($cabId)) {
             continue;
         }
-        if ($expectedNifDigits !== '') {
-            $rowNifDigits = preg_replace('/\D+/', '', (string) ($row['strFArchTaxPayer'] ?? '')) ?? '';
-            if ($rowNifDigits !== $expectedNifDigits) {
-                continue;
-            }
+        if (!efaturaRowMatchesExpectedNifAndTotal($row, $expectedNifDigits, $expectedTotal)) {
+            continue;
         }
-        if ($expectedTotal > 0.0) {
-            $rowTotal = (float) ($row['fltFArchTotal'] ?? 0);
-            if (abs($rowTotal - $expectedTotal) > 0.01) {
-                continue;
-            }
-        }
-        return ['success' => true, 'found' => true, 'error' => ''];
+        return efaturaMovimentoLookupResult($row);
     }
 
-    return ['success' => true, 'found' => false, 'error' => ''];
+    return efaturaMovimentoNotFoundResult();
 }
 
 function handleEfaturaMissingDocsPreview(PDO $pdo, int $selectedEntityId, array $user): void {
