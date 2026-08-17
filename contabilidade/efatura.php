@@ -1809,9 +1809,24 @@ function efaturaBuildDocumentWhereSql(int $selectedEntityId, array $filters, arr
     }
 
     if (($filters['search'] ?? '') !== '') {
-        $where[] = '(d.invoice_date LIKE ? OR ae.name LIKE ? OR d.issuer_name LIKE ? OR d.issuer_vat LIKE ? OR d.invoice_no LIKE ? OR d.invoice_type LIKE ?)';
+        $where[] = '(d.invoice_date LIKE ? OR ae.name LIKE ? OR d.issuer_name LIKE ? OR d.issuer_vat LIKE ? OR d.invoice_no LIKE ? OR d.invoice_type LIKE ?'
+            . ' OR CAST(d.gross_total AS CHAR) LIKE ? OR CAST(d.net_total AS CHAR) LIKE ? OR CAST(d.tax_payable AS CHAR) LIKE ?)';
         $searchTerm = '%' . $filters['search'] . '%';
-        array_push($params, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm);
+        // Totals are stored with a dot decimal separator, but the column shows
+        // amounts with a comma (pt-PT); accept either when searching a total.
+        $numericSearchTerm = '%' . str_replace(',', '.', $filters['search']) . '%';
+        array_push(
+            $params,
+            $searchTerm,
+            $searchTerm,
+            $searchTerm,
+            $searchTerm,
+            $searchTerm,
+            $searchTerm,
+            $numericSearchTerm,
+            $numericSearchTerm,
+            $numericSearchTerm
+        );
     }
 
     return $where ? ' WHERE ' . implode(' AND ', $where) : '';
