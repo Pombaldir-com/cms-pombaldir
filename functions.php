@@ -1912,6 +1912,10 @@ function getAccountingEntityAdminTaskDefinitions(): array {
             'label' => 'Envio de SAF-T',
             'description' => 'Permite enviar o ficheiro SAF-T desta empresa na área de tarefas.',
         ],
+        'ctb_apuramento_iva' => [
+            'label' => 'Apuramento de IVA',
+            'description' => 'Permite tratar o apuramento de IVA desta empresa na área de tarefas.',
+        ],
     ];
 }
 

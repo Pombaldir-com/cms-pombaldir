@@ -15,31 +15,56 @@ aplicação (rota, permissão, tabelas) fica registada na secção
 "Integração na aplicação" e deve ser atualizada quando a tarefa for
 construída.
 
-## Integração na aplicação (planeado)
+## Integração na aplicação (implementado — fecho manual)
 
-- Página: `contabilidade/tarefas/apuramento-iva` (tarefa "Apuramento de IVA"),
-  seguindo o padrão de [`contabilidade/tarefas-envio-saft.php`](tarefas-envio-saft.php).
-- Menu: **Tarefas > Apuramento de IVA** (novo item em [header.php](../header.php),
-  no mesmo `<ul class="nav child_menu">` de "Envio de SAF-T").
-- Permissão por empresa: nova chave `ctb_apuramento_iva` em
+**Estado atual**: a página existe e permite fechar o período por
+empresa/período com introdução manual dos valores (a pagar / a recuperar),
+mas a reconciliação automática campo-a-campo (secções "Mapeamento de campos
+da DP IVA" e "Regras de validação por campo" abaixo) **ainda não está
+implementada** — depende de um endpoint ERP-SINC que ainda não existe (ver
+"Pontos a decidir"). Esta secção descreve o que existe hoje; as secções
+seguintes descrevem o comportamento-alvo (legacy) a implementar quando o
+endpoint estiver disponível.
+
+- Página: [`contabilidade/tarefas-apuramento-iva.php`](tarefas-apuramento-iva.php),
+  rota `contabilidade/tarefas/apuramento-iva`, seguindo o padrão de
+  [`contabilidade/tarefas-envio-saft.php`](tarefas-envio-saft.php).
+- Menu: **Tarefas > Apuramento de IVA** ([header.php](../header.php), no
+  mesmo `<ul class="nav child_menu">` de "Envio de SAF-T"; o item pai
+  "Tarefas" mostra-se se o utilizador tiver `ctb_envio_saft` **ou**
+  `ctb_apuramento_iva`).
+- Permissão por empresa: chave `ctb_apuramento_iva` em
   `getAccountingEntityAdminTaskDefinitions()` (`functions.php`), atribuída na
   ficha da empresa (Entidades > separador Admin > Tarefas administrativas),
   reutilizando a tabela `accounting_entity_admin_task_permissions`
-  (entidade + `permission_key` + utilizador) — não criar tabela nova de
+  (entidade + `permission_key` + utilizador) — sem tabela nova de
   "colaboradores".
 - Acesso à página: `userHasAccountingEntityTaskPermission('ctb_apuramento_iva')`,
   com `role <= 2` (admin/superadmin) sempre autorizado, tal como no padrão do
   SAF-T.
-- A listagem de empresas visíveis na página deve ficar limitada às entidades
-  onde o utilizador tem a permissão atribuída (não-admin) ou a todas
-  (admin), replicando `getSaftTaskEntities()`.
-- Configurações da tarefa (ver secção "Mapeamento de campos da DP IVA" e
-  demais parâmetros próprios da tarefa, distintos da atribuição de acesso
-  por empresa) ficam num botão/ícone de configurações no canto superior
+- A listagem de empresas visíveis na página fica limitada às entidades onde
+  o utilizador tem a permissão atribuída (não-admin) ou a todas (admin),
+  via `getIvaTaskEntities()` na própria página (mesmo padrão de
+  `getSaftTaskEntities()`).
+- Periodicidade por empresa: coluna `accounting_entities.vat_periodicity`
+  (`ENUM('mensal','trimestral')`, migração
+  `20260824162436_add_vat_periodicity_to_accounting_entities.sql`), editável
+  em Entidades > ficha da empresa > separador Admin > "Periodicidade de
+  IVA" (ação `set-entity-vat-periodicity` em `entidades.php`, apenas para
+  `canManageClientAdmin`/`role <= 2`).
+- Fecho do período: tabela `accounting_vat_settlements` (migração
+  `20260824162500_create_accounting_vat_settlements.sql`), com colunas
+  nomeadas (`period_type`, `period_year`, `period_ref`, `period_label`,
+  `result_type`, `valor_pagar`, `valor_recuperar`, `observacao`,
+  `closed_by`) — ver secção "Fecho da tarefa" para a razão de não replicar
+  o blob `serialize()` do `wkflow_cab` legado.
+- Configurações da tarefa: botão/ícone de configurações no canto superior
   direito do cabeçalho `x_title` da página, abrindo um modal — visível
   **apenas para admin/superadmin** (`role <= 2`), conforme convenção
   registada em [AGENTS.md](../AGENTS.md) (secção "Tarefas"). Colaboradores
-  com permissão `ctb_apuramento_iva` não veem este botão.
+  com permissão `ctb_apuramento_iva` não veem este botão. Por agora o modal
+  é só informativo (o mapeamento de campos da DP IVA ainda não existe,
+  porque depende do endpoint ERP-SINC em falta).
 
 ## Conceito
 
@@ -59,9 +84,9 @@ hardcoded, com `EMP` = Empresa base). A tarefa é, portanto, uma
 ## Periodicidade por empresa
 
 - Cada empresa tem uma periodicidade de IVA: **mensal** ou **trimestral**
-  (no legacy, campo administrativo do cliente; nesta aplicação deve mapear
-  para um campo equivalente em `accounting_entities` ou nas suas
-  definições/admin).
+  (no legacy, campo administrativo do cliente; nesta aplicação é o campo
+  `accounting_entities.vat_periodicity`, editável em Entidades > Admin —
+  ver "Integração na aplicação").
 - **Mensal**: período = 1º ao último dia do mês (`YYYY-MM-01` a
   `YYYY-MM-<último dia>`).
 - **Trimestral**: período = 1º dia do trimestre ao último dia do 3º mês do
@@ -75,7 +100,13 @@ hardcoded, com `EMP` = Empresa base). A tarefa é, portanto, uma
   só é possível reabrir/consultar via relatório, não pela mesma tela de
   fecho.
 
-## Mapeamento de campos da DP IVA (configuração)
+## Mapeamento de campos da DP IVA (configuração) — por implementar
+
+> As secções seguintes ("Mapeamento de campos da DP IVA" até "Envio por
+> email") descrevem o comportamento-alvo do legacy, ainda **não
+> implementado** nesta aplicação — bloqueado pela falta do endpoint
+> ERP-SINC equivalente a `declPeriodica`/`balancete` (ver "Pontos a decidir
+> antes de implementar"). O que já existe é o fecho manual descrito acima.
 
 Uma tabela de configuração (equivalente a `planos_contas`, aba "DP IVA")
 define, por **número de campo da declaração periódica** (1 a 24, mais os
@@ -158,9 +189,13 @@ Ao fechar a etapa para um período:
   serializado correspondia a "pagar" vs. "recuperar" vs. "crédito").
 - A existência do registo para aquele período é o que marca a tarefa como
   concluída (não há agendador/cron — é recalculado a cada carregamento a
-  partir da BD).
-- Um período fechado deixa de aparecer no seletor e o botão de fecho fica
-  desativado se reaberto.
+  partir da BD). Uma restrição `UNIQUE (accounting_entity_id, period_label)`
+  impede fechar o mesmo período duas vezes.
+- **Gap conhecido face ao legacy**: os períodos já fechados são listados por
+  texto na página ("Períodos já fechados: ..."), mas continuam a aparecer
+  no seletor Ano/Mês-Trimestre (o legacy escondia-os do dropdown). Tentar
+  fechar um período repetido é bloqueado no submit com mensagem de erro, em
+  vez de o impedir visualmente à partida — melhoria a fazer no seletor.
 
 ## Envio por email
 
@@ -191,28 +226,36 @@ recuperar, valor em crédito. Deve ler diretamente das colunas nomeadas do
 registo de fecho (ver secção "Fecho da tarefa"), sem necessidade de
 deserializar nada.
 
-## Tabelas envolvidas (a criar via migração)
+## Tabelas envolvidas
 
 Seguindo o padrão de nomenclatura do projeto (não replicar nomes legados
 como `wkflow_cab`/`planos_contas`):
 
-- `accounting_vat_settlement_field_rules` (ou similar) — mapeamento
-  campo da DP → fórmula de contas do balancete, gerido em
-  Configuração > Planos de contas.
-- `accounting_vat_settlements` (ou similar) — registo de fecho por
-  entidade + período (com colunas nomeadas para o resultado, ver acima),
-  substituindo o `wkflow_cab` legado só para esta tarefa.
-- Reutilizar `accounting_entity_admin_task_permissions` para a permissão
-  `ctb_apuramento_iva` (não criar tabela de colaboradores nova).
+- `accounting_vat_settlements` — **criada**. Registo de fecho por entidade +
+  período (colunas nomeadas para o resultado, ver "Fecho da tarefa").
+- `accounting_entities.vat_periodicity` — **criada**. Periodicidade por
+  empresa.
+- `accounting_entity_admin_task_permissions` — reutilizada (já existia)
+  para a permissão `ctb_apuramento_iva`; sem tabela nova de colaboradores.
+- Mapeamento campo da DP → fórmula de contas do balancete (equivalente a
+  `planos_contas`) — **ainda não criada**, por implementar junto com a
+  reconciliação automática (ver secções acima e "Pontos a decidir").
 
-## Pontos a decidir antes de implementar
+## Pontos a decidir antes de implementar (reconciliação automática)
 
-- Onde fica registada a periodicidade (mensal/trimestral) de cada empresa
-  nesta aplicação — campo novo em `accounting_entities` ou nas Definições
-  por empresa.
-- Qual o endpoint ERP-SINC equivalente a `declPeriodica` e `balancete` do
-  legacy (confirmar em `api.erpsinc.pt` antes de assumir nomes, conforme
-  regra do [CLAUDE.md](../CLAUDE.md)).
+- **Bloqueador principal**: não existe, nem na spec OpenAPI
+  (`api.erpsinc.pt/erpsync-api.yaml`) nem no código-fonte local do
+  ERP-SINC, nenhum endpoint equivalente a `declPeriodica`/`balancete` do
+  legacy (confirmado por investigação em 2026-08-24). É preciso decidir
+  entre: (a) pedir a criação desse endpoint à equipa ERP-SINC; ou (b)
+  derivar o "Ctr Ctb" a partir do endpoint `/contabilidade/movimentos` já
+  existente, aplicando as fórmulas por campo do lado da aplicação — mas
+  mesmo nesse caso continua a faltar uma fonte para o valor oficial da
+  Declaração Periódica (`C{n}-DP`), que no legacy também vinha do
+  webservice externo.
 - Prazos reais de pagamento/entrega da DP de IVA por regime (substituir o
-  "até dia 25" fixo do legacy por regras corretas).
-- Reativar (ou não) o bloqueio por fase anterior não fechada.
+  "até dia 25" fixo do legacy por regras corretas) — só relevante quando a
+  funcionalidade de envio por email for implementada.
+- Reativar (ou não) o bloqueio por fase anterior não fechada — só relevante
+  quando existir uma fase "Lançamento de documentos" equivalente nesta
+  aplicação.

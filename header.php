@@ -284,11 +284,16 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
-<?php if (isModuleActive('contabilidade') && userHasAccountingEntityTaskPermission('ctb_envio_saft')): ?>
+<?php if (isModuleActive('contabilidade') && (userHasAccountingEntityTaskPermission('ctb_envio_saft') || userHasAccountingEntityTaskPermission('ctb_apuramento_iva'))): ?>
                             <li>
                                 <a><i class="fa fa-check-square-o"></i> Tarefas <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
+<?php if (userHasAccountingEntityTaskPermission('ctb_envio_saft')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-saft">Envio de SAF-T</a></li>
+<?php endif; ?>
+<?php if (userHasAccountingEntityTaskPermission('ctb_apuramento_iva')): ?>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/apuramento-iva">Apuramento de IVA</a></li>
+<?php endif; ?>
                                 </ul>
                             </li>
 <?php endif; ?>

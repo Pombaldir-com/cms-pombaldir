@@ -2016,8 +2016,12 @@ function resolveErpAccountingDocumentTypeAbbreviation(string $documentType, stri
  * @return array|null Matching entity or null when absent.
  */
 function findAccountingEntity(PDO $pdo, string $nif): ?array {
+    $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'vat_periodicity')) {
+        $baseColumns .= ', vat_periodicity';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
-        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+        appendAccountingEntityUuidSelectColumn($baseColumns)
     );
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? LIMIT 1');
     $stmt->execute([$nif]);
@@ -2038,8 +2042,12 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     if ($normalizedType === '') {
         return findAccountingEntity($pdo, $nif);
     }
+    $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'vat_periodicity')) {
+        $baseColumns .= ', vat_periodicity';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
-        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+        appendAccountingEntityUuidSelectColumn($baseColumns)
     );
     $stmt = $pdo->prepare('SELECT ' . $selectColumns . ' FROM accounting_entities WHERE nif = ? AND entity_type = ? LIMIT 1');
     $stmt->execute([$nif, $normalizedType]);
@@ -2172,8 +2180,12 @@ function findAccountingEntityByRouteKey(PDO $pdo, string $routeKey, string $enti
         return null;
     }
 
+    $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'vat_periodicity')) {
+        $baseColumns .= ', vat_periodicity';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
-        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+        appendAccountingEntityUuidSelectColumn($baseColumns)
     );
 
     if (ctype_digit($routeKey)) {
@@ -2266,8 +2278,12 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
         return null;
     }
 
+    $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
+    if (hasColumn('accounting_entities', 'vat_periodicity')) {
+        $baseColumns .= ', vat_periodicity';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
-        appendAccountingEntityUuidSelectColumn('id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at')
+        appendAccountingEntityUuidSelectColumn($baseColumns)
     );
     $stmt = $pdo->prepare(
         'SELECT ' . $selectColumns . '
