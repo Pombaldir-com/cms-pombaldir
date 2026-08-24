@@ -1398,8 +1398,14 @@ function repairCurrentCompanySchemaFromMigrations(): array {
         ]);
         ensureMigrationsTableExists($pdo);
 
+        $appliedStmt = $pdo->query('SELECT filename FROM migrations');
+        $applied = array_fill_keys($appliedStmt->fetchAll(PDO::FETCH_COLUMN), true);
+
         foreach ($files as $file) {
             $filename = basename($file);
+            if (isset($applied[$filename])) {
+                continue;
+            }
             $sql = file_get_contents($file);
             if ($sql === false) {
                 continue;
