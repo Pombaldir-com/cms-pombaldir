@@ -133,18 +133,41 @@ Renumerar um campo para um número já existente é bloqueado com erro.
   do legacy. **Ainda não está ligada a dados reais**: falta a fonte do
   balancete (ver "Pontos a decidir").
 
-**Por implementar** (bloqueado pela falta do endpoint ERP-SINC — ver
-"Pontos a decidir"): ligar `evaluateAccountingVatFieldFormula()` ao
-balancete real e à Declaração Periódica reais, para produzir a tela de
-apuramento campo-a-campo do legacy, com 3 colunas por linha:
+### Ecrã "Ver detalhes" (campo-a-campo) — implementado com valores a 0,00
 
-- **C{n}-DP**: valor da declaração periódica oficial, obtido do serviço
-  externo (`declPeriodica` no legacy).
-- **Ctr Ctb**: valor calculado a partir do balancete, aplicando a fórmula do
-  campo `n` guardada em `accounting_vat_field_formulas`.
-- **Estado**: verde (✓) quando os dois valores batem certo (dentro da
-  tolerância abaixo), vermelho/laranja (⚠) quando não batem, com tooltip a
-  mostrar a diferença.
+Abre como **modal popup** (`#iva-detail-modal` em `tarefas-apuramento-iva.php`,
+mimetizando o fancybox do legacy) a partir do botão "Ver detalhes" de cada
+empresa — sem navegar para outra página. O conteúdo é obtido via AJAX
+(`fetch` com `X-Requested-With: XMLHttpRequest`) de
+[`contabilidade/tarefas-apuramento-iva-detalhes.php`](tarefas-apuramento-iva-detalhes.php)
+(rota `contabilidade/tarefas/apuramento-iva/detalhes?entity_id=<id>`), que
+devolve só o fragmento HTML quando pedido via AJAX (deteta o cabeçalho) ou a
+página completa com cabeçalho/rodapé quando acedida diretamente pelo URL
+(fallback). Reproduz a estrutura do ecrã `window.php?act=wkfloproc` (task=6)
+do legacy:
+
+- Seletor de período (Mês ou Trimestre, consoante `vat_periodicity` da
+  empresa): ao mudar, dispara um novo `fetch` que recarrega o fragmento
+  dentro do próprio modal (sem reload de página).
+- Uma linha por campo configurado em `accounting_vat_field_formulas`, com:
+  - **C{n}-DP**: valor introduzido manualmente (não há fonte automática —
+    ver abaixo) e persistido em `accounting_vat_settlement_field_values`
+    (migração `20260824172454_create_accounting_vat_settlement_field_values.sql`),
+    chave única por empresa + período + campo.
+  - **Ctr Ctb**: calculado com `evaluateAccountingVatFieldFormula()` contra
+    um array de saldos por conta **vazio** (não existe fonte de balancete
+    ainda) — por isso fica sempre **0,00**. Assim que o endpoint ERP-SINC
+    existir, basta substituir esse array vazio pelos saldos reais.
+  - **Estado**: ✓ verde quando `|DP − Ctb| ≤ 0.01`, ⚠ vermelho caso
+    contrário, com tooltip "diferença: X" (mesmo texto/ideia do legacy).
+- Botão "Guardar valores DP" grava todos os campos do período de uma vez
+  (upsert por campo) via AJAX, mantendo o modal aberto e recarregando o
+  fragmento com feedback de sucesso/erro.
+
+**Por implementar** (bloqueado pela falta do endpoint ERP-SINC — ver
+"Pontos a decidir"): substituir o array de saldos vazio por dados reais do
+balancete, e obter **C{n}-DP** automaticamente da Declaração Periódica
+oficial em vez de introdução manual (o campo manual fica como fallback).
 
 ## Regras de validação por campo — por implementar
 
@@ -257,6 +280,8 @@ como `wkflow_cab`/`planos_contas`):
   fórmula de contas do balancete (equivalente a `planos_contas`), gerido no
   modal de configurações da tarefa. A avaliação da fórmula contra dados
   reais ainda não está implementada (ver "Pontos a decidir").
+- `accounting_vat_settlement_field_values` — **criada**. Valores manuais de
+  C{n}-DP por empresa/período/campo, usados no ecrã "Ver detalhes".
 
 ## Pontos a decidir antes de implementar (reconciliação automática)
 

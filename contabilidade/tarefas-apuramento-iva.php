@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/apuramento-iva-functions.php';
 
 startSession();
 requireLogin();
@@ -34,47 +35,11 @@ if (!hasTable('accounting_vat_settlements')) {
     exit;
 }
 
-function getIvaTaskEntities(PDO $pdo, bool $isAdmin, int $userId): array {
-    $periodicityColumn = hasColumn('accounting_entities', 'vat_periodicity') ? 'vat_periodicity' : "'mensal'";
-    if ($isAdmin) {
-        $stmt = $pdo->query(
-            "SELECT id, nif, name, $periodicityColumn AS vat_periodicity FROM accounting_entities
-             WHERE entity_type = 'acquirer'
-             ORDER BY name ASC"
-        );
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    }
-    $stmt = $pdo->prepare(
-        "SELECT ae.id, ae.nif, ae.name, ae.$periodicityColumn AS vat_periodicity
-         FROM accounting_entities ae
-         INNER JOIN accounting_entity_admin_task_permissions aep
-             ON aep.accounting_entity_id = ae.id
-         WHERE ae.entity_type = 'acquirer'
-           AND aep.permission_key = 'ctb_apuramento_iva'
-           AND aep.user_id = ?
-         ORDER BY ae.name ASC"
-    );
-    $stmt->execute([$userId]);
-    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-}
-
 $entities = getIvaTaskEntities($pdo, $isAdmin, $userId);
 $allowedEntityIds = array_map(static fn($row) => (int) $row['id'], $entities);
 $entitiesById = [];
 foreach ($entities as $entityRow) {
     $entitiesById[(int) $entityRow['id']] = $entityRow;
-}
-
-function buildVatPeriodLabel(string $periodType, int $year, int $ref): string {
-    return $periodType === 'trimestral' ? "$year-T$ref" : sprintf('%04d-%02d', $year, $ref);
-}
-
-function getClosedVatPeriods(PDO $pdo, int $entityId): array {
-    $stmt = $pdo->prepare(
-        'SELECT period_label FROM accounting_vat_settlements WHERE accounting_entity_id = ?'
-    );
-    $stmt->execute([$entityId]);
-    return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
 }
 
 $feedback = null; // ['type' => 'success'|'danger', 'message' => string]
@@ -418,9 +383,14 @@ require_once __DIR__ . '/../header.php';
                     $closedLabels = $closedPeriodsByEntity[$entityId] ?? [];
                 ?>
                 <div class="erp-form-section vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" style="margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e6e9ed;">
-                    <h4 style="margin-top: 0;">
-                        <?= htmlspecialchars((string) $entityRow['name']); ?>
-                        <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?> &middot; periodicidade <?= $periodType; ?></small>
+                    <h4 style="margin-top: 0; display: flex; align-items: center; justify-content: space-between;">
+                        <span>
+                            <?= htmlspecialchars((string) $entityRow['name']); ?>
+                            <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?> &middot; periodicidade <?= $periodType; ?></small>
+                        </span>
+                        <button type="button" class="btn btn-default btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
+                            <i class="fa fa-search"></i> Ver detalhes
+                        </button>
                     </h4>
                     <form method="post" class="form-inline vat-close-form" data-period-type="<?= $periodType; ?>" style="display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
@@ -505,6 +475,23 @@ require_once __DIR__ . '/../header.php';
                     </table>
                 </div>
                 <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="iva-detail-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Apuramento de IVA — Detalhes</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body" id="iva-detail-modal-body">
+                <div class="text-center text-muted" style="padding: 30px 0;">A carregar...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
             </div>
         </div>
     </div>
@@ -743,6 +730,63 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applyPeriodicityFilter();
     applyGlobalPeriod();
+
+    var detailModalBody = document.getElementById('iva-detail-modal-body');
+    var detailModalEl = document.getElementById('iva-detail-modal');
+
+    function loadIvaDetail(entityId, periodYear, periodRef) {
+        detailModalBody.innerHTML = '<div class="text-center text-muted" style="padding: 30px 0;">A carregar...</div>';
+        var url = '<?= BASE_URL; ?>contabilidade/tarefas/apuramento-iva/detalhes?entity_id=' + encodeURIComponent(entityId);
+        if (periodYear) { url += '&period_year=' + encodeURIComponent(periodYear); }
+        if (periodRef) { url += '&period_ref=' + encodeURIComponent(periodRef); }
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (response) { return response.text(); })
+            .then(function (html) { detailModalBody.innerHTML = html; })
+            .catch(function () {
+                detailModalBody.innerHTML = '<div class="alert alert-danger">Erro ao carregar os detalhes. Tente novamente.</div>';
+            });
+    }
+
+    document.querySelectorAll('.iva-detail-trigger').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            loadIvaDetail(btn.dataset.entityId);
+        });
+    });
+
+    if (detailModalBody) {
+        detailModalBody.addEventListener('change', function (e) {
+            var periodForm = e.target.closest('.iva-detail-period-form');
+            if (periodForm && (e.target.name === 'period_year' || e.target.name === 'period_ref')) {
+                var y = periodForm.querySelector('[name="period_year"]').value;
+                var r = periodForm.querySelector('[name="period_ref"]').value;
+                loadIvaDetail(periodForm.dataset.entityId, y, r);
+            }
+        });
+
+        detailModalBody.addEventListener('submit', function (e) {
+            var form = e.target.closest('.iva-detail-form');
+            if (!form) { return; }
+            e.preventDefault();
+            var formData = new FormData(form);
+            var saveUrl = '<?= BASE_URL; ?>contabilidade/tarefas/apuramento-iva/detalhes?entity_id=' + encodeURIComponent(form.dataset.entityId);
+            fetch(saveUrl, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData
+            })
+                .then(function (response) { return response.text(); })
+                .then(function (html) { detailModalBody.innerHTML = html; })
+                .catch(function () {
+                    detailModalBody.innerHTML = '<div class="alert alert-danger">Erro ao guardar. Tente novamente.</div>';
+                });
+        });
+    }
+
+    if (detailModalEl) {
+        detailModalEl.addEventListener('hidden.bs.modal', function () {
+            detailModalBody.innerHTML = '<div class="text-center text-muted" style="padding: 30px 0;">A carregar...</div>';
+        });
+    }
 });
 </script>
 
