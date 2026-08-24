@@ -57,6 +57,7 @@ A documentação detalhada do domínio vive nos ficheiros abaixo. **Ler o fichei
 - [AI_ASSISTANT.md](AI_ASSISTANT.md) — comportamento, escopo, modo seguro, nomenclatura e regras de sugestão de contas do assistente AI.
 - [AI_ASSISTANT_IDENTITY.md](AI_ASSISTANT_IDENTITY.md) — identidade do assistente por tenant (resolução por NIF da empresa).
 - [contabilidade/IMPORTAR_CTB.md](contabilidade/IMPORTAR_CTB.md) — detalhe do webservice "Importar CTB", vistas e matriz de permissões.
+- [contabilidade/APURAMENTO_IVA.md](contabilidade/APURAMENTO_IVA.md) — nota tarefa "Apuramento de IVA" (menu Tarefas), especificação com base na intranet legacy.
 - [docs/database-cleanup-audit.md](docs/database-cleanup-audit.md) — auditoria de tabelas ativas vs. removidas.
 
 ## Intranet legacy

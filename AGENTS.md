@@ -24,6 +24,10 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 ## Menu lateral
 - Manter o item do menu lateral aberto/ativo nas páginas filhas (ex.: entidades/empresas/ID) e preservar o estado do toggle (colapsado/aberto) com persistência.
 
+## Tarefas
+- Cada página de tarefa (menu Tarefas, ex.: `contabilidade/tarefas/envio-saft`) que tenha configurações próprias (parâmetros específicos da tarefa, não as permissões de acesso por empresa) deve expor um botão/ícone de configurações no canto superior direito do cabeçalho `x_title` da página, abrindo um modal Gentelella.
+- Esse botão/modal de configurações só é visível para utilizadores admin/superadmin (`role <= 2`); colaboradores com permissão de acesso à tarefa (`userHasAccountingEntityTaskPermission`) não veem o botão de configurações.
+
 ## Assets
 - Carregar apenas os scripts/estilos necessários por rota (ex.: DataTables/Dropzone/Select2/Modal OCR).
 - DataTables devem estar em Português (PT).
