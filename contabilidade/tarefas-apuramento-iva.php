@@ -487,14 +487,6 @@ require_once __DIR__ . '/../header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted" style="margin-bottom: 6px;">
-                    Mapeamento entre cada campo da Declaração Periódica de IVA
-                    e a fórmula de contas do balancete a somar/subtrair
-                    (equivalente à aba "DP IVA" de Planos de Contas na
-                    intranet legacy). Usado, quando o webservice ERP-SINC
-                    expuser os dados necessários, para calcular
-                    automaticamente o valor "Ctr Ctb" de cada campo.
-                </p>
                 <p class="text-muted" style="margin-bottom: 18px;">
                     Formato: termos <code>C&lt;conta&gt;[cre|deb]&lt;+|-&gt;</code>
                     concatenados sem espaços — <code>cre</code>/<code>deb</code>
