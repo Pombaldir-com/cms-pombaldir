@@ -2835,11 +2835,16 @@ function normalizeBackofficeInstructionText(string $value): string {
     return trim(preg_replace('/\s+/', ' ', $value) ?? '');
 }
 
+function normalizeBackofficeInstructionLineBreaks(string $value): string {
+    return str_replace(["\r\n", "\r", '\\n'], "\n", $value);
+}
+
 function extractBackofficeAccountingInstructionSection(): string {
     $prompt = trim((string) getSetting('ai_prompt_extra', ''));
     if ($prompt === '') {
         return '';
     }
+    $prompt = normalizeBackofficeInstructionLineBreaks($prompt);
 
     $lines = preg_split('/\R/u', $prompt) ?: [];
     $capturing = false;
@@ -2888,7 +2893,7 @@ function fetchEntityPairBackofficeInstructionSection(array $context): string {
     $stmt->execute([$acquirerNif, $emitterNif]);
     $instructions = $stmt->fetchColumn();
 
-    return is_string($instructions) ? trim($instructions) : '';
+    return is_string($instructions) ? normalizeBackofficeInstructionLineBreaks(trim($instructions)) : '';
 }
 
 function cleanBackofficeInstructionAccountCode(string $value): string {
