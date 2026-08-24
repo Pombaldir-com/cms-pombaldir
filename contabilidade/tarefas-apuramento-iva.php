@@ -338,15 +338,65 @@ require_once __DIR__ . '/../header.php';
         <div class="x_panel">
             <div class="x_title">
                 <h2><i class="fa fa-calculator"></i> Apuramento de IVA</h2>
-                <?php if ($isAdmin): ?>
-                <ul class="nav navbar-right panel_toolbox" style="min-width: auto;">
+                <style>
+                    .iva-title-toolbox { min-width: auto; display: flex !important; align-items: center; gap: 10px; }
+                    .iva-title-toolbox > li { display: flex; align-items: center; }
+                    .iva-periodicity-field { display: flex; align-items: center; gap: 8px; }
+                    .iva-periodicity-field label {
+                        margin: 0; white-space: nowrap; font-size: 13px; font-weight: 600; color: #73879c;
+                    }
+                    .iva-periodicity-field select {
+                        height: 30px; padding: 4px 8px; font-size: 13px; line-height: 1.4;
+                        width: auto; min-width: 130px; box-sizing: border-box;
+                    }
+                </style>
+                <ul class="nav navbar-right panel_toolbox iva-title-toolbox">
+                    <?php if ($entities):
+                        $currentYear = (int) date('Y');
+                    ?>
+                    <li class="iva-periodicity-field">
+                        <label for="iva-global-year">Ano</label>
+                        <select id="iva-global-year" class="form-control">
+                            <?php for ($y = $currentYear; $y >= $currentYear - 2; $y--): ?>
+                                <option value="<?= $y; ?>"><?= $y; ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </li>
+                    <li class="iva-periodicity-field iva-global-month-field">
+                        <label for="iva-global-month">Mês</label>
+                        <select id="iva-global-month" class="form-control">
+                            <option value="">-</option>
+                            <?php foreach (range(1, 12) as $m): ?>
+                                <option value="<?= $m; ?>"><?= sprintf('%02d', $m); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </li>
+                    <li class="iva-periodicity-field iva-global-quarter-field">
+                        <label for="iva-global-quarter">Trimestre</label>
+                        <select id="iva-global-quarter" class="form-control">
+                            <option value="">-</option>
+                            <?php foreach ([1, 2, 3, 4] as $q): ?>
+                                <option value="<?= $q; ?>"><?= $q; ?>º Trimestre</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </li>
+                    <?php endif; ?>
+                    <li class="iva-periodicity-field">
+                        <label for="iva-periodicity-filter">Periodicidade</label>
+                        <select id="iva-periodicity-filter" class="form-control">
+                            <option value="">Todos</option>
+                            <option value="mensal">Mensal</option>
+                            <option value="trimestral">Trimestral</option>
+                        </select>
+                    </li>
+                    <?php if ($isAdmin): ?>
                     <li>
                         <button type="button" class="btn btn-default btn-sm" data-bs-toggle="modal" data-bs-target="#iva-settings-modal" title="Configurações da tarefa">
                             <i class="fa fa-cog"></i>
                         </button>
                     </li>
+                    <?php endif; ?>
                 </ul>
-                <?php endif; ?>
                 <div class="clearfix"></div>
             </div>
             <div class="x_content">
@@ -366,40 +416,22 @@ require_once __DIR__ . '/../header.php';
                     $entityId = (int) $entityRow['id'];
                     $periodType = ((string) $entityRow['vat_periodicity']) === 'trimestral' ? 'trimestral' : 'mensal';
                     $closedLabels = $closedPeriodsByEntity[$entityId] ?? [];
-                    $currentYear = (int) date('Y');
                 ?>
-                <div class="erp-form-section" style="margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e6e9ed;">
+                <div class="erp-form-section vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" style="margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e6e9ed;">
                     <h4 style="margin-top: 0;">
                         <?= htmlspecialchars((string) $entityRow['name']); ?>
                         <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?> &middot; periodicidade <?= $periodType; ?></small>
                     </h4>
-                    <form method="post" class="form-inline vat-close-form" style="display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;">
+                    <form method="post" class="form-inline vat-close-form" data-period-type="<?= $periodType; ?>" style="display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
                         <input type="hidden" name="action" value="close_period">
                         <input type="hidden" name="entity_id" value="<?= $entityId; ?>">
+                        <input type="hidden" name="period_year" class="vat-close-period-year">
+                        <input type="hidden" name="period_ref" class="vat-close-period-ref">
 
                         <div>
-                            <label class="control-label" style="display: block;">Ano</label>
-                            <select name="period_year" class="form-control">
-                                <?php for ($y = $currentYear; $y >= $currentYear - 2; $y--): ?>
-                                    <option value="<?= $y; ?>"><?= $y; ?></option>
-                                <?php endfor; ?>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="control-label" style="display: block;"><?= $periodType === 'trimestral' ? 'Trimestre' : 'Mês'; ?></label>
-                            <select name="period_ref" class="form-control">
-                                <?php if ($periodType === 'trimestral'): ?>
-                                    <?php foreach ([1, 2, 3, 4] as $q): ?>
-                                        <option value="<?= $q; ?>"><?= $q; ?>º Trimestre</option>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <?php foreach (range(1, 12) as $m): ?>
-                                        <option value="<?= $m; ?>"><?= sprintf('%02d', $m); ?></option>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </select>
+                            <label class="control-label" style="display: block; visibility: hidden;">Período</label>
+                            <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
                         </div>
 
                         <div>
@@ -661,6 +693,56 @@ document.addEventListener('DOMContentLoaded', function () {
         resultSelect.addEventListener('change', toggleFields);
         toggleFields();
     });
+
+    var entitySections = document.querySelectorAll('.vat-entity-section');
+    var periodicityFilter = document.getElementById('iva-periodicity-filter');
+    var yearSelect = document.getElementById('iva-global-year');
+    var monthSelect = document.getElementById('iva-global-month');
+    var quarterSelect = document.getElementById('iva-global-quarter');
+    var monthField = document.querySelector('.iva-global-month-field');
+    var quarterField = document.querySelector('.iva-global-quarter-field');
+    var monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    function applyGlobalPeriod() {
+        document.querySelectorAll('.vat-close-form').forEach(function (form) {
+            var isTrimestral = form.dataset.periodType === 'trimestral';
+            var year = yearSelect ? yearSelect.value : '';
+            var ref = isTrimestral ? (quarterSelect ? quarterSelect.value : '') : (monthSelect ? monthSelect.value : '');
+            form.querySelector('.vat-close-period-year').value = ref ? year : '';
+            form.querySelector('.vat-close-period-ref').value = ref;
+            var display = form.querySelector('.vat-close-period-display');
+            if (display) {
+                display.textContent = !ref ? 'Selecionar período' : (isTrimestral ? (ref + 'º Trimestre ' + year) : (monthNames[parseInt(ref, 10)] + ' ' + year));
+            }
+        });
+    }
+
+    function applyPeriodicityFilter() {
+        var value = periodicityFilter ? periodicityFilter.value : '';
+        entitySections.forEach(function (section) {
+            section.style.display = (value === '' || section.dataset.vatPeriodicity === value) ? '' : 'none';
+        });
+        if (monthField) { monthField.style.display = (value === 'trimestral') ? 'none' : ''; }
+        if (quarterField) { quarterField.style.display = (value === 'mensal') ? 'none' : ''; }
+    }
+
+    if (yearSelect) { yearSelect.addEventListener('change', applyGlobalPeriod); }
+    if (monthSelect) {
+        monthSelect.addEventListener('change', function () {
+            if (monthSelect.value && quarterSelect) { quarterSelect.value = ''; }
+            applyGlobalPeriod();
+        });
+    }
+    if (quarterSelect) {
+        quarterSelect.addEventListener('change', function () {
+            if (quarterSelect.value && monthSelect) { monthSelect.value = ''; }
+            applyGlobalPeriod();
+        });
+    }
+    if (periodicityFilter) { periodicityFilter.addEventListener('change', function () { applyPeriodicityFilter(); applyGlobalPeriod(); }); }
+
+    applyPeriodicityFilter();
+    applyGlobalPeriod();
 });
 </script>
 
