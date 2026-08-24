@@ -5593,4 +5593,72 @@ function accountingLinesAreBalanced(array $lines, float $tolerance = 0.01): bool
     return abs(computeAccountingLinesImbalance($lines)) <= $tolerance;
 }
 
+/**
+ * Interpreta uma formula de mapeamento campo DP-IVA -> contas do balancete,
+ * no formato usado pela intranet legacy (aba "DP IVA" de Planos de Contas):
+ * uma sequencia de termos "C<conta>[cre|deb]<+|->" concatenados sem
+ * separador, ex.: "C21811cre+C712111+C7251-C3121181deb+".
+ *
+ * Cada termo tem: numero da conta, lado opcional (cre = usar so o saldo
+ * credor, deb = usar so o saldo devedor, ausente = usar o saldo liquido) e
+ * sinal (+ soma, - subtrai). Ver contabilidade/APURAMENTO_IVA.md.
+ *
+ * @return array<int,array{account:string,side:?string,sign:int}>
+ * @throws InvalidArgumentException Se a formula nao seguir o formato acima.
+ */
+function parseAccountingVatFieldFormula(string $formula): array {
+    $formula = trim($formula);
+    if ($formula === '') {
+        return [];
+    }
+
+    preg_match_all('/C(\d+)(cre|deb)?([+-])/i', $formula, $matches, PREG_SET_ORDER);
+
+    $reconstructed = '';
+    foreach ($matches as $match) {
+        $reconstructed .= $match[0];
+    }
+    if ($reconstructed !== $formula) {
+        throw new InvalidArgumentException(
+            'Fórmula inválida. Use o formato C<conta>[cre|deb]<+|-> repetido, ex.: C2432319cre-C243234deb+.'
+        );
+    }
+
+    $terms = [];
+    foreach ($matches as $match) {
+        $terms[] = [
+            'account' => $match[1],
+            'side' => $match[2] !== '' ? strtolower($match[2]) : null,
+            'sign' => $match[3] === '-' ? -1 : 1,
+        ];
+    }
+
+    return $terms;
+}
+
+/**
+ * Avalia os termos de parseAccountingVatFieldFormula() contra os saldos por
+ * conta do balancete. $accountBalances vem indexado por numero de conta,
+ * com os sub-campos 'valor' (saldo liquido), 'fltCredito' e 'fltDebito'
+ * (espelhando a resposta do endpoint ERP-SINC de balancete quando este
+ * existir — ver "Pontos a decidir" em contabilidade/APURAMENTO_IVA.md).
+ *
+ * @param array<int,array{account:string,side:?string,sign:int}> $terms
+ * @param array<string,array<string,mixed>> $accountBalances
+ */
+function evaluateAccountingVatFieldFormula(array $terms, array $accountBalances): float {
+    $total = 0.0;
+    foreach ($terms as $term) {
+        $balance = $accountBalances[$term['account']] ?? null;
+        if ($balance === null) {
+            continue;
+        }
+        $field = $term['side'] === 'cre' ? 'fltCredito' : ($term['side'] === 'deb' ? 'fltDebito' : 'valor');
+        $value = (float) ($balance[$field] ?? 0);
+        $total += $term['sign'] * $value;
+    }
+
+    return round($total, 2);
+}
+
 ?>

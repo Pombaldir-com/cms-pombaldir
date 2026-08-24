@@ -100,37 +100,53 @@ hardcoded, com `EMP` = Empresa base). A tarefa é, portanto, uma
   só é possível reabrir/consultar via relatório, não pela mesma tela de
   fecho.
 
-## Mapeamento de campos da DP IVA (configuração) — por implementar
+## Mapeamento de campos da DP IVA (configuração) — implementado
 
-> As secções seguintes ("Mapeamento de campos da DP IVA" até "Envio por
-> email") descrevem o comportamento-alvo do legacy, ainda **não
-> implementado** nesta aplicação — bloqueado pela falta do endpoint
-> ERP-SINC equivalente a `declPeriodica`/`balancete` (ver "Pontos a decidir
-> antes de implementar"). O que já existe é o fecho manual descrito acima.
+Tabela `accounting_vat_field_formulas` (migração
+`20260824163446_create_accounting_vat_field_formulas.sql`), equivalente a
+`planos_contas`/aba "DP IVA" do legacy: por **número de campo da declaração
+periódica** (1 a 24, mais os campos calculados 93 e 94), guarda uma
+**fórmula** que soma/subtrai saldos de contas do balancete, no formato
+`C<conta>[cre|deb]<+|->` repetido sem separador (ex.:
+`C2432319cre-C243234deb+`) — `cre`/`deb` usam só o saldo credor/devedor da
+conta, omitir usa o saldo líquido.
 
-Uma tabela de configuração (equivalente a `planos_contas`, aba "DP IVA")
-define, por **número de campo da declaração periódica** (1 a 24, mais os
-campos calculados 93 e 94), uma **fórmula** que soma/subtrai saldos de
-contas do balancete (formato `C<conta>+C<conta>-...`, com prefixo opcional
-`cre`/`deb` para forçar o lado crédito/débito da conta). Esta configuração é
-por aplicação (não por empresa) e deve ser gerível através do botão de
-configurações da própria tarefa (canto superior direito de
-`contabilidade/tarefas/apuramento-iva`, visível só a admin/superadmin —
-ver secção "Integração na aplicação"), em vez de ficar espalhada em
-**Configuração > Planos de contas** junto com as restantes fórmulas
-(SAF-T, Salários, DR, Trib. Autónoma) já existentes nesse admin geral.
+Gerido no modal de configurações da própria tarefa (botão de engrenagem no
+canto superior direito de `contabilidade/tarefas/apuramento-iva`, visível
+só a admin/superadmin), com uma tabela **Campo / Fórmula / Ação** no
+mesmo espírito do admin legacy (`settings.php?act=planoscontas`, aba "DP
+IVA"), mas com edição totalmente em AJAX (a modal não fecha ao gravar):
+número do campo e fórmula editáveis por linha, botões "Editar" e eliminar
+(lixo) por linha, e uma linha final para adicionar um campo novo.
+Renumerar um campo para um número já existente é bloqueado com erro.
 
-Cada linha da tela de apuramento representa um campo, com 3 colunas:
+**Parser/avaliador implementados** (`contabilidade/functions.php`):
+
+- `parseAccountingVatFieldFormula(string $formula): array` — decompõe a
+  fórmula em termos `{account, side, sign}`; usado para **validar** o
+  formato ao gravar (rejeita texto que não siga exatamente o padrão
+  `C<conta>[cre|deb]<+|->` repetido, com mensagem de erro devolvida à
+  modal).
+- `evaluateAccountingVatFieldFormula(array $terms, array $accountBalances): float`
+  — soma os termos contra um array de saldos por conta (`valor` /
+  `fltCredito` / `fltDebito` por conta), replicando `cta()`/`ctaFormula()`
+  do legacy. **Ainda não está ligada a dados reais**: falta a fonte do
+  balancete (ver "Pontos a decidir").
+
+**Por implementar** (bloqueado pela falta do endpoint ERP-SINC — ver
+"Pontos a decidir"): ligar `evaluateAccountingVatFieldFormula()` ao
+balancete real e à Declaração Periódica reais, para produzir a tela de
+apuramento campo-a-campo do legacy, com 3 colunas por linha:
 
 - **C{n}-DP**: valor da declaração periódica oficial, obtido do serviço
   externo (`declPeriodica` no legacy).
 - **Ctr Ctb**: valor calculado a partir do balancete, aplicando a fórmula do
-  campo `n`.
+  campo `n` guardada em `accounting_vat_field_formulas`.
 - **Estado**: verde (✓) quando os dois valores batem certo (dentro da
   tolerância abaixo), vermelho/laranja (⚠) quando não batem, com tooltip a
   mostrar a diferença.
 
-## Regras de validação por campo
+## Regras de validação por campo — por implementar
 
 - **Campo 2** validado contra Campo 1 × 6% (taxa reduzida).
 - **Campo 4** validado contra Campo 3 × 23% (taxa normal).
@@ -237,9 +253,10 @@ como `wkflow_cab`/`planos_contas`):
   empresa.
 - `accounting_entity_admin_task_permissions` — reutilizada (já existia)
   para a permissão `ctb_apuramento_iva`; sem tabela nova de colaboradores.
-- Mapeamento campo da DP → fórmula de contas do balancete (equivalente a
-  `planos_contas`) — **ainda não criada**, por implementar junto com a
-  reconciliação automática (ver secções acima e "Pontos a decidir").
+- `accounting_vat_field_formulas` — **criada**. Mapeamento campo da DP →
+  fórmula de contas do balancete (equivalente a `planos_contas`), gerido no
+  modal de configurações da tarefa. A avaliação da fórmula contra dados
+  reais ainda não está implementada (ver "Pontos a decidir").
 
 ## Pontos a decidir antes de implementar (reconciliação automática)
 
