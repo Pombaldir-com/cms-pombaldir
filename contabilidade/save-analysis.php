@@ -2094,7 +2094,13 @@ if ($action === 'get') {
         $classAccounts = stripAccountingAmounts(mergeAccountingAccounts($existingClass, $submittedRates));
 
         foreach ($removedRates as $rate) {
-            unset($rowAccounts[$rate], $classAccounts[$rate], $costCentersData[$rate]);
+            // Remover uma taxa deste documento (ex: corrigir 23% -> 6%) so deve
+            // afetar a propria linha. A regra partilhada (accounting_classificat
+            // ions) serve outros documentos do mesmo fornecedor que podem ter
+            // taxas diferentes; apaga-la aqui apagava a conta aprendida para
+            // TODOS os documentos desse fornecedor, incluindo os que ainda
+            // dependem dela e nunca foram guardados individualmente.
+            unset($rowAccounts[$rate], $costCentersData[$rate]);
             unset($costCenterBreakdownsData[$rate]);
             unset($existingOriginal[$rate]);
         }
