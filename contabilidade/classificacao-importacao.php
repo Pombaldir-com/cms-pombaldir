@@ -1114,27 +1114,36 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         }
 
         if (empty($accountLines)) {
-            $documentsWithoutLines[] = $docLabel;
+            $documentsWithoutLines[] = ['doc' => $docLabel, 'diff' => null];
         } elseif (!accountingLinesAreBalanced($accountLines)) {
             // Nunca enviar um lancamento que nao fecha: a causa mais comum e uma
             // base (tipicamente a isenta) sem conta de gasto atribuida, que nao
             // gera linha a debito mas continua incluida no total a credito.
-            $documentsUnbalanced[] = $docLabel . ' (diferenca ' . number_format(computeAccountingLinesImbalance($accountLines), 2, ',', ' ') . ')';
+            $documentsUnbalanced[] = [
+                'doc' => $docLabel,
+                'diff' => number_format(computeAccountingLinesImbalance($accountLines), 2, ',', ' '),
+            ];
         }
     }
     unset($documentPayload);
 
     if (!empty($documentsWithoutLines)) {
-        $result['error'] = 'Existem documentos sem linhas contabilísticas configuradas: ' . implode(', ', $documentsWithoutLines);
+        $result['error'] = 'Existem documentos sem linhas contabilísticas configuradas: '
+            . implode(', ', array_column($documentsWithoutLines, 'doc'));
         $result['error_detail'] = $result['error'];
+        $result['error_documents'] = $documentsWithoutLines;
         return $result;
     }
 
     if (!empty($documentsUnbalanced)) {
+        $unbalancedLabels = array_map(function (array $entry): string {
+            return $entry['doc'] . ' (diferença ' . $entry['diff'] . ')';
+        }, $documentsUnbalanced);
         $result['error'] = 'Existem documentos cujo lançamento não fecha (débito ≠ crédito): '
-            . implode('; ', $documentsUnbalanced)
+            . implode('; ', $unbalancedLabels)
             . '. Verifique se todas as bases têm conta atribuída, incluindo a base isenta.';
         $result['error_detail'] = $result['error'];
+        $result['error_documents'] = $documentsUnbalanced;
         logErpMessage('Importação CTB abortada por lançamento desequilibrado. Detalhe: ' . $result['error']);
         return $result;
     }
@@ -4611,6 +4620,9 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($serviceResult['error_detail'])) {
                 $batchPayload['error_detail'] = $serviceResult['error_detail'];
             }
+            if (!empty($serviceResult['error_documents'])) {
+                $batchPayload['error_documents'] = $serviceResult['error_documents'];
+            }
 
             if (array_key_exists('decoded', $serviceResult)) {
                 $servicePayload = sanitizeServiceDebugPayload($serviceResult['decoded']);
@@ -4749,6 +4761,10 @@ if ($action === 'import_ctb' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!empty($serviceResult['error_detail'])) {
         $responsePayload['error_detail'] = $serviceResult['error_detail'];
+    }
+
+    if (!empty($serviceResult['error_documents'])) {
+        $responsePayload['error_documents'] = $serviceResult['error_documents'];
     }
 
     $servicePayload = null;
@@ -5645,6 +5661,7 @@ require __DIR__ . '/partials/classify-modal.php';
     ); ?>;
 </script>
 <?php $classificationImportScriptVersion = @filemtime(__DIR__ . '/../assets/js/classificacao_importacao.js'); ?>
+<script src="<?= BASE_URL; ?>vendors/sweetalert2/dist/sweetalert2.all.min.js"></script>
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/classificacao_importacao.js<?= $classificationImportScriptVersion ? '?v=' . rawurlencode((string) $classificationImportScriptVersion) : ''; ?>"></script>
 <?php require_once __DIR__ . '/../footer.php'; ?>

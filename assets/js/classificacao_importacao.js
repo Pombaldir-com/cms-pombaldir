@@ -74,13 +74,69 @@ window.addEventListener('load', function() {
         window.ResizeObserver.__classificationObserveGuardInstalled = true;
     }
 
-    function showNotice(type, message) {
+    function applyClassificationDocumentSearch(docValue) {
+        if (!table || typeof table.search !== 'function') {
+            return;
+        }
+        table.search(docValue).draw();
+        var $wrapper = $('#classify-table').closest('.dt-container, .dataTables_wrapper');
+        var $input = $wrapper.find('.dt-search input, .dataTables_filter input');
+        if ($input.length) {
+            $input.val(docValue);
+        }
+        var $tableEl = $('#classify-table');
+        if ($tableEl.length && typeof $tableEl.get === 'function' && $tableEl.get(0).scrollIntoView) {
+            $tableEl.get(0).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
+    function buildErrorDocumentListHtml(kind, documents) {
+        var introByKind = {
+            unbalanced: 'Existem documentos cujo lançamento não fecha (débito ≠ crédito):',
+            missing_lines: 'Existem documentos sem linhas contabilísticas configuradas:'
+        };
+        var outroByKind = {
+            unbalanced: 'Verifique se todas as bases têm conta atribuída, incluindo a base isenta.',
+            missing_lines: ''
+        };
+        var intro = introByKind[kind] || '';
+        var outro = outroByKind[kind] || '';
+        var items = documents.map(function(entry) {
+            var doc = entry && entry.doc ? String(entry.doc) : '';
+            if (doc === '') {
+                return '';
+            }
+            var label = escapeHtml(doc);
+            if (entry.diff) {
+                label += ' <span class="text-muted">(diferença ' + escapeHtml(String(entry.diff)) + ')</span>';
+            }
+            return '<li style="margin-bottom:4px;"><a href="#" class="classification-error-doc-link" data-doc="'
+                + escapeHtml(doc) + '">' + label + '</a></li>';
+        }).filter(function(itemHtml) {
+            return itemHtml !== '';
+        }).join('');
+        var html = '<div style="text-align:left;">';
+        if (intro !== '') {
+            html += '<div>' + escapeHtml(intro) + '</div>';
+        }
+        html += '<ul style="margin:8px 0;padding-left:20px;">' + items + '</ul>';
+        if (outro !== '') {
+            html += '<div>' + escapeHtml(outro) + '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function showNotice(type, message, options) {
         var normalizedType = normalizeNoticeType(type);
         var text = typeof message === 'string' && message.trim() !== '' ? message.trim() : '';
         var noticeDelay = 10000;
         if (text === '') {
             text = normalizedType === 'danger' ? 'Ocorreu um erro' : 'Operação concluída';
         }
+        var documents = options && Array.isArray(options.documents) ? options.documents.filter(function(entry) {
+            return entry && typeof entry === 'object' && entry.doc;
+        }) : [];
         var title = 'Informação';
         var icon = 'info';
         if (normalizedType === 'success') {
@@ -94,12 +150,29 @@ window.addEventListener('load', function() {
             icon = 'warning';
         }
         if (window.Swal && typeof window.Swal.fire === 'function') {
+            var hasDocuments = normalizedType === 'danger' && documents.length > 0;
             window.Swal.fire({
                 icon: icon,
                 title: title,
-                html: '<div style="white-space: pre-line; text-align: left;">' + escapeHtml(text) + '</div>',
-                timer: noticeDelay,
-                timerProgressBar: true
+                html: hasDocuments
+                    ? buildErrorDocumentListHtml(options.kind, documents)
+                    : '<div style="white-space: pre-line; text-align: left;">' + escapeHtml(text) + '</div>',
+                timer: hasDocuments ? undefined : noticeDelay,
+                timerProgressBar: !hasDocuments,
+                didOpen: function(popup) {
+                    if (!hasDocuments) {
+                        return;
+                    }
+                    var links = popup.querySelectorAll('.classification-error-doc-link');
+                    for (var i = 0; i < links.length; i += 1) {
+                        links[i].addEventListener('click', function(event) {
+                            event.preventDefault();
+                            var docValue = event.currentTarget.getAttribute('data-doc') || '';
+                            window.Swal.close();
+                            applyClassificationDocumentSearch(docValue);
+                        });
+                    }
+                }
             });
             return;
         }
@@ -115,8 +188,8 @@ window.addEventListener('load', function() {
         alert(text);
     }
 
-    function showError(message) {
-        showNotice('danger', message);
+    function showError(message, options) {
+        showNotice('danger', message, options);
     }
 
     function showSuccess(message) {
@@ -1812,7 +1885,28 @@ window.addEventListener('load', function() {
                     } else if (errorMessages.length) {
                         error = errorMessages.join('\n');
                     }
-                    throw new Error(error);
+                    var errorDocuments = [];
+                    if (res && Array.isArray(res.error_documents)) {
+                        errorDocuments = errorDocuments.concat(res.error_documents);
+                    }
+                    if (res && Array.isArray(res.batches)) {
+                        res.batches.forEach(function(batch) {
+                            if (batch && Array.isArray(batch.error_documents)) {
+                                errorDocuments = errorDocuments.concat(batch.error_documents);
+                            }
+                        });
+                    }
+                    var errorKind = 'missing_lines';
+                    for (var dIndex = 0; dIndex < errorDocuments.length; dIndex += 1) {
+                        if (errorDocuments[dIndex] && errorDocuments[dIndex].diff) {
+                            errorKind = 'unbalanced';
+                            break;
+                        }
+                    }
+                    var importError = new Error(error);
+                    importError.documents = errorDocuments;
+                    importError.kind = errorKind;
+                    throw importError;
                 }
                 //console.log(res);
                 if (res && res.service_response) {
@@ -1862,7 +1956,10 @@ window.addEventListener('load', function() {
                 if (typeof window.console !== 'undefined') {
                     console.error('[Classificação] Erro na importação CTB:', err);
                 }
-                showError(err && err.message ? err.message : 'Erro ao importar');
+                showError(err && err.message ? err.message : 'Erro ao importar', {
+                    documents: err && err.documents,
+                    kind: err && err.kind
+                });
             })
             .finally(function() {
                 if (importCtbButton.length) {
