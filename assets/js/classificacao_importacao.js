@@ -6353,7 +6353,7 @@ window.addEventListener('load', function() {
             return;
         }
         var ratePercentage = getRatePercentage(changedRate);
-        if (ratePercentage === null) {
+        if (ratePercentage === null || ratePercentage === 0) {
             return;
         }
         var primaryInfo = findPrimaryRateForPercentage(ratePercentage, { excludeRate: changedRate });
