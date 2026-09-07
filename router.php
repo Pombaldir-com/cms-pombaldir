@@ -383,6 +383,14 @@ switch (true) {
         $_GET['action'] = 'qr_doc_type_mapping';
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;
+    case in_array($path, [
+        'contabilidade/classificacao-importacao/save-cost-center-vat-rule',
+        'contabilidade/classificacao-importacao/save_cost_center_vat_rule',
+        'contabilidade/classificacao-importacao-save-cost-center-vat-rule.php'
+    ], true):
+        $_GET['action'] = 'save_cost_center_vat_rule';
+        require __DIR__ . '/contabilidade/classificacao-importacao.php';
+        break;
     case $path === 'contabilidade/classificacao-importacao':
         require __DIR__ . '/contabilidade/classificacao-importacao.php';
         break;

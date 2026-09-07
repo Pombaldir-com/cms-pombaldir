@@ -421,6 +421,7 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                                     <option value="normal">Normal</option>
                                                     <option value="bank">Banco</option>
                                                     <option value="insurance">Seguradora</option>
+                                                    <option value="reverse_charge">Auto-Liquidação</option>
                                                 </select>
                                             </div>
                                             <?php if ($classifyModalCanManageEntityAiInstructions): ?>
@@ -680,9 +681,14 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
 <template id="costCenterDistributionRowTemplate">
     <tr>
         <td>
-            <select class="form-control form-control-sm cc-distribution-code">
-                <option value="">Selecione o centro de custo</option>
-            </select>
+            <div class="d-flex align-items-center gap-1">
+                <select class="form-control form-control-sm cc-distribution-code">
+                    <option value="">Selecione o centro de custo</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-default cc-distribution-vat-rule-btn" title="Dedutibilidade do IVA autoliquidado">
+                    <i class="fa fa-balance-scale"></i>
+                </button>
+            </div>
         </td>
         <td>
             <input type="text" class="form-control form-control-sm text-end cc-distribution-percentage" inputmode="decimal" placeholder="0,00">
@@ -695,3 +701,39 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         </td>
     </tr>
 </template>
+<div class="modal fade" id="costCenterVatRuleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Dedutibilidade do IVA autoliquidado</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info" role="alert">
+                    Aplica-se a documentos com IVA em regime de autoliquidação (reverse charge). Fica associado a este centro de custo, para esta empresa, e é reaplicado automaticamente da próxima vez que este centro de custo for selecionado.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label mb-1">Centro de Custo</label>
+                    <input type="text" class="form-control" id="ccVatRuleCostCenterInfo" readonly>
+                </div>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="ccVatRuleDeductibleToggle" checked>
+                    <label class="form-check-label" for="ccVatRuleDeductibleToggle">IVA autoliquidado dedutível</label>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label mb-1" for="ccVatRuleDeductibleAccount">Conta IVA dedutível</label>
+                    <input type="text" class="form-control" id="ccVatRuleDeductibleAccount" placeholder="Ex: 24323153">
+                </div>
+                <div class="mb-1">
+                    <label class="form-label mb-1" for="ccVatRuleNonDeductibleAccount">Conta IVA não dedutível</label>
+                    <input type="text" class="form-control" id="ccVatRuleNonDeductibleAccount" placeholder="Ex: 6812">
+                </div>
+                <p class="text-muted small mb-0 mt-2">Ambas as contas ficam guardadas; a que é aplicada na "Conta IVA" desta linha depende do interruptor acima.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="ccVatRuleSaveBtn">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>

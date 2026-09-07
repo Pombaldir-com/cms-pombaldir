@@ -311,10 +311,19 @@ window.addEventListener('load', function() {
             if (!label) {
                 label = description ? (code + ' - ' + description) : code;
             }
+            var vatRule = null;
+            if (item.vat_deductible !== undefined && item.vat_deductible !== null) {
+                vatRule = {
+                    vatDeductible: !!item.vat_deductible,
+                    deductibleAccount: String(item.deductible_account || '').trim(),
+                    nonDeductibleAccount: String(item.non_deductible_account || '').trim()
+                };
+            }
             normalized.push({
                 code: code,
                 description: description,
-                label: label
+                label: label,
+                vatRule: vatRule
             });
         });
         return normalized;
@@ -333,13 +342,34 @@ window.addEventListener('load', function() {
                 return;
             }
             var label = String(option.label || code).trim();
-            html += '<option value="' + escapeHtml(code) + '">' + escapeHtml(label) + '</option>';
+            var attrs = '';
+            if (option.vatRule) {
+                attrs += ' data-vat-deductible="' + (option.vatRule.vatDeductible ? '1' : '0') + '"';
+                attrs += ' data-deductible-account="' + escapeHtml(option.vatRule.deductibleAccount) + '"';
+                attrs += ' data-non-deductible-account="' + escapeHtml(option.vatRule.nonDeductibleAccount) + '"';
+            }
+            html += '<option value="' + escapeHtml(code) + '"' + attrs + '>' + escapeHtml(label) + '</option>';
         });
         if (value && !options.some(function(option) { return String(option.code || '').trim() === value; })) {
             html += '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + ' (atual)</option>';
         }
         field.innerHTML = html;
         field.value = value;
+    }
+
+    function applyCostCenterVatAccountOverride(info) {
+        if (!info || !info.costCenter || !info.ivaAccount) {
+            return;
+        }
+        var selectedOption = info.costCenter.selectedOptions && info.costCenter.selectedOptions[0];
+        if (!selectedOption || !selectedOption.dataset || selectedOption.dataset.vatDeductible === undefined) {
+            return;
+        }
+        var isDeductible = selectedOption.dataset.vatDeductible === '1';
+        var account = isDeductible ? selectedOption.dataset.deductibleAccount : selectedOption.dataset.nonDeductibleAccount;
+        if (account) {
+            info.ivaAccount.value = account;
+        }
     }
 
     function refreshCostCenterFields() {
@@ -2640,6 +2670,14 @@ window.addEventListener('load', function() {
     var costCenterDistributionAddRowBtn = document.getElementById('ccDistributionAddRowBtn');
     var costCenterDistributionSaveBtn = document.getElementById('ccDistributionSaveBtn');
     var costCenterDistributionRowTemplate = document.getElementById('costCenterDistributionRowTemplate');
+    var costCenterVatRuleModalEl = document.getElementById('costCenterVatRuleModal');
+    var costCenterVatRuleModal = costCenterVatRuleModalEl ? new bootstrap.Modal(costCenterVatRuleModalEl) : null;
+    var costCenterVatRuleCostCenterInfoEl = document.getElementById('ccVatRuleCostCenterInfo');
+    var costCenterVatRuleDeductibleToggleEl = document.getElementById('ccVatRuleDeductibleToggle');
+    var costCenterVatRuleDeductibleAccountEl = document.getElementById('ccVatRuleDeductibleAccount');
+    var costCenterVatRuleNonDeductibleAccountEl = document.getElementById('ccVatRuleNonDeductibleAccount');
+    var costCenterVatRuleSaveBtn = document.getElementById('ccVatRuleSaveBtn');
+    var currentCostCenterVatRuleContext = null;
     var defaultModalTitle = '';
     if (modalTitleEl) {
         defaultModalTitle = (modalTitleEl.textContent || '').trim();
@@ -5198,6 +5236,41 @@ window.addEventListener('load', function() {
         return true;
     }
 
+    function documentFieldsSuggestReverseCharge(fieldsMap) {
+        if (!fieldsMap || typeof fieldsMap !== 'object') {
+            return false;
+        }
+        var text = Object.keys(fieldsMap).map(function(key) {
+            var value = fieldsMap[key];
+            return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+        }).join(' ');
+        text = normalizeLoanLineDescription(text);
+        if (!text) {
+            return false;
+        }
+        return [
+            'autoliquidacao',
+            'auto liquidacao',
+            'reverse charge',
+            'iva devido pelo adquirente'
+        ].some(function(needle) {
+            return text.indexOf(needle) !== -1;
+        });
+    }
+
+    // Deteção independente da de Seguradora/Banco: nunca sobrepõe uma escolha
+    // manual do utilizador nem interfere com hasBankLoanConversionCandidate().
+    function applyReverseChargeDetectionFromDocumentFields(fieldsMap) {
+        if (!emitterTypeSelect || String(emitterTypeSelect.value || '').trim() !== 'normal') {
+            return false;
+        }
+        if (!documentFieldsSuggestReverseCharge(fieldsMap)) {
+            return false;
+        }
+        emitterTypeSelect.value = 'reverse_charge';
+        return true;
+    }
+
     function getLineNetAmount(line) {
         if (!line || typeof line !== 'object') {
             return null;
@@ -7068,6 +7141,7 @@ window.addEventListener('load', function() {
             setCostCenterFieldOptions(info.costCenter, currentCostCenters[rate] || '');
             info.costCenter.addEventListener('change', function() {
                 currentCostCenters[rate] = info.costCenter.value;
+                applyCostCenterVatAccountOverride(info);
             });
             info.costCenter.disabled = false;
             info.costCenter.addEventListener('input', function() {
@@ -7793,6 +7867,12 @@ window.addEventListener('load', function() {
                 recalculateCostCenterDistributionModal();
             });
         }
+        var vatRuleBtn = row.querySelector('.cc-distribution-vat-rule-btn');
+        if (vatRuleBtn) {
+            vatRuleBtn.addEventListener('click', function() {
+                openCostCenterVatRuleModal(currentCostCenterDistributionRate, codeSelect ? codeSelect.value : '');
+            });
+        }
         costCenterDistributionTableBody.appendChild(row);
         recalculateCostCenterDistributionModal();
     }
@@ -7842,6 +7922,103 @@ window.addEventListener('load', function() {
                 });
             }
             recalculateCostCenterDistributionModal();
+        });
+    }
+
+    function openCostCenterVatRuleModal(rate, costCenterCode) {
+        if (!costCenterVatRuleModal) {
+            return;
+        }
+        costCenterCode = String(costCenterCode || '').trim();
+        if (!costCenterCode) {
+            showError('Seleciona primeiro um centro de custo nesta linha.');
+            return;
+        }
+        var database = currentBtn ? (currentBtn.getAttribute('data-acquirer-db') || erpDefaultDatabase || '') : (erpDefaultDatabase || '');
+        var matchedOption = (currentCostCenterOptions || []).filter(function(option) {
+            return String(option.code || '').trim() === costCenterCode;
+        })[0] || null;
+        var label = matchedOption ? matchedOption.label : costCenterCode;
+        var existingRule = matchedOption ? matchedOption.vatRule : null;
+
+        currentCostCenterVatRuleContext = {
+            rate: rate,
+            code: costCenterCode,
+            db: database,
+            label: label
+        };
+
+        if (costCenterVatRuleCostCenterInfoEl) {
+            costCenterVatRuleCostCenterInfoEl.value = label;
+        }
+        if (costCenterVatRuleDeductibleToggleEl) {
+            costCenterVatRuleDeductibleToggleEl.checked = existingRule ? existingRule.vatDeductible : true;
+        }
+        if (costCenterVatRuleDeductibleAccountEl) {
+            costCenterVatRuleDeductibleAccountEl.value = existingRule ? existingRule.deductibleAccount : '';
+        }
+        if (costCenterVatRuleNonDeductibleAccountEl) {
+            costCenterVatRuleNonDeductibleAccountEl.value = existingRule ? existingRule.nonDeductibleAccount : '';
+        }
+
+        costCenterVatRuleModal.show();
+    }
+
+    if (costCenterVatRuleSaveBtn) {
+        costCenterVatRuleSaveBtn.addEventListener('click', function() {
+            var ctx = currentCostCenterVatRuleContext;
+            if (!ctx) {
+                return;
+            }
+            var payload = {
+                csrf_token: csrfInput ? csrfInput.value : '',
+                db: ctx.db,
+                cost_center_code: ctx.code,
+                cost_center_label: ctx.label,
+                vat_deductible: costCenterVatRuleDeductibleToggleEl ? !!costCenterVatRuleDeductibleToggleEl.checked : true,
+                deductible_account: costCenterVatRuleDeductibleAccountEl ? costCenterVatRuleDeductibleAccountEl.value.trim() : '',
+                non_deductible_account: costCenterVatRuleNonDeductibleAccountEl ? costCenterVatRuleNonDeductibleAccountEl.value.trim() : ''
+            };
+
+            costCenterVatRuleSaveBtn.disabled = true;
+            fetchJson('contabilidade/classificacao-importacao/save-cost-center-vat-rule', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            }).then(function(res) {
+                if (res && res.csrf_token && csrfInput) {
+                    csrfInput.value = res.csrf_token;
+                }
+                if (!res || !res.success) {
+                    throw new Error((res && res.error) || 'Não foi possível guardar a regra de IVA.');
+                }
+
+                (currentCostCenterOptions || []).forEach(function(option) {
+                    if (String(option.code || '').trim() === ctx.code) {
+                        option.vatRule = {
+                            vatDeductible: !!payload.vat_deductible,
+                            deductibleAccount: payload.deductible_account,
+                            nonDeductibleAccount: payload.non_deductible_account
+                        };
+                    }
+                });
+                refreshCostCenterFields();
+
+                var info = rateInputs[ctx.rate] || null;
+                if (info) {
+                    applyCostCenterVatAccountOverride(info);
+                }
+
+                if (costCenterVatRuleModal) {
+                    costCenterVatRuleModal.hide();
+                }
+            }).catch(function(err) {
+                showError(err && err.message ? err.message : 'Não foi possível guardar a regra de IVA.');
+            }).finally(function() {
+                costCenterVatRuleSaveBtn.disabled = false;
+            });
         });
     }
 
@@ -9054,6 +9231,7 @@ window.addEventListener('load', function() {
             currentCostCenters[rate] = rows[0] ? rows[0].cost_center : '';
             if (rateInputs[rate] && rateInputs[rate].costCenter) {
                 setCostCenterFieldOptions(rateInputs[rate].costCenter, currentCostCenters[rate]);
+                applyCostCenterVatAccountOverride(rateInputs[rate]);
             }
             updateCostCenterFieldMode(rate);
             if (costCenterDistributionModal) {
@@ -9155,6 +9333,7 @@ window.addEventListener('load', function() {
         if (emitterTypeSelect) {
             emitterTypeSelect.value = 'normal';
         }
+        applyReverseChargeDetectionFromDocumentFields(currentDocumentFieldValues);
 
         currentRateData = buttonRatesPayload;
         if (!currentRateData || typeof currentRateData !== 'object') {

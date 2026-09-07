@@ -2606,10 +2606,13 @@ function efaturaResolveEntityCommunicationContext(PDO $pdo, int $entityId): arra
         $remote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $erpDatabase);
         if (is_array($remote) && empty($remote['error'])) {
             $row = efaturaExtractErpEntityRow($remote['payload'] ?? []);
+            $rowNif = $row ? extractVatNumber((string) ($row['strNumContrib'] ?? '')) : '';
+            if ($row && $rowNif !== '' && $rowNif !== $entityNif) {
+                logErpMessage('Ignorado registo ERP com NIF divergente ao resolver contexto da entidade ' . $entityNif . ' (recebido ' . $rowNif . ').');
+                $row = null;
+            }
             if ($row) {
                 $emails = efaturaExtractEmailAddresses((string) ($row['strEmail'] ?? ''));
-                $context['entity_name'] = trim((string) ($row['strNome'] ?? '')) !== '' ? trim((string) ($row['strNome'] ?? '')) : $context['entity_name'];
-                $context['entity_nif'] = extractVatNumber((string) ($row['strNumContrib'] ?? '')) ?: $context['entity_nif'];
                 $context['entity_email'] = $emails ? implode('; ', $emails) : '';
                 $context['entity_address'] = trim((string) ($row['strMorada_lin1'] ?? ''));
                 $context['entity_address2'] = trim((string) ($row['strMorada_lin2'] ?? ''));
@@ -2698,6 +2701,14 @@ function efaturaBuildMissingDocsPlaceholders(array $entityContext, array $missin
 function efaturaBuildMissingDocumentLinesHtml(array $documents): string {
     $cellStyle = 'padding:8px 12px;border-bottom:1px solid #e3e8ef;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#33475b;';
     $headStyle = 'padding:9px 12px;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:.03em;text-transform:uppercase;color:#ffffff;';
+
+    usort($documents, function (array $a, array $b): int {
+        $nameCompare = strcasecmp(trim((string) ($a['issuer_name'] ?? '')), trim((string) ($b['issuer_name'] ?? '')));
+        if ($nameCompare !== 0) {
+            return $nameCompare;
+        }
+        return strcmp((string) ($a['invoice_date'] ?? ''), (string) ($b['invoice_date'] ?? ''));
+    });
 
     $rows = '';
     $index = 0;

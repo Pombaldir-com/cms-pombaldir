@@ -1046,6 +1046,91 @@ function hasAccountingEntityExtranetSettingsTable(): bool {
     return hasTable('accounting_entity_extranet_settings');
 }
 
+function hasAccountingEntityCostCenterVatRulesTable(): bool {
+    return hasTable('accounting_entity_cost_center_vat_rules');
+}
+
+/**
+ * Regras de dedutibilidade de IVA autoliquidado por centro de custo, para
+ * uma empresa cliente. Mapa indexado pelo codigo do centro de custo.
+ *
+ * @return array<string, array{vat_deductible: bool, deductible_account: string, non_deductible_account: string, cost_center_label: string}>
+ */
+function getAccountingEntityCostCenterVatRules(int $accountingEntityId): array {
+    if ($accountingEntityId <= 0 || !hasAccountingEntityCostCenterVatRulesTable()) {
+        return [];
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'SELECT cost_center_code, cost_center_label, vat_deductible, deductible_account, non_deductible_account
+         FROM accounting_entity_cost_center_vat_rules
+         WHERE entity_id = ?'
+    );
+    $stmt->execute([$accountingEntityId]);
+
+    $rules = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $code = trim((string) ($row['cost_center_code'] ?? ''));
+        if ($code === '') {
+            continue;
+        }
+        $rules[$code] = [
+            'cost_center_label' => (string) ($row['cost_center_label'] ?? ''),
+            'vat_deductible' => (int) ($row['vat_deductible'] ?? 1) === 1,
+            'deductible_account' => (string) ($row['deductible_account'] ?? ''),
+            'non_deductible_account' => (string) ($row['non_deductible_account'] ?? ''),
+        ];
+    }
+    return $rules;
+}
+
+/**
+ * Guarda em lote as regras de dedutibilidade de IVA autoliquidado por
+ * centro de custo, para uma empresa cliente.
+ *
+ * @param array<int, array{cost_center_code?: string, cost_center_label?: string, vat_deductible?: mixed, deductible_account?: string, non_deductible_account?: string}> $rows
+ */
+function saveAccountingEntityCostCenterVatRules(int $accountingEntityId, array $rows): void {
+    if ($accountingEntityId <= 0 || !hasAccountingEntityCostCenterVatRulesTable()) {
+        return;
+    }
+
+    $pdo = getPDO();
+    $stmt = $pdo->prepare(
+        'INSERT INTO accounting_entity_cost_center_vat_rules
+            (entity_id, cost_center_code, cost_center_label, vat_deductible, deductible_account, non_deductible_account)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            cost_center_label = VALUES(cost_center_label),
+            vat_deductible = VALUES(vat_deductible),
+            deductible_account = VALUES(deductible_account),
+            non_deductible_account = VALUES(non_deductible_account)'
+    );
+
+    $savedCodes = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $code = trim((string) ($row['cost_center_code'] ?? ''));
+        if ($code === '') {
+            continue;
+        }
+        $label = trim((string) ($row['cost_center_label'] ?? ''));
+        $deductible = !empty($row['vat_deductible']) ? 1 : 0;
+        $deductibleAccount = trim((string) ($row['deductible_account'] ?? ''));
+        $nonDeductibleAccount = trim((string) ($row['non_deductible_account'] ?? ''));
+
+        $stmt->execute([$accountingEntityId, $code, $label, $deductible, $deductibleAccount, $nonDeductibleAccount]);
+        $savedCodes[] = $code;
+    }
+
+    logAuditAction('update', 'accounting_entity_cost_center_vat_rules', $accountingEntityId, [
+        'cost_center_codes' => $savedCodes,
+    ]);
+}
+
 function clientLogin(string $username, string $password, string $tenantSlug): bool {
     startSession();
     if (!hasClientUsersTable()) {

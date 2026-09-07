@@ -2989,6 +2989,9 @@ function normalizeBackofficeInstructionEmitterTypeValue(string $value): string {
     if (in_array($value, ['2', 'insurance', 'seguro', 'seguros', 'seguradora'], true)) {
         return '2';
     }
+    if (in_array($value, ['3', 'reverse charge', 'autoliquidacao', 'auto liquidacao'], true)) {
+        return '3';
+    }
     if (in_array($value, ['0', 'normal', 'geral', 'default'], true)) {
         return '0';
     }
@@ -3882,6 +3885,17 @@ if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQU
             $rows = extractErpRowsFromPayload($fallbackPayload);
         }
     }
+    $costCenterVatRules = [];
+    $normalizedDatabase = normalizeAccountingEntityDatabaseKey($database);
+    if ($normalizedDatabase !== '') {
+        $entityStmt = $pdo->prepare('SELECT id FROM accounting_entities WHERE erp_database = ? LIMIT 1');
+        $entityStmt->execute([$normalizedDatabase]);
+        $entityId = (int) ($entityStmt->fetchColumn() ?: 0);
+        if ($entityId > 0) {
+            $costCenterVatRules = getAccountingEntityCostCenterVatRules($entityId);
+        }
+    }
+
     $items = [];
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -3896,11 +3910,18 @@ if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQU
         if ($movimenta !== '' && $movimenta !== '1') {
             continue;
         }
-        $items[] = [
+        $item = [
             'code' => $code,
             'description' => $description,
             'label' => $description !== '' ? ($code . ' - ' . $description) : $code,
         ];
+        $vatRule = $costCenterVatRules[$code] ?? null;
+        if ($vatRule) {
+            $item['vat_deductible'] = $vatRule['vat_deductible'];
+            $item['deductible_account'] = $vatRule['deductible_account'];
+            $item['non_deductible_account'] = $vatRule['non_deductible_account'];
+        }
+        $items[] = $item;
     }
     usort($items, static function (array $left, array $right): int {
         return strnatcasecmp((string) ($left['code'] ?? ''), (string) ($right['code'] ?? ''));
@@ -3913,6 +3934,74 @@ if (($action === 'cost_centers' || $action === 'cost-centers') && $_SERVER['REQU
         'doc_date' => $docDate,
         'csrf_token' => generateCsrfToken(),
     ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (
+    ($action === 'save_cost_center_vat_rule' || $action === 'save-cost-center-vat-rule')
+    && $_SERVER['REQUEST_METHOD'] === 'POST'
+) {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $rawBody = file_get_contents('php://input');
+    $payload = json_decode($rawBody ?? '', true);
+    $response = ['success' => false];
+
+    if (!is_array($payload)) {
+        $response['error'] = 'Pedido inválido.';
+        $response['csrf_token'] = generateCsrfToken(true);
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $csrfToken = (string) ($payload['csrf_token'] ?? '');
+    if ($csrfToken === '' || !validateCsrfToken($csrfToken)) {
+        $response['error'] = 'Token CSRF inválido.';
+        $response['csrf_token'] = generateCsrfToken(true);
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $response['csrf_token'] = generateCsrfToken();
+
+    $ruleDatabase = normalizeAccountingEntityDatabaseKey(trim((string) ($payload['db'] ?? '')));
+    $ruleCostCenterCode = trim((string) ($payload['cost_center_code'] ?? ''));
+    if ($ruleDatabase === '' || $ruleCostCenterCode === '') {
+        $response['error'] = 'Empresa ou centro de custo em falta.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $entityStmt = $pdo->prepare('SELECT id FROM accounting_entities WHERE erp_database = ? LIMIT 1');
+    $entityStmt->execute([$ruleDatabase]);
+    $ruleEntityId = (int) ($entityStmt->fetchColumn() ?: 0);
+    if ($ruleEntityId <= 0) {
+        $response['error'] = 'Empresa nao encontrada para esta base de dados ERP.';
+        echo json_encode($response, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $ruleVatDeductible = !empty($payload['vat_deductible']);
+    $ruleDeductibleAccount = trim((string) ($payload['deductible_account'] ?? ''));
+    $ruleNonDeductibleAccount = trim((string) ($payload['non_deductible_account'] ?? ''));
+    $ruleCostCenterLabel = trim((string) ($payload['cost_center_label'] ?? ''));
+
+    saveAccountingEntityCostCenterVatRules($ruleEntityId, [[
+        'cost_center_code' => $ruleCostCenterCode,
+        'cost_center_label' => $ruleCostCenterLabel,
+        'vat_deductible' => $ruleVatDeductible,
+        'deductible_account' => $ruleDeductibleAccount,
+        'non_deductible_account' => $ruleNonDeductibleAccount,
+    ]]);
+
+    $response['success'] = true;
+    $response['message'] = 'Regra de IVA guardada para este centro de custo.';
+    $response['rule'] = [
+        'vat_deductible' => $ruleVatDeductible,
+        'deductible_account' => $ruleDeductibleAccount,
+        'non_deductible_account' => $ruleNonDeductibleAccount,
+    ];
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
