@@ -761,7 +761,7 @@ initEfaturaTable("#efatura-companies-table", { columnDefs: [{ orderable: false, 
 var efaturaDocumentsTable = initEfaturaTable("#efatura-documents-table", {
     serverSide: true,
     processing: true,
-    order: [[0, "desc"]],
+    order: [[1, "asc"], [0, "asc"]],
     pagingType: "full_numbers",
     dom: "<\"row\"<\"col-sm-8 col-12 d-flex align-items-center gap-2 efatura-documents-controls\"l<\"efatura-documents-date-slot\"><\"efatura-documents-status-slot\">><\"col-sm-4 col-12 d-flex align-items-center justify-content-end gap-2\"<\"efatura-documents-missing-slot\">f>>rt<\"row\"<\"col-sm-6 col-12\"i><\"col-sm-6 col-12\"p>>",
     initComplete: function() {
@@ -1256,6 +1256,7 @@ $pageScripts .= '
             }
 
             var formData = new FormData(formEl);
+            formData.set("csrf_token", window.efaturaCsrfToken || "");
             sendBtn.disabled = true;
             showAlert("info", "A enviar email...");
 
@@ -1265,12 +1266,18 @@ $pageScripts .= '
                 credentials: "same-origin"
             })
                 .then(function(response) {
-                    return response.json().then(function(data) {
+                    return response.text().then(function(text) {
+                        var data = null;
+                        try {
+                            data = text ? JSON.parse(text) : null;
+                        } catch (parseError) {
+                            data = null;
+                        }
                         if (data && data.csrf_token) {
                             window.efaturaCsrfToken = data.csrf_token;
                         }
                         if (!response.ok || !data || !data.ok) {
-                            var errorMessage = data && data.error ? data.error : "Nao foi possivel enviar o email.";
+                            var errorMessage = data && data.error ? data.error : (text || "Nao foi possivel enviar o email.");
                             throw new Error(errorMessage);
                         }
                         return data;
@@ -1954,8 +1961,6 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     }
 
     $filters = efaturaParseDocumentFilters($_GET);
-    $orderColumn = (int) ($_GET['order'][0]['column'] ?? 0);
-    $orderDir = strtolower(trim((string) ($_GET['order'][0]['dir'] ?? 'desc'))) === 'asc' ? 'ASC' : 'DESC';
 
     $orderableColumns = [
         0 => 'd.invoice_date',
@@ -1968,7 +1973,24 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
         7 => 'd.gross_total',
         8 => 'has_upload',
     ];
-    $orderBy = $orderableColumns[$orderColumn] ?? 'd.invoice_date';
+
+    $orderParts = [];
+    $lastOrderDir = 'ASC';
+    $requestedOrder = is_array($_GET['order'] ?? null) ? $_GET['order'] : [];
+    foreach ($requestedOrder as $orderRequest) {
+        $orderColumn = (int) ($orderRequest['column'] ?? -1);
+        if (!isset($orderableColumns[$orderColumn])) {
+            continue;
+        }
+        $orderDir = strtolower(trim((string) ($orderRequest['dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
+        $orderParts[] = $orderableColumns[$orderColumn] . ' ' . $orderDir;
+        $lastOrderDir = $orderDir;
+    }
+    if (!$orderParts) {
+        $orderParts[] = 'd.issuer_name ASC';
+        $orderParts[] = 'd.invoice_date ASC';
+    }
+    $orderBy = implode(', ', $orderParts);
 
     [$linkSelect, $linkJoin] = efaturaBuildDocumentLinkSql();
     $baseFrom = ' FROM efatura_documents d JOIN accounting_entities ae ON ae.id = d.entity_id ' . $linkJoin;
@@ -1988,7 +2010,7 @@ function handleEfaturaDocumentsData(PDO $pdo, int $selectedEntityId): void {
     $dataSql = 'SELECT d.*, ae.name AS entity_name, ae.erp_database AS entity_erp_database' . $linkSelect
         . $baseFrom
         . $whereSql
-        . ' ORDER BY ' . $orderBy . ' ' . $orderDir . ', d.id ' . $orderDir
+        . ' ORDER BY ' . $orderBy . ', d.id ' . $lastOrderDir
         . ' LIMIT ' . (int) $length . ' OFFSET ' . (int) $start;
     $dataStmt = $pdo->prepare($dataSql);
     $dataStmt->execute($params);
