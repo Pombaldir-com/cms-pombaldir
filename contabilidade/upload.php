@@ -1255,6 +1255,10 @@ function detectAccountingUploadQr(string $absolutePath): array {
     if ($qrRetryMaxAttempts <= 0) {
         $qrRetryMaxAttempts = 12;
     }
+    $qrTypicalMaxPages = (int) getSetting('qr_typical_max_pages', '2');
+    if ($qrTypicalMaxPages <= 0) {
+        $qrTypicalMaxPages = 2;
+    }
 
     $timings = [
         'started_at_ms' => (int) round(microtime(true) * 1000),
@@ -1326,17 +1330,27 @@ function detectAccountingUploadQr(string $absolutePath): array {
     $attempts[] = $detectQr($qrDpi, $qrAutoMaxPages, $qrAutoMaxAttempts, false);
     $qrTexts = $attempts[0]['texts'];
 
-    // Caminho rapido: se a sonda leu QR e o PDF tem 1 pagina, esta' tudo lido -
-    //    nao vale a pena a varredura pesada a 300 DPI (poupa ~10s no caso comum).
+    // Caminho rapido: se a sonda leu QR e o PDF tem um numero "habitual" de
+    //    paginas (<= qrTypicalMaxPages), esta' tudo lido - nao vale a pena a
+    //    varredura pesada a 300 DPI (poupa ~10s no caso comum).
     $pageCount = accountingUploadPdfPageCount($absolutePath);
-    $fastPathDone = (!empty($qrTexts) && $pageCount === 1);
+    $manyPages = $pageCount > $qrTypicalMaxPages;
+    $fastPathDone = (!empty($qrTexts) && !$manyPages);
+
+    // Documentos com mais paginas que o habitual sao indicio de poderem conter
+    // mais do que uma fatura/QR (ex.: EDP com eletricidade + audiovisual,
+    // portagens com varios trocos). O numero de tentativas de producao e'
+    // afinado para o caso comum (1 QR facil) e pode nao chegar para decodificar
+    // um 2.o QR mais dificil na mesma varredura - reforca-se o orcamento so'
+    // nestes casos, sem afetar a velocidade do documento tipico.
+    $qrManyPagesRetryAttempts = $manyPages ? max($qrRetryMaxAttempts, 6) : $qrRetryMaxAttempts;
 
     if (!$fastPathDone) {
         // 2) Varredura minuciosa a 300 DPI sobre TODAS as paginas (exaustiva). Cobre o
         //    que a sonda nao apanhou: QR so' legivel a alto DPI, 2.o QR na pagina, e QR
         //    noutras paginas. Substitui a antiga "completion" e evita re-varrer paginas
         //    ja' vistas (antes corria pp 1-2 e depois tudo outra vez).
-        $attempts[] = $detectQr($qrRetryDpi, 0, $qrRetryMaxAttempts, false);
+        $attempts[] = $detectQr($qrRetryDpi, 0, $qrManyPagesRetryAttempts, false);
         $qrTexts = $mergeQrTexts($qrTexts, $attempts[count($attempts) - 1]['texts'] ?? []);
 
         // 3) Fallback barato para taloes/POS so' se ainda nao houver nada: apenas as
