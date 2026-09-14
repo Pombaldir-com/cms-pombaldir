@@ -7,13 +7,65 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urljoin
 
 import requests
 
 CURRENT_ARTIFACT_PATH = None
+
+
+class EfaturaFallbackNeeded(Exception):
+    pass
+
+
+def split_period(period_start, period_end):
+    """Splits an inclusive YYYY-MM-DD date range in half. Returns None when it
+    can no longer be divided (a single day)."""
+    start_dt = datetime.strptime(period_start, "%Y-%m-%d")
+    end_dt = datetime.strptime(period_end, "%Y-%m-%d")
+    total_days = (end_dt - start_dt).days
+    if total_days <= 0:
+        return None
+    mid_dt = start_dt + timedelta(days=total_days // 2)
+    second_start_dt = mid_dt + timedelta(days=1)
+    return (
+        (period_start, mid_dt.strftime("%Y-%m-%d")),
+        (second_start_dt.strftime("%Y-%m-%d"), period_end),
+    )
+
+
+def fetch_documents_with_split(fetch_fn, period_start, period_end, debug, page_cap):
+    """Calls fetch_fn(start, end) for the period; if it comes back at the
+    portal's page cap (meaning the portal truncated the result), bisects the
+    date range and merges the sub-results, deduplicating by source_hash."""
+    documents = fetch_fn(period_start, period_end)
+    if len(documents) < page_cap:
+        return documents
+
+    split = split_period(period_start, period_end)
+    if split is None:
+        step(
+            debug,
+            f"Aviso: {period_start} tem {len(documents)} documento(s) (limite do portal) "
+            "e nao pode ser dividido por dia; alguns documentos desse dia podem faltar.",
+        )
+        return documents
+
+    (first_start, first_end), (second_start, second_end) = split
+    step(
+        debug,
+        f"Periodo {period_start} a {period_end} atingiu o limite do portal ({len(documents)}); "
+        f"a dividir em {first_start}-{first_end} e {second_start}-{second_end}",
+    )
+    first_documents = fetch_documents_with_split(fetch_fn, first_start, first_end, debug, page_cap)
+    second_documents = fetch_documents_with_split(fetch_fn, second_start, second_end, debug, page_cap)
+
+    merged = {}
+    for document in first_documents + second_documents:
+        merged[document["source_hash"]] = document
+    return list(merged.values())
 
 
 def load_dotenv(root_path):
@@ -245,37 +297,46 @@ def sync_documents_via_http(login_url, portal_url, consulta_url, consulta_json_u
         consulta_response = session.get(consulta_url, timeout=30)
         consulta_response.raise_for_status()
 
-    query = {
-        "dataInicioFilter": period_start,
-        "dataFimFilter": period_end,
-        "ambitoAquisicaoFilter": "TODOS",
-    }
-    target = consulta_json_url + ("&" if "?" in consulta_json_url else "?") + urlencode(query)
-    step(debug, f"HTTP JSON autenticado: {target}")
-    json_response = session.get(target, timeout=30)
-    json_response.raise_for_status()
+    page_cap = int(env_value("EFATURA_PAGE_SIZE_LIMIT", "300"))
+
+    def fetch_page(start, end):
+        query = {
+            "dataInicioFilter": start,
+            "dataFimFilter": end,
+            "ambitoAquisicaoFilter": "TODOS",
+        }
+        target = consulta_json_url + ("&" if "?" in consulta_json_url else "?") + urlencode(query)
+        step(debug, f"HTTP JSON autenticado: {target}")
+        json_response = session.get(target, timeout=30)
+        json_response.raise_for_status()
+        try:
+            payload = json_response.json()
+        except Exception:
+            debug["http_json_raw"] = json_response.text[:2000]
+            raise RuntimeError("Resposta JSON invalida no endpoint do E-fatura.")
+        debug["http_json_keys"] = list(payload.keys())[:20] if isinstance(payload, dict) else []
+
+        if isinstance(payload, dict) and payload.get("expiredSession") is True:
+            raise RuntimeError("Sessao E-fatura expirada no endpoint JSON autenticado.")
+        if isinstance(payload, dict) and payload.get("success") is False:
+            debug["http_json_sample"] = json.dumps(payload, ensure_ascii=False)[:2000]
+            raise EfaturaFallbackNeeded()
+
+        rows = extract_rows_from_json_payload(payload if isinstance(payload, dict) else {})
+        step(debug, f"HTTP JSON devolveu {len(rows)} linha(s) candidata(s) para {start} a {end}")
+        page_documents = []
+        for row in rows:
+            document = normalize_json_row(row, company_vat)
+            if document:
+                page_documents.append(document)
+        if not page_documents and isinstance(payload, dict):
+            debug["http_json_sample"] = json.dumps(payload, ensure_ascii=False)[:2000]
+        return page_documents
+
     try:
-        payload = json_response.json()
-    except Exception:
-        debug["http_json_raw"] = json_response.text[:2000]
-        raise RuntimeError("Resposta JSON invalida no endpoint do E-fatura.")
-    debug["http_json_keys"] = list(payload.keys())[:20] if isinstance(payload, dict) else []
-
-    if isinstance(payload, dict) and payload.get("expiredSession") is True:
-        raise RuntimeError("Sessao E-fatura expirada no endpoint JSON autenticado.")
-    if isinstance(payload, dict) and payload.get("success") is False:
-        debug["http_json_sample"] = json.dumps(payload, ensure_ascii=False)[:2000]
+        documents = fetch_documents_with_split(fetch_page, period_start, period_end, debug, page_cap)
+    except EfaturaFallbackNeeded:
         return {"state": "fallback", "documents": []}
-
-    rows = extract_rows_from_json_payload(payload if isinstance(payload, dict) else {})
-    step(debug, f"HTTP JSON devolveu {len(rows)} linha(s) candidata(s)")
-    documents = []
-    for row in rows:
-        document = normalize_json_row(row, company_vat)
-        if document:
-            documents.append(document)
-    if not documents and isinstance(payload, dict):
-        debug["http_json_sample"] = json.dumps(payload, ensure_ascii=False)[:2000]
     return {"state": "done", "documents": documents}
 
 
@@ -324,18 +385,23 @@ def sync_documents_via_browser(login_url, home_url, portal_url, consulta_url, co
                 log_page_state(page, debug, "apos_painel")
                 record_session_diagnostics(context, page, debug, "apos_painel")
 
-            documents = fetch_documents_via_json(
-                context,
-                page,
-                home_url,
-                portal_url,
-                consulta_url,
-                consulta_json_url,
-                args.period_start,
-                args.period_end,
-                args.company_vat,
-                debug,
-            )
+            page_cap = int(env_value("EFATURA_PAGE_SIZE_LIMIT", "300"))
+
+            def fetch_page(start, end):
+                return fetch_documents_via_json(
+                    context,
+                    page,
+                    home_url,
+                    portal_url,
+                    consulta_url,
+                    consulta_json_url,
+                    start,
+                    end,
+                    args.company_vat,
+                    debug,
+                )
+
+            documents = fetch_documents_with_split(fetch_page, args.period_start, args.period_end, debug, page_cap)
             if not documents and allow_html_fallback:
                 step(debug, "JSON browser sem documentos utilizaveis; a tentar fallback HTML")
                 apply_period_filters(page, args.period_start, args.period_end, selectors, debug, PlaywrightTimeoutError)
