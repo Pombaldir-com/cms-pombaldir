@@ -1,14 +1,15 @@
 <?php
 // Ecra "Ver detalhes" da tarefa "Apuramento de IVA": comparacao
 // campo-a-campo (C{n}-DP vs. Ctr Ctb) por empresa/periodo, equivalente ao
-// ecra de window.php?act=wkfloproc (task=6) da intranet legacy.
+// ecra de window.php?act=wkfloproc (task=6) da intranet legacy, seguido do
+// resultado do periodo (a pagar / em credito, fase 8 do legacy) e do fecho.
 //
-// "Ctr Ctb" e calculado com evaluateAccountingVatFieldFormula() a partir
-// das formulas configuradas em accounting_vat_field_formulas, mas SEM
-// dados reais de balancete (endpoint ERP-SINC ainda nao existe) — fica
-// sempre 0.00 ate essa integracao ser feita. "C{n}-DP" e, por agora,
-// introduzido e guardado manualmente por campo/periodo. Ver
-// contabilidade/APURAMENTO_IVA.md.
+// "Ctr Ctb" e calculado com as formulas de accounting_vat_field_formulas
+// contra o balancete do ERP-SINC (GET contabilidade/saldos). "C{n}-DP" vem
+// da Declaracao Periodica gerada no ERP (GET contabilidade/declperiodica);
+// quando o ERP nao devolve DP para o periodo, os valores podem ser
+// introduzidos manualmente (accounting_vat_settlement_field_values).
+// Ver contabilidade/APURAMENTO_IVA.md.
 
 require_once __DIR__ . '/../functions.php';
 require_once __DIR__ . '/functions.php';
@@ -102,46 +103,168 @@ if (hasTable('accounting_vat_field_formulas')) {
     $fieldFormulas = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-$dpValuesByField = [];
+$manualDpValues = [];
 if (hasTable('accounting_vat_settlement_field_values')) {
     $stmt = $pdo->prepare(
         'SELECT field_number, dp_value FROM accounting_vat_settlement_field_values WHERE accounting_entity_id = ? AND period_label = ?'
     );
     $stmt->execute([$entityId, $periodLabel]);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $dpValuesByField[(int) $row['field_number']] = (float) $row['dp_value'];
+        $manualDpValues[(int) $row['field_number']] = (float) $row['dp_value'];
     }
 }
 
-// Sem fonte real de balancete (ERP-SINC) ainda: accountBalances fica vazio,
-// pelo que evaluateAccountingVatFieldFormula() devolve sempre 0.00. Assim
-// que existir o endpoint, substituir [] pelos saldos reais por conta.
+$periodRange = buildVatPeriodRange($periodType, $periodYear, $periodRef);
+$erpDatabase = resolveAccountingEntityDatabase($entity);
+$erpWarnings = [];
 $accountBalances = [];
+$balancesLoaded = false;
+$dpSource = 'manual';
+$dpValuesByField = $manualDpValues;
 
-$fieldRows = [];
-$hasError = false;
-foreach ($fieldFormulas as $formulaRow) {
-    $fieldNumber = (int) $formulaRow['field_number'];
-    $dpValue = $dpValuesByField[$fieldNumber] ?? 0.0;
-    try {
-        $terms = parseAccountingVatFieldFormula((string) $formulaRow['formula']);
-        $ctbValue = evaluateAccountingVatFieldFormula($terms, $accountBalances);
-    } catch (InvalidArgumentException $e) {
-        $ctbValue = 0.0;
+if ($erpDatabase === '') {
+    $erpWarnings[] = 'Esta empresa não tem base de dados ERP associada (Entidades > ficha da empresa). Sem balancete, "Ctr Ctb" fica a 0,00.';
+} else {
+    $balancesResult = fetchErpVatAccountBalances($erpDatabase, $periodYear, $periodRange['month_start'], $periodRange['month_end']);
+    if ($balancesResult['success']) {
+        $accountBalances = $balancesResult['balances'];
+        $balancesLoaded = true;
+        if (!$accountBalances) {
+            $erpWarnings[] = 'O ERP não devolveu saldos para ' . $periodLabel . ' (base ' . $erpDatabase . ').';
+        }
+    } else {
+        $erpWarnings[] = 'Balancete indisponível: ' . $balancesResult['error'];
     }
-    $diff = round($dpValue - $ctbValue, 2);
-    $ok = abs($diff) <= 0.01;
-    if (!$ok) {
-        $hasError = true;
+
+    $declarationResult = fetchErpVatDeclarationValues($erpDatabase, $periodRange['erp_period']);
+    if ($declarationResult['success'] && $declarationResult['values']) {
+        $dpValuesByField = $declarationResult['values'];
+        $dpSource = 'erp';
+    } elseif ($declarationResult['success']) {
+        $erpWarnings[] = 'A Declaração Periódica de ' . $periodLabel . ' ainda não foi gerada no ERP. Os valores DP podem ser introduzidos manualmente.';
+    } else {
+        $erpWarnings[] = 'Declaração Periódica indisponível: ' . $declarationResult['error'];
     }
-    $fieldRows[] = [
-        'field_number' => $fieldNumber,
-        'dp_value' => $dpValue,
-        'ctb_value' => $ctbValue,
-        'diff' => $diff,
-        'ok' => $ok,
-    ];
 }
+
+$evaluation = evaluateVatFieldRows($fieldFormulas, $dpValuesByField, $accountBalances);
+$fieldRows = $evaluation['rows'];
+$hasError = $evaluation['has_error'];
+$expected = computeVatSettlementExpected($fieldFormulas, $accountBalances);
+
+// Fecho do periodo e os dois envios por email ("Enviar" do quadro de campos
+// e "Enviar" do resultado do periodo, com opcao "enviar e fechar" numa so
+// acao) dependem de $fieldRows/$hasError/$expected, por isso so podem
+// correr depois da avaliacao acima. O CSRF ja foi validado no bloco POST
+// anterior (que so tratou save_field_values, antes de haver dados para
+// avaliar).
+$periodJustClosed = $periodJustClosed ?? false;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $postAction = $_POST['action'] ?? '';
+
+    if ($postAction === 'send_field_report') {
+        $reportEmail = trim((string) ($_POST['report_email'] ?? ''));
+        if ($reportEmail === '' || !filter_var($reportEmail, FILTER_VALIDATE_EMAIL)) {
+            $feedback = ['type' => 'danger', 'message' => 'Indique um email de destino válido.'];
+        } elseif (!$fieldRows) {
+            $feedback = ['type' => 'danger', 'message' => 'Não há campos configurados para enviar.'];
+        } else {
+            try {
+                sendSystemEmail(
+                    $reportEmail,
+                    'Apuramento de IVA ' . $entity['name'] . ' — ' . $periodLabel,
+                    buildVatFieldReportEmailBody($entity, $periodLabel, $fieldRows),
+                    true
+                );
+                logAuditAction('send_email', 'accounting_entity', $entityId, [
+                    'context' => 'apuramento_iva_field_report',
+                    'period_label' => $periodLabel,
+                    'dest_email' => $reportEmail,
+                ]);
+                $feedback = ['type' => 'success', 'message' => 'Relatório enviado para ' . $reportEmail . '.'];
+            } catch (Throwable $e) {
+                $feedback = ['type' => 'danger', 'message' => 'Falha ao enviar o relatório: ' . $e->getMessage()];
+            }
+        }
+    }
+
+    if ($postAction === 'close_period') {
+        if ($hasError) {
+            $feedback = ['type' => 'danger', 'message' => 'Existem campos com diferença entre DP e Ctr Ctb. Corrija os lançamentos no ERP antes de fechar o período.'];
+        } else {
+            $resultType = ($_POST['result_type'] ?? '') === 'credito' ? 'credito' : 'pagar';
+            $valorPagar = (float) str_replace(',', '.', (string) ($_POST['valor_pagar'] ?? '0'));
+            $valorRecuperar = (float) str_replace(',', '.', (string) ($_POST['valor_recuperar'] ?? '0'));
+            $observacao = trim((string) ($_POST['observacao'] ?? ''));
+            $notifyClient = !empty($_POST['notify_client']);
+            $notifyEmail = trim((string) ($_POST['notify_email'] ?? ''));
+
+            if ($notifyClient && ($notifyEmail === '' || !filter_var($notifyEmail, FILTER_VALIDATE_EMAIL))) {
+                $feedback = ['type' => 'danger', 'message' => 'Indique um email de destino válido para notificar o cliente, ou desmarque essa opção.'];
+            } else {
+                $stmt = $pdo->prepare('SELECT id FROM accounting_vat_settlements WHERE accounting_entity_id = ? AND period_label = ? LIMIT 1');
+                $stmt->execute([$entityId, $periodLabel]);
+                if ($stmt->fetchColumn()) {
+                    $feedback = ['type' => 'danger', 'message' => 'Este período já se encontra fechado para esta empresa.'];
+                } else {
+                    $stmt = $pdo->prepare(
+                        'INSERT INTO accounting_vat_settlements
+                            (accounting_entity_id, period_type, period_year, period_ref, period_label, result_type, valor_pagar, valor_recuperar, observacao, closed_by)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    );
+                    $stmt->execute([
+                        $entityId,
+                        $periodType,
+                        $periodYear,
+                        $periodRef,
+                        $periodLabel,
+                        $resultType,
+                        $resultType === 'pagar' ? $valorPagar : 0,
+                        $valorRecuperar,
+                        $observacao !== '' ? $observacao : null,
+                        $userId,
+                    ]);
+                    logAuditAction('create', 'accounting_vat_settlement', (int) $pdo->lastInsertId(), [
+                        'accounting_entity_id' => $entityId,
+                        'period_label' => $periodLabel,
+                        'result_type' => $resultType,
+                    ]);
+                    $feedback = ['type' => 'success', 'message' => 'Período ' . $periodLabel . ' fechado com sucesso.'];
+                    $periodJustClosed = true;
+
+                    if ($notifyClient) {
+                        try {
+                            sendSystemEmail(
+                                $notifyEmail,
+                                'IVA ' . $periodLabel . ' — ' . $entity['name'],
+                                buildVatClientNotificationEmailBody($entity, $periodLabel, $resultType, $valorPagar, $valorRecuperar),
+                                true
+                            );
+                            logAuditAction('send_email', 'accounting_entity', $entityId, [
+                                'context' => 'apuramento_iva_client_notification',
+                                'period_label' => $periodLabel,
+                                'dest_email' => $notifyEmail,
+                            ]);
+                            $feedback['message'] .= ' Notificação enviada para ' . $notifyEmail . '.';
+                        } catch (Throwable $e) {
+                            $feedback['message'] .= ' (Falha ao enviar a notificação: ' . $e->getMessage() . ')';
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+$closedSettlement = null;
+$stmt = $pdo->prepare(
+    'SELECT s.*, u.name AS closed_by_name, u.username AS closed_by_username
+     FROM accounting_vat_settlements s
+     LEFT JOIN users u ON u.id = s.closed_by
+     WHERE s.accounting_entity_id = ? AND s.period_label = ? LIMIT 1'
+);
+$stmt->execute([$entityId, $periodLabel]);
+$closedSettlement = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
 ob_start();
 ?>
@@ -183,6 +306,17 @@ ob_start();
     }
     .iva-detail-status.ok { background: #26b99a; }
     .iva-detail-status.error { background: #e04b4a; }
+    .iva-detail-status.warning { background: #f0ad4e; }
+    .iva-detail-source { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    .iva-detail-summary {
+        margin-top: 22px; padding: 14px 16px; background: #f7f9fb; border: 1px solid #e6e9ed; border-radius: 4px;
+    }
+    .iva-detail-summary h5 { margin: 0 0 10px; font-weight: 700; color: #2a3f54; }
+    .iva-detail-summary .form-inline { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+    .iva-detail-summary .form-inline label { display: block; }
+    .iva-detail-summary .form-control { height: 32px; font-size: 13px; }
+    .iva-detail-expected { font-size: 13px; color: #73879c; margin-bottom: 10px; }
+    .iva-detail-expected strong { color: #2a3f54; font-size: 15px; }
     .iva-detail-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 </style>
 
@@ -193,12 +327,13 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<div class="iva-detail-warning">
-    <strong>Sem dados reais do ERP-SINC ainda.</strong>
-    "Ctr Ctb" está preparado para calcular a partir do balancete real
-    (fórmulas em Configurações da tarefa), mas mostra sempre 0,00 até esse
-    endpoint existir. "C{n}-DP" é, por agora, introduzido manualmente.
-</div>
+<?php if ($periodJustClosed): ?>
+<div data-iva-period-closed="1" hidden></div>
+<?php endif; ?>
+
+<?php foreach ($erpWarnings as $warning): ?>
+<div class="iva-detail-warning"><?= htmlspecialchars($warning); ?></div>
+<?php endforeach; ?>
 
 <form method="get" class="iva-detail-period-form" data-entity-id="<?= $entityId; ?>">
     <label><?= $periodType === 'trimestral' ? 'Trimestre:' : 'Mês:'; ?></label>
@@ -219,6 +354,7 @@ ob_start();
             <?php endforeach; ?>
         <?php endif; ?>
     </select>
+    <span class="text-muted" style="font-size: 12px;"><?= htmlspecialchars($periodRange['start']); ?> a <?= htmlspecialchars($periodRange['end']); ?></span>
     <noscript><button type="submit" class="btn btn-default btn-sm">Filtrar</button></noscript>
 </form>
 
@@ -239,30 +375,33 @@ ob_start();
         <thead>
             <tr>
                 <th>Campo</th>
-                <th>DP</th>
+                <th>DP <span class="iva-detail-source <?= $dpSource === 'erp' ? 'text-success' : 'text-warning'; ?>">(<?= $dpSource === 'erp' ? 'ERP' : 'manual'; ?>)</span></th>
                 <th>Ctr Ctb</th>
                 <th class="iva-detail-col-status">Estado</th>
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($fieldRows as $row): ?>
+            <?php foreach ($fieldRows as $row):
+                $statusIcon = $row['status'] === 'ok' ? 'fa-check' : ($row['status'] === 'warning' ? 'fa-exclamation' : 'fa-exclamation-triangle');
+                $dpReadonly = $dpSource === 'erp' || $row['field_number'] === 93;
+            ?>
             <tr>
                 <td class="iva-detail-field-number">C<?= $row['field_number']; ?></td>
                 <td>
                     <div class="iva-detail-input-group">
-                        <input type="text" name="dp_value[<?= $row['field_number']; ?>]" class="form-control" value="<?= number_format($row['dp_value'], 2, ',', ''); ?>">
+                        <input type="text" name="dp_value[<?= $row['field_number']; ?>]" class="form-control" value="<?= number_format($row['dp_value'], 2, ',', ''); ?>" <?= $dpReadonly ? 'readonly' : ''; ?>>
                         <span class="iva-detail-currency">€</span>
                     </div>
                 </td>
                 <td>
                     <div class="iva-detail-input-group">
-                        <input type="text" class="form-control" value="<?= number_format($row['ctb_value'], 2, ',', ''); ?>" readonly>
+                        <input type="text" class="form-control" value="<?= number_format($row['ctb_value'], 2, ',', ''); ?>" readonly title="<?= htmlspecialchars($row['formula_error']); ?>">
                         <span class="iva-detail-currency">€</span>
                     </div>
                 </td>
                 <td class="iva-detail-col-status">
-                    <span class="iva-detail-status <?= $row['ok'] ? 'ok' : 'error'; ?>" title="diferença: <?= number_format($row['diff'], 2, ',', '.'); ?>">
-                        <i class="fa <?= $row['ok'] ? 'fa-check' : 'fa-exclamation-triangle'; ?>"></i>
+                    <span class="iva-detail-status <?= $row['status']; ?>" title="<?= htmlspecialchars($row['note'] !== '' ? $row['note'] : 'sem diferença'); ?>">
+                        <i class="fa <?= $statusIcon; ?>"></i>
                     </span>
                 </td>
             </tr>
@@ -271,12 +410,100 @@ ob_start();
     </table>
 
     <div class="iva-detail-actions">
+        <?php if ($dpSource !== 'erp'): ?>
         <button type="submit" class="btn btn-primary">Guardar valores DP</button>
+        <?php endif; ?>
         <?php if ($hasError): ?>
-        <span class="text-danger">Existem campos com diferença entre DP e Ctr Ctb.</span>
+        <span class="text-danger"><i class="fa fa-exclamation-triangle"></i> Existem campos com diferença entre DP e Ctr Ctb. Corrija os lançamentos no ERP antes de fechar o período.</span>
+        <?php elseif ($balancesLoaded && $dpSource === 'erp'): ?>
+        <span class="text-success"><i class="fa fa-check"></i> Todos os campos batem certo.</span>
         <?php endif; ?>
     </div>
 </form>
+
+<form method="post" class="iva-detail-form iva-detail-report-form form-inline" data-entity-id="<?= $entityId; ?>" style="margin-top: 10px; display: flex; align-items: flex-end; gap: 8px;">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
+    <input type="hidden" name="action" value="send_field_report">
+    <input type="hidden" name="entity_id" value="<?= $entityId; ?>">
+    <input type="hidden" name="period_year" value="<?= $periodYear; ?>">
+    <input type="hidden" name="period_ref" value="<?= $periodRef; ?>">
+    <div>
+        <label class="control-label" style="display: block;">Enviar relatório (Campo/DP/Ctb) para</label>
+        <input type="email" name="report_email" class="form-control iva-report-email" style="width: 240px;" placeholder="email@exemplo.pt">
+    </div>
+    <div>
+        <button type="submit" class="btn btn-default btn-sm"><i class="fa fa-envelope"></i> Enviar</button>
+    </div>
+</form>
+
+<div class="iva-detail-summary">
+    <h5><i class="fa fa-euro"></i> Resultado do período <?= htmlspecialchars($periodLabel); ?></h5>
+    <?php if ($closedSettlement): ?>
+    <p class="text-muted" style="margin: 0;">
+        Período fechado em <?= htmlspecialchars((string) $closedSettlement['created_at']); ?>
+        por <?= htmlspecialchars((string) ($closedSettlement['closed_by_name'] ?: $closedSettlement['closed_by_username'] ?: '—')); ?>:
+        <strong><?= $closedSettlement['result_type'] === 'credito' ? 'em crédito' : 'a pagar'; ?></strong>
+        <?php if ($closedSettlement['result_type'] === 'credito'): ?>
+            — reembolso pedido <?= number_format((float) $closedSettlement['valor_recuperar'], 2, ',', '.'); ?> €
+        <?php else: ?>
+            — <?= number_format((float) $closedSettlement['valor_pagar'], 2, ',', '.'); ?> €
+        <?php endif; ?>
+        <?php if (!empty($closedSettlement['observacao'])): ?>
+            <br><em><?= htmlspecialchars((string) $closedSettlement['observacao']); ?></em>
+        <?php endif; ?>
+    </p>
+    <?php else: ?>
+    <div class="iva-detail-expected">
+        <?php if (!$expected['available']): ?>
+            Configure as fórmulas dos campos <strong>93</strong> (a pagar) e <strong>94</strong> (a recuperar) para o cálculo automático do resultado.
+        <?php elseif (!$balancesLoaded): ?>
+            Sem balancete do ERP não é possível calcular o valor apurado.
+        <?php else: ?>
+            Valor apurado pela contabilidade (campo <?= $expected['field']; ?>):
+            <strong><?= number_format($expected['value'], 2, ',', '.'); ?> €</strong>
+            <?= $expected['type'] === 'credito' ? 'em crédito (a recuperar)' : 'a pagar'; ?>
+        <?php endif; ?>
+    </div>
+    <form method="post" class="iva-detail-form iva-detail-close-form form-inline" data-entity-id="<?= $entityId; ?>" data-expected-value="<?= number_format($expected['value'], 2, '.', ''); ?>" data-expected-type="<?= $expected['type']; ?>">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
+        <input type="hidden" name="action" value="close_period">
+        <input type="hidden" name="entity_id" value="<?= $entityId; ?>">
+        <input type="hidden" name="period_year" value="<?= $periodYear; ?>">
+        <input type="hidden" name="period_ref" value="<?= $periodRef; ?>">
+        <div>
+            <label class="control-label">Resultado</label>
+            <select name="result_type" class="form-control iva-close-result-type">
+                <option value="pagar" <?= $expected['type'] === 'pagar' ? 'selected' : ''; ?>>A pagar</option>
+                <option value="credito" <?= $expected['type'] === 'credito' ? 'selected' : ''; ?>>Em crédito</option>
+            </select>
+        </div>
+        <div class="iva-close-field-pagar">
+            <label class="control-label">Valor a pagar (€)</label>
+            <input type="text" name="valor_pagar" class="form-control" style="width: 130px;" value="<?= $expected['type'] === 'pagar' ? number_format($expected['value'], 2, '.', '') : '0.00'; ?>">
+        </div>
+        <div class="iva-close-field-recuperar">
+            <label class="control-label">Valor reembolso (€)</label>
+            <input type="text" name="valor_recuperar" class="form-control" style="width: 130px;" value="0.00" placeholder="Opcional">
+        </div>
+        <div style="flex: 1 1 200px;">
+            <label class="control-label">Observação</label>
+            <input type="text" name="observacao" class="form-control" placeholder="Opcional" style="width: 100%;">
+        </div>
+        <div style="flex-basis: 100%; display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+            <label style="font-weight: 400; display: flex; align-items: center; gap: 6px; margin: 0;">
+                <input type="checkbox" name="notify_client" value="1" class="iva-close-notify-checkbox"> Enviar notificação ao cliente
+            </label>
+            <input type="email" name="notify_email" class="form-control iva-close-notify-email" style="width: 220px; display: none;" placeholder="email@exemplo.pt">
+        </div>
+        <div>
+            <button type="submit" class="btn btn-success" <?= $hasError ? 'disabled title="Existem campos com erro"' : ''; ?>>
+                <i class="fa fa-lock"></i> Fechar período
+            </button>
+        </div>
+        <div class="iva-close-hint text-danger" style="flex-basis: 100%; font-size: 12px;"></div>
+    </form>
+    <?php endif; ?>
+</div>
 <?php endif; ?>
 <?php
 $ivaDetailFragment = ob_get_clean();

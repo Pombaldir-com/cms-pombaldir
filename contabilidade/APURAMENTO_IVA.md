@@ -15,16 +15,31 @@ aplicação (rota, permissão, tabelas) fica registada na secção
 "Integração na aplicação" e deve ser atualizada quando a tarefa for
 construída.
 
-## Integração na aplicação (implementado — fecho manual)
+## Integração na aplicação (implementado — reconciliação automática)
 
-**Estado atual**: a página existe e permite fechar o período por
-empresa/período com introdução manual dos valores (a pagar / a recuperar),
-mas a reconciliação automática campo-a-campo (secções "Mapeamento de campos
-da DP IVA" e "Regras de validação por campo" abaixo) **ainda não está
-implementada** — depende de um endpoint ERP-SINC que ainda não existe (ver
-"Pontos a decidir"). Esta secção descreve o que existe hoje; as secções
-seguintes descrevem o comportamento-alvo (legacy) a implementar quando o
-endpoint estiver disponível.
+**Estado atual (2026-09-22)**: a reconciliação campo-a-campo está ligada a
+dados reais do ERP-SINC. O bloqueador anterior (falta de endpoint de
+balancete/DP) foi resolvido ao portar para o `api.erpsinc.pt` as duas
+consultas do webservice legacy `intranet.zcontas.pt/webservices/ctb.php`:
+
+- `GET /contabilidade/saldos?strCodExercicio=YYYY&intMes=M&intMes2=M2`
+  → tabela `Ctb_Saldos` (balancete por conta/mês). Equivale ao
+  `ctb.php?act_g=balancete`.
+- `GET /contabilidade/declperiodica?strPeriodo=YYYYMMDDYYYYMMDD&strAnexo=1`
+  → tabela `Tbl_Ctb_DeclPer` (DP gerada no ERP). Equivale ao
+  `ctb.php?act_g=declPeriodica`. O período é o 1º + último dia concatenados.
+
+Ambos documentados em `erpsync-api.yaml` e implementados em
+`contabilidade.php` (blocos `tipo=saldos` / `tipo=declperiodica`, antes do
+`list` genérico). Os helpers do lado da app estão em
+[`apuramento-iva-functions.php`](apuramento-iva-functions.php):
+`buildVatPeriodRange()`, `fetchErpVatAccountBalances()`,
+`fetchErpVatDeclarationValues()`, `computeVatFieldDeviation()`
+(= `IvaDeclMargemErro` legacy), `evaluateVatFieldRows()` (regras por campo)
+e `computeVatSettlementExpected()` (fase 8: campo 94 senão 93).
+
+Por implementar: relatório "Mapa de IVA" (secção abaixo). O envio por
+email está implementado — ver "Envio por email".
 
 - Página: [`contabilidade/tarefas-apuramento-iva.php`](tarefas-apuramento-iva.php),
   rota `contabilidade/tarefas/apuramento-iva`, seguindo o padrão de
@@ -62,9 +77,8 @@ endpoint estiver disponível.
   direito do cabeçalho `x_title` da página, abrindo um modal — visível
   **apenas para admin/superadmin** (`role <= 2`), conforme convenção
   registada em [AGENTS.md](../AGENTS.md) (secção "Tarefas"). Colaboradores
-  com permissão `ctb_apuramento_iva` não veem este botão. Por agora o modal
-  é só informativo (o mapeamento de campos da DP IVA ainda não existe,
-  porque depende do endpoint ERP-SINC em falta).
+  com permissão `ctb_apuramento_iva` não veem este botão. O modal gere o
+  mapeamento campo → fórmula (ver "Mapeamento de campos da DP IVA").
 
 ## Conceito
 
@@ -130,46 +144,42 @@ Renumerar um campo para um número já existente é bloqueado com erro.
 - `evaluateAccountingVatFieldFormula(array $terms, array $accountBalances): float`
   — soma os termos contra um array de saldos por conta (`valor` /
   `fltCredito` / `fltDebito` por conta), replicando `cta()`/`ctaFormula()`
-  do legacy. **Ainda não está ligada a dados reais**: falta a fonte do
-  balancete (ver "Pontos a decidir").
+  do legacy. Os saldos vêm de `fetchErpVatAccountBalances()`.
 
-### Ecrã "Ver detalhes" (campo-a-campo) — implementado com valores a 0,00
+### Ecrã "Apurar período" (campo-a-campo) — implementado
 
 Abre como **modal popup** (`#iva-detail-modal` em `tarefas-apuramento-iva.php`,
-mimetizando o fancybox do legacy) a partir do botão "Ver detalhes" de cada
-empresa — sem navegar para outra página. O conteúdo é obtido via AJAX
-(`fetch` com `X-Requested-With: XMLHttpRequest`) de
-[`contabilidade/tarefas-apuramento-iva-detalhes.php`](tarefas-apuramento-iva-detalhes.php)
+mimetizando o fancybox do legacy) a partir do botão "Apurar período" de cada
+empresa, com o Ano/Mês-Trimestre selecionado no cabeçalho da página. O
+conteúdo é obtido via AJAX (`fetch` com `X-Requested-With: XMLHttpRequest`)
+de [`tarefas-apuramento-iva-detalhes.php`](tarefas-apuramento-iva-detalhes.php)
 (rota `contabilidade/tarefas/apuramento-iva/detalhes?entity_id=<id>`), que
-devolve só o fragmento HTML quando pedido via AJAX (deteta o cabeçalho) ou a
-página completa com cabeçalho/rodapé quando acedida diretamente pelo URL
-(fallback). Reproduz a estrutura do ecrã `window.php?act=wkfloproc` (task=6)
-do legacy:
+devolve só o fragmento HTML quando pedido via AJAX ou a página completa
+quando acedida diretamente pelo URL. Reproduz o ecrã
+`window.php?act=wkfloproc` (task=6) do legacy:
 
-- Seletor de período (Mês ou Trimestre, consoante `vat_periodicity` da
-  empresa): ao mudar, dispara um novo `fetch` que recarrega o fragmento
-  dentro do próprio modal (sem reload de página).
+- Seletor de período (Mês ou Trimestre, consoante `vat_periodicity`): ao
+  mudar, recarrega o fragmento dentro do modal.
+- A base ERP da empresa vem de `accounting_entities.erp_database`
+  (`resolveAccountingEntityDatabase()`); sem ela, a página avisa e "Ctr Ctb"
+  fica a 0,00.
 - Uma linha por campo configurado em `accounting_vat_field_formulas`, com:
-  - **C{n}-DP**: valor introduzido manualmente (não há fonte automática —
-    ver abaixo) e persistido em `accounting_vat_settlement_field_values`
-    (migração `20260824172454_create_accounting_vat_settlement_field_values.sql`),
-    chave única por empresa + período + campo.
-  - **Ctr Ctb**: calculado com `evaluateAccountingVatFieldFormula()` contra
-    um array de saldos por conta **vazio** (não existe fonte de balancete
-    ainda) — por isso fica sempre **0,00**. Assim que o endpoint ERP-SINC
-    existir, basta substituir esse array vazio pelos saldos reais.
-  - **Estado**: ✓ verde quando `|DP − Ctb| ≤ 0.01`, ⚠ vermelho caso
-    contrário, com tooltip "diferença: X" (mesmo texto/ideia do legacy).
-- Botão "Guardar valores DP" grava todos os campos do período de uma vez
-  (upsert por campo) via AJAX, mantendo o modal aberto e recarregando o
-  fragmento com feedback de sucesso/erro.
+  - **C{n}-DP**: valor da DP obtida do ERP (anexo `1`, cabeçalho "DP (ERP)",
+    inputs só de leitura). Se o ERP ainda não tiver DP para o período, o
+    cabeçalho passa a "DP (manual)", os inputs ficam editáveis e o botão
+    "Guardar valores DP" persiste-os em
+    `accounting_vat_settlement_field_values` (fallback).
+  - **Ctr Ctb**: fórmula avaliada contra o balancete real (linhas da mesma
+    conta somadas quando o período cobre vários meses). Se der 0, repete
+    usando o lado credor nos termos sem lado (fallback do legacy).
+  - **Estado**: ✓ verde (ok), ! laranja (aviso, não bloqueia) ou ⚠ vermelho
+    (erro, bloqueia o fecho), com tooltip "diferença: X".
+- Secção **Resultado do período**: mostra o valor apurado pela contabilidade
+  (campo 94 em crédito, senão 93 a pagar) e o formulário de fecho — ver
+  "Fase complementar" e "Fecho da tarefa". O fecho passou a fazer-se aqui
+  (a página principal deixou de ter o formulário inline).
 
-**Por implementar** (bloqueado pela falta do endpoint ERP-SINC — ver
-"Pontos a decidir"): substituir o array de saldos vazio por dados reais do
-balancete, e obter **C{n}-DP** automaticamente da Declaração Periódica
-oficial em vez de introdução manual (o campo manual fica como fallback).
-
-## Regras de validação por campo — por implementar
+## Regras de validação por campo — implementado (`evaluateVatFieldRows()`)
 
 - **Campo 2** validado contra Campo 1 × 6% (taxa reduzida).
 - **Campo 4** validado contra Campo 3 × 23% (taxa normal).
@@ -192,8 +202,15 @@ oficial em vez de introdução manual (o campo manual fica como fallback).
   menos soma dos campos de IVA dedutível —
   `(C2+C6+C4+C13+C17+C41+C66) - (C20+C21+C22+C23+C24+C40+C61)`. Se negativo,
   fixar a 0.00 (não há "a pagar" — a situação é de crédito).
-- Se **qualquer** campo ficar em erro, os botões de fecho da tarefa e de
-  envio ficam desativados até o desvio ser corrigido/aceite.
+- Se **qualquer** campo ficar em erro (vermelho), o botão de fecho fica
+  desativado até o desvio ser corrigido no ERP. Avisos (laranja, campos com
+  taxa) não bloqueiam, como no legacy. **Diferença face ao legacy**: no
+  legacy o campo 7 com desvio > 1 ficava vermelho mas não bloqueava o fecho
+  (`$erro[]` só era preenchido quando não havia override); aqui qualquer
+  estado vermelho bloqueia.
+- Outra diferença deliberada: no `cta()` legacy, um termo `cre`/`deb`
+  alterava `$campo` para os termos seguintes sem sufixo (bug). Aqui o lado é
+  por termo.
 - Pré-condição desejável (existia no legacy mas estava desativada por
   bug/decisão): a fase anterior "Lançamento de documentos" do mesmo período
   deveria estar fechada antes de permitir apurar o IVA. Avaliar se deve ser
@@ -212,6 +229,11 @@ final do período:
 - Se `94` > 0 → período "em crédito": mostra campo "Valor a pagar" (0) e um
   campo adicional "Valor Reembolso" (pedido de reembolso, opcional,
   introduzido manualmente pelo utilizador).
+- **Implementado** em `computeVatSettlementExpected()` + formulário
+  `.iva-detail-close-form` no modal: o tipo de resultado e o valor vêm
+  pré-preenchidos; o JS (`bindIvaCloseForm()` na página principal) avisa
+  "O valor deveria ser X" quando o valor introduzido difere do apurado, ou
+  quando o reembolso pedido excede o crédito (aviso, não bloqueia).
 
 ## Fecho da tarefa
 
@@ -230,31 +252,40 @@ Ao fechar a etapa para um período:
   concluída (não há agendador/cron — é recalculado a cada carregamento a
   partir da BD). Uma restrição `UNIQUE (accounting_entity_id, period_label)`
   impede fechar o mesmo período duas vezes.
+- O fecho é feito no modal (POST `close_period` a
+  `tarefas-apuramento-iva-detalhes.php`, via AJAX). Ao fechar o modal depois
+  de um fecho bem sucedido, a página principal recarrega. Um período já
+  fechado mostra no modal quem/quando fechou e os valores, em vez do
+  formulário.
 - **Gap conhecido face ao legacy**: os períodos já fechados são listados por
   texto na página ("Períodos já fechados: ..."), mas continuam a aparecer
-  no seletor Ano/Mês-Trimestre (o legacy escondia-os do dropdown). Tentar
-  fechar um período repetido é bloqueado no submit com mensagem de erro, em
-  vez de o impedir visualmente à partida — melhoria a fazer no seletor.
+  no seletor Ano/Mês-Trimestre (o legacy escondia-os do dropdown).
 
-## Envio por email
+## Envio por email — implementado
 
-Ação opcional "Enviar", disponível a partir da tela de apuramento e da tela
-de a pagar/a recuperar:
+Duas ações independentes, ambas no modal "Apurar período"
+(`tarefas-apuramento-iva-detalhes.php`), usando `sendSystemEmail()`
+(`functions.php`, mesmo transporte SMTP/`mail()` configurado em
+Definições) e um campo de email de destino memorizado em `localStorage`
+por empresa (mesmo padrão do "Email de destino" da tarefa SAF-T):
 
-- Apuramento por campo: envia ao destinatário configurado (equivalente ao
-  `emailRespIVA` do legacy) uma tabela com Campo / DP / Ctb para todos os
-  campos apurados no período.
-- A pagar/a recuperar: envia notificação ao cliente com o valor a pagar (ou
-  em crédito) e, se aplicável, o valor de reembolso solicitado, com texto
-  base tipo "Tem um valor de IVA a pagar/em crédito de: X €" e, quando a
-  pagar, referência à guia de pagamento em anexo.
-- **Nota (bug legado a não replicar)**: no legacy o prazo de pagamento
-  aparecia sempre como "até dia 25", independentemente da periodicidade
-  (mensal/trimestral) — isto deve ser revisto com as regras reais em vigor
-  (os prazos legais de entrega/pagamento da DP de IVA diferem consoante o
-  regime), não copiado tal e qual.
-- Deve existir opção de "enviar e fechar" numa única ação (checkbox), como
-  no legacy, para reduzir passos.
+- **Relatório de campos** (`action=send_field_report`, sob o quadro
+  Campo/DP/Ctb): envia ao email indicado uma tabela HTML com Campo/DP/Ctb
+  de todos os campos do período (`buildVatFieldReportEmailBody()`),
+  equivalente ao `$htmlt` do legacy (`workflow_iva.php?act=message`).
+  Não fecha nem depende do fecho do período.
+- **Notificação ao cliente** (checkbox "Enviar notificação ao cliente" no
+  formulário de fecho): quando marcada, o fecho e o envio acontecem na
+  mesma submissão POST (`action=close_period`), como pedido — "enviar e
+  fechar" numa única ação. O corpo (`buildVatClientNotificationEmailBody()`)
+  segue o texto "Tem um valor de IVA a pagar de: X €" (a pagar) ou informa o
+  crédito e o reembolso pedido, se houver. Uma falha no envio **não**
+  desfaz o fecho — fica só registada na mensagem de feedback.
+- Ambas as ações registam em `logAuditAction('send_email', ...)`.
+- **Bug legado não replicado**: o "até dia 25" fixo do legacy não consta em
+  lado nenhum destes textos; não há ainda cálculo de prazos legais de
+  pagamento/entrega por regime (ver "Pontos a decidir" se vier a ser
+  necessário no futuro).
 
 ## Relatório "Mapa de IVA"
 
@@ -278,23 +309,16 @@ como `wkflow_cab`/`planos_contas`):
   para a permissão `ctb_apuramento_iva`; sem tabela nova de colaboradores.
 - `accounting_vat_field_formulas` — **criada**. Mapeamento campo da DP →
   fórmula de contas do balancete (equivalente a `planos_contas`), gerido no
-  modal de configurações da tarefa. A avaliação da fórmula contra dados
-  reais ainda não está implementada (ver "Pontos a decidir").
+  modal de configurações da tarefa, avaliado contra o balancete do ERP.
 - `accounting_vat_settlement_field_values` — **criada**. Valores manuais de
-  C{n}-DP por empresa/período/campo, usados no ecrã "Ver detalhes".
+  C{n}-DP por empresa/período/campo, usados como fallback no modal "Apurar
+  período" quando o ERP ainda não tem a DP do período.
 
-## Pontos a decidir antes de implementar (reconciliação automática)
+## Pontos a decidir
 
-- **Bloqueador principal**: não existe, nem na spec OpenAPI
-  (`api.erpsinc.pt/erpsync-api.yaml`) nem no código-fonte local do
-  ERP-SINC, nenhum endpoint equivalente a `declPeriodica`/`balancete` do
-  legacy (confirmado por investigação em 2026-08-24). É preciso decidir
-  entre: (a) pedir a criação desse endpoint à equipa ERP-SINC; ou (b)
-  derivar o "Ctr Ctb" a partir do endpoint `/contabilidade/movimentos` já
-  existente, aplicando as fórmulas por campo do lado da aplicação — mas
-  mesmo nesse caso continua a faltar uma fonte para o valor oficial da
-  Declaração Periódica (`C{n}-DP`), que no legacy também vinha do
-  webservice externo.
+- ~~Bloqueador principal: endpoint ERP-SINC de balancete/DP~~ — **resolvido
+  em 2026-09-22** com `GET /contabilidade/saldos` e
+  `GET /contabilidade/declperiodica` (ver "Integração na aplicação").
 - Prazos reais de pagamento/entrega da DP de IVA por regime (substituir o
   "até dia 25" fixo do legacy por regras corretas) — só relevante quando a
   funcionalidade de envio por email for implementada.

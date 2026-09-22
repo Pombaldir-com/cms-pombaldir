@@ -68,61 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'close_period') {
-        $entityId = (int) ($_POST['entity_id'] ?? 0);
-
-        if ($entityId <= 0 || !isset($entitiesById[$entityId])) {
-            $feedback = ['type' => 'danger', 'message' => 'Empresa inválida ou sem permissão.'];
-        } else {
-            $entityRow = $entitiesById[$entityId];
-            $periodType = ((string) $entityRow['vat_periodicity']) === 'trimestral' ? 'trimestral' : 'mensal';
-            $periodYear = (int) ($_POST['period_year'] ?? 0);
-            $periodRef = (int) ($_POST['period_ref'] ?? 0);
-            $resultType = ($_POST['result_type'] ?? '') === 'credito' ? 'credito' : 'pagar';
-            $valorPagar = (float) str_replace(',', '.', (string) ($_POST['valor_pagar'] ?? '0'));
-            $valorRecuperar = (float) str_replace(',', '.', (string) ($_POST['valor_recuperar'] ?? '0'));
-            $observacao = trim((string) ($_POST['observacao'] ?? ''));
-
-            $maxRef = $periodType === 'trimestral' ? 4 : 12;
-            if ($periodYear < 2000 || $periodYear > 2100 || $periodRef < 1 || $periodRef > $maxRef) {
-                $feedback = ['type' => 'danger', 'message' => 'Período inválido.'];
-            } else {
-                $periodLabel = buildVatPeriodLabel($periodType, $periodYear, $periodRef);
-                $stmt = $pdo->prepare(
-                    'SELECT id FROM accounting_vat_settlements WHERE accounting_entity_id = ? AND period_label = ? LIMIT 1'
-                );
-                $stmt->execute([$entityId, $periodLabel]);
-                if ($stmt->fetchColumn()) {
-                    $feedback = ['type' => 'danger', 'message' => 'Este período já se encontra fechado para esta empresa.'];
-                } else {
-                    $stmt = $pdo->prepare(
-                        'INSERT INTO accounting_vat_settlements
-                            (accounting_entity_id, period_type, period_year, period_ref, period_label, result_type, valor_pagar, valor_recuperar, observacao, closed_by)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                    );
-                    $stmt->execute([
-                        $entityId,
-                        $periodType,
-                        $periodYear,
-                        $periodRef,
-                        $periodLabel,
-                        $resultType,
-                        $resultType === 'pagar' ? $valorPagar : 0,
-                        $resultType === 'credito' ? $valorRecuperar : 0,
-                        $observacao !== '' ? $observacao : null,
-                        $userId,
-                    ]);
-                    logAuditAction('create', 'accounting_vat_settlement', (int) $pdo->lastInsertId(), [
-                        'accounting_entity_id' => $entityId,
-                        'period_label' => $periodLabel,
-                        'result_type' => $resultType,
-                    ]);
-                    $feedback = ['type' => 'success', 'message' => 'Período ' . $periodLabel . ' fechado com sucesso.'];
-                }
-            }
-        }
-    }
-
     if ($action === 'save_field_formula') {
         if (!$isAdmin) {
             if ($isAjaxRequest) {
@@ -365,16 +310,6 @@ require_once __DIR__ . '/../header.php';
                 <div class="clearfix"></div>
             </div>
             <div class="x_content">
-                <div class="alert alert-warning">
-                    <strong>Reconciliação automática indisponível.</strong>
-                    A comparação campo-a-campo entre a Declaração Periódica e a
-                    contabilidade (equivalente ao "Apuramento IVA" da intranet
-                    legacy) depende de um endpoint do webservice ERP-SINC que
-                    ainda não existe (equivalente a <code>declPeriodica</code> /
-                    <code>balancete</code>). Até esse endpoint estar disponível,
-                    o fecho do período é feito com introdução manual dos
-                    valores apurados.
-                </div>
 
                 <?php if ($entities): ?>
                 <?php foreach ($entities as $entityRow):
@@ -388,49 +323,13 @@ require_once __DIR__ . '/../header.php';
                             <?= htmlspecialchars((string) $entityRow['name']); ?>
                             <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?> &middot; periodicidade <?= $periodType; ?></small>
                         </span>
-                        <button type="button" class="btn btn-default btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
-                            <i class="fa fa-search"></i> Ver detalhes
-                        </button>
                     </h4>
-                    <form method="post" class="form-inline vat-close-form" data-period-type="<?= $periodType; ?>" style="display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;">
-                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
-                        <input type="hidden" name="action" value="close_period">
-                        <input type="hidden" name="entity_id" value="<?= $entityId; ?>">
-                        <input type="hidden" name="period_year" class="vat-close-period-year">
-                        <input type="hidden" name="period_ref" class="vat-close-period-ref">
-
-                        <div>
-                            <label class="control-label" style="display: block; visibility: hidden;">Período</label>
-                            <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
-                        </div>
-
-                        <div>
-                            <label class="control-label" style="display: block;">Resultado</label>
-                            <select name="result_type" class="form-control vat-result-type">
-                                <option value="pagar">A pagar</option>
-                                <option value="credito">Em crédito</option>
-                            </select>
-                        </div>
-
-                        <div class="vat-field-pagar">
-                            <label class="control-label" style="display: block;">Valor a pagar (€)</label>
-                            <input type="text" name="valor_pagar" class="form-control" style="width: 130px;" placeholder="0.00">
-                        </div>
-
-                        <div class="vat-field-recuperar" style="display: none;">
-                            <label class="control-label" style="display: block;">Valor a recuperar (€)</label>
-                            <input type="text" name="valor_recuperar" class="form-control" style="width: 130px;" placeholder="0.00">
-                        </div>
-
-                        <div style="flex: 1 1 220px;">
-                            <label class="control-label" style="display: block;">Observação</label>
-                            <input type="text" name="observacao" class="form-control" placeholder="Opcional">
-                        </div>
-
-                        <div>
-                            <button type="submit" class="btn btn-success">Fechar período</button>
-                        </div>
-                    </form>
+                    <div class="vat-entity-period" data-period-type="<?= $periodType; ?>" style="display: flex; align-items: center; gap: 12px;">
+                        <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
+                        <button type="button" class="btn btn-primary btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
+                            <i class="fa fa-calculator"></i> Apurar período
+                        </button>
+                    </div>
                     <?php if ($closedLabels): ?>
                     <p class="text-muted" style="margin: 10px 0 0;">
                         Períodos já fechados: <?= htmlspecialchars(implode(', ', $closedLabels)); ?>
@@ -668,19 +567,6 @@ require_once __DIR__ . '/../header.php';
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.vat-close-form').forEach(function (form) {
-        var resultSelect = form.querySelector('.vat-result-type');
-        var pagarField = form.querySelector('.vat-field-pagar');
-        var recuperarField = form.querySelector('.vat-field-recuperar');
-        function toggleFields() {
-            var isCredito = resultSelect.value === 'credito';
-            pagarField.style.display = isCredito ? 'none' : '';
-            recuperarField.style.display = isCredito ? '' : 'none';
-        }
-        resultSelect.addEventListener('change', toggleFields);
-        toggleFields();
-    });
-
     var entitySections = document.querySelectorAll('.vat-entity-section');
     var periodicityFilter = document.getElementById('iva-periodicity-filter');
     var yearSelect = document.getElementById('iva-global-year');
@@ -690,16 +576,19 @@ document.addEventListener('DOMContentLoaded', function () {
     var quarterField = document.querySelector('.iva-global-quarter-field');
     var monthNames = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
+    function selectedPeriodFor(periodType) {
+        var isTrimestral = periodType === 'trimestral';
+        var year = yearSelect ? yearSelect.value : '';
+        var ref = isTrimestral ? (quarterSelect ? quarterSelect.value : '') : (monthSelect ? monthSelect.value : '');
+        return { year: ref ? year : '', ref: ref, isTrimestral: isTrimestral };
+    }
+
     function applyGlobalPeriod() {
-        document.querySelectorAll('.vat-close-form').forEach(function (form) {
-            var isTrimestral = form.dataset.periodType === 'trimestral';
-            var year = yearSelect ? yearSelect.value : '';
-            var ref = isTrimestral ? (quarterSelect ? quarterSelect.value : '') : (monthSelect ? monthSelect.value : '');
-            form.querySelector('.vat-close-period-year').value = ref ? year : '';
-            form.querySelector('.vat-close-period-ref').value = ref;
-            var display = form.querySelector('.vat-close-period-display');
+        document.querySelectorAll('.vat-entity-period').forEach(function (block) {
+            var period = selectedPeriodFor(block.dataset.periodType);
+            var display = block.querySelector('.vat-close-period-display');
             if (display) {
-                display.textContent = !ref ? 'Selecionar período' : (isTrimestral ? (ref + 'º Trimestre ' + year) : (monthNames[parseInt(ref, 10)] + ' ' + year));
+                display.textContent = !period.ref ? 'Período atual' : (period.isTrimestral ? (period.ref + 'º Trimestre ' + period.year) : (monthNames[parseInt(period.ref, 10)] + ' ' + period.year));
             }
         });
     }
@@ -715,16 +604,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (yearSelect) { yearSelect.addEventListener('change', applyGlobalPeriod); }
     if (monthSelect) {
-        monthSelect.addEventListener('change', function () {
-            if (monthSelect.value && quarterSelect) { quarterSelect.value = ''; }
-            applyGlobalPeriod();
-        });
+        monthSelect.addEventListener('change', applyGlobalPeriod);
     }
     if (quarterSelect) {
-        quarterSelect.addEventListener('change', function () {
-            if (quarterSelect.value && monthSelect) { monthSelect.value = ''; }
-            applyGlobalPeriod();
-        });
+        quarterSelect.addEventListener('change', applyGlobalPeriod);
     }
     if (periodicityFilter) { periodicityFilter.addEventListener('change', function () { applyPeriodicityFilter(); applyGlobalPeriod(); }); }
 
@@ -741,7 +624,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (periodRef) { url += '&period_ref=' + encodeURIComponent(periodRef); }
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (response) { return response.text(); })
-            .then(function (html) { detailModalBody.innerHTML = html; })
+            .then(function (html) { detailModalBody.innerHTML = html; bindIvaCloseForm(); })
             .catch(function () {
                 detailModalBody.innerHTML = '<div class="alert alert-danger">Erro ao carregar os detalhes. Tente novamente.</div>';
             });
@@ -749,9 +632,81 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.querySelectorAll('.iva-detail-trigger').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            loadIvaDetail(btn.dataset.entityId);
+            var section = btn.closest('.vat-entity-section');
+            var period = selectedPeriodFor(section ? section.dataset.vatPeriodicity : 'mensal');
+            loadIvaDetail(btn.dataset.entityId, period.year, period.ref);
         });
     });
+
+    var ivaPeriodClosed = false;
+
+    function bindIvaEmailFields() {
+        var reportForm = detailModalBody.querySelector('.iva-detail-report-form');
+        if (reportForm) {
+            var reportInput = reportForm.querySelector('.iva-report-email');
+            var reportKey = 'ivaReportEmail:' + reportForm.dataset.entityId;
+            var lastReport = window.localStorage ? localStorage.getItem(reportKey) : null;
+            if (lastReport) { reportInput.value = lastReport; }
+            reportForm.addEventListener('submit', function () {
+                if (window.localStorage && reportInput.value.trim()) { localStorage.setItem(reportKey, reportInput.value.trim()); }
+            });
+        }
+
+        var closeForm = detailModalBody.querySelector('.iva-detail-close-form');
+        if (closeForm) {
+            var notifyCheckbox = closeForm.querySelector('.iva-close-notify-checkbox');
+            var notifyEmailInput = closeForm.querySelector('.iva-close-notify-email');
+            var notifyKey = 'ivaNotifyEmail:' + closeForm.dataset.entityId;
+            var lastNotify = window.localStorage ? localStorage.getItem(notifyKey) : null;
+            if (lastNotify) { notifyEmailInput.value = lastNotify; }
+            function toggleNotify() {
+                notifyEmailInput.style.display = notifyCheckbox.checked ? '' : 'none';
+            }
+            notifyCheckbox.addEventListener('change', toggleNotify);
+            toggleNotify();
+            closeForm.addEventListener('submit', function () {
+                if (window.localStorage && notifyEmailInput.value.trim()) { localStorage.setItem(notifyKey, notifyEmailInput.value.trim()); }
+            });
+        }
+    }
+
+    function bindIvaCloseForm() {
+        bindIvaEmailFields();
+        var form = detailModalBody.querySelector('.iva-detail-close-form');
+        if (!form) { return; }
+        var resultSelect = form.querySelector('.iva-close-result-type');
+        var pagarField = form.querySelector('.iva-close-field-pagar');
+        var recuperarField = form.querySelector('.iva-close-field-recuperar');
+        var pagarInput = form.querySelector('[name="valor_pagar"]');
+        var recuperarInput = form.querySelector('[name="valor_recuperar"]');
+        var hint = form.querySelector('.iva-close-hint');
+        var expectedValue = parseFloat(form.dataset.expectedValue || '0');
+        var expectedType = form.dataset.expectedType || 'pagar';
+
+        function parseAmount(value) {
+            var n = parseFloat(String(value || '0').replace(',', '.'));
+            return isNaN(n) ? 0 : n;
+        }
+        function refresh() {
+            var isCredito = resultSelect.value === 'credito';
+            pagarField.style.display = isCredito ? 'none' : '';
+            recuperarField.style.display = isCredito ? '' : 'none';
+            var message = '';
+            if (!isCredito && expectedType === 'pagar' && Math.abs(parseAmount(pagarInput.value) - expectedValue) > 0.01) {
+                message = 'O valor deveria ser ' + expectedValue.toFixed(2) + ' € (calculado pela contabilidade).';
+            } else if (isCredito && expectedType === 'credito' && parseAmount(recuperarInput.value) > expectedValue + 0.01) {
+                message = 'O reembolso pedido excede o crédito apurado (' + expectedValue.toFixed(2) + ' €).';
+            } else if (isCredito !== (expectedType === 'credito')) {
+                message = 'A contabilidade indica um período ' + (expectedType === 'credito' ? 'em crédito' : 'a pagar') + '.';
+            }
+            hint.textContent = message;
+            pagarInput.closest('div').classList.toggle('has-error', message !== '' && !isCredito);
+        }
+        resultSelect.addEventListener('change', refresh);
+        pagarInput.addEventListener('input', refresh);
+        recuperarInput.addEventListener('input', refresh);
+        refresh();
+    }
 
     if (detailModalBody) {
         detailModalBody.addEventListener('change', function (e) {
@@ -775,7 +730,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 body: formData
             })
                 .then(function (response) { return response.text(); })
-                .then(function (html) { detailModalBody.innerHTML = html; })
+                .then(function (html) {
+                    detailModalBody.innerHTML = html;
+                    if (detailModalBody.querySelector('[data-iva-period-closed]')) { ivaPeriodClosed = true; }
+                    bindIvaCloseForm();
+                })
                 .catch(function () {
                     detailModalBody.innerHTML = '<div class="alert alert-danger">Erro ao guardar. Tente novamente.</div>';
                 });
@@ -785,6 +744,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (detailModalEl) {
         detailModalEl.addEventListener('hidden.bs.modal', function () {
             detailModalBody.innerHTML = '<div class="text-center text-muted" style="padding: 30px 0;">A carregar...</div>';
+            if (ivaPeriodClosed) { window.location.reload(); }
         });
     }
 });
