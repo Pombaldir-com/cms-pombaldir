@@ -310,70 +310,107 @@ require_once __DIR__ . '/../header.php';
                 <div class="clearfix"></div>
             </div>
             <div class="x_content">
+                <style>
+                    .iva-entity-accordion { margin-top: 4px; }
+                    .iva-entity-panel { border: 1px solid #e6e9ed; border-radius: 3px; margin-bottom: 10px; }
+                    .iva-entity-header {
+                        display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+                        width: 100%; padding: 12px 16px; background: #f7f9fb; border-radius: 3px;
+                        transition: background-color .15s ease;
+                    }
+                    .iva-entity-header-closed { background: #eafaf6; }
+                    .iva-entity-name { font-weight: 600; color: #2a3f54; }
+                    .iva-entity-name small { font-weight: 400; }
+                    .iva-entity-closed { font-size: 12px; color: #73879c; }
+                    .iva-entity-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+                    .label-default-outline { background: #eef1f5 !important; color: #73879c !important; font-weight: 600; }
+                    .iva-history-panel { border: 1px solid #e6e9ed; border-radius: 3px; }
+                    .iva-history-header {
+                        display: flex; align-items: center; gap: 10px; width: 100%;
+                        padding: 12px 16px; background: #f7f9fb; border: none; text-align: left; border-radius: 3px;
+                        cursor: pointer;
+                    }
+                    .iva-history-header:hover { background: #eef1f5; }
+                    .iva-history-chevron { transition: transform .15s ease; color: #73879c; }
+                    .iva-history-header[aria-expanded="true"] .iva-history-chevron { transform: rotate(90deg); }
+                    .iva-history-count { margin-left: auto; font-size: 12px; color: #73879c; }
+                </style>
 
                 <?php if ($entities): ?>
+                <div class="iva-entity-accordion">
                 <?php foreach ($entities as $entityRow):
                     $entityId = (int) $entityRow['id'];
                     $periodType = ((string) $entityRow['vat_periodicity']) === 'trimestral' ? 'trimestral' : 'mensal';
                     $closedLabels = $closedPeriodsByEntity[$entityId] ?? [];
                 ?>
-                <div class="erp-form-section vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" style="margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e6e9ed;">
-                    <h4 style="margin-top: 0; display: flex; align-items: center; justify-content: space-between;">
-                        <span>
+                <div class="iva-entity-panel vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" data-closed-periods="<?= htmlspecialchars(implode(',', $closedLabels)); ?>">
+                    <div class="iva-entity-header">
+                        <span class="iva-entity-name">
                             <?= htmlspecialchars((string) $entityRow['name']); ?>
-                            <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?> &middot; periodicidade <?= $periodType; ?></small>
+                            <small class="text-muted">NIF <?= htmlspecialchars((string) $entityRow['nif']); ?></small>
                         </span>
-                    </h4>
-                    <div class="vat-entity-period" data-period-type="<?= $periodType; ?>" style="display: flex; align-items: center; gap: 12px;">
-                        <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
-                        <button type="button" class="btn btn-primary btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
-                            <i class="fa fa-calculator"></i> Apurar período
-                        </button>
+                        <span class="label label-default-outline"><?= $periodType === 'trimestral' ? 'Trimestral' : 'Mensal'; ?></span>
+                        <?php if ($closedLabels): ?>
+                        <span class="label label-success" title="Períodos já fechados: <?= htmlspecialchars(implode(', ', $closedLabels)); ?>">
+                            <i class="fa fa-check"></i> <?= count($closedLabels); ?> período<?= count($closedLabels) === 1 ? '' : 's'; ?> fechado<?= count($closedLabels) === 1 ? '' : 's'; ?>
+                        </span>
+                        <?php endif; ?>
+                        <div class="iva-entity-actions vat-entity-period" data-period-type="<?= $periodType; ?>">
+                            <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
+                            <span class="label label-success vat-close-period-closed-badge" style="display: none;"><i class="fa fa-check"></i> IVA apurado</span>
+                            <button type="button" class="btn btn-primary btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
+                                <i class="fa fa-calculator"></i> Apurar período
+                            </button>
+                        </div>
                     </div>
-                    <?php if ($closedLabels): ?>
-                    <p class="text-muted" style="margin: 10px 0 0;">
-                        Períodos já fechados: <?= htmlspecialchars(implode(', ', $closedLabels)); ?>
-                    </p>
-                    <?php endif; ?>
                 </div>
                 <?php endforeach; ?>
-                <?php endif; ?>
-
-                <h4>Histórico de fechos</h4>
-                <?php if (!$settlementsHistory): ?>
-                <p class="text-muted">Sem períodos fechados ainda.</p>
-                <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table table-striped jambo_table">
-                        <thead>
-                            <tr>
-                                <th>Empresa</th>
-                                <th>Período</th>
-                                <th>Resultado</th>
-                                <th>A pagar</th>
-                                <th>A recuperar</th>
-                                <th>Fechado por</th>
-                                <th>Data</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($settlementsHistory as $settlement):
-                                $settlementEntity = $entitiesById[(int) $settlement['accounting_entity_id']] ?? null;
-                            ?>
-                            <tr>
-                                <td><?= htmlspecialchars((string) ($settlementEntity['name'] ?? '—')); ?></td>
-                                <td><?= htmlspecialchars((string) $settlement['period_label']); ?></td>
-                                <td><?= $settlement['result_type'] === 'credito' ? 'Em crédito' : 'A pagar'; ?></td>
-                                <td><?= number_format((float) $settlement['valor_pagar'], 2, ',', '.'); ?> €</td>
-                                <td><?= number_format((float) $settlement['valor_recuperar'], 2, ',', '.'); ?> €</td>
-                                <td><?= htmlspecialchars((string) ($settlement['closed_by_name'] ?: $settlement['closed_by_username'] ?: '—')); ?></td>
-                                <td><?= htmlspecialchars((string) $settlement['created_at']); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
                 </div>
                 <?php endif; ?>
+
+                <div class="iva-history-panel">
+                    <button type="button" class="iva-history-header" data-bs-toggle="collapse" data-bs-target="#iva-history-collapse" aria-expanded="<?= $settlementsHistory ? 'true' : 'false'; ?>" aria-controls="iva-history-collapse">
+                        <i class="fa fa-chevron-right iva-history-chevron"></i>
+                        <span class="iva-entity-name">Histórico de fechos</span>
+                        <span class="iva-history-count"><?= count($settlementsHistory); ?> registo<?= count($settlementsHistory) === 1 ? '' : 's'; ?></span>
+                    </button>
+                    <div class="collapse<?= $settlementsHistory ? ' show' : ''; ?>" id="iva-history-collapse">
+                        <?php if (!$settlementsHistory): ?>
+                        <p class="text-muted" style="padding: 14px 16px; margin: 0;">Sem períodos fechados ainda.</p>
+                        <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-striped" style="margin-bottom: 0;">
+                                <thead>
+                                    <tr>
+                                        <th>Empresa</th>
+                                        <th>Período</th>
+                                        <th>Resultado</th>
+                                        <th>A pagar</th>
+                                        <th>A recuperar</th>
+                                        <th>Fechado por</th>
+                                        <th>Data</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($settlementsHistory as $settlement):
+                                        $settlementEntity = $entitiesById[(int) $settlement['accounting_entity_id']] ?? null;
+                                    ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars((string) ($settlementEntity['name'] ?? '—')); ?></td>
+                                        <td><?= htmlspecialchars((string) $settlement['period_label']); ?></td>
+                                        <td><?= $settlement['result_type'] === 'credito' ? 'Em crédito' : 'A pagar'; ?></td>
+                                        <td><?= number_format((float) $settlement['valor_pagar'], 2, ',', '.'); ?> €</td>
+                                        <td><?= number_format((float) $settlement['valor_recuperar'], 2, ',', '.'); ?> €</td>
+                                        <td><?= htmlspecialchars((string) ($settlement['closed_by_name'] ?: $settlement['closed_by_username'] ?: '—')); ?></td>
+                                        <td><?= htmlspecialchars((string) $settlement['created_at']); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -583,6 +620,11 @@ document.addEventListener('DOMContentLoaded', function () {
         return { year: ref ? year : '', ref: ref, isTrimestral: isTrimestral };
     }
 
+    function buildPeriodLabel(period) {
+        if (!period.ref) { return ''; }
+        return period.isTrimestral ? (period.year + '-T' + period.ref) : (period.year + '-' + ('0' + period.ref).slice(-2));
+    }
+
     function applyGlobalPeriod() {
         document.querySelectorAll('.vat-entity-period').forEach(function (block) {
             var period = selectedPeriodFor(block.dataset.periodType);
@@ -590,6 +632,17 @@ document.addEventListener('DOMContentLoaded', function () {
             if (display) {
                 display.textContent = !period.ref ? 'Período atual' : (period.isTrimestral ? (period.ref + 'º Trimestre ' + period.year) : (monthNames[parseInt(period.ref, 10)] + ' ' + period.year));
             }
+
+            var section = block.closest('.vat-entity-section');
+            var header = section ? section.querySelector('.iva-entity-header') : null;
+            var closedBadge = block.querySelector('.vat-close-period-closed-badge');
+            var closedPeriods = section ? (section.dataset.closedPeriods || '').split(',') : [];
+            var periodLabel = buildPeriodLabel(period);
+            var isClosed = periodLabel !== '' && closedPeriods.indexOf(periodLabel) !== -1;
+
+            if (header) { header.classList.toggle('iva-entity-header-closed', isClosed); }
+            if (closedBadge) { closedBadge.style.display = isClosed ? '' : 'none'; }
+            if (display) { display.style.display = isClosed ? 'none' : ''; }
         });
     }
 
@@ -658,7 +711,7 @@ document.addEventListener('DOMContentLoaded', function () {
             var notifyEmailInput = closeForm.querySelector('.iva-close-notify-email');
             var notifyKey = 'ivaNotifyEmail:' + closeForm.dataset.entityId;
             var lastNotify = window.localStorage ? localStorage.getItem(notifyKey) : null;
-            if (lastNotify) { notifyEmailInput.value = lastNotify; }
+            if (lastNotify && !notifyEmailInput.value.trim()) { notifyEmailInput.value = lastNotify; }
             function toggleNotify() {
                 notifyEmailInput.style.display = notifyCheckbox.checked ? '' : 'none';
             }

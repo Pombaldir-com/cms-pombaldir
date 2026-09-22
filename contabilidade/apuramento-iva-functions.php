@@ -407,11 +407,25 @@ function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array 
  * periodo, equivalente ao email da fase 8 ("IVA a pagar/a recuperar") do
  * legacy, com formatacao propria e assinatura da empresa de contabilidade
  * (ver buildVatEmailTemplate()).
+ *
+ * $expected e o resultado de computeVatSettlementExpected() (valor apurado
+ * pela contabilidade a partir do balancete, campo 93/94) — mostrado como
+ * referencia por baixo do valor fechado, que pode ter sido ajustado
+ * manualmente no formulario de fecho. Passar [] quando nao disponivel.
  */
-function buildVatClientNotificationEmailBody(array $entity, string $periodLabel, string $resultType, float $valorPagar, float $valorRecuperar): string {
+function buildVatClientNotificationEmailBody(array $entity, string $periodLabel, string $resultType, float $valorPagar, float $valorRecuperar, array $expected = []): string {
     $name = htmlspecialchars((string) $entity['name']);
     $nif = htmlspecialchars((string) $entity['nif']);
     $period = htmlspecialchars($periodLabel);
+
+    $expectedNote = '';
+    if (!empty($expected['available'])) {
+        $expectedNote = '<p style="margin:8px 0 0; font-size:12px; color:#97a3b3;">'
+            . 'Valor apurado pela contabilidade (campo ' . (int) $expected['field'] . '): '
+            . number_format((float) $expected['value'], 2, ',', '.') . ' € '
+            . ((string) $expected['type'] === 'credito' ? 'em crédito (a recuperar)' : 'a pagar')
+            . '.</p>';
+    }
 
     if ($resultType === 'credito') {
         $body = '<p style="margin:0 0 14px;">Exmo(a). Sr(a)., informamos que o apuramento de IVA de <strong>' . $name . '</strong> '
@@ -420,14 +434,16 @@ function buildVatClientNotificationEmailBody(array $entity, string $periodLabel,
             $body .= '<div style="background:#eef9f6; border:1px solid #cdeee5; border-radius:6px; padding:14px 18px; margin:0 0 6px;">'
                 . '<span style="font-size:12px; color:#73879c; text-transform:uppercase; letter-spacing:.03em;">Reembolso solicitado</span><br>'
                 . '<span style="font-size:20px; font-weight:700; color:#26b99a;">' . number_format($valorRecuperar, 2, ',', '.') . ' €</span>'
-                . '</div>';
+                . '</div>'
+                . $expectedNote;
         }
     } else {
         $body = '<p style="margin:0 0 14px;">Exmo(a). Sr(a)., referente ao período <strong>' . $period . '</strong> '
             . '(' . $name . ', NIF ' . $nif . '), tem um valor de IVA a pagar de:</p>'
             . '<div style="background:#fdf3e6; border:1px solid #f8e2bd; border-radius:6px; padding:14px 18px; margin:0 0 6px;">'
             . '<span style="font-size:20px; font-weight:700; color:#a9720f;">' . number_format($valorPagar, 2, ',', '.') . ' €</span>'
-            . '</div>';
+            . '</div>'
+            . $expectedNote;
     }
 
     return buildVatEmailTemplate('IVA a pagar / a recuperar', 'Período ' . $periodLabel, $body);

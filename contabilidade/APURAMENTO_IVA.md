@@ -286,6 +286,14 @@ por empresa (mesmo padrão do "Email de destino" da tarefa SAF-T):
   lado nenhum destes textos; não há ainda cálculo de prazos legais de
   pagamento/entrega por regime (ver "Pontos a decidir" se vier a ser
   necessário no futuro).
+- **Formatação e assinatura**: os dois corpos de email são gerados por
+  `buildVatEmailTemplate()` (`apuramento-iva-functions.php`) — cabeçalho de
+  marca, tabela/destaque estilizados inline (seguro para clientes de email,
+  sem CSS externo) e assinatura no final. A assinatura reutiliza as
+  Definições existentes (sem campo novo dedicado): `app_name`/`app_logo`
+  para o cabeçalho, `system_email_from_name`/`system_email_from_email` para
+  o nome/contacto assinado — os mesmos usados como remetente em
+  `sendSystemEmail()`.
 
 ## Relatório "Mapa de IVA"
 

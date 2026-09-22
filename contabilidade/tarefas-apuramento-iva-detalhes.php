@@ -116,6 +116,29 @@ if (hasTable('accounting_vat_settlement_field_values')) {
 
 $periodRange = buildVatPeriodRange($periodType, $periodYear, $periodRef);
 $erpDatabase = resolveAccountingEntityDatabase($entity);
+
+$clientNotifyEmail = '';
+$entityNif = trim((string) ($entity['nif'] ?? ''));
+$erpClientLookupDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+if ($erpClientLookupDatabase === '') {
+    $erpClientLookupDatabase = $erpDatabase;
+}
+if ($entityNif !== '' && $erpClientLookupDatabase !== '') {
+    $erpClientRemote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $erpClientLookupDatabase);
+    if (is_array($erpClientRemote) && empty($erpClientRemote['error'])) {
+        $erpClientPayload = is_array($erpClientRemote['payload'] ?? null) ? $erpClientRemote['payload'] : [];
+        $erpClientRow = [];
+        if (isset($erpClientPayload['aaData']) && is_array($erpClientPayload['aaData']) && !empty($erpClientPayload['aaData'][0]) && is_array($erpClientPayload['aaData'][0])) {
+            $erpClientRow = $erpClientPayload['aaData'][0];
+        } elseif (isset($erpClientPayload['data']) && is_array($erpClientPayload['data']) && !empty($erpClientPayload['data'][0]) && is_array($erpClientPayload['data'][0])) {
+            $erpClientRow = $erpClientPayload['data'][0];
+        }
+        if ($erpClientRow) {
+            $clientNotifyEmail = trim((string) ($erpClientRow['strEmail'] ?? ''));
+        }
+    }
+}
+
 $erpWarnings = [];
 $accountBalances = [];
 $balancesLoaded = false;
@@ -197,10 +220,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $valorRecuperar = (float) str_replace(',', '.', (string) ($_POST['valor_recuperar'] ?? '0'));
             $observacao = trim((string) ($_POST['observacao'] ?? ''));
             $notifyClient = !empty($_POST['notify_client']);
-            $notifyEmail = trim((string) ($_POST['notify_email'] ?? ''));
+            $notifyEmailsRaw = array_filter(array_map('trim', preg_split('/[;,]+/', (string) ($_POST['notify_email'] ?? ''))), static fn ($v) => $v !== '');
+            $notifyEmails = [];
+            $invalidNotifyEmail = null;
+            foreach ($notifyEmailsRaw as $candidate) {
+                if (!filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+                    $invalidNotifyEmail = $candidate;
+                    break;
+                }
+                $notifyEmails[] = $candidate;
+            }
 
-            if ($notifyClient && ($notifyEmail === '' || !filter_var($notifyEmail, FILTER_VALIDATE_EMAIL))) {
-                $feedback = ['type' => 'danger', 'message' => 'Indique um email de destino válido para notificar o cliente, ou desmarque essa opção.'];
+            if ($notifyClient && ($notifyEmails === [] || $invalidNotifyEmail !== null)) {
+                $message = $invalidNotifyEmail !== null
+                    ? 'Endereço de email inválido: ' . $invalidNotifyEmail . '.'
+                    : 'Indique um email de destino válido para notificar o cliente, ou desmarque essa opção.';
+                $feedback = ['type' => 'danger', 'message' => $message];
             } else {
                 $stmt = $pdo->prepare('SELECT id FROM accounting_vat_settlements WHERE accounting_entity_id = ? AND period_label = ? LIMIT 1');
                 $stmt->execute([$entityId, $periodLabel]);
@@ -233,21 +268,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $periodJustClosed = true;
 
                     if ($notifyClient) {
-                        try {
-                            sendSystemEmail(
-                                $notifyEmail,
-                                'IVA ' . $periodLabel . ' — ' . $entity['name'],
-                                buildVatClientNotificationEmailBody($entity, $periodLabel, $resultType, $valorPagar, $valorRecuperar),
-                                true
-                            );
+                        $notifyBody = buildVatClientNotificationEmailBody($entity, $periodLabel, $resultType, $valorPagar, $valorRecuperar, $expected);
+                        $notifySubject = 'IVA ' . $periodLabel . ' — ' . $entity['name'];
+                        $sentEmails = [];
+                        $failedEmails = [];
+                        foreach ($notifyEmails as $notifyEmail) {
+                            try {
+                                sendSystemEmail($notifyEmail, $notifySubject, $notifyBody, true);
+                                $sentEmails[] = $notifyEmail;
+                            } catch (Throwable $e) {
+                                $failedEmails[] = $notifyEmail . ' (' . $e->getMessage() . ')';
+                            }
+                        }
+                        if ($sentEmails) {
                             logAuditAction('send_email', 'accounting_entity', $entityId, [
                                 'context' => 'apuramento_iva_client_notification',
                                 'period_label' => $periodLabel,
-                                'dest_email' => $notifyEmail,
+                                'dest_email' => implode(', ', $sentEmails),
                             ]);
-                            $feedback['message'] .= ' Notificação enviada para ' . $notifyEmail . '.';
-                        } catch (Throwable $e) {
-                            $feedback['message'] .= ' (Falha ao enviar a notificação: ' . $e->getMessage() . ')';
+                            $feedback['message'] .= ' Notificação enviada para ' . implode(', ', $sentEmails) . '.';
+                        }
+                        if ($failedEmails) {
+                            $feedback['message'] .= ' (Falha ao enviar a notificação para: ' . implode(', ', $failedEmails) . ')';
                         }
                     }
                 }
@@ -315,8 +357,19 @@ ob_start();
     .iva-detail-summary .form-inline { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
     .iva-detail-summary .form-inline label { display: block; }
     .iva-detail-summary .form-control { height: 32px; font-size: 13px; }
-    .iva-detail-expected { font-size: 13px; color: #73879c; margin-bottom: 10px; }
-    .iva-detail-expected strong { color: #2a3f54; font-size: 15px; }
+    .iva-detail-expected { font-size: 13px; color: #73879c; margin-bottom: 14px; }
+    .iva-detail-expected-box {
+        display: flex; align-items: baseline; gap: 8px; border-radius: 6px; padding: 14px 18px; margin-bottom: 14px;
+    }
+    .iva-detail-expected-box.pagar { background: #fdf3e6; border: 1px solid #f8e2bd; }
+    .iva-detail-expected-box.credito { background: #eef9f6; border: 1px solid #cdeee5; }
+    .iva-detail-expected-box-label {
+        font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #73879c; display: block; margin-bottom: 2px;
+    }
+    .iva-detail-expected-box-value { font-size: 22px; font-weight: 700; }
+    .iva-detail-expected-box.pagar .iva-detail-expected-box-value { color: #a9720f; }
+    .iva-detail-expected-box.credito .iva-detail-expected-box-value { color: #26b99a; }
+    .iva-detail-expected-box-note { font-size: 12px; color: #97a3b3; }
     .iva-detail-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 </style>
 
@@ -453,17 +506,23 @@ ob_start();
         <?php endif; ?>
     </p>
     <?php else: ?>
+    <?php if (!$expected['available']): ?>
     <div class="iva-detail-expected">
-        <?php if (!$expected['available']): ?>
-            Configure as fórmulas dos campos <strong>93</strong> (a pagar) e <strong>94</strong> (a recuperar) para o cálculo automático do resultado.
-        <?php elseif (!$balancesLoaded): ?>
-            Sem balancete do ERP não é possível calcular o valor apurado.
-        <?php else: ?>
-            Valor apurado pela contabilidade (campo <?= $expected['field']; ?>):
-            <strong><?= number_format($expected['value'], 2, ',', '.'); ?> €</strong>
-            <?= $expected['type'] === 'credito' ? 'em crédito (a recuperar)' : 'a pagar'; ?>
-        <?php endif; ?>
+        Configure as fórmulas dos campos <strong>93</strong> (a pagar) e <strong>94</strong> (a recuperar) para o cálculo automático do resultado.
     </div>
+    <?php elseif (!$balancesLoaded): ?>
+    <div class="iva-detail-expected">
+        Sem balancete do ERP não é possível calcular o valor apurado.
+    </div>
+    <?php else: ?>
+    <div class="iva-detail-expected-box <?= $expected['type']; ?>">
+        <div>
+            <span class="iva-detail-expected-box-label">Valor apurado pela contabilidade (campo <?= $expected['field']; ?>)</span>
+            <span class="iva-detail-expected-box-value"><?= number_format($expected['value'], 2, ',', '.'); ?> €</span>
+        </div>
+        <span class="iva-detail-expected-box-note"><?= $expected['type'] === 'credito' ? 'em crédito (a recuperar)' : 'a pagar'; ?></span>
+    </div>
+    <?php endif; ?>
     <form method="post" class="iva-detail-form iva-detail-close-form form-inline" data-entity-id="<?= $entityId; ?>" data-expected-value="<?= number_format($expected['value'], 2, '.', ''); ?>" data-expected-type="<?= $expected['type']; ?>">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
         <input type="hidden" name="action" value="close_period">
@@ -493,7 +552,7 @@ ob_start();
             <label style="font-weight: 400; display: flex; align-items: center; gap: 6px; margin: 0;">
                 <input type="checkbox" name="notify_client" value="1" class="iva-close-notify-checkbox"> Enviar notificação ao cliente
             </label>
-            <input type="email" name="notify_email" class="form-control iva-close-notify-email" style="width: 220px; display: none;" placeholder="email@exemplo.pt">
+            <input type="text" name="notify_email" class="form-control iva-close-notify-email" style="width: 280px; display: none;" placeholder="email@exemplo.pt; email2@exemplo.pt" title="Vários endereços separados por ; ou ," value="<?= htmlspecialchars($clientNotifyEmail); ?>">
         </div>
         <div>
             <button type="submit" class="btn btn-success" <?= $hasError ? 'disabled title="Existem campos com erro"' : ''; ?>>
