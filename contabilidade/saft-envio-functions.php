@@ -224,12 +224,13 @@ function saftExtractInvoiceData(string $xmlContent): array {
     foreach ($salesInvoices->Invoice as $invoice) {
         $invoiceNo = (string) ($invoice->InvoiceNo ?? '');
         $customerId = saftXmlValue($invoice->CustomerID ?? null);
+        $invoiceType = saftXmlValue($invoice->InvoiceType ?? null);
         $invoiceStatus = saftXmlValue($invoice->DocumentStatus->InvoiceStatus ?? null);
 
         $result['invoices'][] = [
             'invoice_no' => $invoiceNo,
             'atcud' => saftXmlValue($invoice->ATCUD ?? null),
-            'invoice_type' => saftXmlValue($invoice->InvoiceType ?? null),
+            'invoice_type' => $invoiceType,
             'invoice_status' => $invoiceStatus,
             'invoice_date' => saftXmlValue($invoice->InvoiceDate ?? null),
             'system_entry_date' => saftXmlValue($invoice->SystemEntryDate ?? null),
@@ -241,18 +242,42 @@ function saftExtractInvoiceData(string $xmlContent): array {
         ];
 
         $country = $customerId !== null ? ($customerCountries[$customerId] ?? '') : '';
-        if ($customerId !== null && $country !== '' && $country !== 'PT' && $country !== 'Desconhecido' && $invoiceStatus === 'N') {
+        // So paises da UE entram na Declaracao Recapitulativa (vendas para
+        // paises terceiros nao sao intracomunitarias e nao vao para este
+        // mapa, mesmo sendo "estrangeiras").
+        if ($customerId !== null && $country !== '' && $invoiceStatus === 'N' && saftIsEuCountry($country)) {
+            // NC (nota de credito) reduz o valor declarado; os restantes
+            // tipos (FT, FR, FS, ND, ...) somam normalmente.
+            $amount = (float) ($invoice->DocumentTotals->NetTotal ?? 0);
+            if ($invoiceType === 'NC') {
+                $amount = -$amount;
+            }
             $result['foreign_sales'][$customerId]['country'] = $country;
             $result['foreign_sales'][$customerId]['tax_id'] = $customerTaxIds[$customerId] ?? '';
             $result['foreign_sales'][$customerId]['invoices'][] = $invoiceNo;
             $result['foreign_sales'][$customerId]['value'] =
-                ($result['foreign_sales'][$customerId]['value'] ?? 0) + (float) ($invoice->DocumentTotals->NetTotal ?? 0);
+                ($result['foreign_sales'][$customerId]['value'] ?? 0) + $amount;
         }
     }
 
     ksort($result['foreign_sales']);
 
     return $result;
+}
+
+/**
+ * Estados-membros da UE (codigos ISO 3166-1 alfa-2), para restringir a
+ * Declaracao Recapitulativa de IVA a vendas intracomunitarias. Vendas para
+ * paises terceiros (ex.: Marrocos) nao entram nesta declaracao.
+ */
+function saftIsEuCountry(string $country): bool {
+    static $euCountries = [
+        'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR',
+        'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK',
+        'SI', 'ES', 'SE',
+    ];
+    $country = strtoupper(trim($country));
+    return $country !== 'PT' && in_array($country, $euCountries, true);
 }
 
 function saftXmlValue($node): ?string {

@@ -836,7 +836,7 @@ require_once __DIR__ . '/../header.php';
             <div class="modal-header saft-foreign-sales-header">
                 <div class="saft-foreign-sales-icon"><i class="fa fa-exclamation-triangle"></i></div>
                 <div class="saft-foreign-sales-heading">
-                    <h5 class="modal-title">Alerta! Vendas intracomunitárias e/ou para países terceiros</h5>
+                    <h5 class="modal-title">Alerta! Vendas intracomunitárias</h5>
                     <span class="saft-foreign-sales-subtitle">
                         <strong><?= htmlspecialchars((string) $foreignSalesEntity['name']); ?></strong>
                         <?php if (trim((string) $foreignSalesEntity['nif']) !== ''): ?> (NIF <?= htmlspecialchars((string) $foreignSalesEntity['nif']); ?>)<?php endif; ?>
