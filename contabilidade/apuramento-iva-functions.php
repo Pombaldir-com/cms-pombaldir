@@ -376,15 +376,38 @@ function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml
  *
  * @param array<int,array<string,mixed>> $fieldRows
  */
-function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array $fieldRows): string {
+function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array $fieldRows, array $expected = []): string {
     $rowsHtml = '';
     foreach ($fieldRows as $index => $row) {
-        $rowBg = $index % 2 === 1 ? ' background:#f7f9fb;' : '';
+        $status = (string) ($row['status'] ?? 'ok');
+        $rowBg = $status !== 'ok'
+            ? ($status === 'error' ? ' background:#fdecea;' : ' background:#fdf3e6;')
+            : ($index % 2 === 1 ? ' background:#f7f9fb;' : '');
+        $statusColor = $status === 'error' ? '#c0392b' : ($status === 'warning' ? '#a9720f' : '#26b99a');
+        $statusLabel = $status === 'error' ? 'Diferença' : ($status === 'warning' ? 'Aviso' : 'OK');
+        $statusNote = trim((string) ($row['note'] ?? ''));
+        $statusCell = '<span style="color:' . $statusColor . '; font-weight:600;">' . $statusLabel . '</span>'
+            . ($status !== 'ok' && $statusNote !== '' ? '<br><span style="font-size:11px; color:#97a3b3;">' . htmlspecialchars($statusNote) . '</span>' : '');
         $rowsHtml .= '<tr style="' . trim($rowBg) . '">'
             . '<td style="padding:7px 10px; border-bottom:1px solid #eef1f4; font-weight:600;">C' . (int) $row['field_number'] . '</td>'
             . '<td style="padding:7px 10px; border-bottom:1px solid #eef1f4; text-align:right;">' . number_format((float) $row['dp_value'], 2, ',', '.') . ' €</td>'
             . '<td style="padding:7px 10px; border-bottom:1px solid #eef1f4; text-align:right;">' . number_format((float) $row['ctb_value'], 2, ',', '.') . ' €</td>'
+            . '<td style="padding:7px 10px; border-bottom:1px solid #eef1f4; text-align:center;">' . $statusCell . '</td>'
             . '</tr>';
+    }
+
+    $summaryHtml = '';
+    if (!empty($expected['available'])) {
+        $isCredito = (string) $expected['type'] === 'credito';
+        $summaryBg = $isCredito ? '#eef9f6' : '#fdf3e6';
+        $summaryBorder = $isCredito ? '#cdeee5' : '#f8e2bd';
+        $summaryColor = $isCredito ? '#26b99a' : '#a9720f';
+        $summaryLabel = $isCredito ? 'em crédito (a recuperar)' : 'a pagar';
+        $summaryHtml = '<div style="background:' . $summaryBg . '; border:1px solid ' . $summaryBorder . '; border-radius:6px; padding:14px 18px; margin:16px 0 0;">'
+            . '<span style="font-size:11px; color:#73879c; text-transform:uppercase; letter-spacing:.03em;">Valor apurado pela contabilidade (campo ' . (int) $expected['field'] . ')</span><br>'
+            . '<span style="font-size:20px; font-weight:700; color:' . $summaryColor . ';">' . number_format((float) $expected['value'], 2, ',', '.') . ' €</span>'
+            . ' <span style="font-size:12px; color:#97a3b3;">' . $summaryLabel . '</span>'
+            . '</div>';
     }
 
     $body = '<p style="margin:0 0 16px;">Segue os valores da Declaração Periódica de IVA apurados para o cliente '
@@ -395,9 +418,11 @@ function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array 
         . '<th style="text-align:left; padding:8px 10px; color:#73879c; font-size:11px; text-transform:uppercase; letter-spacing:.03em;">Campo</th>'
         . '<th style="text-align:right; padding:8px 10px; color:#73879c; font-size:11px; text-transform:uppercase; letter-spacing:.03em;">DP</th>'
         . '<th style="text-align:right; padding:8px 10px; color:#73879c; font-size:11px; text-transform:uppercase; letter-spacing:.03em;">Ctb</th>'
+        . '<th style="text-align:center; padding:8px 10px; color:#73879c; font-size:11px; text-transform:uppercase; letter-spacing:.03em;">Estado</th>'
         . '</tr></thead>'
         . '<tbody>' . $rowsHtml . '</tbody>'
-        . '</table>';
+        . '</table>'
+        . $summaryHtml;
 
     return buildVatEmailTemplate('Apuramento de IVA', 'Período ' . $periodLabel, $body);
 }

@@ -196,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 sendSystemEmail(
                     $reportEmail,
                     'Apuramento de IVA ' . $entity['name'] . ' — ' . $periodLabel,
-                    buildVatFieldReportEmailBody($entity, $periodLabel, $fieldRows),
+                    buildVatFieldReportEmailBody($entity, $periodLabel, $fieldRows, $expected),
                     true
                 );
                 logAuditAction('send_email', 'accounting_entity', $entityId, [
