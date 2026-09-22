@@ -765,7 +765,7 @@ function appAbsoluteBaseUrl(): string {
  * by the e-fatura module but kept self-contained here so pages outside
  * contabilidade/ (e.g. login/password recovery) don't need to load it.
  */
-function sendSystemEmail(string $toEmail, string $subject, string $body, bool $isHtml = false): void {
+function sendSystemEmail(string $toEmail, string $subject, string $body, bool $isHtml = false, string $replyTo = ''): void {
     $smtpHost = trim((string) getSetting('smtp_host', ''));
     $fromEmail = trim((string) getSetting('system_email_from_email', ''));
     if ($fromEmail === '' || strpos($fromEmail, '@') === false) {
@@ -779,9 +779,13 @@ function sendSystemEmail(string $toEmail, string $subject, string $body, bool $i
     if ($fromName === '') {
         $fromName = trim((string) getSetting('app_name', 'CMS'));
     }
+    $replyTo = trim($replyTo);
+    if ($replyTo !== '' && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+        $replyTo = '';
+    }
 
     if ($smtpHost !== '') {
-        sendSystemEmailViaSmtp($smtpHost, $toEmail, $subject, $body, $fromEmail, $fromName, $isHtml);
+        sendSystemEmailViaSmtp($smtpHost, $toEmail, $subject, $body, $fromEmail, $fromName, $isHtml, $replyTo);
         return;
     }
 
@@ -791,6 +795,9 @@ function sendSystemEmail(string $toEmail, string $subject, string $body, bool $i
     $contentType = $isHtml ? 'text/html' : 'text/plain';
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: {$contentType}; charset=UTF-8\r\nContent-Transfer-Encoding: base64";
+    if ($replyTo !== '') {
+        $headers .= "\r\nReply-To: {$replyTo}";
+    }
     $encodedBody = chunk_split(base64_encode($body));
     if (!@mail($toEmail, $encodedSubject, $encodedBody, $headers, '-f ' . $fromEmail)) {
         throw new RuntimeException('Falha ao enviar email pelo transporte local.');
@@ -942,7 +949,7 @@ function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $enc
     fclose($socket);
 }
 
-function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName, bool $isHtml = false): void {
+function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, string $body, string $fromEmail, string $fromName, bool $isHtml = false, string $replyTo = ''): void {
     $port = (int) getSetting('smtp_port', '0');
     $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
     $username = trim((string) getSetting('smtp_user', ''));
@@ -1010,7 +1017,7 @@ function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, 
 
     $contentType = $isHtml ? 'text/html' : 'text/plain';
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
-    $headers = implode("\r\n", [
+    $headerLines = [
         'To: ' . $toEmail,
         'From: ' . $fromName . ' <' . $fromEmail . '>',
         'Subject: ' . $encodedSubject,
@@ -1020,7 +1027,11 @@ function sendSystemEmailViaSmtp(string $host, string $toEmail, string $subject, 
         'Content-Type: ' . $contentType . '; charset=UTF-8',
         'Content-Transfer-Encoding: base64',
         'X-Mailer: AICRM',
-    ]);
+    ];
+    if ($replyTo !== '') {
+        $headerLines[] = 'Reply-To: ' . $replyTo;
+    }
+    $headers = implode("\r\n", $headerLines);
     $encodedBody = chunk_split(base64_encode($body));
     $rawMessage = $headers . "\r\n\r\n" . $encodedBody;
     $rawMessage = preg_replace("/(?m)^\\./", '..', $rawMessage) ?? $rawMessage;

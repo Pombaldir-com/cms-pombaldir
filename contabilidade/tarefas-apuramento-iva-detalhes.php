@@ -21,6 +21,11 @@ requireLogin();
 $user = currentUser();
 $isAdmin = ((int) ($user['role'] ?? 3)) <= 2;
 $userId = (int) ($user['id'] ?? 0);
+$signerInfo = [
+    'name' => trim((string) ($user['name'] ?? '')),
+    'email' => trim((string) ($user['email'] ?? '')),
+];
+$signerReplyTo = filter_var($signerInfo['email'], FILTER_VALIDATE_EMAIL) ? $signerInfo['email'] : '';
 
 if (!$isAdmin && !userHasAccountingEntityTaskPermission('ctb_apuramento_iva')) {
     http_response_code(403);
@@ -196,8 +201,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 sendSystemEmail(
                     $reportEmail,
                     'Apuramento de IVA ' . $entity['name'] . ' — ' . $periodLabel,
-                    buildVatFieldReportEmailBody($entity, $periodLabel, $fieldRows, $expected),
-                    true
+                    buildVatFieldReportEmailBody($entity, $periodLabel, $fieldRows, $expected, $signerInfo),
+                    true,
+                    $signerReplyTo
                 );
                 logAuditAction('send_email', 'accounting_entity', $entityId, [
                     'context' => 'apuramento_iva_field_report',
@@ -268,13 +274,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $periodJustClosed = true;
 
                     if ($notifyClient) {
-                        $notifyBody = buildVatClientNotificationEmailBody($entity, $periodLabel, $resultType, $valorPagar, $valorRecuperar, $expected);
+                        $notifyBody = buildVatClientNotificationEmailBody($entity, $periodLabel, $resultType, $valorPagar, $valorRecuperar, $expected, $signerInfo);
                         $notifySubject = 'IVA ' . $periodLabel . ' — ' . $entity['name'];
                         $sentEmails = [];
                         $failedEmails = [];
                         foreach ($notifyEmails as $notifyEmail) {
                             try {
-                                sendSystemEmail($notifyEmail, $notifySubject, $notifyBody, true);
+                                sendSystemEmail($notifyEmail, $notifySubject, $notifyBody, true, $signerReplyTo);
                                 $sentEmails[] = $notifyEmail;
                             } catch (Throwable $e) {
                                 $failedEmails[] = $notifyEmail . ' (' . $e->getMessage() . ')';

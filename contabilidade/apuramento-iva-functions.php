@@ -334,7 +334,7 @@ function computeVatSettlementExpected(array $fieldFormulas, array $balances): ar
  * contabilidade no final. Reutilizado por buildVatFieldReportEmailBody() e
  * buildVatClientNotificationEmailBody().
  */
-function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml): string {
+function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml, array $signer = []): string {
     $appName = trim((string) getSetting('app_name', '')) ?: 'Contabilidade';
     $logoPath = trim((string) getSetting('app_logo', ''));
     $logoUrl = '';
@@ -342,8 +342,14 @@ function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml
         $logoUrl = appAbsoluteBaseUrl() . ltrim($logoPath, '/');
     }
 
-    $signerName = trim((string) getSetting('system_email_from_name', '')) ?: $appName;
-    $signerEmail = trim((string) getSetting('system_email_from_email', ''));
+    $signerName = trim((string) ($signer['name'] ?? ''));
+    $signerEmail = trim((string) ($signer['email'] ?? ''));
+    if ($signerName === '') {
+        $signerName = trim((string) getSetting('system_email_from_name', '')) ?: $appName;
+    }
+    if ($signerEmail === '') {
+        $signerEmail = trim((string) getSetting('system_email_from_email', ''));
+    }
 
     $headerLogo = $logoUrl !== ''
         ? '<img src="' . htmlspecialchars($logoUrl) . '" alt="" height="28" style="display:block; vertical-align:middle;">'
@@ -376,7 +382,7 @@ function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml
  *
  * @param array<int,array<string,mixed>> $fieldRows
  */
-function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array $fieldRows, array $expected = []): string {
+function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array $fieldRows, array $expected = [], array $signer = []): string {
     $rowsHtml = '';
     foreach ($fieldRows as $index => $row) {
         $status = (string) ($row['status'] ?? 'ok');
@@ -424,7 +430,7 @@ function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array 
         . '</table>'
         . $summaryHtml;
 
-    return buildVatEmailTemplate('Apuramento de IVA', 'Período ' . $periodLabel, $body);
+    return buildVatEmailTemplate('Apuramento de IVA', 'Período ' . $periodLabel, $body, $signer);
 }
 
 /**
@@ -438,7 +444,7 @@ function buildVatFieldReportEmailBody(array $entity, string $periodLabel, array 
  * referencia por baixo do valor fechado, que pode ter sido ajustado
  * manualmente no formulario de fecho. Passar [] quando nao disponivel.
  */
-function buildVatClientNotificationEmailBody(array $entity, string $periodLabel, string $resultType, float $valorPagar, float $valorRecuperar, array $expected = []): string {
+function buildVatClientNotificationEmailBody(array $entity, string $periodLabel, string $resultType, float $valorPagar, float $valorRecuperar, array $expected = [], array $signer = []): string {
     $name = htmlspecialchars((string) $entity['name']);
     $nif = htmlspecialchars((string) $entity['nif']);
     $period = htmlspecialchars($periodLabel);
@@ -471,6 +477,6 @@ function buildVatClientNotificationEmailBody(array $entity, string $periodLabel,
             . $expectedNote;
     }
 
-    return buildVatEmailTemplate('IVA a pagar / a recuperar', 'Período ' . $periodLabel, $body);
+    return buildVatEmailTemplate('IVA a pagar / a recuperar', 'Período ' . $periodLabel, $body, $signer);
 }
 
