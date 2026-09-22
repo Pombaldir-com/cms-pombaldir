@@ -356,6 +356,9 @@ function buildVatEmailTemplate(string $title, string $subtitle, string $bodyHtml
         : '<span style="color:#ffffff; font-size:17px; font-weight:700; letter-spacing:.02em;">' . htmlspecialchars($appName) . '</span>';
 
     $signatureLines = '<strong style="color:#2a3f54;">' . htmlspecialchars($signerName) . '</strong>';
+    if ($appName !== '' && $appName !== $signerName) {
+        $signatureLines .= '<br><span style="color:#73879c;">' . htmlspecialchars($appName) . '</span>';
+    }
     if ($signerEmail !== '') {
         $signatureLines .= '<br><a href="mailto:' . htmlspecialchars($signerEmail) . '" style="color:#73879c; text-decoration:none;">' . htmlspecialchars($signerEmail) . '</a>';
     }
