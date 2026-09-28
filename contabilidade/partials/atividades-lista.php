@@ -99,7 +99,7 @@ $statTiles = [
                 <select id="actl-period" class="form-select form-select-sm">
                     <option value="">Qualquer data</option>
                     <option value="today">Hoje</option>
-                    <option value="7d">Últimos 7 dias</option>
+                    <option value="7d" selected>Últimos 7 dias</option>
                     <option value="month">Este mês</option>
                     <option value="prev_month">Mês anterior</option>
                     <option value="year">Este ano</option>
@@ -141,8 +141,8 @@ document.addEventListener('DOMContentLoaded', function () {
     'use strict';
     var endpoint = <?= json_encode(BASE_URL . 'contabilidade/atividades', JSON_UNESCAPED_SLASHES); ?>;
     var currentUserId = <?= (int) $userId; ?>;
-    // Por defeito filtra pelo utilizador atual (como no legado).
-    var storageKey = 'accounting_activities_list_filters_v2';
+    // Por defeito: utilizador atual (como no legado) e ultimos 7 dias.
+    var storageKey = 'accounting_activities_list_filters_v3';
     var $table = $('#activities-table');
     var filters = {
         responsible: document.getElementById('actl-responsible'),
@@ -351,7 +351,7 @@ document.addEventListener('DOMContentLoaded', function () {
         e.preventDefault();
         filters.responsible.value = String(currentUserId);
         filters.category.value = '';
-        filters.period.value = '';
+        filters.period.value = '7d';
         filters.dateFrom.value = '';
         filters.dateTo.value = '';
         filters.status.value = 'active';
