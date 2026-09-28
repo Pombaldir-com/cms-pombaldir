@@ -221,6 +221,10 @@ function saftExtractInvoiceData(string $xmlContent): array {
     $result['total_debit'] = saftXmlValue($salesInvoices->TotalDebit ?? null);
     $result['total_credit'] = saftXmlValue($salesInvoices->TotalCredit ?? null);
 
+    // Faturas de adiantamento vistas no proprio ficheiro, para reconhecer
+    // as notas de credito que as regularizam (via Line/References).
+    $advanceInvoiceNos = [];
+
     foreach ($salesInvoices->Invoice as $invoice) {
         $invoiceNo = (string) ($invoice->InvoiceNo ?? '');
         $customerId = saftXmlValue($invoice->CustomerID ?? null);
@@ -246,11 +250,25 @@ function saftExtractInvoiceData(string $xmlContent): array {
         // paises terceiros nao sao intracomunitarias e nao vao para este
         // mapa, mesmo sendo "estrangeiras").
         if ($customerId !== null && $country !== '' && $invoiceStatus === 'N' && saftIsEuCountry($country)) {
-            // NC (nota de credito) reduz o valor declarado; os restantes
-            // tipos (FT, FR, FS, ND, ...) somam normalmente.
-            $amount = (float) ($invoice->DocumentTotals->NetTotal ?? 0);
-            if ($invoiceType === 'NC') {
-                $amount = -$amount;
+            // Valor somado linha a linha: CreditAmount soma (FT, FR, ND, ...)
+            // e DebitAmount subtrai (NC). Linhas de adiantamento ficam de
+            // fora: o adiantamento nao e facto gerador da transmissao
+            // intracomunitaria, que e declarada pelo valor total na fatura
+            // final (tal como o mapa do ERP, que exclui FAD/NCREG).
+            $amount = 0.0;
+            $hasDeclarableLine = false;
+            foreach ($invoice->Line as $line) {
+                if (saftIsAdvanceLine($line, $advanceInvoiceNos)) {
+                    continue;
+                }
+                $hasDeclarableLine = true;
+                $amount += (float) ($line->CreditAmount ?? 0) - (float) ($line->DebitAmount ?? 0);
+            }
+            if (saftIsAdvanceLineSet($invoice)) {
+                $advanceInvoiceNos[$invoiceNo] = true;
+            }
+            if (!$hasDeclarableLine) {
+                continue;
             }
             $result['foreign_sales'][$customerId]['country'] = $country;
             $result['foreign_sales'][$customerId]['tax_id'] = $customerTaxIds[$customerId] ?? '';
@@ -278,6 +296,42 @@ function saftIsEuCountry(string $country): bool {
     ];
     $country = strtoupper(trim($country));
     return $country !== 'PT' && in_array($country, $euCountries, true);
+}
+
+/**
+ * Indica se uma linha de documento de venda e um adiantamento ou a
+ * regularizacao de um adiantamento (descricao com "adiantamento" ou
+ * referencia a uma fatura de adiantamento ja vista no ficheiro).
+ */
+function saftIsAdvanceLine(SimpleXMLElement $line, array $advanceInvoiceNos): bool {
+    $text = (string) ($line->Description ?? '') . ' ' . (string) ($line->ProductDescription ?? '');
+    if (preg_match('/adiantamento/i', $text)) {
+        return true;
+    }
+    if (isset($line->References)) {
+        foreach ($line->References as $references) {
+            $reference = trim((string) ($references->Reference ?? ''));
+            if ($reference !== '' && isset($advanceInvoiceNos[$reference])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Indica se todas as linhas do documento sao de adiantamento (ou seja, o
+ * documento e uma fatura de adiantamento).
+ */
+function saftIsAdvanceLineSet(SimpleXMLElement $invoice): bool {
+    $hasLines = false;
+    foreach ($invoice->Line as $line) {
+        $hasLines = true;
+        if (!saftIsAdvanceLine($line, [])) {
+            return false;
+        }
+    }
+    return $hasLines;
 }
 
 function saftXmlValue($node): ?string {
