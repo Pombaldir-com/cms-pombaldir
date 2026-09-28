@@ -1,6 +1,27 @@
 <?php
 // Database connection helper using company settings stored in the session.
 
+// Fuso horario da aplicacao (PHP + sessao MySQL). Ver applyAppDbTimezone().
+if (!defined('APP_TIMEZONE')) {
+    define('APP_TIMEZONE', 'Europe/Lisbon');
+}
+date_default_timezone_set(APP_TIMEZONE);
+
+/**
+ * Alinha o fuso da sessao MySQL com o do PHP, para que NOW()/CURRENT_TIMESTAMP
+ * e as datas formatadas em PHP coincidam. O MySQL de producao nao tem as
+ * tabelas de fusos carregadas (rejeita 'Europe/Lisbon'), por isso usa-se o
+ * offset atual calculado pelo PHP (inclui hora de verao).
+ */
+function applyAppDbTimezone(PDO $pdo): void {
+    try {
+        $offset = (new DateTime('now', new DateTimeZone(APP_TIMEZONE)))->format('P');
+        $pdo->exec("SET time_zone = '" . $offset . "'");
+    } catch (Throwable $e) {
+        // Nao bloquear a ligacao se o servidor recusar o SET.
+    }
+}
+
 /**
  * Build app base URL from the current script path.
  *
@@ -157,6 +178,7 @@ function getPDO() {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ]);
+            applyAppDbTimezone($pdo);
         } catch (PDOException $e) {
             renderDbConnectionErrorPage($e, $cfg);
             exit;

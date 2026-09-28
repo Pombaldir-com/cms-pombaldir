@@ -70,7 +70,7 @@ $statTiles = [
     <div class="x_title">
         <h2><i class="fa fa-list"></i> Atividades registadas</h2>
         <ul class="nav navbar-right panel_toolbox">
-            <li><a href="#" id="actl-reset" title="Limpar filtros"><i class="fa fa-eraser"></i></a></li>
+            <li><a href="#" id="actl-reset" title="Repor filtros (as minhas atividades)"><i class="fa fa-eraser"></i></a></li>
         </ul>
         <div class="clearfix"></div>
     </div>
@@ -81,7 +81,7 @@ $statTiles = [
                 <select id="actl-responsible" class="form-select form-select-sm">
                     <option value="">Todos</option>
                     <?php foreach ($users as $option): ?>
-                    <option value="<?= $option['id']; ?>"><?= htmlspecialchars($option['label']); ?><?= $option['id'] === $userId ? ' (eu)' : ''; ?></option>
+                    <option value="<?= $option['id']; ?>"<?= $option['id'] === $userId ? ' selected' : ''; ?>><?= htmlspecialchars($option['label']); ?><?= $option['id'] === $userId ? ' (eu)' : ''; ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -141,7 +141,8 @@ document.addEventListener('DOMContentLoaded', function () {
     'use strict';
     var endpoint = <?= json_encode(BASE_URL . 'contabilidade/atividades', JSON_UNESCAPED_SLASHES); ?>;
     var currentUserId = <?= (int) $userId; ?>;
-    var storageKey = 'accounting_activities_list_filters';
+    // Por defeito filtra pelo utilizador atual (como no legado).
+    var storageKey = 'accounting_activities_list_filters_v2';
     var $table = $('#activities-table');
     var filters = {
         responsible: document.getElementById('actl-responsible'),
@@ -348,7 +349,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     document.getElementById('actl-reset').addEventListener('click', function (e) {
         e.preventDefault();
-        filters.responsible.value = '';
+        filters.responsible.value = String(currentUserId);
         filters.category.value = '';
         filters.period.value = '';
         filters.dateFrom.value = '';

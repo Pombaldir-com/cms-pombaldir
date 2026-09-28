@@ -759,6 +759,7 @@ function resolveCrossCompanyEmitterTypeByNif(string $nif): string {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ]);
+            applyAppDbTimezone($pdo);
 
             if (!$pdo->query("SHOW TABLES LIKE 'accounting_entities'")->fetchColumn()) {
                 continue;
