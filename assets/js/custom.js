@@ -105,6 +105,9 @@ if ($.fn.dataTable) {
 
 function normalizeMenuUrl(url) {
     var cleanUrl = (url || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
+    if (cleanUrl !== '' && /\/contabilidade\/atividades(\/\d+)?$/i.test(cleanUrl)) {
+        return cleanUrl.replace(/\/contabilidade\/atividades(\/\d+)?$/i, '/contabilidade/atividades/novo');
+    }
     if (cleanUrl !== '' && cleanUrl.indexOf('/contabilidade/entidades/') !== -1) {
         cleanUrl = cleanUrl.replace(/\/contabilidade\/entidades\/[^\/]+\/\d+\/fornecedores$/i, '/contabilidade/entidades/empresas');
         return cleanUrl.replace(/\/contabilidade\/entidades\/[^\/]+\/\d+$/i, '/contabilidade/entidades/empresas');

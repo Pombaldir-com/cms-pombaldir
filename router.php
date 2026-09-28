@@ -278,6 +278,20 @@ switch (true) {
         $_GET['consulta'] = $m[2];
         require __DIR__ . '/contabilidade/entidades.php';
         break;
+    case $path === 'contabilidade/atividades':
+    case $path === 'contabilidade/atividades/novo':
+        $_GET['view'] = 'novo';
+        require __DIR__ . '/contabilidade/atividades.php';
+        break;
+    case $path === 'contabilidade/atividades/categorias':
+        $_GET['view'] = 'categorias';
+        require __DIR__ . '/contabilidade/atividades.php';
+        break;
+    case preg_match('#^contabilidade/atividades/(\d+)$#', $path, $m):
+        $_GET['view'] = 'ver';
+        $_GET['id'] = $m[1];
+        require __DIR__ . '/contabilidade/atividades.php';
+        break;
     case $path === 'contabilidade/tarefas/envio-saft':
         require __DIR__ . '/contabilidade/tarefas-envio-saft.php';
         break;

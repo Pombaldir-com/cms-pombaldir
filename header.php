@@ -297,6 +297,14 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
+<?php if (isModuleActive('contabilidade')): ?>
+                            <li>
+                                <a><i class="fa fa-calendar-check-o"></i> Atividades <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/atividades/novo">Registar atividade</a></li>
+                                </ul>
+                            </li>
+<?php endif; ?>
 <?php if (isModuleActive('efatura') && userHasDepartmentPermission('ctb_efatura_aceder')): ?>
                             <li>
                                 <a><i class="fa fa-file-text-o"></i> E-fatura <span class="fa fa-chevron-down"></span></a>
@@ -323,6 +331,9 @@ foreach ($sidebarTypes as $sidebarType):
                                     <li><a href="<?= BASE_URL ?>tabelas/departamentos">Departamentos</a></li>
                                     <li><a href="<?= BASE_URL ?>tabelas/campos-adicionais">Campos Adicionais</a></li>
                                     <li><a href="<?= BASE_URL ?>contabilidade/ai-tarefas">Tarefas AI</a></li>
+<?php if (isModuleActive('contabilidade')): ?>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/atividades/categorias">Categorias de atividade</a></li>
+<?php endif; ?>
 
                                 </ul>
                             </li>

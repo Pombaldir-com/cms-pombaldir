@@ -2114,14 +2114,6 @@ return;
                                                 <div class="erp-form-section admin-section" style="margin-top: 12px;">
                                                     <div class="x_title" style="border-bottom: 1px solid #e6e9ed; margin: 0 0 14px; padding: 0 0 10px;">
                                                         <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-shield"></i> Tarefas administrativas</h3>
-                                                        <ul class="nav navbar-right panel_toolbox" style="min-width: auto;">
-                                                            <li>
-                                                                <button type="button" class="btn btn-primary btn-sm admin-task-create-trigger">
-                                                                    <i class="fa fa-plus"></i> Gerir permissões
-                                                                </button>
-                                                            </li>
-                                                        </ul>
-                                                        <div class="clearfix"></div>
                                                     </div>
                                                     <div class="alert alert-info" style="margin-bottom: 15px;">
                                                         Cada tarefa pode ser atribuída a vários utilizadores da mesma empresa. Um utilizador pode ter mais do que uma tarefa.
@@ -2998,8 +2990,6 @@ return;
                         var adminTaskUserSelect = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('.admin-task-user-select') : null;
                         var adminTaskLabelInput = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('[data-admin-task-label]') : null;
                         var adminTaskPermissionKeyInput = adminTaskPermissionModal ? adminTaskPermissionModal.querySelector('input[name="permission_key"]') : null;
-                        var adminTaskFirstTrigger = document.querySelector('.admin-task-edit-trigger');
-                        var adminTaskCreateTrigger = document.querySelector('.admin-task-create-trigger');
 
                         function initAdminTaskSelect2() {
                             if (!adminTaskUserSelect || !window.jQuery || !jQuery.fn.select2) {
@@ -3064,20 +3054,6 @@ return;
                         if (adminTaskPermissionModal && adminTaskUserSelect) {
                             adminTaskPermissionModal.addEventListener('show.bs.modal', function () {
                                 initAdminTaskSelect2();
-                            });
-                        }
-
-                        if (adminTaskFirstTrigger) {
-                            adminTaskFirstTrigger.addEventListener('click', function (event) {
-                                event.preventDefault();
-                                openAdminTaskModal(adminTaskFirstTrigger);
-                            });
-                        }
-
-                        if (adminTaskCreateTrigger && adminTaskFirstTrigger) {
-                            adminTaskCreateTrigger.addEventListener('click', function (event) {
-                                event.preventDefault();
-                                openAdminTaskModal(adminTaskFirstTrigger);
                             });
                         }
 
