@@ -279,6 +279,9 @@ switch (true) {
         require __DIR__ . '/contabilidade/entidades.php';
         break;
     case $path === 'contabilidade/atividades':
+        $_GET['view'] = 'lista';
+        require __DIR__ . '/contabilidade/atividades.php';
+        break;
     case $path === 'contabilidade/atividades/novo':
         $_GET['view'] = 'novo';
         require __DIR__ . '/contabilidade/atividades.php';
@@ -287,9 +290,9 @@ switch (true) {
         $_GET['view'] = 'categorias';
         require __DIR__ . '/contabilidade/atividades.php';
         break;
-    case preg_match('#^contabilidade/atividades/(\d+)$#', $path, $m):
+    case preg_match('#^contabilidade/atividades/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$#', $path, $m):
         $_GET['view'] = 'ver';
-        $_GET['id'] = $m[1];
+        $_GET['uuid'] = $m[1];
         require __DIR__ . '/contabilidade/atividades.php';
         break;
     case $path === 'contabilidade/tarefas/envio-saft':

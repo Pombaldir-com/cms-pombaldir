@@ -100,6 +100,16 @@ if ($showImportCard || $showClassifCard || $showCompaniesCard) {
         ];
     }
 }
+
+$recentActivities = [];
+$showRecentActivities = false;
+if (isModuleActive('contabilidade')) {
+    require_once __DIR__ . '/contabilidade/atividades-functions.php';
+    if (hasAccountingActivityTables()) {
+        $showRecentActivities = true;
+        $recentActivities = getRecentActivities(getPDO(), 8);
+    }
+}
 ?>
 <div class="container-fluid">
     <div class="x_panel">
@@ -268,6 +278,67 @@ if ($showImportCard || $showClassifCard || $showCompaniesCard) {
             <?php endif; ?>
         </div>
     </div>
+    <?php if ($showRecentActivities): ?>
+    <style>
+        .dash-act-list { list-style: none; margin: 0; padding: 0; }
+        .dash-act-item { display: flex; align-items: center; gap: 14px; padding: 12px 6px; border-bottom: 1px solid #eef0f2; border-radius: 6px; color: inherit; }
+        .dash-act-item:hover { background: #f7f9fb; color: inherit; }
+        .dash-act-list li:last-child .dash-act-item { border-bottom: 0; }
+        .dash-act-avatar { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 50%; background: #26b99a; color: #fff; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+        .dash-act-main { flex: 1 1 auto; min-width: 0; }
+        .dash-act-client { font-weight: 600; color: #2a3f54; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dash-act-client small { font-weight: 500; color: #8a949e; margin-left: 6px; }
+        .dash-act-cats { margin-top: 3px; }
+        .dash-act-cat { display: inline-block; background: #eef3f8; color: #2f5f8f; border-radius: 12px; padding: 1px 8px; font-size: 11px; margin: 1px 3px 1px 0; white-space: nowrap; }
+        .dash-act-side { flex: 0 0 auto; text-align: right; font-size: 12px; color: #8a949e; }
+        .dash-act-side strong { display: block; color: #2a3f54; font-weight: 600; font-size: 13px; }
+        .dash-act-empty { text-align: center; padding: 26px 10px; color: #8a949e; }
+        .dash-act-empty i { font-size: 34px; color: #cfd6dd; display: block; margin-bottom: 8px; }
+        @media (max-width: 575px) { .dash-act-side { display: none; } }
+    </style>
+    <div class="x_panel">
+        <div class="x_title d-flex align-items-center justify-content-between">
+            <h2><i class="fa fa-calendar-check-o"></i> Últimas atividades</h2>
+            <div class="d-flex gap-2">
+                <a href="<?= BASE_URL ?>contabilidade/atividades/novo" class="btn btn-sm btn-primary mb-0"><i class="fa fa-plus"></i> Registar</a>
+                <a href="<?= BASE_URL ?>contabilidade/atividades" class="btn btn-sm btn-outline-secondary mb-0">Ver todas</a>
+            </div>
+        </div>
+        <div class="x_content">
+            <?php if (!$recentActivities): ?>
+            <div class="dash-act-empty">
+                <i class="fa fa-calendar-o"></i>
+                Ainda não existem atividades registadas.
+            </div>
+            <?php else: ?>
+            <ul class="dash-act-list">
+                <?php foreach ($recentActivities as $recent): ?>
+                <li>
+                    <a class="dash-act-item text-decoration-none" href="<?= BASE_URL ?>contabilidade/atividades/<?= htmlspecialchars((string) $recent['uuid'], ENT_QUOTES, 'UTF-8'); ?>">
+                        <span class="dash-act-avatar"><?= htmlspecialchars(activityInitials((string) $recent['client_name']), ENT_QUOTES, 'UTF-8'); ?></span>
+                        <div class="dash-act-main">
+                            <div class="dash-act-client">
+                                <?= htmlspecialchars((string) $recent['client_name'], ENT_QUOTES, 'UTF-8'); ?>
+                                <small><?= htmlspecialchars((string) $recent['code'], ENT_QUOTES, 'UTF-8'); ?></small>
+                            </div>
+                            <div class="dash-act-cats">
+                                <?php foreach ($recent['lines'] as $recentLine): ?>
+                                <span class="dash-act-cat"><?= htmlspecialchars($recentLine['title'] . ($recentLine['value'] !== '' ? ' · ' . $recentLine['value'] : ''), ENT_QUOTES, 'UTF-8'); ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div class="dash-act-side" title="<?= htmlspecialchars(formatActivityDateTime((string) $recent['created_at']), ENT_QUOTES, 'UTF-8'); ?>">
+                            <strong><?= htmlspecialchars(formatActivityRelative((string) $recent['created_at']), ENT_QUOTES, 'UTF-8'); ?></strong>
+                            <?= htmlspecialchars((string) $recent['responsible_label'], ENT_QUOTES, 'UTF-8'); ?>
+                        </div>
+                    </a>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 <?php
 // Inclui o rodapé comum do template

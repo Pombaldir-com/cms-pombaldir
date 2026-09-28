@@ -301,6 +301,7 @@ foreach ($sidebarTypes as $sidebarType):
                             <li>
                                 <a><i class="fa fa-calendar-check-o"></i> Atividades <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>contabilidade/atividades">Listagem</a></li>
                                     <li><a href="<?= BASE_URL ?>contabilidade/atividades/novo">Registar atividade</a></li>
                                 </ul>
                             </li>
