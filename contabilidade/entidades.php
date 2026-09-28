@@ -279,7 +279,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                 $submittedErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($_POST['erp_database'] ?? ''));
                 $entityErpDatabase = normalizeAccountingEntityDatabaseKey((string) ($entity['erp_database'] ?? ''));
-                $erpDatabase = $submittedErpDatabase !== '' ? $submittedErpDatabase : $entityErpDatabase;
+                // O cliente (e o erp_record_id) e lido na base da Empresa base,
+                // por isso a atualizacao tem de ir para essa mesma base. O campo
+                // erp_database do formulario (admin) e a identidade ERP propria
+                // da empresa e so atualiza accounting_entities.
+                $defaultErpDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+                $erpDatabase = $defaultErpDatabase !== ''
+                    ? $defaultErpDatabase
+                    : ($submittedErpDatabase !== '' ? $submittedErpDatabase : $entityErpDatabase);
 
                 if ($isSuperAdmin && $submittedErpDatabase !== '' && $submittedErpDatabase !== $entityErpDatabase) {
                     try {
@@ -291,7 +298,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'entity_type' => 'acquirer',
                         ]);
                         $entityErpDatabase = $submittedErpDatabase;
-                        $erpDatabase = $submittedErpDatabase;
+                        if ($defaultErpDatabase === '') {
+                            $erpDatabase = $submittedErpDatabase;
+                        }
                         logAuditAction('update', 'accounting_entity_erp_database', $entityId, [
                             'entity_id' => $entityId,
                             'nif' => (string) ($entity['nif'] ?? ''),
