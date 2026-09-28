@@ -27,6 +27,57 @@ $canManageClientAdmin = ((int) ($user['role'] ?? 3)) <= 2;
 // passam sempre via userHasDepartmentPermission; nao-admins precisam da
 // permissao de departamento "Entidades - Editar".
 $canEditEntities = userHasDepartmentPermission('entidades_editar');
+
+/**
+ * Grava periodicidade e regime de IVA da entidade adquirente a partir do POST
+ * do formulario principal ("Guardar Alteracoes"). Cada campo so e gravado se
+ * vier no pedido e a coluna existir na tenant. Devolve os campos alterados.
+ */
+function saveAccountingEntityVatSettingsFromPost(PDO $pdo, int $entityId, array $post): array {
+    $updates = [];
+    if (array_key_exists('vat_periodicity', $post) && hasColumn('accounting_entities', 'vat_periodicity')) {
+        $newPeriodicity = trim((string) $post['vat_periodicity']);
+        if (!in_array($newPeriodicity, ['mensal', 'trimestral'], true)) {
+            throw new InvalidArgumentException('Periodicidade de IVA invalida.');
+        }
+        $updates['vat_periodicity'] = $newPeriodicity;
+    }
+    if (array_key_exists('vat_regime', $post) && hasColumn('accounting_entities', 'vat_regime')) {
+        $newRegime = trim((string) $post['vat_regime']);
+        if (!in_array($newRegime, ['normal', 'isento'], true)) {
+            throw new InvalidArgumentException('Regime de IVA invalido.');
+        }
+        $updates['vat_regime'] = $newRegime;
+    }
+    if (empty($updates) || $entityId <= 0) {
+        return [];
+    }
+
+    $stmt = $pdo->prepare('SELECT ' . implode(', ', array_keys($updates)) . ' FROM accounting_entities WHERE id = ? LIMIT 1');
+    $stmt->execute([$entityId]);
+    $current = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    foreach ($updates as $column => $value) {
+        if ((string) ($current[$column] ?? '') === $value) {
+            unset($updates[$column]);
+        }
+    }
+    if (empty($updates)) {
+        return [];
+    }
+
+    $setClauses = [];
+    $params = [];
+    foreach ($updates as $column => $value) {
+        $setClauses[] = $column . ' = ?';
+        $params[] = $value;
+    }
+    $params[] = $entityId;
+    $stmt = $pdo->prepare('UPDATE accounting_entities SET ' . implode(', ', $setClauses) . ' WHERE id = ?');
+    $stmt->execute($params);
+
+    return $updates;
+}
+
 // Ver o separador "Campos Adicionais" (inclui campos do tipo senha) e uma
 // permissao base atribuida a todos os tecnicos pelo departamento "Tecnico
 // (Base)" (ver getBaselineDepartmentId() em functions.php).
@@ -131,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erpRecordId = isset($_POST['erp_record_id']) ? (int) $_POST['erp_record_id'] : 0;
         $returnUrl = BASE_URL . 'contabilidade/entidades/' . rawurlencode($typeSlug);
         $extranetSettingsSaved = false;
+        $vatSettingsSaved = false;
 
         $erpClientFormOverride = [
             'id' => $erpRecordId > 0 ? (string) $erpRecordId : '',
@@ -187,11 +239,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                if (!($flashType === 'error' && $flashMessage !== '') && $canManageClientAdmin) {
+                    try {
+                        $vatSettingsUpdates = saveAccountingEntityVatSettingsFromPost($pdo, $entityId, $_POST);
+                        if (!empty($vatSettingsUpdates)) {
+                            $vatSettingsSaved = true;
+                            logAuditAction('update', 'accounting_entity_vat_settings', $entityId, array_merge(
+                                ['entity_id' => $entityId],
+                                $vatSettingsUpdates,
+                                ['changed_by' => (int) ($user['id'] ?? 0)]
+                            ));
+                        }
+                    } catch (InvalidArgumentException $e) {
+                        $flashType = 'error';
+                        $flashMessage = $e->getMessage();
+                    }
+                }
+
                 if ($flashType === 'error' && $flashMessage !== '') {
-                    // Extranet save failed; do not continue with ERP update in this request.
+                    // Extranet/IVA save failed; do not continue with ERP update in this request.
                 } elseif ($erpRecordId <= 0) {
-                    if ($extranetSettingsSaved) {
-                        $successMessage = 'Configuracoes Extranet guardadas.';
+                    if ($extranetSettingsSaved || $vatSettingsSaved) {
+                        $successMessage = $extranetSettingsSaved ? 'Configuracoes guardadas.' : 'Definicoes de IVA guardadas.';
                         if ($isAjaxRequest) {
                             header('Content-Type: application/json; charset=utf-8');
                             echo json_encode([
@@ -364,45 +433,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', 'Base de dados ERP atualizada.');
-    }
-
-    if ($action === 'set-entity-vat-periodicity') {
-        $entityId = isset($_POST['entity_id']) ? (int) $_POST['entity_id'] : 0;
-        $returnUrl = normalizeRedirectTarget((string) ($_POST['return_url'] ?? ''));
-        if ($returnUrl === null) {
-            $returnUrl = buildAccountingEntitiesReturnUrl($typeSlug);
-        }
-
-        if (!$canManageClientAdmin) {
-            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Sem permissoes para alterar a periodicidade de IVA.', 403);
-        }
-
-        $newPeriodicity = trim((string) ($_POST['vat_periodicity'] ?? ''));
-        if (!in_array($newPeriodicity, ['mensal', 'trimestral'], true)) {
-            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Periodicidade invalida.', 400);
-        }
-
-        $stmt = $pdo->prepare('SELECT id, entity_type FROM accounting_entities WHERE id = ? LIMIT 1');
-        $stmt->execute([$entityId]);
-        $entityRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-
-        if (!$entityRow || ($entityRow['entity_type'] ?? '') !== 'acquirer') {
-            respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'error', 'Entidade nao encontrada.', 404);
-        }
-
-        $entityRow = ensureAccountingEntityRouteRow($pdo, $entityRow);
-        $returnUrl .= '/' . rawurlencode(getAccountingEntityRouteKey($entityRow));
-
-        $stmt = $pdo->prepare('UPDATE accounting_entities SET vat_periodicity = ? WHERE id = ?');
-        $stmt->execute([$newPeriodicity, $entityId]);
-
-        logAuditAction('update', 'accounting_entity_vat_periodicity', $entityId, [
-            'entity_id' => $entityId,
-            'vat_periodicity' => $newPeriodicity,
-            'changed_by' => (int) ($user['id'] ?? 0),
-        ]);
-
-        respondAccountingEntitiesPost($isAjaxRequest, $returnUrl, 'success', 'Periodicidade de IVA atualizada.');
     }
 
     if ($action === 'save-client-user') {
@@ -2017,28 +2047,46 @@ return;
                                     <?php endif; /* fecha if ($canManageClientExtranet) do separador Extranet */ ?>
                                     <?php if ($canManageClientAdmin): ?>
                                         <div class="tab-pane fade" id="cliente-admin" role="tabpanel">
-                                            <?php if (hasColumn('accounting_entities', 'vat_periodicity')): ?>
+                                            <?php
+                                                $hasVatPeriodicityColumn = hasColumn('accounting_entities', 'vat_periodicity');
+                                                $hasVatRegimeColumn = hasColumn('accounting_entities', 'vat_regime');
+                                            ?>
+                                            <?php if ($hasVatPeriodicityColumn || $hasVatRegimeColumn): ?>
                                                 <div class="erp-form-section admin-section" style="margin-top: 12px;">
                                                     <div class="x_title" style="border-bottom: 1px solid #e6e9ed; margin: 0 0 14px; padding: 0 0 10px;">
-                                                        <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-calendar"></i> Periodicidade de IVA</h3>
+                                                        <h3 class="erp-form-section-title" style="margin: 0;"><i class="fa fa-percent"></i> IVA</h3>
                                                         <div class="clearfix"></div>
                                                     </div>
-                                                    <form method="post" class="form-inline entity-vat-periodicity-form" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken()); ?>">
-                                                        <input type="hidden" name="action" value="set-entity-vat-periodicity">
-                                                        <input type="hidden" name="entity_id" value="<?= (int) $consultEntity['id']; ?>">
-                                                        <input type="hidden" name="return_url" value="<?= htmlspecialchars(buildAccountingEntitiesReturnUrl($typeSlug)); ?>">
-                                                        <label class="control-label" style="margin-bottom: 0;">Periodicidade</label>
-                                                        <select name="vat_periodicity" class="form-control" style="min-width: 140px;">
-                                                            <?php $currentPeriodicity = (string) ($consultEntity['vat_periodicity'] ?? 'mensal'); ?>
-                                                            <option value="mensal" <?= $currentPeriodicity === 'mensal' ? 'selected' : ''; ?>>Mensal</option>
-                                                            <option value="trimestral" <?= $currentPeriodicity === 'trimestral' ? 'selected' : ''; ?>>Trimestral</option>
-                                                        </select>
-                                                        <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
-                                                    </form>
-                                                    <p class="text-muted" style="margin: 8px 0 0;">
-                                                        Define se a tarefa "Apuramento de IVA" desta empresa e fechada por mes ou por trimestre.
-                                                    </p>
+                                                    <div class="entity-vat-settings">
+                                                        <div class="row">
+                                                            <?php if ($hasVatPeriodicityColumn): ?>
+                                                                <div class="col-sm-6 col-md-4 col-lg-3" style="margin-bottom: 12px;">
+                                                                    <label class="control-label" for="entityVatPeriodicitySelect"><i class="fa fa-calendar"></i> Periodicidade</label>
+                                                                    <?php $currentPeriodicity = (string) ($consultEntity['vat_periodicity'] ?? 'mensal'); ?>
+                                                                    <select name="vat_periodicity" id="entityVatPeriodicitySelect" class="form-control">
+                                                                        <option value="mensal" <?= $currentPeriodicity === 'mensal' ? 'selected' : ''; ?>>Mensal</option>
+                                                                        <option value="trimestral" <?= $currentPeriodicity === 'trimestral' ? 'selected' : ''; ?>>Trimestral</option>
+                                                                    </select>
+                                                                    <small class="text-muted d-block" style="margin-top: 6px;">
+                                                                        Periodo da tarefa "Apuramento de IVA".
+                                                                    </small>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <?php if ($hasVatRegimeColumn): ?>
+                                                                <div class="col-sm-6 col-md-4 col-lg-3" style="margin-bottom: 12px;">
+                                                                    <label class="control-label" for="entityVatRegimeSelect"><i class="fa fa-balance-scale"></i> Regime</label>
+                                                                    <?php $currentVatRegime = (string) ($consultEntity['vat_regime'] ?? 'normal'); ?>
+                                                                    <select name="vat_regime" id="entityVatRegimeSelect" class="form-control">
+                                                                        <option value="normal" <?= $currentVatRegime !== 'isento' ? 'selected' : ''; ?>>Normal (deduz IVA)</option>
+                                                                        <option value="isento" <?= $currentVatRegime === 'isento' ? 'selected' : ''; ?>>Isento - art. 9.º CIVA</option>
+                                                                    </select>
+                                                                    <small class="text-muted d-block" style="margin-top: 6px;">
+                                                                        Isento: sem conta de IVA; base + IVA vao para a conta geral.
+                                                                    </small>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             <?php endif; ?>
                                             <?php if (!hasAccountingEntityAdminTaskPermissionsTable()): ?>
@@ -2393,8 +2441,14 @@ return;
                             });
                         });
 
+                        // O bootstrap.bundle e carregado no footer, depois deste script:
+                        // so e seguro reativar o separador quando o DOM estiver completo.
                         if (storedTabTarget) {
-                            window.setTimeout(activateStoredTab, 0);
+                            if (document.readyState === 'loading') {
+                                document.addEventListener('DOMContentLoaded', activateStoredTab);
+                            } else {
+                                window.setTimeout(activateStoredTab, 0);
+                            }
                         }
 
                         var zoneSelect = document.getElementById('erpClientZoneSelect');

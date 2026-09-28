@@ -65,7 +65,7 @@ email está implementado — ver "Envio por email".
   (`ENUM('mensal','trimestral')`, migração
   `20260824162436_add_vat_periodicity_to_accounting_entities.sql`), editável
   em Entidades > ficha da empresa > separador Admin > "Periodicidade de
-  IVA" (ação `set-entity-vat-periodicity` em `entidades.php`, apenas para
+  IVA" (guardada pelo botão "Guardar Alterações" da ficha, ação `update-erp-client-details` em `entidades.php`, apenas para
   `canManageClientAdmin`/`role <= 2`).
 - Fecho do período: tabela `accounting_vat_settlements` (migração
   `20260824162500_create_accounting_vat_settlements.sql`), com colunas

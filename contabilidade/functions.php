@@ -2020,6 +2020,9 @@ function findAccountingEntity(PDO $pdo, string $nif): ?array {
     if (hasColumn('accounting_entities', 'vat_periodicity')) {
         $baseColumns .= ', vat_periodicity';
     }
+    if (hasColumn('accounting_entities', 'vat_regime')) {
+        $baseColumns .= ', vat_regime';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
         appendAccountingEntityUuidSelectColumn($baseColumns)
     );
@@ -2045,6 +2048,9 @@ function findAccountingEntityByType(PDO $pdo, string $nif, string $entityType): 
     $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
     if (hasColumn('accounting_entities', 'vat_periodicity')) {
         $baseColumns .= ', vat_periodicity';
+    }
+    if (hasColumn('accounting_entities', 'vat_regime')) {
+        $baseColumns .= ', vat_regime';
     }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
         appendAccountingEntityUuidSelectColumn($baseColumns)
@@ -2184,6 +2190,9 @@ function findAccountingEntityByRouteKey(PDO $pdo, string $routeKey, string $enti
     if (hasColumn('accounting_entities', 'vat_periodicity')) {
         $baseColumns .= ', vat_periodicity';
     }
+    if (hasColumn('accounting_entities', 'vat_regime')) {
+        $baseColumns .= ', vat_regime';
+    }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
         appendAccountingEntityUuidSelectColumn($baseColumns)
     );
@@ -2281,6 +2290,9 @@ function findAccountingAcquirerEntityByDatabase(PDO $pdo, string $database): ?ar
     $baseColumns = 'id, name, nif, erp_database, entity_type, erp_client_code, qr_doc_type_mappings, created_at';
     if (hasColumn('accounting_entities', 'vat_periodicity')) {
         $baseColumns .= ', vat_periodicity';
+    }
+    if (hasColumn('accounting_entities', 'vat_regime')) {
+        $baseColumns .= ', vat_regime';
     }
     $selectColumns = appendAccountingEmitterTypeSelectColumn(
         appendAccountingEntityUuidSelectColumn($baseColumns)
@@ -3277,6 +3289,76 @@ function looksLikeAccountReference($value): bool {
 function normalizeAccountingMetadataFlag($value): string {
     $flag = trim((string) $value);
     return ($flag === '1' || strcasecmp($flag, 'true') === 0) ? '1' : '0';
+}
+
+/**
+ * Regime de IVA da empresa adquirente de um documento: 'normal' ou 'isento'.
+ *
+ * 'isento' = atividade isenta sem direito a deducao (art. 9.o do CIVA). Nesse
+ * caso o IVA suportado nunca vai para contas de IVA: e custo e segue para a
+ * conta geral juntamente com a base. Resolve pelo NIF do adquirente (field_B),
+ * preferindo a entidade do tipo 'acquirer' e, na falta dela, a entidade
+ * adquirente da mesma base ERP.
+ */
+function resolveAccountingDocumentAcquirerVatRegime(array $row): string {
+    static $cache = [];
+
+    if (!hasColumn('accounting_entities', 'vat_regime')) {
+        return 'normal';
+    }
+
+    $acquirerNif = '';
+    foreach ([(string) ($row['field_B'] ?? ''), (string) ($row['field_C'] ?? '')] as $candidate) {
+        $candidateNif = extractVatNumber($candidate);
+        if ($candidateNif !== '') {
+            $acquirerNif = $candidateNif;
+            break;
+        }
+    }
+    if ($acquirerNif === '') {
+        return 'normal';
+    }
+    if (array_key_exists($acquirerNif, $cache)) {
+        return $cache[$acquirerNif];
+    }
+
+    $regime = 'normal';
+    try {
+        $pdo = getPDO();
+        $entity = findAccountingEntityByType($pdo, $acquirerNif, 'acquirer');
+        if (!$entity) {
+            $anyEntity = findAccountingEntity($pdo, $acquirerNif);
+            $database = is_array($anyEntity) ? resolveAccountingEntityDatabase($anyEntity) : '';
+            if (trim($database) !== '') {
+                $entity = findAccountingAcquirerEntityByDatabase($pdo, $database);
+            }
+        }
+        if (is_array($entity) && ($entity['vat_regime'] ?? '') === 'isento') {
+            $regime = 'isento';
+        }
+    } catch (Throwable $throwable) {
+        $regime = 'normal';
+    }
+
+    $cache[$acquirerNif] = $regime;
+    return $regime;
+}
+
+function isAccountingDocumentAcquirerVatExempt(array $row): bool {
+    return resolveAccountingDocumentAcquirerVatRegime($row) === 'isento';
+}
+
+/**
+ * As summaries de um documento de empresa isenta levam a marca vat_exempt
+ * (ver computeImportRateSummaries()).
+ */
+function accountingRateSummariesAreVatExempt(array $summaries): bool {
+    foreach ($summaries as $summary) {
+        if (is_array($summary) && !empty($summary['vat_exempt'])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function resolveAccountingVatDeductionPercent(array $rateConfig): float {
@@ -4762,7 +4844,7 @@ function computeImportRateSummaries(array $row): array {
         $base0 = 0.0;
     }
 
-    return [
+    $summaries = [
         '0' => [
             'base_value' => $base0,
             'iva_value' => 0.0,
@@ -4802,6 +4884,18 @@ function computeImportRateSummaries(array $row): array {
             'require_iva' => abs($iva23) > 0.0001,
         ],
     ];
+
+    // Empresa isenta (art. 9.o CIVA): o IVA nao e dedutivel, pelo que nenhuma
+    // taxa exige conta de IVA. A conta geral continua obrigatoria porque recebe
+    // base + IVA (ver buildDocumentAccountingLines()).
+    if (isAccountingDocumentAcquirerVatExempt($row)) {
+        foreach ($summaries as $rateKey => $summary) {
+            $summaries[$rateKey]['require_iva'] = false;
+            $summaries[$rateKey]['vat_exempt'] = true;
+        }
+    }
+
+    return $summaries;
 }
 
 /**
@@ -4846,6 +4940,7 @@ function computeDocumentTotalAmount(array $document): ?float {
 function buildRatePayload(array $summaries, array $accounts): array {
     $payload = [];
     $requirements = [];
+    $vatExempt = accountingRateSummariesAreVatExempt($summaries);
 
     $allRates = array_unique(array_merge(array_keys($summaries), array_keys($accounts)));
     foreach ($allRates as $rate) {
@@ -4882,7 +4977,7 @@ function buildRatePayload(array $summaries, array $accounts): array {
         $normalizedRateKey = normalizeAccountingRateKey((string) $rate);
         $ivaAccount = $accountInfo['iva_account'] ?? '';
         $isBankLoanConversionRate = normalizeAccountingMetadataFlag($accountInfo['bank_loan_conversion'] ?? '0') === '1';
-        if ($normalizedRateKey === '0' || $isBankLoanConversionRate) {
+        if ($normalizedRateKey === '0' || $isBankLoanConversionRate || $vatExempt) {
             $ivaAccount = '';
         }
         if ($isBankLoanConversionRate) {
@@ -4970,6 +5065,17 @@ function buildClassificationRequirements(array $summaries, array $accounts, arra
         $manualRequirements = buildManualClassificationRequirements($payload);
         if (!empty($manualRequirements)) {
             $requirements = $manualRequirements;
+        }
+    }
+
+    if (accountingRateSummariesAreVatExempt($summaries)) {
+        foreach ($requirements as $rate => $requirement) {
+            $requirements[$rate]['iva'] = false;
+        }
+        foreach ($payload as $rate => $entry) {
+            if (is_array($entry)) {
+                $payload[$rate]['iva_account'] = '';
+            }
         }
     }
 
@@ -5443,6 +5549,7 @@ function buildDocumentAccountingLines(array $document): array {
     $summaries = computeImportRateSummaries($document);
     $docType = (string) ($document['field_D'] ?? $document['invoice_type'] ?? '');
     $documentSign = isCreditAccountingDocumentType($docType) ? -1 : 1;
+    $vatExempt = isAccountingDocumentAcquirerVatExempt($document);
     $lines = [];
 
     foreach ($accounts as $rate => $config) {
@@ -5458,7 +5565,17 @@ function buildDocumentAccountingLines(array $document): array {
         $generalAccount = trim((string) ($config['general_account'] ?? ''));
         $baseAmount = resolveAccountingLineAmount($config['base'] ?? '', $summary['base_value'] ?? null);
         $ivaAmount = resolveAccountingLineAmount($config['iva'] ?? '', $summary['iva_value'] ?? null);
-        if (isAccountingVatAmountsAdjusted($config)) {
+        if ($vatExempt) {
+            // Empresa isenta (art. 9.o CIVA): IVA nao dedutivel, vai todo para a
+            // conta geral com a base e nao ha linha de IVA.
+            $adjustedAmounts = [
+                'base' => ($baseAmount === null && $ivaAmount === null)
+                    ? null
+                    : round((float) ($baseAmount ?? 0.0) + (float) ($ivaAmount ?? 0.0), 2),
+                'iva' => null,
+                'vat_deduction_percent' => 0.0,
+            ];
+        } elseif (isAccountingVatAmountsAdjusted($config)) {
             $adjustedAmounts = [
                 'base' => $baseAmount,
                 'iva' => $ivaAmount,

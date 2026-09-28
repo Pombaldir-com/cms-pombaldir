@@ -578,6 +578,12 @@ window.addEventListener('load', function() {
         return normalized !== '' && Object.prototype.hasOwnProperty.call(accountingFuelRubricCodeMap, normalized);
     }
 
+    // Empresa adquirente isenta de IVA (art. 9.o CIVA): nao ha conta de IVA,
+    // base + IVA vao para a conta geral (ver buildDocumentAccountingLines()).
+    function isVatExemptButton(btn) {
+        return !!btn && String(btn.getAttribute('data-vat-exempt') || '').trim() === '1';
+    }
+
     function updateCsrfTokenFromResponse(res) {
         if (res && res.csrf_token && csrfInput) {
             csrfInput.value = res.csrf_token;
@@ -2550,6 +2556,7 @@ window.addEventListener('load', function() {
         var hasAny = false;
         var hasMissingBaseAmount = false;
         var totalAccount = '';
+        var vatExempt = isVatExemptButton(btn);
 
         Object.keys(requirements).forEach(function(rate) {
             var req = requirements[rate] || {};
@@ -2568,7 +2575,7 @@ window.addEventListener('load', function() {
                     hasAny = true;
                 }
             }
-            if (req.iva && !isZeroRate && !isBankLoanRate) {
+            if (req.iva && !isZeroRate && !isBankLoanRate && !vatExempt) {
                 requires = true;
                 hasRelevantConfiguration = true;
                 var iva = (data.iva_account || '').trim();
@@ -2590,7 +2597,7 @@ window.addEventListener('load', function() {
             }
             if (!hasRelevantConfiguration) {
                 hasRelevantConfiguration = String(data.general_account || '').trim() !== ''
-                    || (!isZeroRate && !isBankLoanRate && String(data.iva_account || '').trim() !== '')
+                    || (!isZeroRate && !isBankLoanRate && !vatExempt && String(data.iva_account || '').trim() !== '')
                     || String(costCenters[rate] || '').trim() !== '';
             }
             if (hasRelevantConfiguration) {
@@ -2697,6 +2704,7 @@ window.addEventListener('load', function() {
 
     function buildRequirementsFromCurrentRates() {
         var requirements = {};
+        var vatExempt = isVatExemptButton(currentBtn);
         Object.keys(currentRateData).forEach(function(rate) {
             var entry = currentRateData[rate];
             if (!entry || typeof entry !== 'object') {
@@ -2715,7 +2723,7 @@ window.addEventListener('load', function() {
             var isBankLoanRate = String(entry.bank_loan_conversion || '').trim() === '1';
             requirements[rate] = {
                 general: true,
-                iva: !isZeroRate && !isBankLoanRate,
+                iva: !isZeroRate && !isBankLoanRate && !vatExempt,
                 cost_center: String(entry.cost_center_required || '').trim() === '1'
             };
         });
@@ -2741,6 +2749,16 @@ window.addEventListener('load', function() {
     }
 
     var classifyModalEl = document.getElementById('classifyModal');
+
+    function updateVatExemptMode(isExempt) {
+        if (classifyModalEl) {
+            classifyModalEl.classList.toggle('vat-exempt-mode', !!isExempt);
+        }
+        var notice = document.getElementById('classifyVatExemptNotice');
+        if (notice) {
+            notice.classList.toggle('d-none', !isExempt);
+        }
+    }
     var classifyModal = classifyModalEl ? new bootstrap.Modal(classifyModalEl) : null;
     var costCenterDistributionModalEl = document.getElementById('costCenterDistributionModal');
     var costCenterDistributionModal = costCenterDistributionModalEl ? new bootstrap.Modal(costCenterDistributionModalEl) : null;
@@ -4101,6 +4119,9 @@ window.addEventListener('load', function() {
     }
 
     function shouldApplyFuelRubricAdjustmentForRate(rate) {
+        if (isVatExemptButton(currentBtn)) {
+            return false;
+        }
         var normalizedRate = normalizeRateToken(rate);
         if (normalizedRate !== null && Math.abs(normalizedRate) < 0.00001) {
             return false;
@@ -9392,6 +9413,7 @@ window.addEventListener('load', function() {
         }
         updateClassifyModalCompanyBadge(documentCompanyCode);
         updateDocumentFieldsPanelVisibility(showDocumentFields);
+        updateVatExemptMode(isVatExemptButton(btn));
 
         resetRateRows();
         storedRowRates = {};
@@ -9549,7 +9571,7 @@ window.addEventListener('load', function() {
                     costCenterRequired = true;
                 }
                 ratesPayload[rate] = {
-                    iva_account: info.ivaAccount ? info.ivaAccount.value.trim() : '',
+                    iva_account: (info.ivaAccount && !isVatExemptButton(currentBtn)) ? info.ivaAccount.value.trim() : '',
                     general_account: info.generalAccount ? info.generalAccount.value.trim() : '',
                     label: getRateLabel(rate),
                     base: baseValue,

@@ -135,6 +135,17 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
         width: 22%;
     }
 
+    #classifyModal.vat-exempt-mode .classify-modal-vat-table td.col-iva-account .iva-account-field {
+        display: none;
+    }
+
+    #classifyModal.vat-exempt-mode .classify-modal-vat-table td.col-iva-account::after {
+        content: "N\00E3o dedut\00EDvel";
+        color: #73879c;
+        font-size: 12px;
+        font-style: italic;
+    }
+
     .classify-modal-vat-table .col-general-account {
         width: 21%;
     }
@@ -455,6 +466,10 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                     </p>
                                     <div id="classifyDocumentFieldsGrid" class="row"></div>
                                 </div>
+                            </div>
+                            <div id="classifyVatExemptNotice" class="alert alert-info py-2 mb-2 d-none" role="status">
+                                <i class="fa fa-info-circle"></i>
+                                Empresa isenta de IVA (art. 9.º CIVA): o IVA não é dedutível. Não é pedida conta de IVA e o valor total de cada linha (base + IVA) é lançado na Conta Geral.
                             </div>
                             <small class="text-muted d-block mb-2">Os valores apresentados na grelha correspondem ao que foi lido do QR Code ou ao que foi preenchido manualmente nos campos do documento.</small>
                             <div class="classify-modal-table-wrap">

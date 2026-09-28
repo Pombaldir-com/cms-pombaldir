@@ -1474,6 +1474,7 @@ function prepareImportRow(array $row): array {
     $payload = adjustAccountingRatesForDisplay($payload);
     $row['rate_payload'] = $payload;
     $row['rate_requirements'] = $requirements;
+    $row['vat_exempt'] = accountingRateSummariesAreVatExempt($summaries) ? '1' : '0';
     $row['cost_centers'] = normalizeCostCenters($row['cost_center'] ?? '');
     $row['cost_center_breakdowns'] = normalizeCostCenterBreakdowns($row['cost_center'] ?? '');
     $row['btn_class'] = determineClassificationButtonClass($requirements, $payload, $accountMetadata, $row['cost_centers']);
@@ -5230,6 +5231,7 @@ if ($action === 'data') {
                     . 'data-has-receipt-companion="' . htmlspecialchars((string) ($row['has_receipt_companion'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-acquirer="' . htmlspecialchars($row['field_B'] ?? '') . '" '
                     . 'data-acquirer-db="' . htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-vat-exempt="' . (($row['vat_exempt'] ?? '0') === '1' ? '1' : '0') . '" '
                     . 'data-doctype="' . htmlspecialchars($row['field_D'] ?? '') . '"' . $disabledAttr . '>' . $classifyLabel . '</button>';
             }
             if ($importType === 2) {
@@ -5528,6 +5530,7 @@ require_once __DIR__ . '/../header.php';
                                 data-has-receipt-companion="<?= htmlspecialchars((string) ($row['has_receipt_companion'] ?? '0'), ENT_QUOTES, 'UTF-8'); ?>"
                                 data-acquirer="<?= htmlspecialchars($row['field_B'] ?? ''); ?>"
                                 data-acquirer-db="<?= htmlspecialchars((string) ($row['acquirer_erp_database'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                data-vat-exempt="<?= (($row['vat_exempt'] ?? '0') === '1') ? '1' : '0'; ?>"
                                 data-doctype="<?= htmlspecialchars($row['field_D'] ?? ''); ?>" <?= $rowCanClassify ? '' : 'disabled title="Sem permissao"'; ?>><?= htmlspecialchars($classifyLabel); ?></button>
                     <?php endif; ?>
 
