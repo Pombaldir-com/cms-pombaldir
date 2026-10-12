@@ -5220,13 +5220,41 @@ function resolveClassificationTotalAccountForContext(array $metadata, string $re
     return trim((string) ($metadata['total_account'] ?? ''));
 }
 
+/**
+ * True when the document already has its own saved classification (some rate
+ * with a general or IVA account), i.e. the user has classified it before.
+ */
+function accountingAccountsHaveSavedClassification(array $accounts): bool {
+    foreach (sanitizeAccountInput($accounts) as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        if (trim((string) ($entry['general_account'] ?? '')) !== '' || trim((string) ($entry['iva_account'] ?? '')) !== '') {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isCustomAccountingRateKey(string $rate): bool {
+    return preg_match('/^custom_\d+$/', $rate) === 1;
+}
+
 function resolveDisplayClassificationAccounts(array $defaultAccounts, array $rowAccounts): array {
     $baseSanitized = sanitizeAccountInput($defaultAccounts);
     $rowSanitized = sanitizeAccountInput($rowAccounts);
     $allRates = array_values(array_unique(array_merge(array_keys($baseSanitized), array_keys($rowSanitized))));
+    // Linhas extra (custom_N) da regra partilhada do fornecedor so servem de
+    // ponto de partida a documentos ainda por classificar. Num documento ja
+    // gravado, as linhas que o utilizador removeu nao podem voltar a aparecer
+    // vindas da regra partilhada (ex: Recheio com 4x 312115 + 62675).
+    $rowIsClassified = accountingAccountsHaveSavedClassification($rowAccounts);
     $result = [];
 
     foreach ($allRates as $rate) {
+        if ($rowIsClassified && !array_key_exists($rate, $rowSanitized) && isCustomAccountingRateKey((string) $rate)) {
+            continue;
+        }
         $defaultEntry = $baseSanitized[$rate] ?? [];
         $rowEntry = $rowSanitized[$rate] ?? [];
         $entry = $defaultEntry;

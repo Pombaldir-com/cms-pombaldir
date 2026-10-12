@@ -2104,6 +2104,13 @@ if ($action === 'get') {
             unset($rowAccounts[$rate], $costCentersData[$rate]);
             unset($costCenterBreakdownsData[$rate]);
             unset($existingOriginal[$rate]);
+            // Excecao: as linhas extra (custom_N) nao sao uma conta aprendida por
+            // taxa, sao a disposicao de um documento concreto. Se ficarem na
+            // regra partilhada reaparecem em todos os documentos seguintes do
+            // fornecedor e o utilizador nunca se consegue livrar delas.
+            if (isCustomAccountingRateKey((string) $rate)) {
+                unset($classAccounts[$rate]);
+            }
         }
 
         foreach ($submittedOriginal as $rate => $values) {

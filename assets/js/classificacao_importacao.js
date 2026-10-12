@@ -8443,6 +8443,9 @@ window.addEventListener('load', function() {
 
     function restoreSavedRates() {
         var created = [];
+        var rowIsClassified = Object.keys(storedRowRates).some(function(rate) {
+            return hasAccountData(storedRowRates[rate]);
+        });
         Object.keys(storedRowRates).forEach(function(rate) {
             if (!rateHasStoredAccounts(rate) && !rateHasBaseValues(rate)) {
                 return;
@@ -8454,6 +8457,11 @@ window.addEventListener('load', function() {
         });
         Object.keys(storedDefaultRates).forEach(function(rate) {
             if (rateInputs[rate] || (!rateHasStoredAccounts(rate) && !rateHasBaseValues(rate))) {
+                return;
+            }
+            // Documento ja gravado: as linhas extra da regra partilhada do
+            // fornecedor nao voltam a aparecer (ver resolveDisplayClassificationAccounts()).
+            if (rowIsClassified && /^custom_\d+$/.test(rate) && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
                 return;
             }
             var info = addVatRowForRate(rate);
