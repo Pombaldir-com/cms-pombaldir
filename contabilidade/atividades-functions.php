@@ -64,7 +64,7 @@ function sanitizeActivityNotes(string $html): string {
  * Valida o valor do campo adicional de uma linha consoante o tipo da categoria.
  * Devolve [valor normalizado, erro].
  */
-function normalizeActivityExtraValue(string $type, string $raw, string $label): array {
+function normalizeActivityExtraValue(string $type, string $raw, string $label, bool $quarterly = false): array {
     $raw = trim($raw);
     $label = $label !== '' ? $label : 'campo adicional';
     if ($type === 'none') {
@@ -75,6 +75,13 @@ function normalizeActivityExtraValue(string $type, string $raw, string $label): 
     }
     switch ($type) {
         case 'month':
+            // Clientes com IVA trimestral indicam o trimestre (AAAA-Tn) em vez do mes.
+            if ($quarterly) {
+                if (!preg_match('/^\d{4}-T[1-4]$/', $raw)) {
+                    return ['', 'Trimestre inválido em ' . $label . '.'];
+                }
+                return [$raw, null];
+            }
             if (!preg_match('/^(\d{4})-(0[1-9]|1[0-2])$/', $raw)) {
                 return ['', 'Mês inválido em ' . $label . '.'];
             }
@@ -96,9 +103,31 @@ function normalizeActivityExtraValue(string $type, string $raw, string $label): 
     }
 }
 
+function isActivityQuarterValue(string $type, string $value): bool {
+    return $type === 'month' && preg_match('/^\d{4}-T[1-4]$/', $value) === 1;
+}
+
+/**
+ * Rotulo do campo adicional de uma linha: categorias de "Mes" gravadas para um
+ * cliente trimestral mostram "Trimestre".
+ */
+function activityExtraFieldLabel(string $type, string $label, bool $quarterly): string {
+    if ($type === 'month' && $quarterly && preg_match('/^m[eê]s$/iu', trim($label))) {
+        return 'Trimestre';
+    }
+    return $label;
+}
+
+function isActivityEntityQuarterly(array $entity): bool {
+    return (string) ($entity['vat_periodicity'] ?? '') === 'trimestral';
+}
+
 function formatActivityExtraValue(string $type, string $value): string {
     if ($value === '') {
         return '';
+    }
+    if (isActivityQuarterValue($type, $value)) {
+        return substr($value, -1) . '.º Trimestre ' . substr($value, 0, 4);
     }
     if ($type === 'month' && preg_match('/^(\d{4})-(\d{2})$/', $value, $m)) {
         $months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];

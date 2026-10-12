@@ -145,10 +145,11 @@ if ($action === 'list-data' && $_SERVER['REQUEST_METHOD'] === 'GET') {
 if ($action === 'search-clients' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     $term = trim((string) ($_GET['q'] ?? ''));
     $exact = trim((string) ($_GET['exact'] ?? ''));
+    $periodicitySelect = hasColumn('accounting_entities', 'vat_periodicity') ? ', vat_periodicity' : '';
     if ($exact !== '') {
         // Procura exata por codigo ou NIF (campos Codigo/NIF do formulario).
         $stmt = $pdo->prepare(
-            "SELECT id, name, nif, erp_client_code FROM accounting_entities
+            "SELECT id, name, nif, erp_client_code" . $periodicitySelect . " FROM accounting_entities
              WHERE entity_type = 'acquirer' AND (erp_client_code = ? OR nif = ?)
              ORDER BY name ASC LIMIT 2"
         );
@@ -156,7 +157,7 @@ if ($action === 'search-clients' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     } elseif (mb_strlen($term) >= 2) {
         $like = '%' . $term . '%';
         $stmt = $pdo->prepare(
-            "SELECT id, name, nif, erp_client_code FROM accounting_entities
+            "SELECT id, name, nif, erp_client_code" . $periodicitySelect . " FROM accounting_entities
              WHERE entity_type = 'acquirer' AND (name LIKE ? OR nif LIKE ? OR erp_client_code LIKE ?)
              ORDER BY name ASC LIMIT 30"
         );
@@ -173,6 +174,7 @@ if ($action === 'search-clients' && $_SERVER['REQUEST_METHOD'] === 'GET') {
             'name' => (string) $row['name'],
             'nif' => (string) ($row['nif'] ?? ''),
             'code' => $code,
+            'quarterly' => isActivityEntityQuarterly($row),
         ];
     }
     activityJson(['results' => $results]);
@@ -193,7 +195,8 @@ if ($action === 'save-activity' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $entityId = (int) ($_POST['entity_id'] ?? 0);
-    $stmt = $pdo->prepare("SELECT id, name, nif, erp_client_code FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
+    $periodicitySelect = hasColumn('accounting_entities', 'vat_periodicity') ? ', vat_periodicity' : '';
+    $stmt = $pdo->prepare("SELECT id, name, nif, erp_client_code" . $periodicitySelect . " FROM accounting_entities WHERE id = ? AND entity_type = 'acquirer' LIMIT 1");
     $stmt->execute([$entityId]);
     $entity = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$entity) {
@@ -228,7 +231,11 @@ if ($action === 'save-activity' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $category = $categories[$categoryId];
         $label = trim((string) $category['extra_field_label']) !== '' ? (string) $category['extra_field_label'] : (string) $category['title'];
-        [$value, $error] = normalizeActivityExtraValue((string) $category['extra_field_type'], (string) ($postedLine['value'] ?? ''), $label);
+        $quarterly = isActivityEntityQuarterly($entity);
+        if ($quarterly) {
+            $label = activityExtraFieldLabel((string) $category['extra_field_type'], $label, true);
+        }
+        [$value, $error] = normalizeActivityExtraValue((string) $category['extra_field_type'], (string) ($postedLine['value'] ?? ''), $label, $quarterly);
         if ($error !== null) {
             $fail($error);
         }
@@ -833,8 +840,17 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    function isQuarterlyClient() {
+        return !!(selectedClient && selectedClient.quarterly);
+    }
+
     function applyClient(item) {
+        var wasQuarterly = isQuarterlyClient();
         selectedClient = item || null;
+        // Mensal vs trimestral muda o campo "Mes"/"Trimestre" das linhas.
+        if (wasQuarterly !== isQuarterlyClient()) {
+            linesBox.querySelectorAll('.activity-line').forEach(renderLineFields);
+        }
         var card = document.getElementById('activity-client-card');
         card.classList.toggle('d-none', !item);
         if (item) {
@@ -856,8 +872,33 @@ document.addEventListener('DOMContentLoaded', function () {
         return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     }
 
+    function currentQuarter() {
+        var d = new Date();
+        return d.getFullYear() + '-T' + (Math.floor(d.getMonth() / 3) + 1);
+    }
+
+    // Clientes com IVA trimestral: o campo "Mes" passa a "Trimestre".
+    function quarterLabel(label) {
+        return /^m[eê]s$/i.test(String(label || '').trim()) || !label ? 'Trimestre' : label;
+    }
+
+    function quarterOptions(selected) {
+        var year = new Date().getFullYear();
+        var html = '';
+        for (var y = year + 1; y >= year - 2; y--) {
+            for (var q = 4; q >= 1; q--) {
+                var value = y + '-T' + q;
+                html += '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + q + '.º Trimestre ' + y + '</option>';
+            }
+        }
+        return html;
+    }
+
     function formatValue(type, value) {
         var m;
+        if (type === 'month' && (m = /^(\d{4})-T([1-4])$/.exec(value))) {
+            return m[2] + '.º Trimestre ' + m[1];
+        }
         if (type === 'month' && (m = /^(\d{4})-(\d{2})$/.exec(value))) {
             return monthNames[parseInt(m[2], 10) - 1] + ' ' + m[1];
         }
@@ -879,7 +920,11 @@ document.addEventListener('DOMContentLoaded', function () {
             extraBox.innerHTML = '<div class="activity-line-empty">Escolha uma categoria</div>';
             return;
         }
-        if (category.type !== 'none') {
+        if (category.type === 'month' && isQuarterlyClient()) {
+            extraBox.innerHTML = '<label class="act-field-label">' + escapeHtml(quarterLabel(category.label)) + '</label>'
+                + '<select class="form-select activity-line-value" name="lines[' + idx + '][value]">'
+                + quarterOptions(currentQuarter()) + '</select>';
+        } else if (category.type !== 'none') {
             var inputType = { month: 'month', date: 'date', number: 'number' }[category.type] || 'text';
             extraBox.innerHTML = '<label class="act-field-label">' + escapeHtml(category.label || 'Valor') + '</label>'
                 + '<input type="' + inputType + '" class="form-control activity-line-value" name="lines[' + idx + '][value]"'
@@ -991,7 +1036,8 @@ document.addEventListener('DOMContentLoaded', function () {
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i];
             if (line.category.type !== 'none' && line.value === '') {
-                return { message: 'Preencha ' + (line.category.label || 'o valor') + ' em ' + line.category.title + '.', focus: function (el) { return function () { el.focus(); }; }(line.input) };
+                var lineLabel = line.category.type === 'month' && isQuarterlyClient() ? quarterLabel(line.category.label) : line.category.label;
+                return { message: 'Preencha ' + (lineLabel || 'o valor') + ' em ' + line.category.title + '.', focus: function (el) { return function () { el.focus(); }; }(line.input) };
             }
             if (line.category.fixed_assets && line.fixed === null) {
                 return { message: 'Indique se houve venda de imobilizado em ' + line.category.title + '.', focus: function (el) { return function () { el.focus(); }; }(line.fixedInput) };
@@ -1278,7 +1324,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         <div>
                             <div class="act-line-title"><?= htmlspecialchars((string) $line['title']); ?></div>
                             <?php if ((string) $line['extra_field_label'] !== '' && $lineValue !== ''): ?>
-                            <div class="act-line-sub"><?= htmlspecialchars((string) $line['extra_field_label']); ?></div>
+                            <div class="act-line-sub"><?= htmlspecialchars(activityExtraFieldLabel((string) $line['extra_field_type'], (string) $line['extra_field_label'], isActivityQuarterValue((string) $line['extra_field_type'], (string) $line['value']))); ?></div>
                             <?php endif; ?>
                         </div>
                         <div class="act-line-value">
