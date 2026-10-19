@@ -92,6 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = $_POST['action'] ?? 'upload';
+    // Desligado quando o cliente ja submeteu o SAF-T a AT de forma autonoma:
+    // o ficheiro so alimenta o apuramento de IVA e as conferencias.
+    $submitToAt = ($_POST['submit_at'] ?? '1') !== '0';
 
     if ($action === 'upload_ajax') {
         // Envio sequencial (um ficheiro por pedido HTTP), para evitar limites
@@ -117,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId);
+        $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId, $submitToAt);
         if (!empty($uploadResult['foreign_sales']) && empty($_SESSION['saft_pending_dr_popup'])) {
             $_SESSION['saft_pending_dr_popup'] = [
                 'foreign_sales' => $uploadResult['foreign_sales'],
@@ -230,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $results = [];
             foreach ($uploadedFiles as $uploadedFile) {
-                $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId);
+                $uploadResult = saftHandleUpload($pdo, $uploadedFile, $resolveEntity, $userId, $submitToAt);
                 $uploadResult['file_name'] = (string) ($uploadedFile['name'] ?? '');
                 $results[] = $uploadResult;
                 // So a primeira empresa/periodo com vendas para o estrangeiro
@@ -545,6 +548,11 @@ require_once __DIR__ . '/../header.php';
                         <input type="hidden" name="csrf_token" id="saft-upload-csrf" value="<?= htmlspecialchars($csrfToken); ?>">
                         <input type="hidden" name="action" value="upload">
                         <input type="file" name="saft_file[]" accept=".xml,.zip,.gz" id="saft-file-input" multiple style="display: none;">
+                        <input type="hidden" name="submit_at" value="0">
+                        <div class="form-check form-switch mb-0" title="Desligar quando o cliente já submeteu o SAF-T à AT: o ficheiro é só usado para extrair os valores (apuramento de IVA e conferências)">
+                            <input class="form-check-input" type="checkbox" role="switch" name="submit_at" value="1" id="saft-submit-at" checked>
+                            <label class="form-check-label" for="saft-submit-at" style="font-size: 12.5px;">Submeter à AT</label>
+                        </div>
                         <button type="button" class="btn btn-primary btn-sm" id="saft-upload-trigger">
                             <i class="fa fa-upload"></i> Enviar SAF-T
                         </button>
@@ -651,10 +659,11 @@ require_once __DIR__ . '/../header.php';
                                                     $statusClass = $status === 'enviado' ? 'label-success'
                                                         : ($status === 'erro' ? 'label-danger'
                                                         : ($status === 'dispensado' ? 'label-default-outline'
-                                                        : ($status === 'teste' ? 'label-warning' : 'label-default')));
+                                                        : ($status === 'teste' ? 'label-warning'
+                                                        : ($status === 'importado' ? 'label-info' : 'label-default'))));
                                                     $statusLabel = $status === 'dispensado' ? 'Dispensado' : ucfirst($status);
                                                 ?>
-                                                <span class="label <?= $statusClass; ?>"><?= htmlspecialchars($statusLabel); ?></span>
+                                                <span class="label <?= $statusClass; ?>"<?= $status === 'importado' ? ' title="Valores extraídos; ficheiro não submetido à AT (envio feito pelo cliente)"' : ''; ?>><?= htmlspecialchars($statusLabel); ?></span>
                                             </td>
                                             <td>
                                                 <?php
@@ -1076,6 +1085,26 @@ document.addEventListener('DOMContentLoaded', function () {
     var saftUploadProgress = document.getElementById('saft-upload-progress');
     var saftUploadCsrfInput = document.getElementById('saft-upload-csrf');
     var saftUploadUrl = <?= json_encode(BASE_URL . 'contabilidade/tarefas/envio-saft'); ?>;
+    var saftSubmitAtInput = document.getElementById('saft-submit-at');
+    var saftSubmitAtStorageKey = 'saft_envio_submit_at';
+
+    if (saftSubmitAtInput) {
+        try {
+            if (localStorage.getItem(saftSubmitAtStorageKey) === '0') {
+                saftSubmitAtInput.checked = false;
+            }
+        } catch (e) {}
+        var syncSaftUploadLabel = function () {
+            saftUploadTrigger.innerHTML = saftSubmitAtInput.checked
+                ? '<i class="fa fa-upload"></i> Enviar SAF-T'
+                : '<i class="fa fa-download"></i> Importar SAF-T';
+        };
+        syncSaftUploadLabel();
+        saftSubmitAtInput.addEventListener('change', function () {
+            try { localStorage.setItem(saftSubmitAtStorageKey, saftSubmitAtInput.checked ? '1' : '0'); } catch (e) {}
+            syncSaftUploadLabel();
+        });
+    }
 
     if (saftUploadTrigger && saftFileInput) {
         saftUploadTrigger.addEventListener('click', function () {
@@ -1115,6 +1144,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 formData.append('csrf_token', saftUploadCsrfInput.value);
                 formData.append('action', 'upload_ajax');
                 formData.append('first', index === 0 ? '1' : '0');
+                formData.append('submit_at', saftSubmitAtInput && !saftSubmitAtInput.checked ? '0' : '1');
                 formData.append('saft_file', files[index]);
 
                 fetch(saftUploadUrl, { method: 'POST', body: formData })

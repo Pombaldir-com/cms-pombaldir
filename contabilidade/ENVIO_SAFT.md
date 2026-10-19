@@ -19,6 +19,14 @@ Art. 3.º do Decreto-Lei 198/2012.
   - `saft_java_bin` — binário Java a usar (por defeito `java`).
 - Cada envio fica registado em `accounting_saft_submissions`, incluindo a
   resposta da AT (código, totais, warning, id do ficheiro, erros e XML bruto).
+- Switch **"Submeter à AT"** junto ao botão de upload (ligado por defeito,
+  estado guardado no browser). Desligado — cliente que submete o SAF-T à AT
+  de forma autónoma — o ficheiro é arquivado e as faturas/totais extraídos
+  (para o apuramento de IVA, a Confirmação de Pasta e a Declaração
+  Recapitulativa), mas o FACTEMICLI não é chamado; o registo fica com o
+  estado `importado`. Equivale à checkbox "Enviar AT" desmarcada no legacy
+  (`data/gest_clientes.php`, que nesse caso só lia `SalesInvoices/TotalDebit`
+  e `TotalCredit`).
 
 ## Requisitos mínimos de utilização
 

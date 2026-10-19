@@ -323,7 +323,8 @@ require_once __DIR__ . '/header.php';
                                         $status = (string) ($submission['status'] ?? 'registado');
                                         $statusClass = $status === 'enviado' ? 'label-success'
                                             : ($status === 'erro' ? 'label-danger'
-                                            : ($status === 'teste' ? 'label-warning' : 'label-default'));
+                                            : ($status === 'teste' ? 'label-warning'
+                                            : ($status === 'importado' ? 'label-info' : 'label-default')));
                                     ?>
                                     <span class="label <?= $statusClass; ?>"><?= htmlspecialchars(ucfirst($status)); ?></span>
                                 </td>

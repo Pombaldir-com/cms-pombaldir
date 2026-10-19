@@ -679,9 +679,14 @@ function saftRunFactemicli(
  * vem preenchido, o upload e abortado com essa mensagem; quando 'entity' e
  * null sem 'error', usa-se uma mensagem generica de "empresa nao encontrada".
  *
+ * Com $submitToAt = false (cliente que submete o SAF-T a AT de forma
+ * autonoma) o ficheiro e apenas arquivado e os valores extraidos, para
+ * alimentar o apuramento de IVA e as conferencias, sem o reenviar a AT
+ * (estado "importado"). Equivale a opcao "Enviar AT" desmarcada no legacy.
+ *
  * @return array{feedback: array{type:string,message:string}, submission_id: ?int}
  */
-function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity, ?int $userId): array {
+function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity, ?int $userId, bool $submitToAt = true): array {
     if (($uploadedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         return ['feedback' => ['type' => 'danger', 'message' => 'Selecione um ficheiro SAF-T válido.'], 'submission_id' => null];
     }
@@ -796,7 +801,19 @@ function saftHandleUpload(PDO $pdo, array $uploadedFile, callable $resolveEntity
     $credential = saftGetEntityPortalCredential($pdo, $entityId);
     $feedback = null;
 
-    if ($testMode) {
+    if (!$submitToAt) {
+        $pdo->prepare('UPDATE accounting_saft_submissions SET status = ? WHERE id = ?')
+            ->execute(['importado', $submissionId]);
+        if ($extracted === null) {
+            $feedback = ['type' => 'warning', 'message' => 'Ficheiro registado (sem envio à AT), mas não foi possível extrair os valores do SAF-T.'];
+        } else {
+            $feedback = ['type' => 'success', 'message' => 'Valores extraídos do SAF-T ('
+                . (int) ($extracted['number_of_entries'] ?? count($extracted['invoices'] ?? [])) . ' faturas · Débito: '
+                . number_format((float) ($extracted['total_debit'] ?? 0), 2, ',', '.') . ' · Crédito: '
+                . number_format((float) ($extracted['total_credit'] ?? 0), 2, ',', '.')
+                . '). O ficheiro não foi submetido à AT.'];
+        }
+    } elseif ($testMode) {
         $pdo->prepare('UPDATE accounting_saft_submissions SET status = ? WHERE id = ?')
             ->execute(['teste', $submissionId]);
         $feedback = ['type' => 'info', 'message' => 'Modo teste ativo: o ficheiro foi registado mas não foi enviado à AT.'];

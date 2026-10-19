@@ -178,7 +178,8 @@ function matchFolderTapeValues(array $tapeValues, array $docs): array {
 /**
  * Totais do SAF-T do mes submetido na tarefa "Envio de SAF-T"
  * (accounting_saft_submissions), preferindo a ultima submissao aceite pela
- * AT. No legacy vinham dos campos adicionais 7 (debito) e 8 (credito) do
+ * AT ou importada sem envio (cliente que submete o SAF-T a AT de forma
+ * autonoma). No legacy vinham dos campos adicionais 7 (debito) e 8 (credito) do
  * ficheiro SAF-T carregado na ficha do cliente.
  *
  * @return array{found:bool,debit:float,credit:float,submission_id:?int,created_at:?string}
@@ -193,7 +194,7 @@ function fetchFolderSaftTotals(PDO $pdo, int $entityId, int $year, int $month): 
          FROM accounting_saft_submissions
          WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ?
            AND saft_total_debit IS NOT NULL
-         ORDER BY (status = 'enviado') DESC, id DESC
+         ORDER BY (status IN ('enviado', 'importado')) DESC, id DESC
          LIMIT 1"
     );
     $stmt->execute([$entityId, $year, $month]);
