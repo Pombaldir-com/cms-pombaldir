@@ -288,17 +288,17 @@ foreach ($sidebarTypes as $sidebarType):
                             <li>
                                 <a><i class="fa fa-check-square-o"></i> Tarefas <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
-<?php if (userHasAccountingEntityTaskPermission('ctb_envio_saft')): ?>
-                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-saft">Envio de SAF-T</a></li>
+<?php if (userHasAccountingEntityTaskPermission('ctb_confirmacao_pasta')): ?>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/confirmacao-pasta">Confirmação de Pasta</a></li>
 <?php endif; ?>
 <?php if (userHasAccountingEntityTaskPermission('ctb_apuramento_iva')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/tarefas/apuramento-iva">Apuramento de IVA</a></li>
 <?php endif; ?>
+<?php if (userHasAccountingEntityTaskPermission('ctb_envio_saft')): ?>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-saft">Envio de SAF-T</a></li>
+<?php endif; ?>
 <?php if (userHasAccountingEntityTaskPermission('ctb_envio_dp_iva')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-dp-iva">Envio DP IVA</a></li>
-<?php endif; ?>
-<?php if (userHasAccountingEntityTaskPermission('ctb_confirmacao_pasta')): ?>
-                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/confirmacao-pasta">Confirmação de Pasta</a></li>
 <?php endif; ?>
                                 </ul>
                             </li>

@@ -27,6 +27,7 @@ This repository contains a PHP-based CMS with a custom router and Apache rewrite
 ## Tarefas
 - Cada página de tarefa (menu Tarefas, ex.: `contabilidade/tarefas/envio-saft`) que tenha configurações próprias (parâmetros específicos da tarefa, não as permissões de acesso por empresa) deve expor um botão/ícone de configurações no canto superior direito do cabeçalho `x_title` da página, abrindo um modal Gentelella.
 - Esse botão/modal de configurações só é visível para utilizadores admin/superadmin (`role <= 2`); colaboradores com permissão de acesso à tarefa (`userHasAccountingEntityTaskPermission`) não veem o botão de configurações.
+- A ordem dos itens no menu Tarefas (`header.php`) segue a ordem das fases na intranet legacy (`workflow_fases.ordem` da base `intranet_zcontasintranet`): Classificação da Pasta, Lançamento de docs (= Confirmação de Pasta), Organização da Pasta, Conferências (cx/bancos), Apuramento IVA, Contacto Cliente, Envio SAFT, Imobilizado, Retenção na Fonte, Processamento salários, Integração SLR na CTB, Integração SAFT na CTB, Entrega Guia RF, Envio de Ficheiros, Envio DP IVA, Envio IUC, Envio Guia RF, Entrega guia IVA, Entrega recibos salários, Envio ficheiro SS, Envio DMR, Entrega Guia SS. Ao portar uma nova tarefa, inseri-la na posição correspondente.
 
 ## Assets
 - Carregar apenas os scripts/estilos necessários por rota (ex.: DataTables/Dropzone/Select2/Modal OCR).
