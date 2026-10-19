@@ -136,11 +136,18 @@ require_once __DIR__ . '/../header.php';
                         height: 30px; padding: 4px 8px; font-size: 13px; line-height: 1.4;
                         width: auto; min-width: 130px; box-sizing: border-box;
                     }
+                    .iva-periodicity-field input[type="search"] {
+                        height: 30px; padding: 4px 8px; font-size: 13px; width: 200px; box-sizing: border-box;
+                    }
                 </style>
                 <ul class="nav navbar-right panel_toolbox iva-title-toolbox">
                     <?php if ($entities):
                         $currentYear = (int) date('Y');
                     ?>
+                    <li class="iva-periodicity-field">
+                        <label for="cpasta-name-filter">Empresa</label>
+                        <input type="search" id="cpasta-name-filter" class="form-control" placeholder="Nome ou NIF" autocomplete="off">
+                    </li>
                     <li class="iva-periodicity-field">
                         <label for="cpasta-global-year">Ano</label>
                         <select id="cpasta-global-year" class="form-control">
@@ -206,7 +213,7 @@ require_once __DIR__ . '/../header.php';
                 <?php foreach ($entities as $entityRow):
                     $entityId = (int) $entityRow['id'];
                 ?>
-                <div class="iva-entity-panel cpasta-entity-section" data-closed-periods="<?= htmlspecialchars(implode(',', $closedPeriodsByEntity[$entityId] ?? [])); ?>">
+                <div class="iva-entity-panel cpasta-entity-section" data-search="<?= htmlspecialchars((string) $entityRow['name'] . ' ' . (string) $entityRow['nif']); ?>" data-closed-periods="<?= htmlspecialchars(implode(',', $closedPeriodsByEntity[$entityId] ?? [])); ?>">
                     <div class="iva-entity-header">
                         <span class="iva-entity-name">
                             <?= htmlspecialchars((string) $entityRow['name']); ?>
@@ -223,6 +230,7 @@ require_once __DIR__ . '/../header.php';
                 </div>
                 <?php endforeach; ?>
                 </div>
+                <div class="alert alert-info cpasta-no-match" style="display: none;">Nenhuma empresa corresponde ao filtro.</div>
                 <?php endif; ?>
 
                 <div class="iva-history-panel">
@@ -251,7 +259,7 @@ require_once __DIR__ . '/../header.php';
                                     <?php foreach ($history as $row):
                                         $rowEntity = $entitiesById[(int) $row['accounting_entity_id']] ?? null;
                                     ?>
-                                    <tr>
+                                    <tr class="cpasta-history-row" data-search="<?= htmlspecialchars((string) ($rowEntity['name'] ?? '') . ' ' . (string) ($rowEntity['nif'] ?? '')); ?>">
                                         <td><?= htmlspecialchars((string) ($rowEntity['name'] ?? '—')); ?></td>
                                         <td><?= htmlspecialchars((string) $row['period_label']); ?></td>
                                         <td>
@@ -340,6 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var yearSelect = document.getElementById('cpasta-global-year');
     var monthSelect = document.getElementById('cpasta-global-month');
     var stateFilter = document.getElementById('cpasta-state-filter');
+    var nameFilter = document.getElementById('cpasta-name-filter');
     var monthNames = <?= json_encode($monthNames, JSON_UNESCAPED_UNICODE); ?>;
 
     function selectedPeriod() {
@@ -349,24 +358,41 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
+    // Pesquisa sem distinguir maiusculas/acentos, por nome ou NIF.
+    function normalizeSearch(value) {
+        return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    }
+
     function applyGlobalPeriod() {
         var period = selectedPeriod();
         var label = period.year + '-' + ('0' + period.ref).slice(-2);
         var filter = stateFilter ? stateFilter.value : '';
-        document.querySelectorAll('.cpasta-entity-section').forEach(function (section) {
+        var term = normalizeSearch(nameFilter ? nameFilter.value : '');
+        var sections = document.querySelectorAll('.cpasta-entity-section');
+        var visibleCount = 0;
+        sections.forEach(function (section) {
             var closed = (section.dataset.closedPeriods || '').split(',').indexOf(label) !== -1;
             section.querySelector('.iva-entity-header').classList.toggle('iva-entity-header-closed', closed);
             section.querySelector('.cpasta-closed-badge').style.display = closed ? '' : 'none';
             var display = section.querySelector('.cpasta-period-display');
             display.textContent = monthNames[parseInt(period.ref, 10)] + ' ' + period.year;
             display.style.display = closed ? 'none' : '';
-            section.style.display = (filter === '' || (filter === 'closed') === closed) ? '' : 'none';
+            var isVisible = (filter === '' || (filter === 'closed') === closed)
+                && (term === '' || normalizeSearch(section.dataset.search).indexOf(term) !== -1);
+            section.style.display = isVisible ? '' : 'none';
+            if (isVisible) { visibleCount++; }
         });
+        document.querySelectorAll('.cpasta-history-row').forEach(function (row) {
+            row.style.display = (term === '' || normalizeSearch(row.dataset.search).indexOf(term) !== -1) ? '' : 'none';
+        });
+        var noMatch = document.querySelector('.cpasta-no-match');
+        if (noMatch) { noMatch.style.display = (sections.length > 0 && visibleCount === 0) ? '' : 'none'; }
     }
 
     [yearSelect, monthSelect, stateFilter].forEach(function (el) {
         if (el) { el.addEventListener('change', applyGlobalPeriod); }
     });
+    if (nameFilter) { nameFilter.addEventListener('input', applyGlobalPeriod); }
     applyGlobalPeriod();
 
     var detailUrl = '<?= BASE_URL; ?>contabilidade/tarefas/confirmacao-pasta/detalhes';
