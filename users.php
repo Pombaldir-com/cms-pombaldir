@@ -47,76 +47,108 @@ if ($action === 'list') {
         $users = array_filter($users, fn($u) => $u['id'] !== 1);
     }
     $useSelect2 = false;
+    $useDataTables = true;
     require_once __DIR__ . '/header.php';
+    $roleLabels = [
+        1 => ['Superadmin', 'label-danger'],
+        2 => ['Administrador', 'label-warning'],
+        3 => ['Utilizador', 'label-default'],
+    ];
     ?>
-<div class="container-fluid users-page">
-    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
-        <div>
-            <h2 class="mb-1">Utilizadores</h2>
-            <p class="mb-0 text-muted">Gestão de acessos e perfis do CMS.</p>
-        </div>
-        <a href="<?= BASE_URL ?>users/add" class="btn btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+<div class="page-title">
+    <div class="title_left">
+        <h3>Utilizadores <small>Gestão de acessos e perfis</small></h3>
     </div>
-    <?php foreach ($listErrors as $err): ?>
-        <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
-    <?php endforeach; ?>
-    <div class="x_panel">
-        <div class="x_title">
-            <h2><i class="fa fa-users"></i> Lista de utilizadores</h2>
-            <div class="pull-right">
-                <a href="<?= BASE_URL ?>users/add" class="btn btn-sm btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+</div>
+<div class="clearfix"></div>
+
+<?php foreach ($listErrors as $err): ?>
+<div class="alert alert-danger alert-dismissible" role="alert">
+    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Fechar"><span aria-hidden="true">&times;</span></button>
+    <?= htmlspecialchars($err); ?>
+</div>
+<?php endforeach; ?>
+<?php if ($usersFlash = pullSessionFlash('users')): ?>
+<div class="alert alert-<?= htmlspecialchars((string) ($usersFlash['type'] ?? 'info')); ?> alert-dismissible" role="alert">
+    <button type="button" class="close" data-bs-dismiss="alert" aria-label="Fechar"><span aria-hidden="true">&times;</span></button>
+    <?= htmlspecialchars((string) ($usersFlash['message'] ?? '')); ?>
+</div>
+<?php endif; ?>
+
+<div class="row">
+    <div class="col-md-12">
+        <div class="x_panel">
+            <div class="x_title">
+                <h2><i class="fa fa-users"></i> Lista de utilizadores <small><?= count($users); ?> registo<?= count($users) === 1 ? '' : 's'; ?></small></h2>
+                <ul class="nav navbar-right panel_toolbox" style="min-width: auto;">
+                    <li>
+                        <a href="<?= BASE_URL ?>users/add" class="btn btn-success btn-sm" style="color: #fff;"><i class="fa fa-plus"></i> Adicionar utilizador</a>
+                    </li>
+                </ul>
+                <div class="clearfix"></div>
             </div>
-            <div class="clearfix"></div>
-        </div>
-        <div class="x_content">
-            <table class="table table-striped jambo_table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Utilizador</th>
-                        <th>Nome</th>
-                        <th>Departamentos</th>
-                        <th>Nível</th>
-                        <th class="text-end">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php foreach ($users as $u): ?>
-                    <?php
-                        switch ($u['role']) {
-                            case 1:
-                                $roleLabel = 'Superadmin';
-                                $roleBadge = 'bg-danger';
-                                break;
-                            case 2:
-                                $roleLabel = 'Administrador';
-                                $roleBadge = 'bg-warning text-dark';
-                                break;
-                            default:
-                                $roleLabel = 'Utilizador';
-                                $roleBadge = 'bg-secondary';
+            <div class="x_content">
+                <style>
+                    .users-avatar {
+                        display: inline-flex; align-items: center; justify-content: center;
+                        width: 32px; height: 32px; border-radius: 50%; margin-right: 10px;
+                        background: #2a3f54; color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0;
+                    }
+                    .users-identity { display: flex; align-items: center; }
+                    .users-identity strong { color: #2a3f54; display: block; line-height: 1.2; }
+                    .users-identity small { color: #73879c; }
+                    .users-table td { vertical-align: middle !important; }
+                    .users-actions { white-space: nowrap; text-align: right; }
+                    .users-actions form { display: inline; }
+                    .users-actions .btn { margin: 0 0 0 4px; }
+                </style>
+                <table class="table table-striped table-hover users-table datatable" data-order-column="0" data-order-dir="asc" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Utilizador</th>
+                            <th>E-mail</th>
+                            <th>Departamentos</th>
+                            <th>Nível</th>
+                            <th data-orderable="false"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($users as $u):
+                        [$roleLabel, $roleClass] = $roleLabels[(int) $u['role']] ?? $roleLabels[3];
+                        $displayName = trim((string) ($u['name'] ?? '')) !== '' ? (string) $u['name'] : (string) $u['username'];
+                        $initials = '';
+                        foreach (array_slice(preg_split('/\s+/', trim($displayName)) ?: [], 0, 2) as $part) {
+                            $initials .= mb_strtoupper(mb_substr($part, 0, 1));
                         }
                     ?>
-                    <tr>
-                        <td><?= $u['id']; ?></td>
-                        <td><?= htmlspecialchars($u['username']); ?></td>
-                        <td><?= htmlspecialchars($u['name'] ?? ''); ?></td>
-                        <td><?= htmlspecialchars($u['department_names'] ?? '-'); ?></td>
-                        <td><span class="badge <?= $roleBadge; ?>"><?= $roleLabel; ?></span></td>
-                        <td class="text-end">
-                            <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-sm btn-secondary"><i class="fa fa-pencil"></i> Editar</a>
-                            <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
-                            <form method="post" action="<?= BASE_URL ?>users" class="d-inline">
-                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-                                <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
-                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Eliminar utilizador?');"><i class="fa fa-trash"></i> Eliminar</button>
-                            </form>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
+                        <tr>
+                            <td data-order="<?= htmlspecialchars(mb_strtolower($displayName)); ?>">
+                                <div class="users-identity">
+                                    <span class="users-avatar"><?= htmlspecialchars($initials); ?></span>
+                                    <div>
+                                        <strong><?= htmlspecialchars($displayName); ?></strong>
+                                        <small><?= htmlspecialchars($u['username']); ?></small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><?= !empty($u['email']) ? '<a href="mailto:' . htmlspecialchars($u['email']) . '">' . htmlspecialchars($u['email']) . '</a>' : '<span class="text-muted">—</span>'; ?></td>
+                            <td><?= !empty($u['department_names']) ? htmlspecialchars($u['department_names']) : '<span class="text-muted">—</span>'; ?></td>
+                            <td data-order="<?= (int) $u['role']; ?>"><span class="label <?= $roleClass; ?>"><?= $roleLabel; ?></span></td>
+                            <td class="users-actions">
+                                <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-primary btn-xs" title="Editar"><i class="fa fa-pencil"></i> Editar</a>
+                                <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
+                                <form method="post" action="<?= BASE_URL ?>users">
+                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+                                    <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
+                                    <button type="submit" class="btn btn-danger btn-xs" title="Eliminar" onclick="return confirm('Eliminar o utilizador <?= htmlspecialchars(addslashes($displayName), ENT_QUOTES); ?>?');"><i class="fa fa-trash"></i></button>
+                                </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -169,8 +201,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'department_term_ids' => $departmentTermIds,
     ];
 
-    if (!$editing && $password === '') {
-        $errors[] = 'A password é obrigatória.';
+    // Convite por e-mail (link para o utilizador definir a password): por
+    // defeito ao criar; na edicao serve para reenviar o acesso.
+    $sendInvite = !$selfEdit && !empty($_POST['send_invite']);
+    if ($sendInvite && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'Para enviar o convite indique um e-mail válido.';
+    }
+
+    if (!$editing && $password === '' && !$sendInvite) {
+        $errors[] = 'A password é obrigatória (ou envie o convite por e-mail para o utilizador a definir).';
     }
 
     if ($password !== '') {
@@ -246,9 +285,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($editing) {
             $hash = $password !== '' ? password_hash($password, PASSWORD_DEFAULT) : null;
             updateUser($id, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds, $aiChatFloating, $aiReadOnly);
+            $savedUserId = (int) $id;
         } else {
-            $hash = password_hash($password, PASSWORD_DEFAULT);
-            createUser($username, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds, $aiChatFloating, $aiReadOnly);
+            // Sem password definida pelo admin: hash aleatorio inutilizavel
+            // ate o utilizador a definir pelo link do convite.
+            $hash = password_hash($password !== '' ? $password : bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
+            $savedUserId = createUser($username, $hash, $name, $email, $phone, $role, $photoPath, $departmentTermIds, $aiChatFloating, $aiReadOnly);
+        }
+        if ($sendInvite) {
+            try {
+                $sentTo = sendUserInvitationEmail($savedUserId);
+                setSessionFlash('users', ['type' => 'success', 'message' => 'Convite enviado para ' . $sentTo . '.']);
+            } catch (Throwable $e) {
+                setSessionFlash('users', ['type' => 'warning', 'message' => 'Utilizador guardado, mas o convite não foi enviado: ' . $e->getMessage()]);
+            }
         }
         $redirect = $profileMode ? 'users/profile' : 'users';
         header('Location: ' . BASE_URL . $redirect);
@@ -257,191 +307,204 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $useSelect2 = true;
+$useSwitchery = true;
 require_once __DIR__ . '/header.php';
+$appLogo = getSetting('app_logo', '');
+if ($appLogo && !file_exists(__DIR__ . '/' . $appLogo)) {
+    $appLogo = '';
+}
+$canManageUsers = ((int) (currentUser()['role'] ?? 3)) <= 2;
 ?>
-<div class="container-fluid users-page">
-    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-3">
-        <div>
-            <h2 class="mb-1"><?= $editing ? 'Editar utilizador' : 'Adicionar utilizador'; ?></h2>
-            <p class="mb-0 text-muted"><?= $profileMode ? 'Atualize os seus dados e foto.' : 'Gerir dados e permissoes do utilizador.'; ?></p>
-        </div>
-        <?php if ($profileMode && ($user['role'] ?? 3) <= 2): ?>
-        <div class="d-flex flex-column flex-sm-row gap-2">
-            <a href="<?= BASE_URL ?>users" class="btn btn-outline-secondary"><i class="fa fa-users"></i> Utilizadores</a>
-            <a href="<?= BASE_URL ?>users/add" class="btn btn-primary"><i class="fa fa-plus"></i> Adicionar utilizador</a>
-        </div>
-        <?php endif; ?>
-        <?php if (!$profileMode): ?>
-        <a href="<?= BASE_URL ?>users" class="btn btn-outline-secondary"><i class="fa fa-arrow-left"></i> Voltar</a>
+<div class="page-title">
+    <div class="title_left">
+        <h3>
+            <?= $profileMode ? 'O meu perfil' : ($editing ? 'Editar utilizador' : 'Adicionar utilizador'); ?>
+            <small><?= $editing ? htmlspecialchars($userData['username']) : 'Novo acesso à aplicação'; ?></small>
+        </h3>
+    </div>
+    <div class="title_right" style="text-align: right;">
+        <?php if (!$profileMode || $canManageUsers): ?>
+        <a href="<?= BASE_URL ?>users" class="btn btn-default btn-sm"><i class="fa fa-arrow-left"></i> Utilizadores</a>
         <?php endif; ?>
     </div>
+</div>
+<div class="clearfix"></div>
+
+<?php if ($errors): ?>
+<div class="alert alert-danger" role="alert">
     <?php foreach ($errors as $err): ?>
-        <div class="alert alert-danger" role="alert"><?= htmlspecialchars($err); ?></div>
+        <div><i class="fa fa-exclamation-triangle"></i> <?= htmlspecialchars($err); ?></div>
     <?php endforeach; ?>
-    <form method="post" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
-        <div class="row g-4">
-            <div class="col-12 col-lg-8">
-                <div class="x_panel">
-                    <div class="x_title">
-                        <h2><i class="fa fa-id-card"></i> Dados principais</h2>
-                        <div class="clearfix"></div>
-                    </div>
-                    <div class="x_content">
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Utilizador</label>
+</div>
+<?php endif; ?>
+
+<form method="post" enctype="multipart/form-data" class="form-horizontal form-label-left users-form">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken); ?>">
+    <div class="row">
+        <div class="col-md-8 col-sm-12">
+            <div class="x_panel">
+                <div class="x_title">
+                    <h2><i class="fa fa-user"></i> Dados principais</h2>
+                    <div class="clearfix"></div>
+                </div>
+                <div class="x_content">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="username" class="form-label">Utilizador <?= $editing ? '' : '<span class="text-danger">*</span>'; ?></label>
                             <?php if ($editing): ?>
                                 <input type="text" class="form-control" id="username" value="<?= htmlspecialchars($userData['username']); ?>" disabled>
                             <?php else: ?>
-                                <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required>
+                                <input type="text" class="form-control" id="username" name="username" value="<?= htmlspecialchars($userData['username']); ?>" required autocomplete="off">
                             <?php endif; ?>
                         </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="name" class="form-label">Nome</label>
-                                <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="email" class="form-label">E-mail</label>
-                                <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
-                            </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="name" class="form-label">Nome</label>
+                            <input type="text" class="form-control" id="name" name="name" value="<?= htmlspecialchars($userData['name']); ?>">
                         </div>
-                        <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <label for="phone" class="form-label">Telefone</label>
-                                <input type="text" class="form-control" id="phone" name="phone" value="<?= htmlspecialchars($userData['phone']); ?>">
-                            </div>
-                            <?php if (!$selfEdit): ?>
-                            <div class="col-md-4 mb-3">
-                                <label for="department_term_ids" class="form-label">Departamentos</label>
-                                <select class="form-control js-departments" id="department_term_ids" name="department_term_ids[]" multiple>
-                                    <?php foreach ($departments as $department): ?>
-                                        <?php
-                                            $termId = (int) $department['id'];
-                                            $isSelected = in_array($termId, $userData['department_term_ids'] ?? [], true);
-                                        ?>
-                                        <option value="<?= $termId; ?>" <?= $isSelected ? 'selected' : ''; ?>>
-                                            <?= htmlspecialchars($department['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                        <div class="col-md-6 mb-3">
+                            <label for="email" class="form-label">E-mail</label>
+                            <input type="email" class="form-control" id="email" name="email" value="<?= htmlspecialchars($userData['email']); ?>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="phone" class="form-label">Telefone</label>
+                            <input type="text" class="form-control" id="phone" name="phone" value="<?= htmlspecialchars($userData['phone']); ?>">
+                        </div>
+                        <?php if (!$selfEdit): ?>
+                        <div class="col-md-6 mb-3">
+                            <label for="role" class="form-label">Nível</label>
+                            <?php if ($editing && $id == 1): ?>
+                                <input type="text" class="form-control" value="Superadmin" disabled>
+                                <input type="hidden" name="role" value="1">
+                            <?php else: ?>
+                                <select class="form-control" id="role" name="role">
+                                    <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
+                                    <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
+                                    <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
                                 </select>
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label for="role" class="form-label">Nível</label>
-                                <?php if ($editing && $id == 1): ?>
-                                    <input type="text" class="form-control" value="Superadmin" disabled>
-                                    <input type="hidden" name="role" value="1">
-                                <?php else: ?>
-                                    <select class="form-control" id="role" name="role">
-                                        <option value="1" <?= $userData['role'] == 1 ? 'selected' : ''; ?>>Superadmin</option>
-                                        <option value="2" <?= $userData['role'] == 2 ? 'selected' : ''; ?>>Administrador</option>
-                                        <option value="3" <?= $userData['role'] == 3 ? 'selected' : ''; ?>>Utilizador</option>
-                                    </select>
-                                <?php endif; ?>
-                            </div>
                             <?php endif; ?>
                         </div>
-                    </div>
-                </div>
-                <div class="x_panel">
-                    <div class="x_title">
-                        <h2><i class="fa fa-lock"></i> Seguranca</h2>
-                        <div class="clearfix"></div>
-                    </div>
-                    <div class="x_content">
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="password" class="form-label">Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
-                                <input type="password" class="form-control" id="password" name="password" <?= $editing ? '' : 'required'; ?>>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="password_confirm" class="form-label">Confirmar Password <?= $editing ? '(deixe em branco para manter)' : ''; ?></label>
-                                <input type="password" class="form-control" id="password_confirm" name="password_confirm" <?= $editing ? '' : 'required'; ?>>
-                            </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="department_term_ids" class="form-label">Departamentos</label>
+                            <select class="form-control js-departments" id="department_term_ids" name="department_term_ids[]" multiple>
+                                <?php foreach ($departments as $department):
+                                    $termId = (int) $department['id'];
+                                    $isSelected = in_array($termId, $userData['department_term_ids'] ?? [], true);
+                                ?>
+                                    <option value="<?= $termId; ?>" <?= $isSelected ? 'selected' : ''; ?>><?= htmlspecialchars($department['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
-                        <div class="text-muted small">Use pelo menos 8 caracteres com maiusculas, minusculas e numeros.</div>
-                    </div>
-                </div>
-                <div class="x_panel">
-                    <div class="x_title">
-                        <h2><i class="fa fa-robot"></i> Assistente AI</h2>
-                        <div class="clearfix"></div>
-                    </div>
-                    <div class="x_content">
-                        <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="ai_chat_floating" name="ai_chat_floating" value="1" <?= !empty($userData['ai_chat_floating']) ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="ai_chat_floating">Chat flutuante ativo</label>
-                        </div>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="ai_read_only" name="ai_read_only" value="1" <?= !empty($userData['ai_read_only']) ? 'checked' : ''; ?>>
-                            <label class="form-check-label" for="ai_read_only">Modo seguro (apenas leitura)</label>
-                        </div>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar</button>
-            </div>
-            <div class="col-12 col-lg-4">
-                <div class="x_panel">
-                    <div class="x_title">
-                        <h2><i class="fa fa-camera"></i> Foto</h2>
-                        <div class="clearfix"></div>
-                    </div>
-                    <div class="x_content">
-                        <?php
-                            $appLogo = getSetting('app_logo', '');
-                            if ($appLogo && !file_exists(__DIR__ . '/' . $appLogo)) {
-                                $appLogo = '';
-                            }
-                        ?>
-                        <?php if (!empty($userData['photo'])):
-                            $photo = $userData['photo'];
-                            if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
-                                $photo = 'uploads/' . $slug . '/' . ltrim($photo, '/');
-                            }
-                        ?>
-                            <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-thumbnail mb-2 avatar-preview">
-                        <?php elseif (!empty($appLogo)): ?>
-                            <img src="<?= htmlspecialchars($appLogo); ?>" alt="" class="img-thumbnail mb-2 avatar-preview">
-                        <?php else: ?>
-                            <div class="avatar-placeholder mb-2">
-                                <i class="fa fa-user"></i>
-                            </div>
                         <?php endif; ?>
-                        <label for="photo" class="form-label">Carregar foto</label>
-                        <input type="file" class="form-control" id="photo" name="photo">
-                        <div class="text-muted small mt-2">Formatos aceites: JPG ou PNG ate 2 MB.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="x_panel">
+                <div class="x_title">
+                    <h2><i class="fa fa-lock"></i> Acesso</h2>
+                    <div class="clearfix"></div>
+                </div>
+                <div class="x_content">
+                    <?php if (!$selfEdit):
+                        $inviteChecked = $_SERVER['REQUEST_METHOD'] === 'POST' ? !empty($_POST['send_invite']) : !$editing;
+                    ?>
+                    <div class="users-switch-row">
+                        <input type="checkbox" class="js-switch" id="send_invite" name="send_invite" value="1" <?= $inviteChecked ? 'checked' : ''; ?>>
+                        <div>
+                            <label><?= $editing ? 'Reenviar acesso por e-mail' : 'Enviar convite por e-mail'; ?></label>
+                            <p class="text-muted">
+                                Envia o NIF da empresa, o nome de utilizador e um link (válido 7 dias) para o utilizador definir a password.
+                                <?= $editing ? '' : 'Com o convite ativo, a password abaixo é opcional.'; ?>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="ln_solid"></div>
+                    <?php endif; ?>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="password" name="password" autocomplete="new-password" placeholder="<?= $editing ? 'Deixe em branco para manter' : ''; ?>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="password_confirm" class="form-label">Confirmar password</label>
+                            <input type="password" class="form-control" id="password_confirm" name="password_confirm" autocomplete="new-password" placeholder="<?= $editing ? 'Deixe em branco para manter' : ''; ?>">
+                        </div>
+                    </div>
+                    <p class="text-muted" style="margin: 0;"><i class="fa fa-info-circle"></i> Pelo menos 8 caracteres, com maiúsculas, minúsculas e números.</p>
+                </div>
+            </div>
+
+            <div class="x_panel">
+                <div class="x_title">
+                    <h2><i class="fa fa-comments-o"></i> Assistente AI</h2>
+                    <div class="clearfix"></div>
+                </div>
+                <div class="x_content">
+                    <div class="users-switch-row">
+                        <input type="checkbox" class="js-switch" id="ai_chat_floating" name="ai_chat_floating" value="1" <?= !empty($userData['ai_chat_floating']) ? 'checked' : ''; ?>>
+                        <div><label>Chat flutuante ativo</label></div>
+                    </div>
+                    <div class="users-switch-row">
+                        <input type="checkbox" class="js-switch" id="ai_read_only" name="ai_read_only" value="1" <?= !empty($userData['ai_read_only']) ? 'checked' : ''; ?>>
+                        <div><label>Modo seguro (apenas leitura)</label></div>
                     </div>
                 </div>
             </div>
         </div>
-    </form>
-</div>
+
+        <div class="col-md-4 col-sm-12">
+            <div class="x_panel">
+                <div class="x_title">
+                    <h2><i class="fa fa-camera"></i> Foto</h2>
+                    <div class="clearfix"></div>
+                </div>
+                <div class="x_content" style="text-align: center;">
+                    <?php if (!empty($userData['photo'])):
+                        $photo = $userData['photo'];
+                        if (strpos($photo, 'uploads/' . $slug . '/') !== 0) {
+                            $photo = 'uploads/' . $slug . '/' . ltrim($photo, '/');
+                        }
+                    ?>
+                        <img src="<?= htmlspecialchars($photo); ?>" alt="" class="img-circle users-avatar-preview">
+                    <?php elseif (!empty($appLogo)): ?>
+                        <img src="<?= htmlspecialchars($appLogo); ?>" alt="" class="img-circle users-avatar-preview">
+                    <?php else: ?>
+                        <div class="users-avatar-placeholder"><i class="fa fa-user"></i></div>
+                    <?php endif; ?>
+                    <div style="text-align: left;">
+                        <label for="photo" class="form-label">Carregar foto</label>
+                        <input type="file" class="form-control" id="photo" name="photo" accept=".jpg,.jpeg,.png">
+                        <p class="text-muted" style="margin: 6px 0 0;">JPG ou PNG, até 2 MB.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="ln_solid"></div>
+    <div class="users-form-actions">
+        <?php if (!$profileMode): ?>
+        <a href="<?= BASE_URL ?>users" class="btn btn-default">Cancelar</a>
+        <?php endif; ?>
+        <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
+    </div>
+</form>
 <style>
-.users-page .x_panel {
-    border-radius: 16px;
-    box-shadow: 0 12px 24px rgba(30, 60, 80, 0.1);
-    border: 1px solid rgba(25, 60, 80, 0.12);
+.users-form .form-label { font-weight: 600; color: #2a3f54; }
+.users-switch-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.users-switch-row:last-child { margin-bottom: 0; }
+.users-switch-row label { font-weight: 600; color: #2a3f54; margin: 2px 0 0; }
+.users-switch-row p { margin: 2px 0 0; font-size: 12px; }
+.users-avatar-preview { width: 140px; height: 140px; object-fit: cover; margin-bottom: 14px; border: 3px solid #e6e9ed; }
+.users-avatar-placeholder {
+    width: 140px; height: 140px; border-radius: 50%; margin: 0 auto 14px;
+    background: #f7f9fb; border: 3px solid #e6e9ed;
+    display: flex; align-items: center; justify-content: center; color: #b4bcc8; font-size: 52px;
 }
-.users-page .avatar-preview {
-    max-width: 180px;
-    border-radius: 16px;
-}
-.users-page .avatar-placeholder {
-    width: 180px;
-    height: 180px;
-    border-radius: 16px;
-    background: #f2f5f8;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #96a3b0;
-    font-size: 2.5rem;
-}
-.users-page .select2-container {
-    width: 100% !important;
-}
+.users-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 20px; }
+.users-form-actions .btn { margin: 0; }
+.users-form .select2-container { width: 100% !important; }
 </style>
-<?php if ($useSelect2): ?>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     if (window.jQuery && jQuery.fn.select2) {
@@ -453,5 +516,4 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 </script>
-<?php endif; ?>
 <?php require_once __DIR__ . '/footer.php'; ?>

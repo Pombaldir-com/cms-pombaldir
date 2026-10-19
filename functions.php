@@ -680,7 +680,7 @@ function loginUser(string $username, string $password): bool {
  *
  * @return string The plain-text token to embed in the reset link (never stored as-is).
  */
-function createPasswordResetToken(int $userId): string {
+function createPasswordResetToken(int $userId, int $validHours = 1): string {
     $pdo = getPDO();
     if (!hasTable('password_resets')) {
         throw new RuntimeException('Tabela password_resets nao existe. Corra as migracoes.');
@@ -690,9 +690,60 @@ function createPasswordResetToken(int $userId): string {
 
     $token = bin2hex(random_bytes(32));
     $tokenHash = hash('sha256', $token);
-    $stmt = $pdo->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))');
-    $stmt->execute([$userId, $tokenHash]);
+    $stmt = $pdo->prepare('INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))');
+    $stmt->execute([$userId, $tokenHash, max(1, $validHours)]);
     return $token;
+}
+
+/**
+ * NIF (chave em data/companies.php) da empresa da sessao; e o que o login e
+ * a pagina redefinir-password usam para identificar a base.
+ */
+function getCurrentCompanyNif(): string {
+    $slug = getCompanySlug();
+    if ($slug === null || $slug === '') {
+        return '';
+    }
+    $companies = require __DIR__ . '/data/companies.php';
+    foreach ($companies as $nif => $company) {
+        if (is_array($company) && strcasecmp((string) ($company['slug'] ?? ''), $slug) === 0) {
+            return (string) $nif;
+        }
+    }
+    return '';
+}
+
+/**
+ * Envia a um utilizador o convite de acesso: username, NIF da empresa e um
+ * link (valido 7 dias) para definir a palavra-passe, reutilizando o fluxo de
+ * redefinir-password. A palavra-passe nunca segue por email.
+ *
+ * @throws RuntimeException quando o utilizador nao tem email valido ou o envio falha.
+ */
+function sendUserInvitationEmail(int $userId): string {
+    $user = getUserById($userId);
+    $email = trim((string) ($user['email'] ?? ''));
+    if (!$user || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('O utilizador não tem um e-mail válido.');
+    }
+    $nif = getCurrentCompanyNif();
+    $validDays = 7;
+    $token = createPasswordResetToken($userId, $validDays * 24);
+    $baseUrl = appAbsoluteBaseUrl();
+    $setLink = $baseUrl . 'redefinir-password?token=' . urlencode($token) . '&nif=' . urlencode($nif) . '&convite=1';
+    $appName = (string) getSetting('app_name', 'CMS');
+    $displayName = trim((string) ($user['name'] ?? '')) ?: (string) $user['username'];
+    $subject = $appName . ' - Acesso à aplicação';
+    $body = '<p>Olá ' . htmlspecialchars($displayName) . ',</p>'
+        . '<p>Foi criado um acesso para si em ' . htmlspecialchars($appName) . '.</p>'
+        . '<p><strong>NIF da empresa:</strong> ' . htmlspecialchars($nif) . '<br>'
+        . '<strong>Utilizador:</strong> ' . htmlspecialchars((string) $user['username']) . '</p>'
+        . '<p>Para definir a sua palavra-passe, aceda a este link (válido durante ' . $validDays . ' dias):<br>'
+        . '<a href="' . htmlspecialchars($setLink) . '">' . htmlspecialchars($setLink) . '</a></p>'
+        . '<p>Depois pode entrar em <a href="' . htmlspecialchars($baseUrl . 'login') . '">' . htmlspecialchars($baseUrl . 'login') . '</a>.</p>';
+    sendSystemEmail($email, $subject, $body, true);
+    logAuditAction('send_email', 'user', $userId, ['context' => 'user_invitation', 'dest_email' => $email]);
+    return $email;
 }
 
 /**

@@ -11,6 +11,8 @@ startSession();
 
 $nif = trim($_GET['nif'] ?? $_POST['nif'] ?? '');
 $token = trim($_GET['token'] ?? $_POST['token'] ?? '');
+// Link do convite de novo utilizador (users.php): mesmo fluxo, outros textos.
+$isInvite = !empty($_GET['convite']);
 
 $error = '';
 $done = false;
@@ -126,8 +128,8 @@ if ($company) {
             <div class="x_panel login-panel">
               <div class="x_title">
                 <h2>
-                  <i class="fa fa-lock"></i> Redefinir Palavra-passe
-                  <small>Escolha uma nova palavra-passe</small>
+                  <i class="fa fa-lock"></i> <?php echo $isInvite ? 'Definir Palavra-passe' : 'Redefinir Palavra-passe'; ?>
+                  <small><?php echo $isInvite ? 'Escolha a palavra-passe do seu acesso' : 'Escolha uma nova palavra-passe'; ?></small>
                 </h2>
                 <div class="clearfix"></div>
               </div>
@@ -135,7 +137,7 @@ if ($company) {
                 <?php if ($done): ?>
                   <div class="alert alert-success" role="alert">
                     <i class="fa fa-check-circle"></i>
-                    Palavra-passe redefinida com sucesso.
+                    <?php echo $isInvite ? 'Palavra-passe definida com sucesso.' : 'Palavra-passe redefinida com sucesso.'; ?>
                   </div>
                   <p class="login-note">
                     <a href="<?php echo htmlspecialchars(BASE_URL . 'login'); ?>"><i class="fa fa-sign-in"></i> Iniciar sessão</a>
@@ -175,7 +177,7 @@ if ($company) {
                     </div>
                     <div class="form-group">
                       <button class="btn btn-primary btn-login" type="submit">
-                        <i class="fa fa-check"></i> Redefinir palavra-passe
+                        <i class="fa fa-check"></i> <?php echo $isInvite ? 'Definir palavra-passe' : 'Redefinir palavra-passe'; ?>
                       </button>
                     </div>
                   </form>
