@@ -58,6 +58,7 @@ A documentação detalhada do domínio vive nos ficheiros abaixo. **Ler o fichei
 - [AI_ASSISTANT_IDENTITY.md](AI_ASSISTANT_IDENTITY.md) — identidade do assistente por tenant (resolução por NIF da empresa).
 - [contabilidade/IMPORTAR_CTB.md](contabilidade/IMPORTAR_CTB.md) — detalhe do webservice "Importar CTB", vistas e matriz de permissões.
 - [contabilidade/APURAMENTO_IVA.md](contabilidade/APURAMENTO_IVA.md) — nota tarefa "Apuramento de IVA" (menu Tarefas), especificação com base na intranet legacy; inclui também a tarefa "Envio DP IVA".
+- [contabilidade/CONFIRMACAO_PASTA.md](contabilidade/CONFIRMACAO_PASTA.md) — tarefa "Confirmação de Pasta" (menu Tarefas), porta da fase legacy "Lançamento de docs": fita vs. lançamentos por diário e SAF-T vs. balancete.
 - [docs/database-cleanup-audit.md](docs/database-cleanup-audit.md) — auditoria de tabelas ativas vs. removidas.
 
 ## Intranet legacy

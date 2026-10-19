@@ -2037,6 +2037,10 @@ function getAccountingEntityAdminTaskDefinitions(): array {
             'label' => 'Envio DP IVA',
             'description' => 'Permite enviar ao cliente o valor da declaração periódica de IVA desta empresa na área de tarefas.',
         ],
+        'ctb_confirmacao_pasta' => [
+            'label' => 'Confirmação de Pasta',
+            'description' => 'Permite conferir os valores da pasta (fita) com os lançamentos e o SAF-T desta empresa e fechar o mês na área de tarefas.',
+        ],
     ];
 }
 

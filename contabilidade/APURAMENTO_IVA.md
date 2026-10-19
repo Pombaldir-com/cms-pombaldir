@@ -330,9 +330,11 @@ como `wkflow_cab`/`planos_contas`):
 - Prazos reais de pagamento/entrega da DP de IVA por regime (substituir o
   "até dia 25" fixo do legacy por regras corretas) — só relevante quando a
   funcionalidade de envio por email for implementada.
-- Reativar (ou não) o bloqueio por fase anterior não fechada — só relevante
-  quando existir uma fase "Lançamento de documentos" equivalente nesta
-  aplicação.
+- Reativar (ou não) o bloqueio por fase anterior não fechada — a fase
+  equivalente a "Lançamento de documentos" já existe (tarefa "Confirmação de
+  Pasta", `accounting_folder_confirmations`, ver
+  [CONFIRMACAO_PASTA.md](CONFIRMACAO_PASTA.md)); falta decidir se o Apuramento
+  de IVA deve avisar/bloquear quando a pasta do período não está confirmada.
 
 ## Tarefa "Envio DP IVA" — implementado (2026-10-19)
 

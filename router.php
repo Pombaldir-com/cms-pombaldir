@@ -310,6 +310,12 @@ switch (true) {
     case $path === 'contabilidade/tarefas/envio-dp-iva/detalhes':
         require __DIR__ . '/contabilidade/tarefas-envio-dp-iva-detalhes.php';
         break;
+    case $path === 'contabilidade/tarefas/confirmacao-pasta':
+        require __DIR__ . '/contabilidade/tarefas-confirmacao-pasta.php';
+        break;
+    case $path === 'contabilidade/tarefas/confirmacao-pasta/detalhes':
+        require __DIR__ . '/contabilidade/tarefas-confirmacao-pasta-detalhes.php';
+        break;
     case $path === 'contabilidade/saft-handler.php':
         require __DIR__ . '/contabilidade/saft-handler.php';
         break;
