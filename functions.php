@@ -814,7 +814,9 @@ function sendSystemEmailWithAttachment(
     string $body,
     string $attachmentContent,
     string $attachmentFilename,
-    string $attachmentMimeType = 'application/octet-stream'
+    string $attachmentMimeType = 'application/octet-stream',
+    bool $isHtml = false,
+    string $replyTo = ''
 ): void {
     $smtpHost = trim((string) getSetting('smtp_host', ''));
     $fromEmail = trim((string) getSetting('system_email_from_email', ''));
@@ -830,12 +832,18 @@ function sendSystemEmailWithAttachment(
         $fromName = trim((string) getSetting('app_name', 'CMS'));
     }
 
+    $replyTo = trim($replyTo);
+    if ($replyTo !== '' && !filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+        $replyTo = '';
+    }
+
     $boundary = 'AICRM-' . bin2hex(random_bytes(16));
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     $safeFilename = preg_replace('/[^A-Za-z0-9._-]+/', '_', $attachmentFilename) ?: 'anexo';
+    $bodyContentType = $isHtml ? 'text/html' : 'text/plain';
 
     $messageBody = "--{$boundary}\r\n"
-        . "Content-Type: text/plain; charset=UTF-8\r\n"
+        . "Content-Type: {$bodyContentType}; charset=UTF-8\r\n"
         . "Content-Transfer-Encoding: base64\r\n\r\n"
         . chunk_split(base64_encode($body))
         . "--{$boundary}\r\n"
@@ -846,7 +854,7 @@ function sendSystemEmailWithAttachment(
         . "--{$boundary}--";
 
     if ($smtpHost !== '') {
-        sendSystemMimeMessageViaSmtp($smtpHost, $toEmail, $encodedSubject, $messageBody, $boundary, $fromEmail, $fromName);
+        sendSystemMimeMessageViaSmtp($smtpHost, $toEmail, $encodedSubject, $messageBody, $boundary, $fromEmail, $fromName, $replyTo);
         return;
     }
 
@@ -854,6 +862,9 @@ function sendSystemEmailWithAttachment(
         throw new RuntimeException('Nao existe transporte de email configurado.');
     }
     $headers = "From: {$fromName} <{$fromEmail}>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"{$boundary}\"";
+    if ($replyTo !== '') {
+        $headers .= "\r\nReply-To: {$replyTo}";
+    }
     if (!@mail($toEmail, $encodedSubject, $messageBody, $headers, '-f ' . $fromEmail)) {
         throw new RuntimeException('Falha ao enviar email pelo transporte local.');
     }
@@ -865,7 +876,7 @@ function sendSystemEmailWithAttachment(
  * sendSystemEmailViaSmtp() em vez de a reaproveitar porque aqui o
  * Content-Type/boundary ja vem definido pelo chamador.
  */
-function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $encodedSubject, string $mimeBody, string $boundary, string $fromEmail, string $fromName): void {
+function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $encodedSubject, string $mimeBody, string $boundary, string $fromEmail, string $fromName, string $replyTo = ''): void {
     $port = (int) getSetting('smtp_port', '0');
     $encryption = strtolower(trim((string) getSetting('smtp_encryption', '')));
     $username = trim((string) getSetting('smtp_user', ''));
@@ -931,7 +942,7 @@ function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $enc
     $command($socket, 'RCPT TO:<' . $toEmail . '>', [250, 251], 'RCPT TO');
     $command($socket, 'DATA', [354], 'DATA');
 
-    $headers = implode("\r\n", [
+    $headerLines = [
         'To: ' . $toEmail,
         'From: ' . $fromName . ' <' . $fromEmail . '>',
         'Subject: ' . $encodedSubject,
@@ -940,7 +951,11 @@ function sendSystemMimeMessageViaSmtp(string $host, string $toEmail, string $enc
         'MIME-Version: 1.0',
         'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
         'X-Mailer: AICRM',
-    ]);
+    ];
+    if ($replyTo !== '') {
+        $headerLines[] = 'Reply-To: ' . $replyTo;
+    }
+    $headers = implode("\r\n", $headerLines);
     $rawMessage = $headers . "\r\n\r\n" . $mimeBody;
     $rawMessage = preg_replace("/(?m)^\\./", '..', $rawMessage) ?? $rawMessage;
     fwrite($socket, $rawMessage . "\r\n.\r\n");
@@ -2017,6 +2032,10 @@ function getAccountingEntityAdminTaskDefinitions(): array {
         'ctb_apuramento_iva' => [
             'label' => 'Apuramento de IVA',
             'description' => 'Permite tratar o apuramento de IVA desta empresa na área de tarefas.',
+        ],
+        'ctb_envio_dp_iva' => [
+            'label' => 'Envio DP IVA',
+            'description' => 'Permite enviar ao cliente o valor da declaração periódica de IVA desta empresa na área de tarefas.',
         ],
     ];
 }

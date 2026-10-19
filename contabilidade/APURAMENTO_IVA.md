@@ -333,3 +333,59 @@ como `wkflow_cab`/`planos_contas`):
 - Reativar (ou não) o bloqueio por fase anterior não fechada — só relevante
   quando existir uma fase "Lançamento de documentos" equivalente nesta
   aplicação.
+
+## Tarefa "Envio DP IVA" — implementado (2026-10-19)
+
+Tarefa separada, no menu **Tarefas > Envio DP IVA**, que porta a fase 8
+("Envio DP IVA") da intranet legacy: `window.php?act=wkfloproc&task=8`
+(valor pré-calculado) → `workflow_mail.php?act=message&task=8` (email ao
+cliente com o modelo `ficheiro_envDPIVA`, anexo e checkbox "Fechar Tarefa")
+→ `data/workflow.php` `accaop=closeWF` (registo em `wkflow_cab`).
+
+- Páginas: [`tarefas-envio-dp-iva.php`](tarefas-envio-dp-iva.php) (rota
+  `contabilidade/tarefas/envio-dp-iva`, lista de empresas + histórico) e
+  [`tarefas-envio-dp-iva-detalhes.php`](tarefas-envio-dp-iva-detalhes.php)
+  (rota `.../envio-dp-iva/detalhes`, fragmento do modal "Enviar", mesmo
+  padrão AJAX do "Apurar período").
+- Permissão por empresa: `ctb_envio_dp_iva` (Entidades > Admin > Tarefas
+  administrativas). Admin/superadmin veem todas as empresas.
+- Periodicidade: segue `accounting_entities.vat_periodicity` (mensal ou
+  trimestral). **Diferença face ao legacy**: no legacy só a fase 6 era
+  trimestral (`$tarefastrimestral = array(6)`); a fase 8 era sempre mensal.
+- Valor pré-preenchido: fecho do Apuramento de IVA do mesmo período
+  (`accounting_vat_settlements`: tipo, valor a pagar, reembolso) e, para o
+  que falta (valor em crédito, que o fecho do apuramento não guarda), o
+  balancete do ERP com as fórmulas dos campos 94/93
+  (`computeVatSettlementExpected()`), como o legacy fazia. Aviso não
+  bloqueante quando o valor difere do apurado ou quando o apuramento do
+  período ainda não foi fechado (badge "Por apurar" na lista).
+- Email: destinatário = `strEmail` da ficha de cliente do ERP
+  (`fetchVatTaskClientEmail()`), CC = email do utilizador (como o legacy),
+  assunto e mensagem editáveis antes do envio, anexo opcional (guia de
+  pagamento, até 10 MB, não fica guardado — só o nome). Envio via
+  `sendSystemEmail()` / `sendSystemEmailWithAttachment()` (este ganhou
+  parâmetros `$isHtml` e `$replyTo`), com o template de marca e assinatura
+  de `buildVatEmailTemplate()`.
+- `{mensagem_valores}` replica `$msgPvalores` do legacy
+  (`buildVatDpValuesMessage()`, e o equivalente JS no modal, que regenera a
+  mensagem enquanto o utilizador não a editar à mão). Em vez do "até dia 25"
+  fixo, calcula a data: dia 25 do 2º mês seguinte ao fim do período
+  (`computeVatPaymentDeadline()`).
+- Modelo do email (equivalente a Definições > mensagens > "Envio DP IVA"
+  do legacy): engrenagem no `x_title` (só admin), settings
+  `envio_dp_iva_email_subject` / `envio_dp_iva_email_body`, com marcadores
+  `{nome_cliente}`, `{nif}`, `{periodo}`, `{mensagem_valores}`,
+  `{data_limite}`, `{nome_utilizador}`, `{data}`. Vazio = modelo por
+  defeito (`getVatDpEmailTemplates()`).
+- Fecho: tabela `accounting_vat_dp_submissions` (migração
+  `20261019120000_create_accounting_vat_dp_submissions.sql`), colunas
+  nomeadas (`result_type`, `valor`, `valor_reembolso`, `sent_to`,
+  `email_subject`, `attachment_filename`, `observacao`, `closed_by`),
+  `UNIQUE (accounting_entity_id, period_label)`. Com "Fechar tarefa após o
+  envio" marcado (por defeito), só fecha se o email chegou a pelo menos um
+  destinatário do cliente. "Fechar sem enviar" fecha sem email
+  (`sent_to = NULL`), substituindo o fecho por upload de ficheiro
+  (`tipofile=3`) do legacy.
+- **Não portado**: o marcador `{tabela}` do legacy (`mapa_exploracao()`,
+  demonstração de resultados do ano vs. ano anterior), que depende do
+  `ctb.php?act_g=demResultados` — sem endpoint equivalente no ERP-SINC.

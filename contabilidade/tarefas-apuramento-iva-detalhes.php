@@ -122,27 +122,7 @@ if (hasTable('accounting_vat_settlement_field_values')) {
 $periodRange = buildVatPeriodRange($periodType, $periodYear, $periodRef);
 $erpDatabase = resolveAccountingEntityDatabase($entity);
 
-$clientNotifyEmail = '';
-$entityNif = trim((string) ($entity['nif'] ?? ''));
-$erpClientLookupDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
-if ($erpClientLookupDatabase === '') {
-    $erpClientLookupDatabase = $erpDatabase;
-}
-if ($entityNif !== '' && $erpClientLookupDatabase !== '') {
-    $erpClientRemote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $erpClientLookupDatabase);
-    if (is_array($erpClientRemote) && empty($erpClientRemote['error'])) {
-        $erpClientPayload = is_array($erpClientRemote['payload'] ?? null) ? $erpClientRemote['payload'] : [];
-        $erpClientRow = [];
-        if (isset($erpClientPayload['aaData']) && is_array($erpClientPayload['aaData']) && !empty($erpClientPayload['aaData'][0]) && is_array($erpClientPayload['aaData'][0])) {
-            $erpClientRow = $erpClientPayload['aaData'][0];
-        } elseif (isset($erpClientPayload['data']) && is_array($erpClientPayload['data']) && !empty($erpClientPayload['data'][0]) && is_array($erpClientPayload['data'][0])) {
-            $erpClientRow = $erpClientPayload['data'][0];
-        }
-        if ($erpClientRow) {
-            $clientNotifyEmail = trim((string) ($erpClientRow['strEmail'] ?? ''));
-        }
-    }
-}
+$clientNotifyEmail = fetchVatTaskClientEmail($entity, $erpDatabase);
 
 $erpWarnings = [];
 $accountBalances = [];

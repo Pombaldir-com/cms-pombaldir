@@ -1,12 +1,13 @@
 <?php
-// Helpers partilhados pelas paginas da tarefa "Apuramento de IVA"
-// (tarefas-apuramento-iva.php e tarefas-apuramento-iva-detalhes.php).
+// Helpers partilhados pelas paginas das tarefas "Apuramento de IVA"
+// (tarefas-apuramento-iva*.php) e "Envio DP IVA" (tarefas-envio-dp-iva*.php).
 // Ver contabilidade/APURAMENTO_IVA.md.
 
 /**
- * Empresas (entidades adquirentes) a que o utilizador tem acesso nesta tarefa.
+ * Empresas (entidades adquirentes) a que o utilizador tem acesso numa tarefa
+ * de IVA ($permissionKey: ctb_apuramento_iva ou ctb_envio_dp_iva).
  */
-function getIvaTaskEntities(PDO $pdo, bool $isAdmin, int $userId): array {
+function getIvaTaskEntities(PDO $pdo, bool $isAdmin, int $userId, string $permissionKey = 'ctb_apuramento_iva'): array {
     $periodicityColumn = hasColumn('accounting_entities', 'vat_periodicity') ? 'vat_periodicity' : "'mensal'";
     if ($isAdmin) {
         $stmt = $pdo->query(
@@ -22,11 +23,11 @@ function getIvaTaskEntities(PDO $pdo, bool $isAdmin, int $userId): array {
          INNER JOIN accounting_entity_admin_task_permissions aep
              ON aep.accounting_entity_id = ae.id
          WHERE ae.entity_type = 'acquirer'
-           AND aep.permission_key = 'ctb_apuramento_iva'
+           AND aep.permission_key = ?
            AND aep.user_id = ?
          ORDER BY ae.name ASC"
     );
-    $stmt->execute([$userId]);
+    $stmt->execute([$permissionKey, $userId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
@@ -40,6 +41,54 @@ function getClosedVatPeriods(PDO $pdo, int $entityId): array {
     );
     $stmt->execute([$entityId]);
     return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+}
+
+/**
+ * Email do cliente na ficha de cliente do ERP (strEmail), procurado pelo NIF
+ * na Empresa base (accounting_base_company), com fallback para a base ERP da
+ * propria empresa. Devolve '' quando nao encontrado.
+ */
+function fetchVatTaskClientEmail(array $entity, string $erpDatabase): string {
+    $entityNif = trim((string) ($entity['nif'] ?? ''));
+    $lookupDatabase = normalizeAccountingEntityDatabaseKey(getErpDefaultCompanyIdentifier());
+    if ($lookupDatabase === '') {
+        $lookupDatabase = $erpDatabase;
+    }
+    if ($entityNif === '' || $lookupDatabase === '') {
+        return '';
+    }
+    $remote = fetchAccountingEntityFromErp($entityNif, 'acquirer', true, $lookupDatabase);
+    if (!is_array($remote) || !empty($remote['error'])) {
+        return '';
+    }
+    $payload = is_array($remote['payload'] ?? null) ? $remote['payload'] : [];
+    $row = [];
+    if (isset($payload['aaData'][0]) && is_array($payload['aaData'][0])) {
+        $row = $payload['aaData'][0];
+    } elseif (isset($payload['data'][0]) && is_array($payload['data'][0])) {
+        $row = $payload['data'][0];
+    }
+    return trim((string) ($row['strEmail'] ?? ''));
+}
+
+/**
+ * Divide uma lista de emails separados por ; ou , e valida cada um.
+ *
+ * @return array{emails:string[],invalid:?string}
+ */
+function parseVatTaskEmailList(string $raw): array {
+    $emails = [];
+    foreach (preg_split('/[;,]+/', $raw) ?: [] as $candidate) {
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            continue;
+        }
+        if (!filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            return ['emails' => $emails, 'invalid' => $candidate];
+        }
+        $emails[] = $candidate;
+    }
+    return ['emails' => array_values(array_unique($emails)), 'invalid' => null];
 }
 
 /**
@@ -483,3 +532,100 @@ function buildVatClientNotificationEmailBody(array $entity, string $periodLabel,
     return buildVatEmailTemplate('IVA a pagar / a recuperar', 'Período ' . $periodLabel, $body, $signer);
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Tarefa "Envio DP IVA" (fase 8 da intranet legacy: workflow_mail.php com
+ * task=8 + data/workflow.php closeWF). Ver APURAMENTO_IVA.md.
+ * ---------------------------------------------------------------------------
+ */
+
+function getClosedVatDpPeriods(PDO $pdo, int $entityId): array {
+    $stmt = $pdo->prepare(
+        'SELECT period_label FROM accounting_vat_dp_submissions WHERE accounting_entity_id = ?'
+    );
+    $stmt->execute([$entityId]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+}
+
+/**
+ * Data limite de pagamento do IVA: dia 25 do 2o mes seguinte ao fim do
+ * periodo (mensal e trimestral). O legacy escrevia apenas "ate dia 25"; aqui
+ * calcula-se a data completa. O texto do email continua editavel antes do
+ * envio.
+ */
+function computeVatPaymentDeadline(string $periodType, int $year, int $ref): string {
+    $range = buildVatPeriodRange($periodType, $year, $ref);
+    $deadline = new DateTime(substr($range['end'], 0, 7) . '-01');
+    $deadline->modify('+2 months');
+    return $deadline->format('Y-m') . '-25';
+}
+
+/**
+ * Texto do periodo para o cliente (ex.: "Agosto de 2026" ou "3º trimestre de 2026").
+ */
+function formatVatPeriodForClient(string $periodType, int $year, int $ref): string {
+    if ($periodType === 'trimestral') {
+        return $ref . 'º trimestre de ' . $year;
+    }
+    $months = ['', 'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    return ($months[$ref] ?? (string) $ref) . ' de ' . $year;
+}
+
+/**
+ * Modelos por defeito do email "Envio DP IVA" (equivalente ao modelo
+ * "ficheiro_envDPIVA" escolhido em Definicoes na intranet legacy).
+ * Configuraveis no modal de configuracoes da tarefa (settings
+ * envio_dp_iva_email_subject / envio_dp_iva_email_body).
+ *
+ * @return array{subject:string,body:string,default_subject:string,default_body:string}
+ */
+function getVatDpEmailTemplates(): array {
+    $defaultSubject = 'IVA {periodo} — {nome_cliente}';
+    $defaultBody = "Exmo(a). Sr(a).,\n\n"
+        . "Concluímos a declaração periódica de IVA de {nome_cliente} (NIF {nif}) referente a {periodo}.\n\n"
+        . "{mensagem_valores}";
+    $subject = trim((string) getSetting('envio_dp_iva_email_subject', ''));
+    $body = trim((string) getSetting('envio_dp_iva_email_body', ''));
+    return [
+        'subject' => $subject !== '' ? $subject : $defaultSubject,
+        'body' => $body !== '' ? $body : $defaultBody,
+        'default_subject' => $defaultSubject,
+        'default_body' => $defaultBody,
+    ];
+}
+
+/**
+ * Bloco {mensagem_valores} do email, replicando $msgPvalores de
+ * workflow_mail.php (task=8) no legacy.
+ */
+function buildVatDpValuesMessage(string $resultType, float $valor, float $valorReembolso, string $deadline = ''): string {
+    $fmt = static fn (float $v): string => number_format($v, 2, ',', '.') . ' €';
+    $lines = [];
+    if ($valor > 0) {
+        $lines[] = 'Tem um valor de IVA ' . ($resultType === 'credito' ? 'em crédito' : 'a pagar') . ' de: ' . $fmt($valor) . '.';
+    } elseif ($resultType === 'pagar') {
+        $lines[] = 'Não tem IVA a pagar neste período.';
+    }
+    if ($resultType === 'credito' && $valorReembolso > 0) {
+        $lines[] = 'Foi solicitado reembolso de: ' . $fmt($valorReembolso) . '.';
+    }
+    if ($resultType === 'pagar' && $valor > 0) {
+        $payment = 'Enviamos em anexo a respetiva guia de pagamento.';
+        if ($deadline !== '') {
+            $payment .= ' Para liquidar até ' . date('d-m-Y', strtotime($deadline)) . '.';
+        }
+        $lines[] = $payment;
+    }
+    return implode("\n", $lines);
+}
+
+/**
+ * Substitui os marcadores do modelo de email "Envio DP IVA".
+ */
+function renderVatDpEmailTemplate(string $template, array $vars): string {
+    $replacements = [];
+    foreach ($vars as $key => $value) {
+        $replacements['{' . $key . '}'] = (string) $value;
+    }
+    return strtr($template, $replacements);
+}

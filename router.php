@@ -304,6 +304,12 @@ switch (true) {
     case $path === 'contabilidade/tarefas/apuramento-iva/detalhes':
         require __DIR__ . '/contabilidade/tarefas-apuramento-iva-detalhes.php';
         break;
+    case $path === 'contabilidade/tarefas/envio-dp-iva':
+        require __DIR__ . '/contabilidade/tarefas-envio-dp-iva.php';
+        break;
+    case $path === 'contabilidade/tarefas/envio-dp-iva/detalhes':
+        require __DIR__ . '/contabilidade/tarefas-envio-dp-iva-detalhes.php';
+        break;
     case $path === 'contabilidade/saft-handler.php':
         require __DIR__ . '/contabilidade/saft-handler.php';
         break;

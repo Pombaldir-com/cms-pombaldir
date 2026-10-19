@@ -284,7 +284,7 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
-<?php if (isModuleActive('contabilidade') && (userHasAccountingEntityTaskPermission('ctb_envio_saft') || userHasAccountingEntityTaskPermission('ctb_apuramento_iva'))): ?>
+<?php if (isModuleActive('contabilidade') && (userHasAccountingEntityTaskPermission('ctb_envio_saft') || userHasAccountingEntityTaskPermission('ctb_apuramento_iva') || userHasAccountingEntityTaskPermission('ctb_envio_dp_iva'))): ?>
                             <li>
                                 <a><i class="fa fa-check-square-o"></i> Tarefas <span class="fa fa-chevron-down"></span></a>
                                 <ul class="nav child_menu">
@@ -293,6 +293,9 @@ foreach ($sidebarTypes as $sidebarType):
 <?php endif; ?>
 <?php if (userHasAccountingEntityTaskPermission('ctb_apuramento_iva')): ?>
                                     <li><a href="<?= BASE_URL ?>contabilidade/tarefas/apuramento-iva">Apuramento de IVA</a></li>
+<?php endif; ?>
+<?php if (userHasAccountingEntityTaskPermission('ctb_envio_dp_iva')): ?>
+                                    <li><a href="<?= BASE_URL ?>contabilidade/tarefas/envio-dp-iva">Envio DP IVA</a></li>
 <?php endif; ?>
                                 </ul>
                             </li>
