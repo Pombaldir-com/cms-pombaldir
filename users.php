@@ -50,9 +50,9 @@ if ($action === 'list') {
     $useDataTables = true;
     require_once __DIR__ . '/header.php';
     $roleLabels = [
-        1 => ['Superadmin', 'label-danger'],
-        2 => ['Administrador', 'label-warning'],
-        3 => ['Utilizador', 'label-default'],
+        1 => ['Superadmin', 'bg-danger'],
+        2 => ['Administrador', 'bg-warning text-dark'],
+        3 => ['Utilizador', 'bg-secondary'],
     ];
     ?>
 <div class="page-title">
@@ -133,7 +133,7 @@ if ($action === 'list') {
                             </td>
                             <td><?= !empty($u['email']) ? '<a href="mailto:' . htmlspecialchars($u['email']) . '">' . htmlspecialchars($u['email']) . '</a>' : '<span class="text-muted">—</span>'; ?></td>
                             <td><?= !empty($u['department_names']) ? htmlspecialchars($u['department_names']) : '<span class="text-muted">—</span>'; ?></td>
-                            <td data-order="<?= (int) $u['role']; ?>"><span class="label <?= $roleClass; ?>"><?= $roleLabel; ?></span></td>
+                            <td data-order="<?= (int) $u['role']; ?>"><span class="badge <?= $roleClass; ?>"><?= $roleLabel; ?></span></td>
                             <td class="users-actions">
                                 <a href="<?= BASE_URL ?>users/edit/<?= $u['id']; ?>" class="btn btn-primary btn-xs" title="Editar"><i class="fa fa-pencil"></i> Editar</a>
                                 <?php if ($u['id'] !== ($user['id'] ?? 0)): ?>
@@ -142,6 +142,8 @@ if ($action === 'list') {
                                     <input type="hidden" name="delete_user_id" value="<?= $u['id']; ?>">
                                     <button type="submit" class="btn btn-danger btn-xs" title="Eliminar" onclick="return confirm('Eliminar o utilizador <?= htmlspecialchars(addslashes($displayName), ENT_QUOTES); ?>?');"><i class="fa fa-trash"></i></button>
                                 </form>
+                                <?php else: ?>
+                                <span title="Não pode eliminar o próprio utilizador"><button type="button" class="btn btn-danger btn-xs" disabled><i class="fa fa-trash"></i></button></span>
                                 <?php endif; ?>
                             </td>
                         </tr>
