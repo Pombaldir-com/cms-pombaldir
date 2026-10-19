@@ -131,11 +131,18 @@ require_once __DIR__ . '/../header.php';
                         height: 30px; padding: 4px 8px; font-size: 13px; line-height: 1.4;
                         width: auto; min-width: 130px; box-sizing: border-box;
                     }
+                    .iva-periodicity-field input[type="search"] {
+                        height: 30px; padding: 4px 8px; font-size: 13px; width: 200px; box-sizing: border-box;
+                    }
                 </style>
                 <ul class="nav navbar-right panel_toolbox iva-title-toolbox">
                     <?php if ($entities):
                         $currentYear = (int) date('Y');
                     ?>
+                    <li class="iva-periodicity-field">
+                        <label for="dpiva-name-filter">Empresa</label>
+                        <input type="search" id="dpiva-name-filter" class="form-control" placeholder="Nome ou NIF" autocomplete="off">
+                    </li>
                     <li class="iva-periodicity-field">
                         <label for="dpiva-global-year">Ano</label>
                         <select id="dpiva-global-year" class="form-control">
@@ -225,6 +232,7 @@ require_once __DIR__ . '/../header.php';
                     $settledLabels = $settledPeriodsByEntity[$entityId] ?? [];
                 ?>
                 <div class="iva-entity-panel dpiva-entity-section" data-vat-periodicity="<?= $periodType; ?>"
+                     data-search="<?= htmlspecialchars((string) $entityRow['name'] . ' ' . (string) $entityRow['nif']); ?>"
                      data-closed-periods="<?= htmlspecialchars(implode(',', $closedLabels)); ?>"
                      data-settled-periods="<?= htmlspecialchars(implode(',', $settledLabels)); ?>">
                     <div class="iva-entity-header">
@@ -248,6 +256,7 @@ require_once __DIR__ . '/../header.php';
                 </div>
                 <?php endforeach; ?>
                 </div>
+                <div class="alert alert-info dpiva-no-match" style="display: none;">Nenhuma empresa corresponde ao filtro.</div>
                 <?php endif; ?>
 
                 <div class="iva-history-panel">
@@ -278,7 +287,7 @@ require_once __DIR__ . '/../header.php';
                                     <?php foreach ($submissionsHistory as $submission):
                                         $submissionEntity = $entitiesById[(int) $submission['accounting_entity_id']] ?? null;
                                     ?>
-                                    <tr>
+                                    <tr class="dpiva-history-row" data-search="<?= htmlspecialchars((string) ($submissionEntity['name'] ?? '') . ' ' . (string) ($submissionEntity['nif'] ?? '')); ?>">
                                         <td><?= htmlspecialchars((string) ($submissionEntity['name'] ?? '—')); ?></td>
                                         <td><?= htmlspecialchars((string) $submission['period_label']); ?></td>
                                         <td><?= $submission['result_type'] === 'credito' ? 'Em crédito' : 'A pagar'; ?></td>
@@ -363,6 +372,7 @@ require_once __DIR__ . '/../header.php';
 document.addEventListener('DOMContentLoaded', function () {
     var entitySections = document.querySelectorAll('.dpiva-entity-section');
     var periodicityFilter = document.getElementById('dpiva-periodicity-filter');
+    var nameFilter = document.getElementById('dpiva-name-filter');
     var yearSelect = document.getElementById('dpiva-global-year');
     var monthSelect = document.getElementById('dpiva-global-month');
     var quarterSelect = document.getElementById('dpiva-global-quarter');
@@ -433,11 +443,27 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // Pesquisa sem distinguir maiusculas/acentos, por nome ou NIF.
+    function normalizeSearch(value) {
+        return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    }
+
     function applyPeriodicityFilter() {
         var value = periodicityFilter ? periodicityFilter.value : '';
+        var term = normalizeSearch(nameFilter ? nameFilter.value : '');
+        var visibleCount = 0;
         entitySections.forEach(function (section) {
-            section.style.display = (value === '' || section.dataset.vatPeriodicity === value) ? '' : 'none';
+            var matchesPeriodicity = value === '' || section.dataset.vatPeriodicity === value;
+            var matchesName = term === '' || normalizeSearch(section.dataset.search).indexOf(term) !== -1;
+            var isVisible = matchesPeriodicity && matchesName;
+            section.style.display = isVisible ? '' : 'none';
+            if (isVisible) { visibleCount++; }
         });
+        document.querySelectorAll('.dpiva-history-row').forEach(function (row) {
+            row.style.display = (term === '' || normalizeSearch(row.dataset.search).indexOf(term) !== -1) ? '' : 'none';
+        });
+        var noMatch = document.querySelector('.dpiva-no-match');
+        if (noMatch) { noMatch.style.display = (entitySections.length > 0 && visibleCount === 0) ? '' : 'none'; }
         if (monthField) { monthField.style.display = (value === 'trimestral') ? 'none' : ''; }
         if (quarterField) { quarterField.style.display = (value === 'mensal') ? 'none' : ''; }
     }
@@ -446,6 +472,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (el) { el.addEventListener('change', applyGlobalPeriod); }
     });
     if (periodicityFilter) { periodicityFilter.addEventListener('change', function () { applyPeriodicityFilter(); applyGlobalPeriod(); }); }
+    if (nameFilter) { nameFilter.addEventListener('input', function () { applyPeriodicityFilter(); applyGlobalPeriod(); }); }
 
     applyPeriodicityFilter();
     applyGlobalPeriod();
