@@ -294,6 +294,16 @@ $stmt = $pdo->prepare(
 $stmt->execute([$entityId, $periodLabel]);
 $closedSettlement = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
+// Fase anterior (legacy: "Lancamento de docs"): aviso nao bloqueante.
+if (!$closedSettlement) {
+    $unconfirmedFolderMonths = getUnconfirmedFolderMonthsForVatPeriod($pdo, $entityId, $periodType, $periodYear, $periodRef);
+    if ($unconfirmedFolderMonths) {
+        $erpWarnings[] = 'A Confirmação de Pasta ainda não foi fechada para '
+            . implode(', ', $unconfirmedFolderMonths)
+            . '. Os lançamentos do período podem não estar completos.';
+    }
+}
+
 ob_start();
 ?>
 <style>

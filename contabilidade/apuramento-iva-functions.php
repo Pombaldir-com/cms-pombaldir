@@ -629,3 +629,36 @@ function renderVatDpEmailTemplate(string $template, array $vars): string {
     }
     return strtr($template, $replacements);
 }
+
+/**
+ * Meses (YYYY-MM) da empresa com a "Confirmacao de Pasta" fechada
+ * (accounting_folder_confirmations). Ver contabilidade/CONFIRMACAO_PASTA.md.
+ */
+function getConfirmedFolderMonths(PDO $pdo, int $entityId): array {
+    if (!hasTable('accounting_folder_confirmations')) {
+        return [];
+    }
+    $stmt = $pdo->prepare('SELECT period_label FROM accounting_folder_confirmations WHERE accounting_entity_id = ?');
+    $stmt->execute([$entityId]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+}
+
+/**
+ * Meses do periodo de IVA (1 se mensal, 3 se trimestral) cuja pasta ainda
+ * nao foi confirmada. Vazio quando a tarefa ainda nao existe na base.
+ */
+function getUnconfirmedFolderMonthsForVatPeriod(PDO $pdo, int $entityId, string $periodType, int $year, int $ref): array {
+    if (!hasTable('accounting_folder_confirmations')) {
+        return [];
+    }
+    $confirmed = getConfirmedFolderMonths($pdo, $entityId);
+    $range = buildVatPeriodRange($periodType, $year, $ref);
+    $missing = [];
+    for ($month = (int) $range['month_start']; $month <= (int) $range['month_end']; $month++) {
+        $label = sprintf('%04d-%02d', $year, $month);
+        if (!in_array($label, $confirmed, true)) {
+            $missing[] = $label;
+        }
+    }
+    return $missing;
+}

@@ -330,11 +330,14 @@ como `wkflow_cab`/`planos_contas`):
 - Prazos reais de pagamento/entrega da DP de IVA por regime (substituir o
   "até dia 25" fixo do legacy por regras corretas) — só relevante quando a
   funcionalidade de envio por email for implementada.
-- Reativar (ou não) o bloqueio por fase anterior não fechada — a fase
-  equivalente a "Lançamento de documentos" já existe (tarefa "Confirmação de
-  Pasta", `accounting_folder_confirmations`, ver
-  [CONFIRMACAO_PASTA.md](CONFIRMACAO_PASTA.md)); falta decidir se o Apuramento
-  de IVA deve avisar/bloquear quando a pasta do período não está confirmada.
+- ~~Reativar o bloqueio por fase anterior não fechada~~ — **implementado
+  como aviso não bloqueante (2026-10-19)**: quando algum mês do período
+  (1 ou 3, consoante a periodicidade) não tem a "Confirmação de Pasta"
+  fechada (`accounting_folder_confirmations`, ver
+  [CONFIRMACAO_PASTA.md](CONFIRMACAO_PASTA.md)), o modal "Apurar período"
+  mostra um aviso e a lista mostra o badge "Pasta por confirmar"
+  (`getUnconfirmedFolderMonthsForVatPeriod()` / `getConfirmedFolderMonths()`
+  em `apuramento-iva-functions.php`). Não impede o fecho.
 
 ## Tarefa "Envio DP IVA" — implementado (2026-10-19)
 

@@ -189,8 +189,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $closedPeriodsByEntity = [];
+$confirmedFoldersByEntity = [];
+$hasFolderConfirmations = hasTable('accounting_folder_confirmations');
 foreach ($entities as $entityRow) {
     $closedPeriodsByEntity[(int) $entityRow['id']] = getClosedVatPeriods($pdo, (int) $entityRow['id']);
+    $confirmedFoldersByEntity[(int) $entityRow['id']] = getConfirmedFolderMonths($pdo, (int) $entityRow['id']);
 }
 
 $settlementsHistory = [];
@@ -343,7 +346,8 @@ require_once __DIR__ . '/../header.php';
                     $periodType = ((string) $entityRow['vat_periodicity']) === 'trimestral' ? 'trimestral' : 'mensal';
                     $closedLabels = $closedPeriodsByEntity[$entityId] ?? [];
                 ?>
-                <div class="iva-entity-panel vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" data-closed-periods="<?= htmlspecialchars(implode(',', $closedLabels)); ?>">
+                <div class="iva-entity-panel vat-entity-section" data-vat-periodicity="<?= $periodType; ?>" data-closed-periods="<?= htmlspecialchars(implode(',', $closedLabels)); ?>"
+                     data-confirmed-folders="<?= htmlspecialchars(implode(',', $confirmedFoldersByEntity[$entityId] ?? [])); ?>">
                     <div class="iva-entity-header">
                         <span class="iva-entity-name">
                             <?= htmlspecialchars((string) $entityRow['name']); ?>
@@ -358,6 +362,9 @@ require_once __DIR__ . '/../header.php';
                         <div class="iva-entity-actions vat-entity-period" data-period-type="<?= $periodType; ?>">
                             <span class="vat-close-period-display label label-default" style="display: inline-block; padding: 6px 10px; font-size: 13px;"></span>
                             <span class="label label-success vat-close-period-closed-badge" style="display: none;"><i class="fa fa-check"></i> IVA apurado</span>
+                            <?php if ($hasFolderConfirmations): ?>
+                            <span class="label label-warning vat-folder-unconfirmed-badge" style="display: none;"><i class="fa fa-exclamation-triangle"></i> Pasta por confirmar</span>
+                            <?php endif; ?>
                             <button type="button" class="btn btn-primary btn-sm iva-detail-trigger" data-entity-id="<?= $entityId; ?>" data-bs-toggle="modal" data-bs-target="#iva-detail-modal">
                                 <i class="fa fa-calculator"></i> Apurar período
                             </button>
@@ -642,6 +649,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (header) { header.classList.toggle('iva-entity-header-closed', isClosed); }
             if (closedBadge) { closedBadge.style.display = isClosed ? '' : 'none'; }
+
+            // Aviso: meses do periodo sem "Confirmacao de Pasta" fechada.
+            var folderBadge = block.querySelector('.vat-folder-unconfirmed-badge');
+            if (folderBadge) {
+                var missing = [];
+                if (period.ref && !isClosed) {
+                    var confirmed = (section.dataset.confirmedFolders || '').split(',');
+                    var ref = parseInt(period.ref, 10);
+                    var first = period.isTrimestral ? (ref - 1) * 3 + 1 : ref;
+                    var last = period.isTrimestral ? first + 2 : ref;
+                    for (var m = first; m <= last; m++) {
+                        var label = period.year + '-' + ('0' + m).slice(-2);
+                        if (confirmed.indexOf(label) === -1) { missing.push(label); }
+                    }
+                }
+                folderBadge.style.display = missing.length ? '' : 'none';
+                folderBadge.title = missing.length ? 'Confirmação de Pasta por fechar: ' + missing.join(', ') : '';
+            }
             if (display) { display.style.display = isClosed ? 'none' : ''; }
         });
     }
