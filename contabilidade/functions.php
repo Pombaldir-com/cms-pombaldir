@@ -483,6 +483,14 @@ function linkAccountingImportToEfaturaDocument(PDO $pdo, int $importId, int $doc
     if (hasColumn('accounting_imports', 'efatura_matched_at')) {
         $fields[] = 'efatura_matched_at = NOW()';
     }
+    // Ha emissores cujo QR sai com o campo B (NIF do adquirente) vazio, apesar
+    // de o documento ter sido comunicado a AT com o NIF do cliente. Sem field_B
+    // o documento nao aparece na lista de classificacao da empresa (filtrada
+    // por adquirente), pelo que se completa com o NIF que o E-fatura conhece.
+    $fields[] = 'field_B = CASE WHEN COALESCE(TRIM(field_B), \'\') = \'\''
+        . ' THEN COALESCE((SELECT NULLIF(TRIM(ed.customer_vat), \'\') FROM efatura_documents ed WHERE ed.id = ?), field_B)'
+        . ' ELSE field_B END';
+    $params[] = $documentId;
     $params[] = $importId;
 
     $sql = 'UPDATE accounting_imports SET ' . implode(', ', $fields) . ' WHERE id = ?';
