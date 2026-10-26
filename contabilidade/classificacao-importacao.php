@@ -1097,14 +1097,37 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
 
     $documentsWithoutLines = [];
     $documentsUnbalanced = [];
+    $supplierAccountErrors = [];
+    $autoSupplierAccounts = [];
     foreach ($documentsPayload as &$documentPayload) {
         $originalAccountConfig = (string) ($documentPayload['account'] ?? '');
         $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfiguration($pdo, $documentPayload);
         if (trim($effectiveAccountConfig) !== '') {
             $documentPayload['account'] = $effectiveAccountConfig;
         }
-        $documentPayload['account_configuration'] = (string) ($documentPayload['account'] ?? '');
         $documentPayload['account_configuration_source'] = $originalAccountConfig;
+
+        // Fatura a credito sem conta de valor total: conta corrente do fornecedor
+        // obtida/criada no ERP (22111/22112/22113 + numero) e usada no lancamento.
+        $effectiveMetadata = normalizeAccountingMetadata((string) ($documentPayload['account'] ?? ''));
+        if ($importType === 1
+            && $targetCompany !== ''
+            && trim((string) ($effectiveMetadata['total_account'] ?? '')) === ''
+            && accountingDocumentSupportsAutoSupplierAccount($documentPayload)
+        ) {
+            $ensured = resolveAutoSupplierTotalAccount($pdo, $documentPayload, $targetCompany);
+            if ($ensured['account'] !== '') {
+                $effectiveAccounts = normalizeAccountingAccounts((string) ($documentPayload['account'] ?? ''));
+                $effectiveMetadata['total_account'] = $ensured['account'];
+                $documentPayload['account'] = serializeAccountingAccounts($effectiveAccounts, $effectiveMetadata, $effectiveMetadata);
+                $autoSupplierAccounts[$ensured['account']] = $ensured['account'];
+            } else {
+                $supplierAccountErrors[] = trim((string) ($documentPayload['field_G'] ?? ('ID ' . ($documentPayload['id'] ?? '?'))))
+                    . ' (' . trim((string) ($documentPayload['field_A'] ?? '')) . '): ' . $ensured['error'];
+            }
+        }
+
+        $documentPayload['account_configuration'] = (string) ($documentPayload['account'] ?? '');
         $documentPayload['cost_center_configuration'] = $documentPayload['cost_center'] ?? '';
         $accountLines = buildDocumentAccountingLines($documentPayload);
         $documentPayload['account_lines'] = $accountLines;
@@ -1129,6 +1152,14 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     }
     unset($documentPayload);
 
+    if (!empty($supplierAccountErrors)) {
+        $result['error'] = 'Não foi possível obter/criar a conta corrente do fornecedor no ERP: '
+            . implode('; ', $supplierAccountErrors);
+        $result['error_detail'] = $result['error'];
+        logErpMessage('Importação CTB abortada: ' . $result['error']);
+        return $result;
+    }
+
     if (!empty($documentsWithoutLines)) {
         $result['error'] = 'Existem documentos sem linhas contabilísticas configuradas: '
             . implode(', ', array_column($documentsWithoutLines, 'doc'));
@@ -1150,7 +1181,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
-    $accountValidation = validateDocumentAccountsAgainstErpPlan($documentsPayload, $targetCompany);
+    $accountValidation = validateDocumentAccountsAgainstErpPlan($documentsPayload, $targetCompany, array_values($autoSupplierAccounts));
     if (!($accountValidation['ok'] ?? false)) {
         $invalidDetails = [];
         foreach (($accountValidation['invalid_documents'] ?? []) as $item) {
@@ -1468,6 +1499,8 @@ function prepareImportRow(array $row): array {
     $accounts = normalizeAccountingAccounts($effectiveAccountConfig);
     $accountMetadata = normalizeAccountingMetadata($effectiveAccountConfig);
     $rowMetadata = normalizeAccountingMetadata($row['account'] ?? '');
+    $row['total_account_auto'] = accountingDocumentSupportsAutoSupplierAccount($row) ? '1' : '0';
+    $accountMetadata['total_account_auto'] = $row['total_account_auto'];
     $summaries = computeImportRateSummaries($row);
     [$payload, $requirements] = buildClassificationRequirements($summaries, $accounts, $accountMetadata);
     if (($accountMetadata['ignore_detected_rates'] ?? '0') === '1') {
@@ -2465,8 +2498,118 @@ function fetchErpPlanAccountCode(string $accountCode, string $database = ''): bo
     return false;
 }
 
-function validateDocumentAccountsAgainstErpPlan(array $documentsPayload, string $database): array {
-    $checkedAccounts = [];
+/**
+ * Obtem (ou cria) no ERP a conta corrente 22x do fornecedor pelo NIF, via
+ * POST contabilidade/planocontas act=ensureSupplierAccount.
+ *
+ * @return array{account: string, created: bool, error: string}
+ */
+function ensureErpSupplierAccount(string $database, string $nif, string $name, string $docDate): array {
+    $result = ['account' => '', 'created' => false, 'error' => ''];
+    $baseUrl = trim((string) getSetting('erp_webservice_url', ''));
+    $token = trim((string) getSetting('erp_token', ''));
+    $endpoint = $baseUrl !== '' ? buildErpEndpointFromBase($baseUrl, 'contabilidade/planocontas') : '';
+    if ($endpoint === '' || $token === '' || !function_exists('curl_init')) {
+        $result['error'] = 'Webservice ERP não configurado.';
+        return $result;
+    }
+
+    $body = json_encode(array_merge(buildErpCompanyQueryParams($database), [
+        'act' => 'ensureSupplierAccount',
+        'database' => $database,
+        'strNIF' => $nif,
+        'strNome' => $name,
+        'datadoc' => $docDate,
+    ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $handle = curl_init($endpoint);
+    if ($handle === false) {
+        $result['error'] = 'Não foi possível iniciar o pedido ao webservice ERP.';
+        return $result;
+    }
+    curl_setopt_array($handle, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
+            'Content-Type: application/json; charset=UTF-8',
+            'X-API-KEY: ' . $token,
+        ],
+        CURLOPT_POSTFIELDS => $body,
+    ]);
+    $response = curl_exec($handle);
+    $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+    $curlError = $response === false ? curl_error($handle) : '';
+    curl_close($handle);
+
+    $decoded = is_string($response) ? json_decode($response, true) : null;
+    if (!is_array($decoded) || (int) ($decoded['success'] ?? 0) !== 1 || trim((string) ($decoded['strConta'] ?? '')) === '') {
+        $detail = is_array($decoded) ? trim((string) ($decoded['errormsg'] ?? '')) : '';
+        if ($detail === '') {
+            $detail = $curlError !== '' ? $curlError : 'resposta inválida do webservice (HTTP ' . $status . ')';
+        }
+        $result['error'] = $detail;
+        logErpMessage('Falha ao garantir conta corrente do fornecedor ' . $nif . ' na base ' . $database . ': ' . $detail);
+        return $result;
+    }
+
+    $result['account'] = trim((string) $decoded['strConta']);
+    $result['created'] = (int) ($decoded['created'] ?? 0) === 1;
+    if ($result['created']) {
+        logErpMessage('Conta corrente ' . $result['account'] . ' criada no ERP (base ' . $database . ') para o fornecedor ' . $nif . '.');
+    }
+    return $result;
+}
+
+/**
+ * Para documentos a credito sem conta de valor total, obtem/cria a conta
+ * corrente do fornecedor no ERP, grava-a no documento e devolve-a.
+ *
+ * @param array<string,mixed> $document
+ * @return array{account: string, created: bool, error: string}
+ */
+function resolveAutoSupplierTotalAccount(PDO $pdo, array $document, string $database): array {
+    $nif = strtoupper(preg_replace('/\s+/', '', (string) ($document['field_A'] ?? '')));
+    $name = '';
+    $entity = findAccountingEntity($pdo, $nif);
+    if (is_array($entity) && !isPlaceholderAccountingEntityName((string) ($entity['name'] ?? ''), $nif)) {
+        $name = trim((string) ($entity['name'] ?? ''));
+    }
+    if ($name === '') {
+        $name = trim(findAccountingEntityNameFromEfatura($pdo, $nif));
+    }
+    if ($name === '') {
+        $name = 'Fornecedor ' . $nif;
+    }
+
+    $ensured = ensureErpSupplierAccount($database, $nif, $name, (string) ($document['field_F'] ?? ''));
+    if ($ensured['account'] === '') {
+        return $ensured;
+    }
+
+    // Gravar no proprio documento (nao na classificacao partilhada) para a
+    // conta aparecer na classificacao e ser usada em reimportacoes.
+    $documentId = (int) ($document['id'] ?? 0);
+    if ($documentId > 0) {
+        $rowPayload = (string) ($document['account_configuration_source'] ?? '');
+        $rowMetadata = normalizeAccountingMetadata($rowPayload);
+        $rowMetadata['total_account'] = $ensured['account'];
+        $stmt = $pdo->prepare('UPDATE accounting_imports SET account = ? WHERE id = ?');
+        $stmt->execute([
+            serializeAccountingAccounts(normalizeAccountingAccounts($rowPayload), $rowMetadata, $rowMetadata),
+            $documentId,
+        ]);
+    }
+
+    return $ensured;
+}
+
+function validateDocumentAccountsAgainstErpPlan(array $documentsPayload, string $database, array $knownAccounts = []): array {
+    $checkedAccounts = array_fill_keys($knownAccounts, true);
     $planLoaded = false;
     if (trim($database) === '') {
         return [
@@ -5220,6 +5363,7 @@ if ($action === 'data') {
                     . 'data-cost-centers="' . $costCentersAttr . '" '
                     . 'data-cost-center-breakdowns="' . $costCenterBreakdownsAttr . '" '
                     . 'data-total-account="' . htmlspecialchars($row['total_account'] ?? '', ENT_QUOTES, 'UTF-8') . '" '
+                    . 'data-total-account-auto="' . htmlspecialchars((string) ($row['total_account_auto'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-manual-review="' . htmlspecialchars((string) ($row['manual_review_required'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-show-document-fields="' . htmlspecialchars((string) ($row['show_document_fields'] ?? '0'), ENT_QUOTES, 'UTF-8') . '" '
                     . 'data-auto-import="' . (isAutoImportReadyRow($row) ? '1' : '0') . '" '
