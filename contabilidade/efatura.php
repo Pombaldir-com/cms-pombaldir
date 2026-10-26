@@ -1936,6 +1936,7 @@ function efaturaComputeClassificationReadiness(PDO $pdo, array $importRow): bool
     $effectiveAccountConfig = resolveEffectiveDocumentAccountingConfigurationWithoutErpLookup($pdo, $importRow);
     $accounts = normalizeAccountingAccounts($effectiveAccountConfig);
     $accountMetadata = normalizeAccountingMetadata($effectiveAccountConfig);
+    $accountMetadata['total_account_auto'] = accountingDocumentSupportsAutoSupplierAccount($importRow) ? '1' : '0';
     $summaries = computeImportRateSummaries($importRow);
     [$payload, $requirements] = buildClassificationRequirements($summaries, $accounts, $accountMetadata);
     if (($accountMetadata['ignore_detected_rates'] ?? '0') === '1') {

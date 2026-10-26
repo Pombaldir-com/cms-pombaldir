@@ -5431,8 +5431,12 @@ function determineClassificationButtonClass(array $requirements, array $payload,
     }
 
     if ($totalAccount === '') {
-        $requires = true;
-        $allFilled = false;
+        // Conta corrente do fornecedor criada/obtida no ERP durante a importacao
+        // (so conta como preenchida quando ja ha contas atribuidas as bases)
+        if (($metadata['total_account_auto'] ?? '0') !== '1' || !$hasAny) {
+            $requires = true;
+            $allFilled = false;
+        }
     } else {
         $hasAny = true;
     }
@@ -5593,6 +5597,29 @@ function isCreditAccountingDocumentType(string $docType): bool {
         'NOTACREDITO',
         'NOTADECREDITO',
     ], true);
+}
+
+/**
+ * Documento de compra a credito (FT/NC/ND, sem recibo no mesmo PDF) cuja conta
+ * de valor total pode ficar vazia: na importacao CTB a conta corrente do
+ * fornecedor e obtida/criada no ERP pelo NIF (ensureErpSupplierAccount()).
+ *
+ * @param array<string,mixed> $document
+ */
+function accountingDocumentSupportsAutoSupplierAccount(array $document): bool {
+    if (array_key_exists('import_type', $document) && (int) $document['import_type'] !== 1) {
+        return false;
+    }
+    if (trim((string) ($document['field_A'] ?? '')) === '') {
+        return false;
+    }
+    $rowMetadata = normalizeAccountingMetadata((string) ($document['account'] ?? ''));
+    if (($rowMetadata['has_receipt_companion'] ?? '0') === '1') {
+        return false;
+    }
+    $docTypeCodes = buildOfficialEfaturaDocTypeCodes((string) ($document['field_D'] ?? ''));
+
+    return in_array($docTypeCodes[0] ?? '', ['FT', 'NC', 'ND'], true);
 }
 
 /**

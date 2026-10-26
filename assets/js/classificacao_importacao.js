@@ -2615,8 +2615,13 @@ window.addEventListener('load', function() {
         if (importType === 1) {
             totalAccount = (btn.getAttribute('data-total-account') || '').trim();
             if (totalAccount === '') {
-                requires = true;
-                allFilled = false;
+                // Conta corrente do fornecedor criada/obtida no ERP durante a importacao
+                var totalAccountAuto = btn.getAttribute('data-total-account-auto') === '1'
+                    && btn.getAttribute('data-has-receipt-companion') !== '1';
+                if (!totalAccountAuto || !hasAny) {
+                    requires = true;
+                    allFilled = false;
+                }
             } else {
                 hasAny = true;
             }
@@ -9543,6 +9548,9 @@ window.addEventListener('load', function() {
         );
         if (totalAccountInput) {
             totalAccountInput.value = currentTotalAccount;
+            totalAccountInput.placeholder = btn.getAttribute('data-total-account-auto') === '1'
+                ? 'Conta fornecedor: criada na importação'
+                : 'Conta para o valor total';
             updatePlanInputTitle(totalAccountInput);
         }
         if (classificationModelSelect) {

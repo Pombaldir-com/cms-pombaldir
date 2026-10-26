@@ -54,6 +54,17 @@ O payload enviado para o ERP é construído em [`contabilidade/classificacao-imp
 
 `EMP` é sempre obtido de **Módulos > Contabilidade > Empresa base**.
 
+## Conta corrente de fornecedor novo (criada na importação)
+
+Faturas a crédito (`FT`/`NC`/`ND`, sem recibo no mesmo PDF) de um fornecedor que ainda não tem conta 22x no ERP ficam sem conta de **Valor Total** (a `LigacaoCteTipoDoc` não devolve linha de total). Estes documentos contam como classificados com o Valor Total vazio (o campo mostra "Conta fornecedor: criada na importação"), desde que as bases tenham contas atribuídas.
+
+Ao importar (`import_CTB()`), para cada documento nestas condições o CRM chama `POST contabilidade/planocontas` com `act=ensureSupplierAccount` (`ensureErpSupplierAccount()`):
+
+- se já existir uma conta 22x com o NIF do fornecedor, é essa a usada;
+- caso contrário, a API cria-a em `Tbl_Plano_Contas` como `22111` (NIF nacional), `22112` (NIF comunitário) ou `22113` (outros países) + 4 dígitos, com o próximo número livre, no exercício do documento e nos seguintes já abertos, copiando as flags de uma conta irmã. A descrição é o nome do fornecedor (`accounting_entities`/e-fatura).
+
+A conta obtida é gravada na conta de Valor Total do próprio documento (`accounting_imports.account`) e usada no lançamento. Se a API falhar, a importação é abortada com o motivo.
+
 ## Endpoint de explicação da sugestão (Classificação)
 
 Na vista de classificação existe também o endpoint:
