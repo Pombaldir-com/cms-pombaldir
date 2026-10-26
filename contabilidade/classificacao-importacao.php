@@ -1165,6 +1165,7 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
             . implode(', ', array_column($documentsWithoutLines, 'doc'));
         $result['error_detail'] = $result['error'];
         $result['error_documents'] = $documentsWithoutLines;
+        logErpMessage('Importação CTB abortada por documentos sem linhas. Detalhe: ' . $result['error']);
         return $result;
     }
 

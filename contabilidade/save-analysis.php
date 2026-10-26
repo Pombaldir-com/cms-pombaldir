@@ -2173,16 +2173,19 @@ if ($action === 'get') {
             $pdo->rollBack();
             $documentTotal = (float) extractDecimalAmount($importRow['field_O'] ?? '0');
             $documentVat = (float) extractDecimalAmount($importRow['field_N'] ?? '0');
+            $rejectionMessage = sprintf(
+                'As bases tributáveis indicadas excedem em %s a base do documento (total %s - IVA %s = %s). '
+                . 'Verifique se os valores pertencem a este documento ou corrija os totais em "Editar Valores".',
+                number_format(abs($derivedExemptBase), 2, ',', '.'),
+                number_format($documentTotal, 2, ',', '.'),
+                number_format($documentVat, 2, ',', '.'),
+                number_format($documentTotal - $documentVat, 2, ',', '.')
+            );
+            logErpMessage('Classificacao recusada. Documento ' . $idValue
+                . ' (' . trim((string) ($importRow['field_G'] ?? '')) . '): ' . $rejectionMessage);
             http_response_code(422);
             echo json_encode([
-                'error' => sprintf(
-                    'As bases tributáveis indicadas excedem em %s a base do documento (total %s - IVA %s = %s). '
-                    . 'Verifique se os valores pertencem a este documento ou corrija os totais em "Editar Valores".',
-                    number_format(abs($derivedExemptBase), 2, ',', '.'),
-                    number_format($documentTotal, 2, ',', '.'),
-                    number_format($documentVat, 2, ',', '.'),
-                    number_format($documentTotal - $documentVat, 2, ',', '.')
-                ),
+                'error' => $rejectionMessage,
                 'csrf_token' => generateCsrfToken(),
             ]);
             exit;
@@ -2347,6 +2350,7 @@ if ($action === 'get') {
         }
         http_response_code(500);
         error_log('save-analysis error: ' . $e->getMessage());
+        logErpMessage('Erro ao guardar a classificacao do documento ' . $idValue . ': ' . $e->getMessage());
         // O detalhe da excepcao so vai para o cliente em modo debug: fora disso
         // expunha estrutura interna (tabelas, colunas, SQL) na resposta.
         $errorPayload = [
