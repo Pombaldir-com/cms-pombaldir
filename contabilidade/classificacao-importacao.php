@@ -1254,10 +1254,15 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
         return $result;
     }
 
+    // O ERP grava cada documento (com anexo) e cria contas de fornecedor; um lote
+    // de dezenas de documentos passa facilmente dos 30s. 90s fica abaixo do
+    // limite de 100s da Cloudflare (int.zcontas.pt), que cortaria o pedido do
+    // browser antes de haver resposta.
+    @set_time_limit(120);
     curl_setopt_array($handle, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => 90,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
@@ -1269,9 +1274,17 @@ function import_CTB(PDO $pdo, array $ids, int $importType, string $database = ''
     $status = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
 
     if ($response === false) {
+        $errorNumber = curl_errno($handle);
         $errorMessage = curl_error($handle);
         curl_close($handle);
         $result['error'] = 'Erro ao comunicar com o webservice de contabilidade.';
+        if ($errorNumber === CURLE_OPERATION_TIMEDOUT) {
+            // O ERP pode ter gravado parte do lote antes do timeout. Nao duplica
+            // documentos (procura strNum_Doc) e devolve-os em "exist", que
+            // persistExistingMovementCabIds() associa: repetir e seguro.
+            $result['error'] = 'O ERP demorou demasiado a responder. Parte dos documentos pode já ter sido lançada: '
+                . 'aguarde um minuto e volte a importar (os documentos já lançados são reconhecidos e não são duplicados).';
+        }
         logErpMessage('Erro cURL ao importar movimentos CTB: ' . $errorMessage . $endpointInfo);
         return $result;
     }
