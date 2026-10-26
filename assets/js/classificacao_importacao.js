@@ -8540,6 +8540,15 @@ window.addEventListener('load', function() {
         serverOriginalRates = {};
     }
 
+    function rateHasBaseSourceValue(rate, rateData) {
+        var source = resolveBaseSourceForRate(rate, rateData);
+        if (!source || source.base === null || source.base === undefined) {
+            return false;
+        }
+        var numeric = parseDecimalValue(source.base);
+        return numeric !== null && Math.abs(numeric) > 0.00001;
+    }
+
     function restoreSavedRates() {
         var created = [];
         var rowIsClassified = Object.keys(storedRowRates).some(function(rate) {
@@ -8561,6 +8570,17 @@ window.addEventListener('load', function() {
             // Documento ja gravado: as linhas extra da regra partilhada do
             // fornecedor nao voltam a aparecer (ver resolveDisplayClassificationAccounts()).
             if (rowIsClassified && /^custom_\d+$/.test(rate) && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
+                return;
+            }
+            // Taxa standard que so existe na regra partilhada (contas aprendidas
+            // noutro documento do fornecedor) e sem base neste documento: nao
+            // mostrar. Ex: PDF da EDP com eletricidade (23%) e audiovisual (6%)
+            // - a linha 6% aparecia na fatura da eletricidade e o lancamento
+            // deixava de fechar.
+            if (!/^custom_\d+$/.test(rate)
+                && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)
+                && !rateHasBaseValues(rate)
+                && !rateHasBaseSourceValue(rate, storedDefaultRates[rate])) {
                 return;
             }
             var info = addVatRowForRate(rate);
