@@ -5611,6 +5611,7 @@ function buildDocumentAccountingLines(array $document): array {
     $documentSign = isCreditAccountingDocumentType($docType) ? -1 : 1;
     $vatExempt = isAccountingDocumentAcquirerVatExempt($document);
     $lines = [];
+    $baseLineSources = [];
 
     foreach ($accounts as $rate => $config) {
         $rateKey = (string) $rate;
@@ -5657,6 +5658,13 @@ function buildDocumentAccountingLines(array $document): array {
                 'base',
                 $rateCostCenterBreakdown
             );
+            $baseLineSources[] = [
+                'rate' => $rateKey,
+                'account' => $generalAccount,
+                'amount' => abs($baseAmount),
+                'cost_center' => $rateCostCenter,
+                'cost_center_breakdown' => $rateCostCenterBreakdown,
+            ];
         }
 
         $ivaAccount = trim((string) ($config['iva_account'] ?? ''));
@@ -5672,6 +5680,13 @@ function buildDocumentAccountingLines(array $document): array {
                 $rateKey,
                 'iva'
             );
+        }
+    }
+
+    if (!accountingRatesContainBankLoanConversion($accounts)) {
+        $stampLine = buildDocumentStampTaxAccountingLine($document, $lines, $baseLineSources, $documentSign);
+        if ($stampLine !== null) {
+            $lines[] = $stampLine;
         }
     }
 
@@ -5726,6 +5741,74 @@ function buildDocumentAccountingLines(array $document): array {
     }
 
     return $lines;
+}
+
+/**
+ * Linha de imposto do selo (QR campo M) em falta no lancamento.
+ *
+ * O total do documento (campo O) inclui o imposto do selo, mas as bases por
+ * taxa nao: a base isenta vem do campo I2, que o exclui. Sem uma linha propria
+ * o lancamento fica a debito exactamente no valor do selo e a importacao e
+ * recusada por nao fechar. O selo e um gasto nao dedutivel do mesmo servico,
+ * pelo que vai para a conta geral da base isenta (ou, na falta dela, da maior
+ * base), com o mesmo centro de custo.
+ *
+ * So e gerada quando o valor em falta e exactamente o selo: se o utilizador ja
+ * o incluiu na base ou numa linha propria, o lancamento ja fecha e nada muda.
+ *
+ * @param array<int,array<string,mixed>> $lines
+ * @param array<int,array<string,mixed>> $baseLineSources
+ */
+function buildDocumentStampTaxAccountingLine(array $document, array $lines, array $baseLineSources, int $documentSign): ?array {
+    $stampString = extractDecimalAmount($document['field_M'] ?? null);
+    if ($stampString === null || $stampString === '') {
+        return null;
+    }
+    $stampTax = abs((float) $stampString);
+    if (!is_finite($stampTax) || $stampTax < 0.005 || empty($baseLineSources)) {
+        return null;
+    }
+
+    $totalAmount = computeDocumentTotalAmount($document);
+    if ($totalAmount === null) {
+        return null;
+    }
+
+    $postedAmount = 0.0;
+    foreach ($lines as $line) {
+        $postedAmount += abs((float) ($line['fltValor'] ?? 0.0));
+    }
+    if (abs((abs($totalAmount) - $postedAmount) - $stampTax) > 0.01) {
+        return null;
+    }
+
+    $source = null;
+    foreach ($baseLineSources as $candidate) {
+        if ((string) $candidate['rate'] === '0') {
+            $source = $candidate;
+            break;
+        }
+        if ($source === null || $candidate['amount'] > $source['amount']) {
+            $source = $candidate;
+        }
+    }
+
+    // A reparticao guarda valores absolutos da base; no selo so a percentagem
+    // se aplica (o webservice recalcula o valor a partir dela).
+    $breakdown = array_map(static function (array $row): array {
+        $row['value'] = '';
+        return $row;
+    }, sanitizeCostCenterBreakdownRows($source['cost_center_breakdown'] ?? []));
+
+    return buildAccountingLineEntry(
+        (string) $source['account'],
+        round($stampTax, 2) * $documentSign,
+        buildAccountingLineDescription($document, '', 'Imposto selo'),
+        (string) ($source['cost_center'] ?? ''),
+        null,
+        'stamp_tax',
+        $breakdown
+    );
 }
 
 /**
