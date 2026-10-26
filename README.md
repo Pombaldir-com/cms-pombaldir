@@ -199,5 +199,27 @@ O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com
 3. Defina também `AWS_TEXTRACT_BUCKET` com o bucket S3 a utilizar.
 4. Quando ativo, o sistema usa o script Python para analisar faturas e, em caso de erro, reverte para o Tesseract registando a falha nos logs.
 
+## Tarefas de rotina (cron)
+
+Em produção (utilizador `teknisoft`, `crontab -l`) corre diariamente às 03:30:
+
+```
+30 3 * * * /bin/bash /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/cleanup-caches.sh >/dev/null 2>&1
+```
+
+[scripts/cleanup-caches.sh](scripts/cleanup-caches.sh) apaga caches e temporários que a aplicação volta a gerar quando precisa deles:
+
+| Ficheiros | Origem | Retenção |
+|---|---|---|
+| `uploads/**/*.qr-cache-p{N}-d{DPI}.png` | páginas renderizadas pelo `contabilidade/detectar_qr.py` | 7 dias (`QR_CACHE_DAYS`) |
+| `uploads/**/*.preview-p{N}.png` | pré-visualizações do upload | 7 dias (`PREVIEW_DAYS`) |
+| `data/efatura_jobs/*.runner.log` | logs dos workers E-fatura | 30 dias (`EFATURA_LOG_DAYS`) |
+| `contabilidade/magick-*` | temporários do ImageMagick | 1 dia (`TEMP_DAYS`) |
+
+- Os PDF, XML e restantes uploads nunca são tocados. Os `job_*.json` do E-fatura são limpos pela própria aplicação (setting `efatura_artifact_retention_days`, 15 dias).
+- Cada execução acrescenta uma linha a `data/cleanup.log` com o número de ficheiros e MB removidos por tipo.
+- Testar sem apagar: `scripts/cleanup-caches.sh --dry-run`.
+- Sem esta tarefa as caches de QR crescem sem limite: em outubro de 2026 ocupavam 13 GB dos 18 GB de `uploads/`.
+
 ## Licença
 Distribuído sob a licença MIT. Consulte o ficheiro [`LICENSE`](LICENSE) se existir ou adapte conforme necessário.

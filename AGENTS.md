@@ -116,6 +116,9 @@ Regras ao mexer em DataTables:
 ## Testing
 - No formal test runner defined; validate changes manually when needed.
 
+## Cron (producao)
+- Tarefa diaria `scripts/cleanup-caches.sh` (03:30, crontab do utilizador `teknisoft`) apaga caches regeneraveis (`*.qr-cache-*.png`, `*.preview-p*.png`, `efatura_jobs/*.runner.log`, `magick-*`). Detalhe e retencoes no README ("Tarefas de rotina (cron)"). Ao criar um novo tipo de cache/temporario em disco, acrescenta-lo a este script.
+
 ## Run locally
 - Requires PHP (and a web server if not using the PHP built-in server).
 - Quick start: `php -S localhost:8000 router.php`
