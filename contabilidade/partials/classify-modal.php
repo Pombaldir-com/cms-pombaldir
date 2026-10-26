@@ -511,6 +511,10 @@ $classifyModalFooterRightHtml = isset($classifyModalFooterRightHtml) ? (string) 
                                         <input class="form-check-input" type="checkbox" id="toggleDocumentFieldsSwitch" value="1">
                                         <label class="form-check-label" for="toggleDocumentFieldsSwitch">Editar Valores</label>
                                     </div>
+                                    <div class="form-check form-switch classify-manual-values-switch" title="Ignora as taxas lidas do QR/documento e usa apenas as linhas da classificação do fornecedor (ex: despesa sem IVA dedutível com o total numa só linha).">
+                                        <input class="form-check-input" type="checkbox" id="ignoreDetectedRatesSwitch" value="1">
+                                        <label class="form-check-label" for="ignoreDetectedRatesSwitch">Ignorar taxas do QR</label>
+                                    </div>
                                 </div>
                             </div>
                             <?php endif; ?>

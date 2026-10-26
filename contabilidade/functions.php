@@ -5280,6 +5280,36 @@ function resolveDisplayClassificationAccounts(array $defaultAccounts, array $row
 }
 
 /**
+ * Resolve o "ignorar taxas detetadas" efetivo de um documento.
+ *
+ * A classificacao partilhada do fornecedor pode dizer para ignorar as taxas
+ * lidas do QR (ex: despesa sem IVA dedutivel, total numa so linha a 0%). Um
+ * documento ainda por classificar tem de herdar essa indicacao; caso contrario
+ * as linhas 13%/23% do QR aparecem ao lado da linha 0% com o total. Depois de
+ * o documento ter contas proprias manda a indicacao gravada no documento.
+ *
+ * @param array<string,array<string,mixed>> $rowAccounts
+ * @param array<string,string> $rowMetadata
+ * @param array<string,string> $classificationMetadata
+ */
+function resolveEffectiveIgnoreDetectedRates(array $rowAccounts, array $rowMetadata, array $classificationMetadata): string {
+    if (($rowMetadata['ignore_detected_rates'] ?? '0') === '1') {
+        return '1';
+    }
+
+    foreach ($rowAccounts as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        if (trim((string) ($entry['general_account'] ?? '')) !== '' || trim((string) ($entry['iva_account'] ?? '')) !== '') {
+            return '0';
+        }
+    }
+
+    return ($classificationMetadata['ignore_detected_rates'] ?? '0') === '1' ? '1' : '0';
+}
+
+/**
  * Same effective-configuration merge as classificacao-importacao.php's
  * resolveEffectiveDocumentAccountingConfiguration(), minus the fuel rubric
  * code lookup (resolveDocumentLigacaoRubricCodes), which calls the ERP
@@ -5318,6 +5348,8 @@ function resolveEffectiveDocumentAccountingConfigurationWithoutErpLookup(PDO $pd
         if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
             $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
         }
+
+        $effectiveMetadata['ignore_detected_rates'] = resolveEffectiveIgnoreDetectedRates($rowAccounts, $rowMetadata, $classificationMetadata);
     }
 
     if (trim($classificationPayload) === '' && $effectiveAccounts === $rowAccounts) {

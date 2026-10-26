@@ -177,6 +177,8 @@ if (!function_exists('resolveEffectiveDocumentAccountingConfiguration')) {
             if (trim((string) ($effectiveMetadata['receipt_total_account'] ?? '')) === '') {
                 $effectiveMetadata['receipt_total_account'] = trim((string) ($classificationMetadata['receipt_total_account'] ?? ''));
             }
+
+            $effectiveMetadata['ignore_detected_rates'] = resolveEffectiveIgnoreDetectedRates($rowAccounts, $rowMetadata, $classificationMetadata);
         }
 
         $resolvedRubricCodes = resolveDocumentLigacaoRubricCodes($pdo, $document, $effectiveAccounts);

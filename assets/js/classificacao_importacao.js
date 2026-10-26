@@ -2839,6 +2839,8 @@ window.addEventListener('load', function() {
     var documentFieldsGridEl = document.getElementById('classifyDocumentFieldsGrid');
     var documentFieldsPanelEl = document.getElementById('classifyDocumentFieldsPanel');
     var toggleDocumentFieldsSwitch = document.getElementById('toggleDocumentFieldsSwitch');
+    var ignoreDetectedRatesSwitch = document.getElementById('ignoreDetectedRatesSwitch');
+    var detectedRatesSnapshot = {};
     var currentCostCenterDistributionRate = '';
     var totalAccountInput = document.getElementById('totalAccountInput');
     var classificationModelSelect = document.getElementById('classificationModelSelect');
@@ -4549,6 +4551,7 @@ window.addEventListener('load', function() {
         mergedRequirements = enrichRequirementsFromRates(mergedRequirements, storedDefaultRates);
         currentBtn.setAttribute('data-requirements', JSON.stringify(mergedRequirements));
         removedRates = {};
+        detectedRatesSnapshot = normalizeServerOriginalRates(response.original_rates);
         serverOriginalRates = preserveAdjustedOriginalRates(normalizeServerOriginalRates(response.original_rates), currentRateData);
         var rowTotalAccount = typeof response.row_total_account === 'string' ? response.row_total_account : '';
         var classificationTotalAccount = typeof response.total_account === 'string' ? response.total_account : '';
@@ -4565,7 +4568,7 @@ window.addEventListener('load', function() {
             totalAccountInput.value = currentTotalAccount;
             updatePlanInputTitle(totalAccountInput);
         }
-        currentIgnoreDetectedRates = String(response.ignore_detected_rates || '').trim() === '1';
+        setIgnoreDetectedRates(String(response.ignore_detected_rates || '').trim() === '1');
         currentClassificationModelName = String(response.classification_model_name || '').trim();
         classificationModels = normalizeClassificationModelList(response.classification_models);
         if (emitterTypeSelect && Object.prototype.hasOwnProperty.call(response, 'emitter_type')) {
@@ -4701,6 +4704,7 @@ window.addEventListener('load', function() {
             D: docType,
             tenant_key: currentBtn.getAttribute('data-acquirer-db') || erpDefaultDatabase || '',
             document_fields: JSON.stringify(currentDocumentFieldValues),
+            ignore_detected_rates: currentIgnoreDetectedRates ? '1' : '0',
             csrf_token: csrfInput.value
         });
 
@@ -4885,6 +4889,96 @@ window.addEventListener('load', function() {
             applyDocumentVatAutofill(fieldName);
             syncDocumentFieldStateFromInputs();
             scheduleClassificationRefreshFromDocumentFields(fieldName);
+        });
+    }
+
+    function setIgnoreDetectedRates(value) {
+        currentIgnoreDetectedRates = !!value;
+        if (ignoreDetectedRatesSwitch) {
+            ignoreDetectedRatesSwitch.checked = currentIgnoreDetectedRates;
+        }
+    }
+
+    // Taxas lidas do QR/documento com valores (base ou IVA diferente de zero).
+    function getDetectedRatesWithValues() {
+        return Object.keys(detectedRatesSnapshot || {}).filter(function(rate) {
+            var entry = detectedRatesSnapshot[rate] || {};
+            return [entry.base, entry.iva].some(function(value) {
+                var numeric = parseDecimalValue(value);
+                return numeric !== null && Math.abs(numeric) > 0.00001;
+            });
+        });
+    }
+
+    function rateRowHasAccounts(rate) {
+        var info = rateInputs[rate];
+        if (!info) {
+            return false;
+        }
+        var general = info.generalAccount ? String(info.generalAccount.value || '').trim() : '';
+        var iva = info.ivaAccount ? String(info.ivaAccount.value || '').trim() : '';
+        return general !== '' || iva !== '';
+    }
+
+    // Ativar: retira as linhas das taxas do QR que nao tenham contas (as linhas
+    // da classificacao/modelo ficam). Desativar: repoe as linhas das taxas do
+    // QR com os valores lidos do documento.
+    function applyIgnoreDetectedRatesToggle(ignore) {
+        if (!currentBtn) {
+            return;
+        }
+        var detectedRates = getDetectedRatesWithValues();
+        var requirements = parseJsonAttribute(currentBtn, 'data-requirements') || {};
+        var vatExempt = isVatExemptButton(currentBtn);
+
+        if (ignore) {
+            detectedRates.forEach(function(rate) {
+                if (!rateInputs[rate] || rateRowHasAccounts(rate)) {
+                    return;
+                }
+                removeRateRow(rate);
+                delete currentRateData[rate];
+                delete requirements[rate];
+            });
+            currentBtn.setAttribute('data-requirements', JSON.stringify(requirements));
+        } else {
+            // Com um modelo selecionado a gravacao volta a forcar "ignorar".
+            currentClassificationModelName = '';
+            renderClassificationModelOptions('');
+            detectedRates.forEach(function(rate) {
+                var entry = detectedRatesSnapshot[rate] || {};
+                if (!rateInputs[rate]) {
+                    currentRateData[rate] = {
+                        label: getDefaultRateLabel(rate),
+                        base: entry.base,
+                        base_value: entry.base,
+                        iva: entry.iva,
+                        iva_value: entry.iva
+                    };
+                    delete removedRates[rate];
+                    serverOriginalRates[rate] = { base: entry.base, iva: entry.iva };
+                    originalRateValues[rate] = { base: entry.base, iva: entry.iva };
+                    addVatRowForRate(rate);
+                }
+                var normalizedRate = normalizeRateToken(rate);
+                var isZeroRate = normalizedRate !== null && Math.abs(normalizedRate) < 0.00001;
+                requirements[rate] = Object.assign({}, requirements[rate] || {}, {
+                    general: true,
+                    iva: !isZeroRate && !vatExempt
+                });
+            });
+            currentBtn.setAttribute('data-requirements', JSON.stringify(requirements));
+        }
+
+        rebuildRequirementsForCurrentButton();
+        refreshCostCenterFieldModes();
+        refreshAllDirtyStates();
+    }
+
+    if (ignoreDetectedRatesSwitch) {
+        ignoreDetectedRatesSwitch.addEventListener('change', function() {
+            setIgnoreDetectedRates(ignoreDetectedRatesSwitch.checked);
+            applyIgnoreDetectedRatesToggle(currentIgnoreDetectedRates);
         });
     }
 
@@ -5082,7 +5176,7 @@ window.addEventListener('load', function() {
         // Modelos nao transportam centros de custo (sao por empresa/entidade):
         // preservar os valores atuais/sugeridos da linha em vez de os limpar.
         currentTotalAccount = selectedModel.total_account;
-        currentIgnoreDetectedRates = true;
+        setIgnoreDetectedRates(true);
         currentClassificationModelName = selectedModel.name;
 
         Object.keys(currentRateData).forEach(function(rate) {
@@ -5825,7 +5919,7 @@ window.addEventListener('load', function() {
             amounts.commission = 0;
         }
         currentBankLoanResolvedAmounts = Object.assign({}, amounts);
-        currentIgnoreDetectedRates = true;
+        setIgnoreDetectedRates(true);
         currentBankLoanConversionActive = true;
         currentClassificationModelName = '';
         var primaryRateKey = String(amounts.primaryRate || '0').trim() || '0';
@@ -7002,7 +7096,7 @@ window.addEventListener('load', function() {
 
         var applied = false;
         if (operations.ignore_detected_rates === true) {
-            currentIgnoreDetectedRates = true;
+            setIgnoreDetectedRates(true);
             applied = true;
         }
 
@@ -9429,8 +9523,9 @@ window.addEventListener('load', function() {
         currentCostCenters = {};
         currentCostCenterBreakdowns = {};
         removedRates = {};
+        detectedRatesSnapshot = {};
         currentTotalAccount = (btn.getAttribute('data-total-account') || '').trim();
-        currentIgnoreDetectedRates = false;
+        setIgnoreDetectedRates(false);
         currentBankLoanConversionActive = false;
         currentClassificationModelName = '';
         classificationModels = [];
@@ -9736,7 +9831,7 @@ window.addEventListener('load', function() {
                     var manualReviewValue = String(res.manual_review_required || '').trim();
                     currentBtn.setAttribute('data-manual-review', manualReviewValue === '1' ? '1' : '0');
                 }
-                currentIgnoreDetectedRates = String(res.ignore_detected_rates || '').trim() === '1';
+                setIgnoreDetectedRates(String(res.ignore_detected_rates || '').trim() === '1');
                 currentClassificationModelName = String(res.classification_model_name || '').trim();
                 classificationModels = normalizeClassificationModelList(res.classification_models);
                 if (emitterTypeSelect && Object.prototype.hasOwnProperty.call(res, 'emitter_type')) {

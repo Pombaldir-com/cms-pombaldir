@@ -1830,6 +1830,25 @@ if ($action === 'get') {
         $classificationAccounts = filterVisibleAccountingRates($classificationAccounts);
     }
 
+    // Documento ainda por classificar herda o "ignorar taxas detetadas" da
+    // classificacao do fornecedor (ex: despesa sem IVA dedutivel com o total a
+    // 0%); sem isto o modal mostrava as linhas 13%/23% do QR ao lado da linha 0%.
+    // O interruptor "Ignorar taxas do QR" do modal prevalece (o modal envia-o
+    // quando volta a pedir a classificacao depois de editar os valores).
+    $requestedIgnoreDetectedRates = trim((string) ($_GET['ignore_detected_rates'] ?? ''));
+    $effectiveIgnoreDetectedRates = in_array($requestedIgnoreDetectedRates, ['0', '1'], true)
+        ? $requestedIgnoreDetectedRates
+        : resolveEffectiveIgnoreDetectedRates($rowAccounts, $rowMetadata, $classificationMetadata);
+    if ($effectiveIgnoreDetectedRates !== ($rowMetadata['ignore_detected_rates'] ?? '0') && !empty($importRow)) {
+        $inheritedMetadata = $rowMetadata;
+        $inheritedMetadata['ignore_detected_rates'] = $effectiveIgnoreDetectedRates;
+        [, $rowRequirements] = buildClassificationRequirements(
+            $summaries,
+            resolveDisplayClassificationAccounts($classificationAccounts, $rowAccounts),
+            $inheritedMetadata
+        );
+    }
+
     if (empty($originalSnapshot) && !empty($summaries)) {
         $originalSnapshot = mergeOriginalRateSnapshot([], $summaries);
     }
@@ -1863,7 +1882,7 @@ if ($action === 'get') {
         'total_account' => $classificationTotalAccount,
         'row_total_account' => $rowMetadata['total_account'] ?? '',
         'has_receipt_companion' => $rowMetadata['has_receipt_companion'] ?? '0',
-        'ignore_detected_rates' => $rowMetadata['ignore_detected_rates'] ?? '0',
+        'ignore_detected_rates' => $effectiveIgnoreDetectedRates,
         'classification_model_name' => $rowMetadata['classification_model_name'] ?? '',
         'classification_models' => loadSharedClassificationModels($pdo, $a, $b, $d, (string) $tenantKey),
         'emitter_type' => resolveEmitterTypeValue($pdo, (string) ($importRow['field_A'] ?? $a), $importRow),
@@ -2086,6 +2105,7 @@ if ($action === 'get') {
             }
         }
         $summaries = computeImportRateSummaries($importRow);
+        $exemptBaseBeforeSave = (float) ($summaries['0']['base_value'] ?? 0.0);
         $existingOriginal = mergeOriginalRateSnapshot($existingOriginalRaw, $summaries);
         [$existingPayload, $existingRequirements] = buildClassificationRequirements($summaries, $existingRow, $existingRowMetadata);
         $existingRowCostCenters = normalizeCostCenters($importRow['cost_center'] ?? '');
@@ -2135,6 +2155,39 @@ if ($action === 'get') {
             $importRow[$fieldName] = $fieldValue;
         }
         $summaries = computeImportRateSummaries($importRow);
+
+        // Sem I2 a base isenta e derivada por subtracao (total - IVA - bases
+        // tributaveis). Se as bases introduzidas excedem a base do documento (ex:
+        // base de outra fatura do mesmo PDF somada a esta), o isento fica
+        // negativo: a linha reaparece em cada abertura, exige conta e o
+        // documento nunca fica classificado. Recusar com o motivo concreto.
+        // So quando e esta gravacao que torna o isento negativo: diferencas de
+        // arredondamento que ja vem do proprio QR (centimos) continuam aceites.
+        $derivedExemptBase = (float) ($summaries['0']['base_value'] ?? 0.0);
+        $declaredExemptBase = extractDecimalAmount($importRow['field_I2'] ?? null);
+        if (!$bankLoanConversionSubmitted
+            && ($declaredExemptBase === null || $declaredExemptBase === '')
+            && $derivedExemptBase < -0.005
+            && $derivedExemptBase < $exemptBaseBeforeSave - 0.005
+        ) {
+            $pdo->rollBack();
+            $documentTotal = (float) extractDecimalAmount($importRow['field_O'] ?? '0');
+            $documentVat = (float) extractDecimalAmount($importRow['field_N'] ?? '0');
+            http_response_code(422);
+            echo json_encode([
+                'error' => sprintf(
+                    'As bases tributáveis indicadas excedem em %s a base do documento (total %s - IVA %s = %s). '
+                    . 'Verifique se os valores pertencem a este documento ou corrija os totais em "Editar Valores".',
+                    number_format(abs($derivedExemptBase), 2, ',', '.'),
+                    number_format($documentTotal, 2, ',', '.'),
+                    number_format($documentVat, 2, ',', '.'),
+                    number_format($documentTotal - $documentVat, 2, ',', '.')
+                ),
+                'csrf_token' => generateCsrfToken(),
+            ]);
+            exit;
+        }
+
         [, $rowRequirements] = buildClassificationRequirements($summaries, $rowAccounts, $submittedMetadata);
 
         $normalizeRatesForComparison = static function (array $rates): array {
