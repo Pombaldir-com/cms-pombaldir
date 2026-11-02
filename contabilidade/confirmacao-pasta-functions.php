@@ -176,38 +176,82 @@ function matchFolderTapeValues(array $tapeValues, array $docs): array {
 }
 
 /**
- * Totais do SAF-T do mes submetido na tarefa "Envio de SAF-T"
- * (accounting_saft_submissions), preferindo a ultima submissao aceite pela
- * AT ou importada sem envio (cliente que submete o SAF-T a AT de forma
- * autonoma). No legacy vinham dos campos adicionais 7 (debito) e 8 (credito) do
- * ficheiro SAF-T carregado na ficha do cliente.
+ * Totais do SAF-T do mes submetidos na tarefa "Envio de SAF-T"
+ * (accounting_saft_submissions). Uma empresa pode ter varios ficheiros no mes
+ * (ex.: uma exportacao por serie/programa de faturacao), pelo que os totais
+ * sao a soma de todos. O mesmo ficheiro carregado mais do que uma vez conta
+ * uma so vez: nome igual depois de tirar o prefixo "NNN-" e o sufixo " (n)"
+ * que o browser/utilizador acrescentam, ou mesmo periodo e mesmos totais.
+ * Entre copias prevalece a aceite pela AT (ou importada sem envio) e depois a
+ * mais recente. No legacy vinham dos campos adicionais 7 (debito) e 8
+ * (credito) do ficheiro SAF-T carregado na ficha do cliente.
  *
- * @return array{found:bool,debit:float,credit:float,submission_id:?int,created_at:?string}
+ * @return array{found:bool,debit:float,credit:float,submission_id:?int,created_at:?string,files:array<int,array<string,mixed>>}
  */
 function fetchFolderSaftTotals(PDO $pdo, int $entityId, int $year, int $month): array {
-    $empty = ['found' => false, 'debit' => 0.0, 'credit' => 0.0, 'submission_id' => null, 'created_at' => null];
+    $empty = ['found' => false, 'debit' => 0.0, 'credit' => 0.0, 'submission_id' => null, 'created_at' => null, 'files' => []];
     if (!hasTable('accounting_saft_submissions') || !hasColumn('accounting_saft_submissions', 'saft_total_debit')) {
         return $empty;
     }
     $stmt = $pdo->prepare(
-        "SELECT id, saft_total_debit, saft_total_credit, created_at
+        "SELECT id, status, original_filename, saft_start_date, saft_end_date, saft_number_of_entries,
+                saft_total_debit, saft_total_credit, created_at
          FROM accounting_saft_submissions
          WHERE accounting_entity_id = ? AND period_year = ? AND period_month = ?
            AND saft_total_debit IS NOT NULL
-         ORDER BY (status IN ('enviado', 'importado')) DESC, id DESC
-         LIMIT 1"
+         ORDER BY (status IN ('enviado', 'importado')) DESC, id DESC"
     );
     $stmt->execute([$entityId, $year, $month]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows) {
         return $empty;
     }
+
+    $seenNames = [];
+    $seenContents = [];
+    $files = [];
+    $debit = 0.0;
+    $credit = 0.0;
+    foreach ($rows as $row) {
+        $name = strtolower(trim((string) $row['original_filename']));
+        $name = preg_replace('/^\d+-/', '', $name);
+        $name = preg_replace('/\s*\(\d+\)(?=\.[a-z0-9]+$|$)/', '', $name);
+        $content = implode('|', [
+            (string) $row['saft_start_date'],
+            (string) $row['saft_end_date'],
+            (string) $row['saft_number_of_entries'],
+            number_format((float) $row['saft_total_debit'], 2, '.', ''),
+            number_format((float) ($row['saft_total_credit'] ?? 0), 2, '.', ''),
+        ]);
+        if (($name !== '' && isset($seenNames[$name])) || isset($seenContents[$content])) {
+            continue;
+        }
+        if ($name !== '') {
+            $seenNames[$name] = true;
+        }
+        $seenContents[$content] = true;
+
+        $fileDebit = round((float) $row['saft_total_debit'], 2);
+        $fileCredit = round((float) ($row['saft_total_credit'] ?? 0), 2);
+        $debit += $fileDebit;
+        $credit += $fileCredit;
+        $files[] = [
+            'id' => (int) $row['id'],
+            'filename' => (string) $row['original_filename'],
+            'status' => (string) $row['status'],
+            'debit' => $fileDebit,
+            'credit' => $fileCredit,
+            'created_at' => (string) $row['created_at'],
+        ];
+    }
+
     return [
         'found' => true,
-        'debit' => round((float) $row['saft_total_debit'], 2),
-        'credit' => round((float) ($row['saft_total_credit'] ?? 0), 2),
-        'submission_id' => (int) $row['id'],
-        'created_at' => (string) $row['created_at'],
+        'debit' => round($debit, 2),
+        'credit' => round($credit, 2),
+        'submission_id' => $files[0]['id'],
+        'created_at' => $files[0]['created_at'],
+        'files' => $files,
     ];
 }
 

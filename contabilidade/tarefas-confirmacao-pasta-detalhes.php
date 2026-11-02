@@ -393,6 +393,24 @@ ob_start();
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
+<?php if (count($overview['saft']['files'] ?? []) > 1): ?>
+<div class="table-responsive">
+    <table class="table table-bordered cpasta-saft-files" style="margin: 12px 0 0;">
+        <thead><tr><th>Ficheiro SAF-T (somados)</th><th>Estado</th><th class="num">Débitos</th><th class="num">Créditos</th></tr></thead>
+        <tbody>
+        <?php foreach ($overview['saft']['files'] as $saftFile): ?>
+            <tr>
+                <td><?= htmlspecialchars($saftFile['filename']); ?></td>
+                <td><span class="badge bg-<?= in_array($saftFile['status'], ['enviado', 'importado'], true) ? 'success' : 'warning'; ?>"><?= htmlspecialchars($saftFile['status']); ?></span></td>
+                <td class="num"><?= $fmt((float) $saftFile['debit']); ?></td>
+                <td class="num"><?= $fmt((float) $saftFile['credit']); ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+        <tfoot><tr><th colspan="2">Total</th><th class="num"><?= $fmt((float) $overview['saft']['debit']); ?></th><th class="num"><?= $fmt((float) $overview['saft']['credit']); ?></th></tr></tfoot>
+    </table>
+</div>
+<?php endif; ?>
 
 <?php if ($confirmation): ?>
 <div class="cpasta-closed">

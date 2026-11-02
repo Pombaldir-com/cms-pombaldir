@@ -69,9 +69,15 @@ acrescentados no fim com o nome do ERP (`Tbl_Diarios`).
 
 ## SAF-T vs. contabilidade
 
-- SAF-T: `saft_total_debit` / `saft_total_credit` da submissão do mês na
-  tarefa "Envio de SAF-T" (`accounting_saft_submissions`, preferindo a última
-  aceite pela AT). No legacy vinham dos campos adicionais 7/8 do ficheiro
+- SAF-T: `saft_total_debit` / `saft_total_credit` das submissões do mês na
+  tarefa "Envio de SAF-T" (`accounting_saft_submissions`). Com vários
+  ficheiros no mês (ex.: uma exportação por série/programa de faturação), os
+  totais são **somados**; o modal lista os ficheiros considerados. O mesmo
+  ficheiro carregado mais de uma vez conta uma só vez (nome igual sem o
+  prefixo `NNN-` e o sufixo ` (n)`, ou mesmo período, nº de lançamentos e
+  totais), prevalecendo a cópia aceite pela AT/importada e depois a mais
+  recente. Ficheiros com erro na AT sem cópia aceite também são somados
+  (badge amarelo). No legacy vinham dos campos adicionais 7/8 do ficheiro
   SAF-T na ficha do cliente. Sem SAF-T, conta como 0,00 (como no legacy).
 - Contabilidade: fórmulas do balancete (`fetchErpVatAccountBalances()`,
   mesmo formato `C<conta>[cre|deb]<+|->` do Apuramento de IVA), nas
