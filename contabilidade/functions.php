@@ -5265,6 +5265,20 @@ function resolveDisplayClassificationAccounts(array $defaultAccounts, array $row
         }
         $defaultEntry = $baseSanitized[$rate] ?? [];
         $rowEntry = $rowSanitized[$rate] ?? [];
+        // Idem para uma taxa standard que o documento gravou sem conta nem base
+        // (linha removida, ex: total de empresa isenta repartido por linhas
+        // extra): nao herda a conta nem a ligacao ao QR da regra, senao a linha
+        // volta com o total e entra a mais no lancamento.
+        if ($rowIsClassified
+            && array_key_exists($rate, $rowSanitized)
+            && trim((string) ($rowEntry['general_account'] ?? '')) === ''
+            && trim((string) ($rowEntry['iva_account'] ?? '')) === ''
+            && trim((string) ($rowEntry['base'] ?? '')) === ''
+        ) {
+            unset($rowEntry['base_source_field']);
+            $result[$rate] = $rowEntry;
+            continue;
+        }
         $entry = $defaultEntry;
 
         foreach (['iva_account', 'general_account', 'base', 'iva', 'label', 'base_source_field', 'erp_rubric_code', 'vat_amounts_adjusted', 'bank_loan_conversion'] as $field) {

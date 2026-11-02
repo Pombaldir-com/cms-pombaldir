@@ -2114,6 +2114,21 @@ if ($action === 'get') {
         $rowAccounts = mergeAccountingAccounts($existingRow, $submittedRates);
         $classAccounts = stripAccountingAmounts(mergeAccountingAccounts($existingClass, $submittedRates));
 
+        // Base editada a mao (o browser envia base_source_field vazio): o
+        // documento deixa de seguir o campo do QR. sanitizeAccountInput() descarta
+        // o valor vazio, pelo que o merge mantinha a ligacao antiga e ao reabrir
+        // a linha voltava ao total. A regra partilhada fica intacta.
+        foreach ($ratesData as $rate => $rateInput) {
+            $rateKey = (string) $rate;
+            if (is_array($rateInput)
+                && array_key_exists('base_source_field', $rateInput)
+                && trim((string) $rateInput['base_source_field']) === ''
+                && isset($rowAccounts[$rateKey])
+            ) {
+                unset($rowAccounts[$rateKey]['base_source_field']);
+            }
+        }
+
         foreach ($removedRates as $rate) {
             // Remover uma taxa deste documento (ex: corrigir 23% -> 6%) so deve
             // afetar a propria linha. A regra partilhada (accounting_classificat

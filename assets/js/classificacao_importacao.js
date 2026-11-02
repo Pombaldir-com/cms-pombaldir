@@ -4599,6 +4599,20 @@ window.addEventListener('load', function() {
         inheritBaseSourceFieldsFromModel(currentRateData, currentClassificationModelName);
         renderClassificationModelOptions(currentClassificationModelName);
 
+        // Ligacao ao QR gravada com uma base que ja nao coincide com o campo
+        // (gravacoes anteriores a esta regra): a base foi editada a mao e
+        // prevalece (ver populateRateRow()).
+        Object.keys(storedRowRates).forEach(function(rate) {
+            var rowData = storedRowRates[rate];
+            if (!rowData || typeof rowData !== 'object' || !String(rowData.base_source_field || '').trim()) {
+                return;
+            }
+            var rowBase = getEntryAmount(rowData, 'base');
+            if (rowBase !== null && !amountsMatch(getCurrentDocumentFieldValue(rowData.base_source_field), rowBase)) {
+                delete rowData.base_source_field;
+            }
+        });
+
         Object.keys(storedRowRates).forEach(function(rate) {
             if (!currentRateData[rate]) {
                 currentRateData[rate] = {};
@@ -5252,6 +5266,12 @@ window.addEventListener('load', function() {
         }
         var number = parseFloat(match[0]);
         return isNaN(number) ? null : number;
+    }
+
+    function amountsMatch(a, b) {
+        var left = parseDecimalValue(a);
+        var right = parseDecimalValue(b);
+        return left !== null && right !== null && Math.abs(left - right) < 0.005;
     }
 
     function parseDecimalValue(value) {
@@ -7505,6 +7525,12 @@ window.addEventListener('load', function() {
         }
         if (defaultRates.indexOf(rate) === -1 || !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
             delete currentRateData[rate];
+        } else if (currentRateData[rate]) {
+            // Taxa standard mantida como marcador: sem valores nem ligacao ao
+            // QR, senao a linha removida volta com o total ao reabrir.
+            ['base', 'base_value', 'iva', 'iva_value', 'base_source_field'].forEach(function(field) {
+                delete currentRateData[rate][field];
+            });
         }
         if (
             Object.prototype.hasOwnProperty.call(storedRowRates, rate) ||
@@ -8360,9 +8386,15 @@ window.addEventListener('load', function() {
         var baseData = ensureRateData(rate);
         var rowData = storedRowRates[rate] || {};
         var defaultData = storedDefaultRates[rate] || {};
-        var resolvedSourceAmounts = resolveBaseSourceForRate(rate, baseData)
-            || resolveBaseSourceForRate(rate, rowData)
-            || resolveBaseSourceForRate(rate, defaultData);
+        // Base gravada neste documento sem ligacao propria a um campo do QR
+        // prevalece sobre a ligacao da regra partilhada do fornecedor.
+        var rowHasOwnBase = getEntryAmount(rowData, 'base') !== null
+            && !String(rowData.base_source_field || '').trim();
+        var resolvedSourceAmounts = rowHasOwnBase
+            ? null
+            : (resolveBaseSourceForRate(rate, baseData)
+                || resolveBaseSourceForRate(rate, rowData)
+                || resolveBaseSourceForRate(rate, defaultData));
         var resolvedBase = resolvedSourceAmounts ? resolvedSourceAmounts.base : getEntryAmount(baseData, 'base');
         if (resolvedBase === null) {
             resolvedBase = getEntryAmount(rowData, 'base');
@@ -8570,6 +8602,14 @@ window.addEventListener('load', function() {
             // Documento ja gravado: as linhas extra da regra partilhada do
             // fornecedor nao voltam a aparecer (ver resolveDisplayClassificationAccounts()).
             if (rowIsClassified && /^custom_\d+$/.test(rate) && !Object.prototype.hasOwnProperty.call(storedRowRates, rate)) {
+                return;
+            }
+            // Idem para uma taxa standard que o documento gravou sem conta: o
+            // utilizador removeu a linha (ex: total repartido por linhas extra).
+            if (rowIsClassified
+                && Object.prototype.hasOwnProperty.call(storedRowRates, rate)
+                && !hasAccountData(storedRowRates[rate])
+                && getEntryAmount(storedRowRates[rate], 'base') === null) {
                 return;
             }
             // Taxa standard que so existe na regra partilhada (contas aprendidas
@@ -9715,7 +9755,11 @@ window.addEventListener('load', function() {
                     base_source_field: (function() {
                         var rateDataSource = ensureRateData(rate);
                         var existingSource = String(rateDataSource.base_source_field || '').trim();
-                        if (existingSource) {
+                        // A ligacao ao campo do QR so se mantem enquanto a base
+                        // coincidir com ele. Base editada a mao (ex: total de
+                        // empresa isenta repartido por varias contas) grava-se
+                        // sem ligacao, senao ao reabrir voltava ao total.
+                        if (existingSource && amountsMatch(getCurrentDocumentFieldValue(existingSource), baseValue)) {
                             return existingSource;
                         }
                         return inferBaseSourceFieldForRate(rate, baseValue);
