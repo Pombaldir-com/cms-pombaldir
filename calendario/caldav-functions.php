@@ -107,6 +107,20 @@ function caldavRevokeAccess(PDO $pdo, int $userId, int $accessId): bool {
     return $stmt->rowCount() > 0;
 }
 
+/**
+ * IP real do cliente. Em producao o site esta atras da Cloudflare: REMOTE_ADDR
+ * e o IP da Cloudflare (partilhado por todos), por isso usa-se o
+ * CF-Connecting-IP quando existe. Sem isto o limite de tentativas por IP
+ * bloqueava toda a gente de uma vez.
+ */
+function caldavClientIp(array $server): string {
+    $cf = trim((string) ($server['HTTP_CF_CONNECTING_IP'] ?? ''));
+    if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP) !== false) {
+        return $cf;
+    }
+    return (string) ($server['REMOTE_ADDR'] ?? '');
+}
+
 /** Credenciais Basic do pedido: [login, password] ou null. */
 function caldavRequestCredentials(array $server): ?array {
     if (isset($server['PHP_AUTH_USER'])) {

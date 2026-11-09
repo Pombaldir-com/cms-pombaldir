@@ -23,7 +23,7 @@ if (!caldavAvailable()) {
 
 $caldavCredentials = caldavRequestCredentials($_SERVER);
 $caldavAuth = $caldavCredentials !== null
-    ? caldavAuthenticate($caldavCredentials[0], $caldavCredentials[1], (string) ($_SERVER['REMOTE_ADDR'] ?? ''))
+    ? caldavAuthenticate($caldavCredentials[0], $caldavCredentials[1], caldavClientIp($_SERVER))
     : ['ok' => false, 'blocked' => false];
 if (!$caldavAuth['ok']) {
     header('Content-Type: text/plain; charset=utf-8');
