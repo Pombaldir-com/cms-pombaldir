@@ -46,7 +46,7 @@ $caldavAppName = calendarAppName();
                     <div class="alert alert-<?= ($caldavFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>"><?= $caldavEsc($caldavFlash['message']); ?></div>
                 <?php endif; ?>
 
-                <form method="post" action="<?= $caldavEsc($caldavHandler); ?>" class="row g-2 align-items-end mb-3">
+                <form method="post" action="<?= $caldavEsc($caldavHandler); ?>" class="row g-2 align-items-end mb-3" data-no-ajax="1">
                     <input type="hidden" name="action" value="caldav_create">
                     <input type="hidden" name="csrf_token" value="<?= $caldavEsc($caldavCsrf); ?>">
                     <div class="col-sm-5">
@@ -85,7 +85,7 @@ $caldavAppName = calendarAppName();
                                 <?= $caldavAccess['last_used_at'] !== null ? 'último uso ' . $caldavEsc(date('d/m/Y H:i', strtotime((string) $caldavAccess['last_used_at']) ?: time())) : 'ainda não usado'; ?>
                             </div>
                         </div>
-                        <form method="post" action="<?= $caldavEsc($caldavHandler); ?>" class="mb-0" onsubmit="return confirm('O dispositivo deixa de sincronizar o calendário. Revogar?');">
+                        <form method="post" action="<?= $caldavEsc($caldavHandler); ?>" class="mb-0" data-no-ajax="1" onsubmit="return confirm('O dispositivo deixa de sincronizar o calendário. Revogar?');">
                             <input type="hidden" name="action" value="caldav_revoke">
                             <input type="hidden" name="csrf_token" value="<?= $caldavEsc($caldavCsrf); ?>">
                             <input type="hidden" name="access_id" value="<?= (int) $caldavAccess['id']; ?>">
