@@ -324,6 +324,59 @@ $mobileCaptureScriptVersion = @filemtime(__DIR__ . '/assets/js/mobile_capture.js
 <script src="vendors/bootstrap-daterangepicker/daterangepicker.js"></script>
 <?php endif; ?>
 
+<?php if (!empty($useFullCalendar)): ?>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.19/locales/pt.global.min.js"></script>
+<script src="assets/js/calendario.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/calendario.js'); ?>"></script>
+<?php endif; ?>
+
+<?php
+// Avisos do calendario (convites, alteracoes e lembretes) em todas as paginas.
+$calendarNoticesEnabled = false;
+if (!empty($user['id'])) {
+    try {
+        $calendarNoticesEnabled = hasTable('calendar_event_notices');
+    } catch (Throwable $e) {
+        $calendarNoticesEnabled = false;
+    }
+}
+?>
+<?php
+// Web Push (app instalada / browser), push/functions.php e assets/js/push.js.
+$appPushConfig = null;
+if (!empty($user['id'])) {
+    try {
+        require_once __DIR__ . '/push/functions.php';
+        if (pushHasTable() && pushSupported()) {
+            $appPushConfig = [
+                'vapid' => webpushVapid()['public'],
+                'handlerUrl' => BASE_URL . 'push/handler',
+                'serviceWorkerUrl' => BASE_URL . 'internal-chat-sw.js',
+                'csrfToken' => generateCsrfToken(),
+                'userId' => (int) $user['id'],
+                'appName' => (string) ($appName ?? ''),
+            ];
+        }
+    } catch (Throwable $e) {
+        $appPushConfig = null;
+    }
+}
+?>
+<?php if ($appPushConfig !== null): ?>
+<script>window.appPushConfig = <?= json_encode($appPushConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG); ?>;</script>
+<script src="assets/js/push.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/push.js'); ?>"></script>
+<?php endif; ?>
+<?php if ($calendarNoticesEnabled): ?>
+<script>
+window.calendarNoticesConfig = {
+    url: <?= json_encode(BASE_URL . 'calendario/handler?action=notices', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
+    serviceWorkerUrl: <?= json_encode(BASE_URL . 'internal-chat-sw.js', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
+    userId: <?= (int) $user['id']; ?>
+};
+</script>
+<script src="assets/js/calendario-avisos.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/calendario-avisos.js'); ?>" defer></script>
+<?php endif; ?>
+
 <?php if (function_exists('isInternalChatEnabled') && isInternalChatEnabled() && function_exists('hasInternalChatTables') && hasInternalChatTables()): ?>
 <script>
 window.internalChatGlobalConfig = {

@@ -1126,6 +1126,22 @@
     border-radius: 50%;
 }
 
+/* Icone proprio da empresa (Definicoes > "Icone (favicon e app)") no lugar da casa. */
+.site_title .site_title_icon {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    border-radius: 8px;
+    vertical-align: middle;
+    margin: -4px 4px 0 0;
+}
+
+.nav-sm .navbar.nav_title a .site_title_icon {
+    width: 40px;
+    height: 40px;
+    margin: 8px 0 0 3px;
+}
+
 .nav-sm .main_container .top_nav {
     display: block;
     margin-left: 70px;

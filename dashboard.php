@@ -13,6 +13,33 @@ require_once __DIR__ . '/functions.php';
 startSession();
 requireLogin();
 
+// Calendario (calendario/functions.php, docs/calendario.md): FullCalendar e
+// Select2 so quando as tabelas existem.
+require_once __DIR__ . '/calendario/functions.php';
+$showCalendar = calendarHasTables();
+$calendarConfig = [];
+$calendarUpcoming = [];
+if ($showCalendar) {
+    $calendarUserId = (int) ($_SESSION['user_id'] ?? 0);
+    $calendarRole = (int) ($_SESSION['user_role'] ?? 3);
+    $calendarOpen = strtolower(trim((string) ($_GET['evento'] ?? '')));
+    $calendarConfig = [
+        'handlerUrl' => BASE_URL . 'calendario/handler',
+        'csrfToken' => generateCsrfToken(),
+        'userId' => $calendarUserId,
+        'isAdmin' => calendarIsAdmin($calendarRole),
+        'clientsEnabled' => calendarClientsEnabled(),
+        'users' => array_values(array_filter(calendarUsers(getPDO()), static fn (array $u): bool => $u['id'] !== $calendarUserId)),
+        'reminders' => array_map(static fn (int $min, string $label): array => ['value' => $min, 'label' => $label], array_keys(CALENDAR_REMINDER_OPTIONS), CALENDAR_REMINDER_OPTIONS),
+        'reminderDefault' => CALENDAR_REMINDER_DEFAULT,
+        // dashboard?evento={uuid} (link dos avisos): abre esse evento.
+        'open' => calendarIsUuid($calendarOpen) ? $calendarOpen : '',
+    ];
+    $calendarUpcoming = calendarUpcoming(getPDO(), $calendarUserId, 8);
+    $useFullCalendar = true;
+    $useSelect2 = true;
+}
+
 // Inclui o cabeçalho comum do template
 require_once __DIR__ . '/header.php';
 
@@ -278,6 +305,170 @@ if (isModuleActive('contabilidade')) {
             <?php endif; ?>
         </div>
     </div>
+    <?php if ($showCalendar): ?>
+    <style>
+        .dash-cal .x_title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .dash-cal .x_title h2 { flex: 1 1 auto; }
+        .dash-cal-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .dash-cal-tools .form-select { width: auto; min-width: 150px; }
+        .dash-cal-tools .btn { margin: 0; }
+        #dash-calendar { min-height: 420px; }
+        #dash-calendar .fc-toolbar-title { font-size: 18px; color: #2a3f54; font-weight: 600; }
+        #dash-calendar .fc-toolbar-title::first-letter { text-transform: uppercase; }
+        #dash-calendar .fc-button-primary { background: #2a3f54; border-color: #2a3f54; }
+        #dash-calendar .fc-button-primary:not(:disabled).fc-button-active,
+        #dash-calendar .fc-button-primary:not(:disabled):active { background: #1abb9c; border-color: #1abb9c; }
+        #dash-calendar .fc-event { cursor: pointer; }
+        #dash-calendar .fc-daygrid-day.fc-day-today, #dash-calendar .fc-timegrid-col.fc-day-today { background: #f3faf8; }
+        .dash-cal-side { display: flex; flex-direction: column; gap: 12px; }
+        .dash-cal-side .card-header { background: #fff; font-weight: 600; color: #2a3f54; }
+        .dash-cal-legend span.badge { width: 14px; height: 14px; display: inline-block; margin-right: 6px; vertical-align: -2px; }
+        .dash-cal-up { list-style: none; margin: 0; padding: 0; }
+        .dash-cal-up li { border-bottom: 1px solid #eef0f2; }
+        .dash-cal-up li:last-child { border-bottom: 0; }
+        .dash-cal-up a { display: flex; gap: 10px; padding: 9px 12px; color: inherit; text-decoration: none; }
+        .dash-cal-up a:hover { background: #f7f9fb; }
+        .dash-cal-up .dot { flex: 0 0 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+        .dash-cal-up .t { font-weight: 600; color: #2a3f54; line-height: 1.3; overflow-wrap: anywhere; }
+        .dash-cal-up .m { font-size: 12px; color: #73879c; }
+        .dash-cal-empty { padding: 16px 12px; color: #8a949e; font-size: 13px; }
+        #calendar-event-modal .select2-container { width: 100% !important; }
+        #calendar-event-modal .select2-container .select2-selection--single { height: 38px; padding-top: 4px; border-color: #ced4da; }
+        #calendar-event-modal .select2-container .select2-selection__arrow { height: 36px; }
+        #calendar-event-modal .form-label { font-weight: 600; color: #2a3f54; }
+        .cal-client-link { font-size: 12px; }
+        @media (max-width: 767px) {
+            .dash-cal .x_content { padding-left: 0; padding-right: 0; }
+            #dash-calendar .fc-toolbar { flex-wrap: wrap; gap: 6px; }
+            #dash-calendar .fc-toolbar-title { font-size: 15px; }
+        }
+    </style>
+    <div class="x_panel dash-cal">
+        <div class="x_title">
+            <h2><i class="fa fa-calendar"></i> Calendário <small>Agenda e eventos</small></h2>
+            <div class="dash-cal-tools">
+                <?php if ($calendarConfig['isAdmin']): ?>
+                <select class="form-select form-select-sm" id="dash-cal-scope" aria-label="Eventos a mostrar">
+                    <option value="mine">Os meus eventos</option>
+                    <option value="all">Todos os utilizadores</option>
+                </select>
+                <?php endif; ?>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="dash-cal-notify" title="Receber os lembretes como notificação do sistema">
+                    <i class="fa fa-bell-o"></i> Ativar notificações
+                </button>
+                <button type="button" class="btn btn-sm btn-success" id="dash-cal-new"><i class="fa fa-plus"></i> Novo evento</button>
+            </div>
+        </div>
+        <div class="x_content">
+            <div class="row">
+                <div class="col-lg-9 col-md-8 col-sm-12 mb-3">
+                    <div id="dash-calendar"></div>
+                </div>
+                <div class="col-lg-3 col-md-4 col-sm-12 dash-cal-side">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header">Próximos eventos</div>
+                        <div class="card-body p-0">
+                            <?php if (!$calendarUpcoming): ?>
+                            <div class="dash-cal-empty">Sem eventos agendados.</div>
+                            <?php else: ?>
+                            <ul class="dash-cal-up">
+                                <?php foreach ($calendarUpcoming as $upcoming): ?>
+                                <li>
+                                    <a href="<?= BASE_URL ?>dashboard?evento=<?= htmlspecialchars((string) $upcoming['uuid'], ENT_QUOTES, 'UTF-8'); ?>" data-cal-open="<?= htmlspecialchars((string) $upcoming['uuid'], ENT_QUOTES, 'UTF-8'); ?>">
+                                        <span class="dot" style="background:<?= $upcoming['own'] ? CALENDAR_COLOR_OWN : CALENDAR_COLOR_INVITE; ?>"></span>
+                                        <span>
+                                            <span class="t"><?= htmlspecialchars((string) $upcoming['title'], ENT_QUOTES, 'UTF-8'); ?></span><br>
+                                            <span class="m"><?= htmlspecialchars($upcoming['when'], ENT_QUOTES, 'UTF-8'); ?><?= (string) $upcoming['client_name'] !== '' ? ' · ' . htmlspecialchars((string) $upcoming['client_name'], ENT_QUOTES, 'UTF-8') : ''; ?></span>
+                                        </span>
+                                    </a>
+                                </li>
+                                <?php endforeach; ?>
+                            </ul>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <div class="card border-0 shadow-sm dash-cal-legend">
+                        <div class="card-header">Legenda</div>
+                        <div class="card-body">
+                            <div class="mb-2"><span class="badge" style="background:<?= CALENDAR_COLOR_OWN; ?>">&nbsp;</span> Criado por mim</div>
+                            <div class="mb-2"><span class="badge" style="background:<?= CALENDAR_COLOR_INVITE; ?>">&nbsp;</span> Convite</div>
+                            <?php if ($calendarConfig['isAdmin']): ?>
+                            <div class="mb-2"><span class="badge" style="background:<?= CALENDAR_COLOR_OTHER; ?>">&nbsp;</span> Outros utilizadores</div>
+                            <?php endif; ?>
+                            <div class="small text-muted mt-2">Clique num dia ou horário para criar um evento; arraste para mudar a hora.</div>
+                            <div class="small mt-2"><a href="<?= BASE_URL ?>users/profile#calendario-telemovel"><i class="fa fa-mobile"></i> Ver no telemóvel</a></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="calendar-event-modal" tabindex="-1" aria-labelledby="calendar-event-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <form class="modal-content" id="calendar-event-form" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="calendar-event-modal-title">Novo evento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="uuid" id="cal-uuid">
+                    <div class="mb-3">
+                        <label class="form-label" for="cal-title">Título <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="title" id="cal-title" maxlength="190" required>
+                    </div>
+                    <?php if ($calendarConfig['clientsEnabled']): ?>
+                    <div class="mb-3">
+                        <label class="form-label" for="cal-client">Cliente</label>
+                        <select class="form-control" name="entity_id" id="cal-client"></select>
+                        <a href="#" class="cal-client-link d-none" id="cal-client-link" target="_blank" rel="noopener"><i class="fa fa-external-link"></i> Abrir ficha do cliente</a>
+                    </div>
+                    <?php endif; ?>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" name="all_day" value="1" id="cal-all-day">
+                        <label class="form-check-label" for="cal-all-day">Dia inteiro</label>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" for="cal-start">Início <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" name="start" id="cal-start" required>
+                        </div>
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" for="cal-end">Fim</label>
+                            <input type="datetime-local" class="form-control" name="end" id="cal-end">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" for="cal-location">Local</label>
+                            <input type="text" class="form-control" name="location" id="cal-location" maxlength="190">
+                        </div>
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" for="cal-reminder">Lembrete</label>
+                            <select class="form-select" name="reminder_minutes" id="cal-reminder"></select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="cal-members">Utilizadores convidados</label>
+                        <select class="form-control" name="members[]" id="cal-members" multiple></select>
+                        <div class="form-text">Os convidados veem o evento no seu calendário, recebem um aviso agora e o lembrete antes do início.</div>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label" for="cal-description">Observações</label>
+                        <textarea class="form-control" name="description" id="cal-description" rows="3" maxlength="5000"></textarea>
+                    </div>
+                    <p class="small text-muted mt-3 mb-0 d-none" id="cal-info"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger me-auto d-none" id="cal-delete"><i class="fa fa-trash"></i> Eliminar</button>
+                    <button type="button" class="btn btn-default" data-bs-dismiss="modal">Fechar</button>
+                    <button type="submit" class="btn btn-success" id="cal-save"><i class="fa fa-save"></i> Gravar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script type="application/json" id="dash-calendar-config"><?= json_encode($calendarConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP); ?></script>
+    <?php endif; ?>
     <?php if ($showRecentActivities): ?>
     <style>
         .dash-act-list { list-style: none; margin: 0; padding: 0; }

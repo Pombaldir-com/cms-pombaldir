@@ -201,11 +201,15 @@ O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com
 
 ## Tarefas de rotina (cron)
 
-Em produção (utilizador `teknisoft`, `crontab -l`) corre diariamente às 03:30:
+Em produção (utilizador `teknisoft`, `crontab -l`):
 
 ```
 30 3 * * * /bin/bash /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/cleanup-caches.sh >/dev/null 2>&1
+*/5 * * * * /usr/local/bin/php /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/calendar-push.php --url=https://aicrm.teknisoft.pt/ >/dev/null 2>&1
 ```
+
+[scripts/calendar-push.php](scripts/calendar-push.php) envia por Web Push os lembretes do calendário (ver [docs/calendario.md](docs/calendario.md), "Notificações push"); resumo em `data/calendar-push.log`.
+
 
 [scripts/cleanup-caches.sh](scripts/cleanup-caches.sh) apaga caches e temporários que a aplicação volta a gerar quando precisa deles:
 

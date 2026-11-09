@@ -45,3 +45,6 @@ php.ini
 
 # Logs rodados (erp.log.1, ocr.log.2, ...)
 data/*.log.*
+
+# Chaves VAPID do Web Push, geradas por push/webpush.php
+data/vapid-keys.php

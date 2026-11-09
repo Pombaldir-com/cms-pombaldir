@@ -3,6 +3,10 @@ RewriteEngine On
 # Preserve Authorization header for PHP-FPM/CGI setups.
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
+# CalDAV discovery (calendario no telemovel): .well-known pode existir como
+# diretorio (certificados), por isso redireciona-se antes da regra seguinte.
+RewriteRule ^\.well-known/caldav/?$ /caldav/ [R=301,L]
+
 # Serve existing files/directories directly.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d

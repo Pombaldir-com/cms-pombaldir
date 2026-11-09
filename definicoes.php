@@ -134,6 +134,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        // Icone proprio (favicon e app instalada), por empresa: app-icon.php.
+        require_once __DIR__ . '/app-icon.php';
+        if (!empty($_FILES['app_icon']['tmp_name'])) {
+            try {
+                setSetting('app_icon', appIconSaveUpload($_FILES['app_icon'], getCompanySlug() ?: 'default'));
+            } catch (InvalidArgumentException $e) {
+                $generalErrors[] = $e->getMessage();
+            }
+        } elseif (!empty($_POST['remove_app_icon'])) {
+            setSetting('app_icon', '');
+        }
+
         $generalSaved = empty($generalErrors);
     }
     if (isset($_POST['smtp_host'])) {
@@ -333,6 +345,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 $currentAppName = getSetting('app_name', '');
 $currentAppLogo = getSetting('app_logo', '');
+$currentAppIcon = getSetting('app_icon', '');
 $currentDebugMode = (int)getSetting('debug_mode', '0');
 $currentInternalChatEnabled = (int)getSetting('internal_chat_enabled', '0');
 $currentQrDpi = (int)getSetting('qr_dpi', '150');
@@ -466,6 +479,20 @@ require_once __DIR__ . '/header.php';
                                     <?php endif; ?>
                                     <input type="file" class="form-control" id="app_logo" name="app_logo" accept="image/png,image/jpeg">
                                     <small class="text-muted">Usado como imagem predefinida para utilizadores sem foto.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="app_icon" class="form-label">Ícone (favicon e app)</label>
+                                    <?php if (!empty($currentAppIcon)): ?>
+                                        <div class="mb-2 d-flex align-items-center gap-3">
+                                            <img src="<?= htmlspecialchars($currentAppIcon); ?>" alt="" class="img-thumbnail" style="width: 72px; height: 72px; object-fit: contain;">
+                                            <div class="form-check mb-0">
+                                                <input class="form-check-input" type="checkbox" id="remove_app_icon" name="remove_app_icon" value="1">
+                                                <label class="form-check-label" for="remove_app_icon">Remover (volta a usar o logotipo)</label>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                    <input type="file" class="form-control" id="app_icon" name="app_icon" accept="image/png,image/jpeg">
+                                    <small class="text-muted">Imagem quadrada, PNG ou JPG, 512×512 px recomendado (mínimo 192). Usada no separador do browser, na app instalada no telemóvel e nas notificações. Sem ícone, usa-se o logotipo.</small>
                                 </div>
                                 <div class="form-check form-switch setting-switch">
                                     <input class="form-check-input" type="checkbox" id="debug_mode" name="debug_mode" value="1" <?= $currentDebugMode ? 'checked' : ''; ?>>

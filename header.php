@@ -28,6 +28,7 @@ $useDropzone   = $useDropzone ?? false;
 $useSelect2    = $useSelect2 ?? false;
 $useSwitchery  = $useSwitchery ?? false;
 $useDateRangePicker = $useDateRangePicker ?? false;
+$useFullCalendar = $useFullCalendar ?? false;
 $aiEnabled = getSetting('ai_enabled', '0') === '1';
 $internalChatEnabled = isInternalChatEnabled();
 $showInternalChatFloating = $internalChatEnabled
@@ -50,6 +51,16 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($appName); ?></title>
     <base href="<?= BASE_URL ?>">
+    <!-- App instalavel (PWA) para as notificacoes push no telemovel: docs/calendario.md -->
+    <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+    <meta name="theme-color" content="#2a3f54">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="<?= htmlspecialchars($appName); ?>">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <?php require_once __DIR__ . '/app-icon.php'; ?>
+    <link rel="apple-touch-icon" href="<?= htmlspecialchars(appIconUrl('apple-180'), ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="icon" type="image/png" sizes="32x32" href="<?= htmlspecialchars(appIconUrl('favicon-32'), ENT_QUOTES, 'UTF-8'); ?>">
 <link rel="stylesheet" href="vendors/bootstrap/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="vendors/font-awesome/css/font-awesome.min.css">
 <?php if ($useDataTables): ?>
@@ -71,7 +82,7 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
 <link rel="stylesheet" href="vendors/bootstrap-daterangepicker/daterangepicker.css">
 <?php endif; ?>
 
-<link rel="stylesheet" href="assets/css/custom.css">
+<link rel="stylesheet" href="assets/css/custom.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/custom.css'); ?>">
 
 
     <!-- Custom styles for the CMS (optional) -->
@@ -207,7 +218,7 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
         <div class="col-md-3 left_col">
             <div class="left_col scroll-view">
                 <div class="navbar nav_title" style="border: 0;">
-                    <a href="<?= BASE_URL ?>dashboard" class="site_title"><i class="fa fa-home"></i> <span><?= htmlspecialchars($appName); ?></span></a>
+                    <a href="<?= BASE_URL ?>dashboard" class="site_title"><?php if (appIconHasCustom()): ?><img src="<?= htmlspecialchars(appIconUrl('192'), ENT_QUOTES, 'UTF-8'); ?>" alt="" class="site_title_icon"><?php else: ?><i class="fa fa-home"></i><?php endif; ?> <span><?= htmlspecialchars($appName); ?></span></a>
                 </div>
                 <div class="clearfix"></div>
 

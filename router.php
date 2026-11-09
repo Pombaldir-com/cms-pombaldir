@@ -68,9 +68,35 @@ if (preg_match('#^t/([A-Za-z0-9_-]+)/cliente(?:/(.*))?$#', $path, $tenantMatch))
     exit;
 }
 
+// CalDAV (calendario no telemovel): todos os metodos HTTP (PROPFIND, REPORT,
+// PUT, DELETE...), sem sessao. Ver docs/calendario.md.
+if ($path === 'caldav' || strpos($path, 'caldav/') === 0) {
+    require __DIR__ . '/calendario/caldav.php';
+    exit;
+}
+// Icones da app (PWA) a partir do logotipo da empresa, sem sessao.
+if (preg_match('#^app-icon/([A-Za-z0-9_-]+)/([a-z0-9-]+)\.png$#', $path, $iconMatch)) {
+    require __DIR__ . '/app-icon.php';
+    appIconServe($iconMatch[1], $iconMatch[2]);
+}
+if ($path === 'manifest.webmanifest') {
+    require __DIR__ . '/manifest.php';
+    exit;
+}
+if ($path === '.well-known/caldav') {
+    header('Location: ' . ($base !== '' ? $base : '') . '/caldav/', true, 301);
+    exit;
+}
+
 switch (true) {
     case $path === '':
         require __DIR__ . '/index.php';
+        break;
+    case $path === 'calendario/handler':
+        require __DIR__ . '/calendario/handler.php';
+        break;
+    case $path === 'push/handler':
+        require __DIR__ . '/push/handler.php';
         break;
     case $path === 'login':
         require __DIR__ . '/login.php';

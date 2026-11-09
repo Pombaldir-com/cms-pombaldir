@@ -491,6 +491,11 @@ $canManageUsers = ((int) (currentUser()['role'] ?? 3)) <= 2;
         <button type="submit" class="btn btn-success"><i class="fa fa-save"></i> Guardar</button>
     </div>
 </form>
+<?php if ($profileMode) {
+    // Fora do formulario do perfil (os formularios nao se podem aninhar).
+    require __DIR__ . '/push/partials/profile-panel.php';
+    require __DIR__ . '/calendario/partials/caldav-panel.php';
+} ?>
 <style>
 .users-form .form-label { font-weight: 600; color: #2a3f54; }
 .users-switch-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
