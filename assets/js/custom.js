@@ -1374,3 +1374,80 @@ $(document).ready(function() {
 
     registerServiceWorker().then(startInternalChatLoops, startInternalChatLoops);
 })();
+
+// Mobile: as tabelas simples (sem DataTables nem .table-responsive) que sao mais
+// largas do que o ecra ficam num contentor com deslocamento horizontal, em vez
+// de alargarem a pagina inteira (o iPhone encolhia tudo). As DataTables sao
+// tratadas no CSS (.dt-layout-table). Ver custom.css, "Tabelas e barra de topo em mobile".
+(function () {
+    'use strict';
+
+    if (!window.matchMedia || !window.matchMedia('(max-width: 767.98px)').matches) {
+        return;
+    }
+
+    // Ja desliza dentro de algum antecessor proximo (table-responsive, celula
+    // do DataTables, wrapper anterior)?
+    function hasScrollingAncestor(table) {
+        for (var el = table.parentElement, i = 0; el && i < 4; el = el.parentElement, i++) {
+            var ox = window.getComputedStyle(el).overflowX;
+            if (ox === 'auto' || ox === 'scroll') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function wrapTable(table) {
+        var parent = table.parentNode;
+        if (!parent || table.offsetParent === null || hasScrollingAncestor(table)) {
+            return;
+        }
+        if (table.getBoundingClientRect().width <= parent.getBoundingClientRect().width + 1) {
+            return;
+        }
+        // Tambem serve para DataTables com layout proprio (Classificacao, Upload,
+        // Lancamentos): mover o <table> para dentro do wrapper nao afeta a API.
+        var wrapper = document.createElement('div');
+        wrapper.className = 'table-mobile-scroll';
+        parent.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+    }
+
+    function wrapAll() {
+        Array.prototype.forEach.call(document.querySelectorAll('table.table'), wrapTable);
+    }
+
+    // Depois de as DataTables inicializarem (que criam o seu proprio contentor).
+    window.addEventListener('load', function () {
+        window.setTimeout(wrapAll, 300);
+    });
+    // Tabelas que aparecem depois (separadores, modais com conteudo carregado
+    // por fetch, DataTables por AJAX): observa o DOM e reavalia, agrupado.
+    var pending = null;
+    function scheduleWrap() {
+        if (pending !== null) {
+            return;
+        }
+        pending = window.setTimeout(function () {
+            pending = null;
+            wrapAll();
+        }, 150);
+    }
+    document.addEventListener('shown.bs.tab', scheduleWrap);
+    document.addEventListener('shown.bs.modal', scheduleWrap);
+    if (window.MutationObserver) {
+        new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (node.nodeType === 1 && (node.tagName === 'TABLE' || (node.querySelector && node.querySelector('table')))) {
+                        scheduleWrap();
+                        return;
+                    }
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+    }
+})();

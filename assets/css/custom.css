@@ -6684,3 +6684,107 @@ ul.notifications {
     object-fit: contain;
     background: #fff;
 }
+
+/* ===================================================================
+   Tabelas e barra de topo em mobile (todas as paginas)
+   =================================================================== */
+@media (max-width: 767.98px) {
+    /* Seletor "Empresa" da barra de topo (E-fatura, Lancamentos, Envio SAF-T):
+       tinha 300px fixos e, com o avatar, alargava a pagina para 480px. */
+    .top_nav .ms-auto {
+        min-width: 0;
+        flex: 1 1 auto;
+        justify-content: flex-end;
+    }
+    .top_nav .ms-auto > .me-3 {
+        margin-right: 8px !important;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .topbar-efatura-selector {
+        max-width: 100% !important;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+    .topbar-efatura-selector label {
+        display: none;
+    }
+    .topbar-efatura-selector .form-control {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        font-size: 13px;
+        padding: 4px 8px;
+    }
+    .topbar-nav .nav-item.dropdown {
+        margin-left: 0 !important;
+    }
+
+    /* DataTables 2.x: as tabelas largas (Classificacao, Upload, Lancamentos...)
+       deslizam na horizontal dentro do proprio quadro em vez de alargarem a
+       pagina (o iPhone encolhia a pagina inteira para caber 1000px). */
+    .dt-container {
+        max-width: 100%;
+    }
+    .dt-container .dt-layout-table,
+    .dt-container .dt-layout-table > .dt-layout-cell {
+        max-width: 100%;
+    }
+    .dt-container .dt-layout-table > .dt-layout-cell {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    /* Controlos do DataTables (mostrar N / pesquisar / paginacao) empilhados. */
+    .dt-container .dt-layout-row:not(.dt-layout-table) {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .dt-container .dt-search input {
+        width: 100% !important;
+        max-width: 100%;
+        margin-left: 0 !important;
+    }
+    .dt-container .dt-paging .dt-paging-button {
+        min-width: 34px;
+        padding: 4px 8px !important;
+    }
+
+    /* Tabelas simples embrulhadas por assets/js/custom.js (mobileTableWrap). */
+    .table-mobile-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin-bottom: 1rem;
+    }
+    .table-mobile-scroll > table {
+        margin-bottom: 0;
+    }
+    .table-responsive > .table,
+    .table-mobile-scroll > .table,
+    .dt-layout-cell > .table {
+        white-space: nowrap;
+    }
+    /* Dentro de um quadro que ja desliza, as celulas nao partem (datas como
+       "2026-04-" / "16"); quem precisar de quebrar usa .text-wrap. */
+    .table-responsive > .table td,
+    .table-mobile-scroll > .table td,
+    .dt-layout-cell > .table td {
+        white-space: nowrap;
+    }
+    .table-responsive > .table td.text-wrap,
+    .table-mobile-scroll > .table td.text-wrap,
+    .dt-layout-cell > .table td.text-wrap {
+        white-space: normal;
+    }
+}
+
+@media (max-width: 767.98px) {
+    /* Envio SAF-T: cabecalho de cada empresa (nome + "marcar") parte em linhas. */
+    .saft-entity-header {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+    .saft-entity-header .dropdown {
+        flex: 0 0 auto;
+    }
+}

@@ -394,7 +394,7 @@ window.internalChatGlobalConfig = {
 <?php endif; ?>
 
 <script src="assets/js/pnotify_theme_adapter.js"></script>
-<script src="assets/js/custom.js"></script>
+<script src="assets/js/custom.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/custom.js'); ?>"></script>
 <?php if (!empty($pageScripts)): ?>
 <script>
 <?= $pageScripts ?>
