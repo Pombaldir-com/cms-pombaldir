@@ -6565,3 +6565,122 @@ ul.notifications {
         overflow-y: auto;
     }
 }
+
+/* ===================================================================
+   Mobile (telemovel e app instalada no ecra principal)
+   =================================================================== */
+/* .nav_menu e um float a 100%: sem isto a .right_col comeca por baixo da barra
+   de topo (em todos os tamanhos) e os blocos flex/BFC do topo de cada pagina
+   encolhem para 0 px ao lado do float (o cabecalho das Definicoes ficava
+   invisivel e, no telemovel, alargava a pagina para la do ecra). A margem
+   inferior da barra deixaria ver o fundo escuro do body: o espaco vem do
+   padding-top da .right_col. */
+.nav-md .container.body .top_nav,
+.top_nav {
+    display: flow-root;
+}
+.nav_menu {
+    margin-bottom: 0;
+}
+
+@media (max-width: 767.98px) {
+    /* Margens laterais: o conteudo aproveita a largura do ecra. */
+    .right_col {
+        padding: 8px 8px 0 !important;
+    }
+    .right_col > .container-fluid,
+    .right_col .container-fluid {
+        padding-left: 0;
+        padding-right: 0;
+    }
+    /* Espacamento entre colunas que encaixa nas margens acima (as .row com o
+       gutter normal de 24px saiam 2px de cada lado e a pagina deslizava). */
+    .right_col .row {
+        --bs-gutter-x: 16px;
+        margin-left: -8px;
+        margin-right: -8px;
+    }
+    .x_panel {
+        padding: 10px 12px;
+        margin-bottom: 10px;
+    }
+
+    /* Titulos dos paineis: partem em linhas em vez de "Notificacoes neste di...". */
+    .x_title h2 {
+        white-space: normal;
+        overflow: visible;
+        float: none;
+        font-size: 17px;
+        line-height: 1.3;
+    }
+    .x_title h2 small {
+        display: block;
+        margin: 2px 0 0;
+    }
+    .x_title.d-flex,
+    .x_title > .d-flex {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .x_title .btn {
+        padding: 4px 10px;
+        font-size: 13px;
+    }
+
+    /* Cabecalhos de pagina (title_left / title_right) empilhados: sem a altura
+       fixa do Gentelella (65px), que cortava os botoes do title_right. */
+    .page-title {
+        height: auto;
+        padding: 6px 0 4px;
+    }
+    .page-title .title_right .btn {
+        margin-bottom: 6px;
+    }
+    .page-title .title_left,
+    .page-title .title_right {
+        width: 100%;
+        float: none;
+        text-align: left !important;
+    }
+    .page-title .title_left h3 {
+        font-size: 20px;
+        margin-bottom: 6px;
+    }
+
+    /* Barra de topo: so o avatar; o nome ocupa espaco e ficava cortado. */
+    .topbar-nav .user-name {
+        display: none;
+    }
+    .user-profile img {
+        margin-right: 0;
+    }
+
+    /* Separadores (Definicoes, etc.): deslizam na horizontal em vez de quebrar em varias linhas. */
+    .nav-tabs.bar_tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-left: 0;
+    }
+    .nav-tabs.bar_tabs::-webkit-scrollbar {
+        display: none;
+    }
+    .nav-tabs.bar_tabs > li,
+    .nav-tabs.bar_tabs .nav-link {
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    /* Modais: botoes do rodape com area de toque confortavel. */
+    .modal-footer .btn {
+        min-height: 40px;
+    }
+}
+
+/* Avatar da barra de topo: o logotipo da empresa nao e quadrado. */
+.user-profile img {
+    object-fit: contain;
+    background: #fff;
+}

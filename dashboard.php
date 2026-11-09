@@ -261,11 +261,68 @@ if (isModuleActive('contabilidade')) {
                         }
                     }
                     @media (max-width: 767px) {
+                        /* Telemovel: cada cartao fica numa faixa compacta (titulo + icone,
+                           numero + botao), para o calendario aparecer logo a seguir. */
+                        .dashboard-section-title {
+                            margin-bottom: 10px;
+                            font-size: 15px;
+                        }
+                        .dashboard-summary-grid {
+                            margin: 0;
+                        }
                         .dashboard-summary-col {
                             width: 100%;
+                            padding: 0 0 10px;
                         }
                         .dashboard-summary-card {
                             min-height: 0;
+                            padding: 14px 14px 12px;
+                            display: grid;
+                            grid-template-columns: 1fr auto;
+                            grid-template-areas: "head head" "body footer";
+                            align-items: center;
+                            column-gap: 10px;
+                            border-radius: 10px;
+                            box-shadow: 0 4px 12px rgba(32, 45, 64, 0.06);
+                        }
+                        .dashboard-summary-head {
+                            grid-area: head;
+                            margin-bottom: 6px;
+                            align-items: center;
+                        }
+                        .dashboard-summary-label,
+                        .dashboard-summary-description {
+                            display: none;
+                        }
+                        .dashboard-summary-title {
+                            font-size: 15px;
+                        }
+                        .dashboard-summary-icon {
+                            width: 34px;
+                            height: 34px;
+                            flex-basis: 34px;
+                            border-radius: 10px;
+                            font-size: 15px;
+                        }
+                        .dashboard-summary-body {
+                            grid-area: body;
+                        }
+                        .dashboard-summary-value {
+                            margin: 0;
+                            font-size: 28px;
+                        }
+                        .dashboard-summary-footer {
+                            grid-area: footer;
+                            margin-top: 0;
+                            text-align: right;
+                        }
+                        .dashboard-summary-card .btn {
+                            padding: 4px 12px;
+                            font-size: 13px;
+                            margin: 0;
+                        }
+                        .dashboard-summary-footer .text-muted {
+                            display: none;
                         }
                     }
                 </style>
@@ -339,8 +396,19 @@ if (isModuleActive('contabilidade')) {
         .cal-client-link { font-size: 12px; }
         @media (max-width: 767px) {
             .dash-cal .x_content { padding-left: 0; padding-right: 0; }
+            .dash-cal .x_title { margin-bottom: 8px; }
+            .dash-cal-tools { width: 100%; }
+            .dash-cal-tools .form-select { flex: 1 1 100%; min-width: 0; }
+            .dash-cal-tools .btn { flex: 1 1 auto; }
+            #dash-calendar { min-height: 0; }
             #dash-calendar .fc-toolbar { flex-wrap: wrap; gap: 6px; }
             #dash-calendar .fc-toolbar-title { font-size: 15px; }
+            #dash-calendar .fc-list-day-cushion { padding: 6px 10px; }
+            #dash-calendar .fc-list-event td { padding: 8px 6px; }
+            #dash-calendar .fc-list-event-time { white-space: nowrap; font-size: 13px; color: #2a3f54; font-weight: 600; }
+            #dash-calendar .fc-list-event-title { white-space: normal; overflow-wrap: anywhere; }
+            /* No telemovel a lista da semana ja mostra as cores: a legenda so ocupa espaco. */
+            .dash-cal-legend { display: none; }
         }
     </style>
     <div class="x_panel dash-cal">
@@ -405,7 +473,7 @@ if (isModuleActive('contabilidade')) {
     </div>
 
     <div class="modal fade" id="calendar-event-modal" tabindex="-1" aria-labelledby="calendar-event-modal-title" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
             <form class="modal-content" id="calendar-event-form" novalidate>
                 <div class="modal-header">
                     <h5 class="modal-title" id="calendar-event-modal-title">Novo evento</h5>
