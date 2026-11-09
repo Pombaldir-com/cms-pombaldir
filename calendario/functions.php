@@ -649,6 +649,14 @@ function calendarPushPending(PDO $pdo, ?int $eventId = null, ?DateTimeImmutable 
     return $result;
 }
 
+/** Tarefa 'calendar_push' do cron (scripts/cron-jobs.php): uma empresa. */
+function calendarCronPush(PDO $pdo): array {
+    if (!calendarHasTables()) {
+        return ['skipped' => true];
+    }
+    return calendarPushPending($pdo);
+}
+
 /** Depois da resposta: envia por push os avisos do evento acabado de gravar. */
 function calendarPushAfterSave(PDO $pdo, int $eventId): void {
     require_once dirname(__DIR__) . '/push/functions.php';

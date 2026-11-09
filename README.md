@@ -201,15 +201,34 @@ O módulo de contabilidade pode utilizar o [AWS Textract](https://aws.amazon.com
 
 ## Tarefas de rotina (cron)
 
-Em produção (utilizador `teknisoft`, `crontab -l`):
+Em produção (utilizador `teknisoft`, cPanel > Cron Jobs) há duas entradas:
 
 ```
 30 3 * * * /bin/bash /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/cleanup-caches.sh >/dev/null 2>&1
-*/5 * * * * /usr/local/bin/php /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/calendar-push.php --url=https://aicrm.teknisoft.pt/ >/dev/null 2>&1
+*/5 * * * * /usr/local/bin/ea-php82 /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/calendar-push.php --url=https://aicrm.teknisoft.pt/ >/dev/null 2>&1
 ```
 
-[scripts/calendar-push.php](scripts/calendar-push.php) envia por Web Push os lembretes do calendário (ver [docs/calendario.md](docs/calendario.md), "Notificações push"); resumo em `data/calendar-push.log`.
+### Cron genérico (tarefas da aplicação)
 
+A segunda entrada é o **cron único da aplicação**: `scripts/calendar-push.php` (o nome ficou da primeira tarefa) só
+inclui [scripts/cron-run.php](scripts/cron-run.php), que corre de 5 em 5 minutos as tarefas registadas em
+[scripts/cron-jobs.php](scripts/cron-jobs.php) que estejam devidas. **Uma tarefa nova regista-se aí; não se cria
+outra entrada no cPanel.**
+
+- Cada tarefa tem `scope` (`company`: uma vez por empresa de `data/companies.php`, num subprocesso com a empresa em
+  sessão, a função recebe o `PDO`; `global`: uma vez, sem empresa), a periodicidade (`every` em minutos, múltiplo de
+  5, ou `at` = hora diária `HH:MM`), o ficheiro a incluir (`require`) e a função (`function`), que devolve um array.
+- Estado da última execução em `data/cron-state.json`; `data/cron.lock` impede execuções sobrepostas.
+- `data/cron.log`: uma linha por passagem com erros ou números > 0 no resultado de alguma tarefa.
+- Manualmente: `php scripts/cron-run.php --list` (tarefas e última execução), `--job=<nome>` (corre já),
+  `--url=` (URL público para links/ícones; por omissão `https://aicrm.teknisoft.pt/` ou `APP_URL`).
+- Só corre pela linha de comandos (pela web devolve 404).
+
+| Tarefa | Âmbito | Periodicidade | O que faz |
+|---|---|---|---|
+| `calendar_push` | empresa | 5 min | lembretes do calendário por Web Push ([docs/calendario.md](docs/calendario.md)) |
+
+### Limpeza de caches
 
 [scripts/cleanup-caches.sh](scripts/cleanup-caches.sh) apaga caches e temporários que a aplicação volta a gerar quando precisa deles:
 

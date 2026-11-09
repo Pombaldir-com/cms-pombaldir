@@ -48,3 +48,7 @@ data/*.log.*
 
 # Chaves VAPID do Web Push, geradas por push/webpush.php
 data/vapid-keys.php
+
+# Estado do cron generico (scripts/cron-run.php)
+data/cron-state.json
+data/cron.lock

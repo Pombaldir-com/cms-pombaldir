@@ -75,12 +75,9 @@ notificações com a app fechada.
   e do PEM privado) ou, sem elas, geradas na primeira utilização em `data/vapid-keys.php` (0600, fora do git; PHP
   para não ser servido como texto). Mudá-las invalida as subscrições (renovam-se sozinhas na visita seguinte).
   `VAPID_SUBJECT` (por omissão `https://aicrm.teknisoft.pt`). `PUSH_OFF=1` desliga o envio.
-- **Cron** (utilizador `teknisoft`), a cada 5 minutos; um subprocesso por empresa de `data/companies.php`; linha em
-  `data/calendar-push.log` quando envia algo:
-
-  ```
-  */5 * * * * /usr/local/bin/php /home/teknisoft/domains/aicrm.teknisoft.pt/scripts/calendar-push.php --url=https://aicrm.teknisoft.pt/ >/dev/null 2>&1
-  ```
+- **Cron:** tarefa `calendar_push` do cron genérico da aplicação (`scripts/cron-jobs.php`, corrida por
+  `scripts/cron-run.php` de 5 em 5 minutos, um subprocesso por empresa; ver README, "Tarefas de rotina (cron)").
+  Função `calendarCronPush()`. Resultados com envios ou erros em `data/cron.log`.
 - **Produção:** o servidor precisa de saída HTTPS para `fcm.googleapis.com` (Chrome/Android), `*.push.apple.com`
   (Safari/iOS) e `*.push.services.mozilla.com` (Firefox).
 
@@ -125,5 +122,5 @@ o Thunderbird, etc. Cada utilizador tem dois calendários (`{app}` = nome da app
   `handler.php` (rota `push/handler`), `partials/profile-panel.php`. `assets/js/push.js`; service worker
   `internal-chat-sw.js` (eventos `push` e `notificationclick`; mantém o nome para não perder as instalações).
 - `manifest.php`, `app-icon.php`, `memory-session.php` (sessão em memória para CalDAV, ícones e cron).
-- `scripts/calendar-push.php`: cron dos lembretes por push.
+- `scripts/cron-jobs.php` (tarefa `calendar_push`) + `scripts/cron-run.php`: cron dos lembretes por push.
 - `migrations/20261109150000_create_push_subscriptions.sql`: `push_subscriptions` e `calendar_event_notices.pushed_at`.

@@ -46,6 +46,7 @@ mysql -u root -p < schema.sql # esquema inicial (cria admin/admin123)
 - Manter o item do menu lateral ativo/aberto nas páginas filhas e preservar o estado do toggle (persistência).
 - Carregar apenas os scripts/estilos necessários por rota (DataTables/Dropzone/Select2/Modal OCR). DataTables em Português (PT).
 - **DataTables é a versão 2.x**: as classes CSS mudaram (`.dataTables_wrapper`→`.dt-container`, `.dataTables_length`→`.dt-length`, `.dataTables_filter`→`.dt-search`, `.dataTables_paginate`→`.dt-paging`). Usar os nomes antigos falha em silêncio. Como `language.url` é assíncrono, manipular o DOM do cabeçalho/rodapé só em `initComplete`. Tabela completa e regras em [AGENTS.md](AGENTS.md) (secção "DataTables (versão 2.x — armadilhas)").
+- **Tarefas agendadas:** registar em [scripts/cron-jobs.php](scripts/cron-jobs.php) (corridas por `scripts/cron-run.php`, o único cron do cPanel, de 5 em 5 min); não criar entradas novas no cPanel. Ver README, "Tarefas de rotina (cron)".
 - `debug_mode` (Definições > Geral): gatilhar logs extra com `getSetting('debug_mode', '0')`.
 
 ## Documentação de referência
