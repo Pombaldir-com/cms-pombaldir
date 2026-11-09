@@ -187,14 +187,21 @@ function caldavAuthenticate(string $login, string $password, string $ip): array 
     if ($ip !== '') {
         $keys['ip:' . $ip] = CALDAV_THROTTLE_IP;
     }
+    // O limite so trava tentativas falhadas: uma password valida entra sempre.
+    // As passwords de dispositivo sao aleatorias (80 bits), impossiveis de
+    // adivinhar; sem isto, um perfil antigo (acesso revogado) que fica a tentar
+    // no telemovel bloqueava tambem o perfil novo da mesma conta/IP.
+    $blocked = false;
     foreach ($keys as $key => $max) {
         if (caldavThrottleCount($key) >= $max) {
-            return ['ok' => false, 'blocked' => true];
+            $blocked = true;
         }
     }
-    $fail = static function () use ($keys): array {
-        caldavThrottleFail($keys);
-        return ['ok' => false, 'blocked' => false];
+    $fail = static function () use ($keys, $blocked): array {
+        if (!$blocked) {
+            caldavThrottleFail($keys);
+        }
+        return ['ok' => false, 'blocked' => $blocked];
     };
     if ($parts === null || $password === '') {
         return $fail();
