@@ -54,6 +54,18 @@ $caldavServer = new Sabre\DAV\Server([
 ]);
 $caldavServer->setBaseUri(caldavBasePath());
 $caldavServer->debugExceptions = false;
+// Erros 5xx (o telemovel so mostra "nao foi possivel ligar"): data/caldav-error.log.
+$caldavServer->on('exception', static function (Throwable $e) use ($caldavAccount): void {
+    if ($e instanceof Sabre\DAV\Exception && $e->getHTTPCode() < 500) {
+        return;
+    }
+    @file_put_contents(
+        dirname(__DIR__) . '/data/caldav-error.log',
+        date('Y-m-d H:i:s') . ' u' . $caldavAccount->userId() . ' ' . ($_SERVER['REQUEST_METHOD'] ?? '') . ' ' . ($_SERVER['REQUEST_URI'] ?? '')
+            . ' ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n",
+        FILE_APPEND | LOCK_EX
+    );
+});
 $caldavServer->addPlugin(new Sabre\DAV\Auth\Plugin(new CaldavAuthBackend($caldavAccount)));
 $caldavAcl = new Sabre\DAVACL\Plugin();
 $caldavAcl->hideNodesFromListings = true;

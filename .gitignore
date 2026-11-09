@@ -52,3 +52,6 @@ data/vapid-keys.php
 # Estado do cron generico (scripts/cron-run.php)
 data/cron-state.json
 data/cron.lock
+
+# Erros 5xx do servidor CalDAV
+data/caldav-error.log
