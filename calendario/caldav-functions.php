@@ -123,56 +123,6 @@ function caldavRequestCredentials(array $server): ?array {
     return explode(':', $decoded, 2);
 }
 
-// ---------------------------------------------------------------- link do perfil iOS
-// Na app instalada no ecra principal (PWA) o iOS nao instala perfis e o Safari
-// aberto a partir dela nao partilha a sessao da app. O painel do perfil leva um
-// link de uso unico (calendario/profile-download.php, rota caldav-perfil/{token})
-// que abre no Safari; o acesso so e criado quando o link e aberto. O token fica
-// num ficheiro temporario (so o hash no nome), sem password.
-
-const CALDAV_PROFILE_TOKEN_TTL = 1800;
-
-function caldavProfileTokenDir(): string {
-    $dir = rtrim(sys_get_temp_dir(), '/') . '/crm-caldav-profile';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0700, true);
-    }
-    return $dir;
-}
-
-/** Cria o link de uso unico para o utilizador da empresa $nif. Devolve o token. */
-function caldavProfileTokenCreate(string $nif, int $userId): string {
-    $dir = caldavProfileTokenDir();
-    foreach (glob($dir . '/*.json') ?: [] as $old) {
-        if (@filemtime($old) < time() - CALDAV_PROFILE_TOKEN_TTL) {
-            @unlink($old);
-        }
-    }
-    $token = caldavRandomToken();
-    $file = $dir . '/' . hash('sha256', $token) . '.json';
-    @file_put_contents($file, json_encode(['nif' => $nif, 'user_id' => $userId, 'expires' => time() + CALDAV_PROFILE_TOKEN_TTL]), LOCK_EX);
-    @chmod($file, 0600);
-    return $token;
-}
-
-/** Consome o token (uma vez): {nif, user_id} ou null quando nao existe/expirou. */
-function caldavProfileTokenConsume(string $token): ?array {
-    if (preg_match('/^[A-Za-z0-9_-]{32,64}$/', $token) !== 1) {
-        return null;
-    }
-    $file = caldavProfileTokenDir() . '/' . hash('sha256', $token) . '.json';
-    $data = is_file($file) ? json_decode((string) @file_get_contents($file), true) : null;
-    @unlink($file);
-    if (!is_array($data) || (int) ($data['expires'] ?? 0) < time()) {
-        return null;
-    }
-    return ['nif' => (string) $data['nif'], 'user_id' => (int) $data['user_id']];
-}
-
-function caldavRandomToken(): string {
-    return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
-}
-
 // ---------------------------------------------------------------- throttle
 // Contadores em ficheiro (a app nao tem cache partilhada): um por chave.
 
@@ -452,6 +402,10 @@ function caldavSendMobileConfig(string $body): void {
         error_log('[caldav] perfil iOS: cabecalhos ja enviados em ' . $file . ':' . $line);
     }
     header('Content-Type: application/x-apple-aspen-config');
+    // Sem nosniff o WebKit do iOS (Safari, Chrome e a app instalada) ve "<?xml"
+    // e mostra o perfil como texto em vez de o instalar (a intranet PombalData
+    // envia nosniff em todas as respostas, pelo .htaccess).
+    header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: attachment; filename="calendario.mobileconfig"');
     header('Content-Length: ' . strlen($body));
     header('Cache-Control: no-store');

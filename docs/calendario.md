@@ -94,12 +94,10 @@ o Thunderbird, etc. Cada utilizador tem dois calendários (`{app}` = nome da app
 - **Acesso:** perfil (`users/profile`, painel "Calendário no telemóvel"). Cada dispositivo tem uma password própria
   (`caldav_access_tokens`, só o hash), revogável. "Instalar no iPhone / iPad / Mac" descarrega um `.mobileconfig`
   que cria a conta; "Android / outro" mostra uma vez o servidor, o utilizador (`{utilizador}@{NIF}`) e a password.
-  Na app instalada no ecrã principal (PWA) num iPhone/iPad, o botão passa a ser um **link de uso único**
-  (`caldav-perfil/{token}`, `calendario/profile-download.php`, válido 30 min, só o hash do token num ficheiro
-  temporário, sem password) aberto no Safari com `target="_blank"`: o Safari não tem a sessão da app, por isso o
-  link identifica empresa e utilizador e o acesso só é criado quando é aberto. O perfil é enviado por
-  `caldavSendMobileConfig()`, que descarta output pendente antes dos cabeçalhos (um `text/html` faz o iPhone mostrar
-  o perfil como texto) e regista no log se os cabeçalhos já tiverem saído.
+  Funciona também dentro da app instalada no ecrã principal (PWA), no Safari ou no Chrome. O perfil é enviado por
+  `caldavSendMobileConfig()` com `X-Content-Type-Options: nosniff`: sem ele o WebKit do iOS vê `<?xml` e mostra o
+  perfil como texto em vez de o instalar (a intranet PombalData envia `nosniff` em todas as respostas). Antes dos
+  cabeçalhos descarta qualquer output pendente e regista no log se os cabeçalhos já tiverem saído.
 - **Autenticação:** Basic, antes do sabre correr (`calendario/caldav.php`); o NIF escolhe a empresa
   (`data/companies.php`) como no login. Sem cookie nem ficheiro de sessão (handler de sessão em memória).
   Tentativas falhadas limitadas a 8 por conta e 30 por IP em 15 min (ficheiros em `sys_get_temp_dir()`).
