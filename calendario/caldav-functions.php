@@ -241,8 +241,21 @@ function caldavAuthenticate(string $login, string $password, string $ip): array 
 
 // ---------------------------------------------------------------- iCalendar
 
+/**
+ * Fuso das horas guardadas: APP_TIMEZONE (data/db.php) quando existe; senao o
+ * do PHP ou Europe/Lisbon (o data/db.php de producao pode ser anterior a
+ * constante, e sem ela a listagem dos calendarios dava erro 500).
+ */
+function caldavTimezone(): DateTimeZone {
+    $name = defined('APP_TIMEZONE') ? (string) constant('APP_TIMEZONE') : (date_default_timezone_get() ?: 'Europe/Lisbon');
+    if ($name === 'UTC') {
+        $name = 'Europe/Lisbon';
+    }
+    return new DateTimeZone($name);
+}
+
 function caldavUtc(string $local): DateTimeImmutable {
-    return (new DateTimeImmutable($local, new DateTimeZone(APP_TIMEZONE)))->setTimezone(new DateTimeZone('UTC'));
+    return (new DateTimeImmutable($local, caldavTimezone()))->setTimezone(new DateTimeZone('UTC'));
 }
 
 /** O evento como VCALENDAR (horas em UTC; dia inteiro com datas, fim exclusivo). */
@@ -326,7 +339,7 @@ function caldavEventFromIcs(string $data, ?array $existing): array {
     if (!isset($ev->DTSTART)) {
         throw new InvalidArgumentException('Evento sem data de início.');
     }
-    $tz = new DateTimeZone(APP_TIMEZONE);
+    $tz = caldavTimezone();
     $allDay = !$ev->DTSTART->hasTime();
     $start = $ev->DTSTART->getDateTime($tz)->setTimezone($tz);
     if (isset($ev->DTEND)) {
