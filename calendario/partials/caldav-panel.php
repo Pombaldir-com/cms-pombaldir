@@ -54,17 +54,41 @@ $caldavAppName = calendarAppName();
                         <input type="text" class="form-control" id="caldav-name" name="name" maxlength="120" placeholder="ex.: iPhone do trabalho">
                     </div>
                     <div class="col-sm-7 d-flex flex-wrap gap-2">
-                        <button type="submit" class="btn btn-outline-primary mb-0" name="device" value="ios"><i class="fa fa-apple"></i> Instalar no iPhone / iPad / Mac</button>
-                        <button type="submit" class="btn btn-outline-secondary mb-0" name="device" value="manual"><i class="fa fa-android"></i> Android / outro</button>
+                        <button type="submit" class="btn btn-outline-primary mb-0" name="device" value="ios" id="caldav-ios-button"><i class="fa fa-apple"></i> Instalar no iPhone / iPad / Mac</button>
+                        <button type="submit" class="btn btn-outline-secondary mb-0" name="device" value="manual" id="caldav-manual-button"><i class="fa fa-android"></i> Android / outro</button>
                     </div>
                 </form>
+                <div class="alert alert-info small d-none" id="caldav-standalone-note">
+                    <strong>Está na app instalada:</strong> aqui o iOS não deixa instalar o perfil do calendário.
+                    Abra <code><?= $caldavEsc(appAbsoluteBaseUrl()); ?>users/profile</code> no <strong>Safari</strong> e toque em
+                    "Instalar no iPhone / iPad / Mac", ou toque em "Configurar manualmente" e introduza os dados em
+                    Definições &gt; Calendário &gt; Contas &gt; Adicionar conta &gt; Outra &gt; Adicionar conta CalDAV.
+                </div>
+                <script>
+                (function () {
+                    // App instalada no ecra principal (standalone) num iPhone/iPad: o iOS mostra o
+                    // .mobileconfig como texto em vez de o instalar. Ver docs/calendario.md.
+                    var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                    var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+                    if (!ios || !standalone) {
+                        return;
+                    }
+                    var iosButton = document.getElementById('caldav-ios-button');
+                    var manualButton = document.getElementById('caldav-manual-button');
+                    if (iosButton) { iosButton.classList.add('d-none'); }
+                    if (manualButton) { manualButton.innerHTML = '<i class="fa fa-key"></i> Configurar manualmente'; }
+                    document.getElementById('caldav-standalone-note').classList.remove('d-none');
+                })();
+                </script>
 
                 <details class="small text-muted mb-3">
                     <summary>Como instalar</summary>
                     <ul class="mt-2 mb-0 ps-3">
                         <li><strong>iPhone / iPad:</strong> abra esta página no Safari do próprio aparelho e toque em "Instalar no iPhone / iPad / Mac".
                             Depois vá a Definições &gt; Geral &gt; VPN e gestão de dispositivos, toque no perfil descarregado e em Instalar.
-                            Os calendários "<?= $caldavEsc($caldavAppName); ?> · Eventos" e "<?= $caldavEsc($caldavAppName); ?> · Convites" aparecem na app Calendário.</li>
+                            Os calendários "<?= $caldavEsc($caldavAppName); ?> · Eventos" e "<?= $caldavEsc($caldavAppName); ?> · Convites" aparecem na app Calendário.
+                            Na app instalada no ecrã principal o perfil não instala: use o Safari, ou "Configurar manualmente"
+                            (Definições &gt; Calendário &gt; Contas &gt; Adicionar conta &gt; Outra &gt; Adicionar conta CalDAV, com o servidor, o utilizador e a password indicados).</li>
                         <li><strong>Android:</strong> instale a app DAVx⁵, toque em "Android / outro" e, no DAVx⁵, use "Iniciar sessão com URL e nome de utilizador"
                             com o servidor, o utilizador e a password indicados.</li>
                         <li>Os eventos criados no telemóvel vão para "<?= $caldavEsc($caldavAppName); ?> · Eventos". Os convidados e o cliente escolhem-se no dashboard. Eventos repetidos não são aceites.</li>

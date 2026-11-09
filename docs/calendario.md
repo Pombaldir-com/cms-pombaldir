@@ -94,6 +94,9 @@ o Thunderbird, etc. Cada utilizador tem dois calendários (`{app}` = nome da app
 - **Acesso:** perfil (`users/profile`, painel "Calendário no telemóvel"). Cada dispositivo tem uma password própria
   (`caldav_access_tokens`, só o hash), revogável. "Instalar no iPhone / iPad / Mac" descarrega um `.mobileconfig`
   que cria a conta; "Android / outro" mostra uma vez o servidor, o utilizador (`{utilizador}@{NIF}`) e a password.
+  Na app instalada no ecrã principal (PWA) o iOS não instala perfis (mostra o `.mobileconfig` como texto): o painel
+  esconde esse botão e indica abrir o perfil no Safari, ou "Configurar manualmente" (Definições > Calendário > Contas
+  > Adicionar conta > Outra > Adicionar conta CalDAV).
 - **Autenticação:** Basic, antes do sabre correr (`calendario/caldav.php`); o NIF escolhe a empresa
   (`data/companies.php`) como no login. Sem cookie nem ficheiro de sessão (handler de sessão em memória).
   Tentativas falhadas limitadas a 8 por conta e 30 por IP em 15 min (ficheiros em `sys_get_temp_dir()`).
