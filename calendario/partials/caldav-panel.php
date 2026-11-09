@@ -15,6 +15,12 @@ $caldavEsc = static fn ($v): string => htmlspecialchars((string) $v, ENT_QUOTES,
 $caldavCsrf = generateCsrfToken();
 $caldavHandler = BASE_URL . 'calendario/handler';
 $caldavAppName = calendarAppName();
+// Link de uso unico para instalar o perfil a partir da app instalada no iOS
+// (abre no Safari, que nao tem a sessao da app): calendario/profile-download.php.
+$caldavProfileLink = '';
+if ($caldavPanelReady && caldavAvailable()) {
+    $caldavProfileLink = appAbsoluteBaseUrl() . 'caldav-perfil/' . caldavProfileTokenCreate(caldavCurrentCompanyNif(), $caldavPanelUserId);
+}
 ?>
 <div class="row" id="calendario-telemovel">
     <div class="col-md-8 col-sm-12">
@@ -55,29 +61,43 @@ $caldavAppName = calendarAppName();
                     </div>
                     <div class="col-sm-7 d-flex flex-wrap gap-2">
                         <button type="submit" class="btn btn-outline-primary mb-0" name="device" value="ios" id="caldav-ios-button"><i class="fa fa-apple"></i> Instalar no iPhone / iPad / Mac</button>
+                        <?php if ($caldavProfileLink !== ''): ?>
+                        <a href="<?= $caldavEsc($caldavProfileLink); ?>" target="_blank" rel="noopener" class="btn btn-primary mb-0 d-none" id="caldav-ios-link" data-base="<?= $caldavEsc($caldavProfileLink); ?>"><i class="fa fa-apple"></i> Instalar no iPhone / iPad</a>
+                        <?php endif; ?>
                         <button type="submit" class="btn btn-outline-secondary mb-0" name="device" value="manual" id="caldav-manual-button"><i class="fa fa-android"></i> Android / outro</button>
                     </div>
                 </form>
                 <div class="alert alert-info small d-none" id="caldav-standalone-note">
-                    <strong>Está na app instalada:</strong> aqui o iOS não deixa instalar o perfil do calendário.
-                    Abra <code><?= $caldavEsc(appAbsoluteBaseUrl()); ?>users/profile</code> no <strong>Safari</strong> e toque em
-                    "Instalar no iPhone / iPad / Mac", ou toque em "Configurar manualmente" e introduza os dados em
-                    Definições &gt; Calendário &gt; Contas &gt; Adicionar conta &gt; Outra &gt; Adicionar conta CalDAV.
+                    Abre no Safari e descarrega o perfil. Depois toque em <strong>Permitir</strong> e vá a
+                    Definições &gt; Geral &gt; VPN e gestão de dispositivos &gt; perfil "<?= $caldavEsc($caldavAppName); ?>" &gt; Instalar.
+                    O link serve uma vez: para outro dispositivo, volte a abrir esta página.
                 </div>
                 <script>
                 (function () {
                     // App instalada no ecra principal (standalone) num iPhone/iPad: o iOS mostra o
-                    // .mobileconfig como texto em vez de o instalar. Ver docs/calendario.md.
+                    // .mobileconfig como texto e o Safari nao tem a sessao da app. O botao passa a ser
+                    // o link de uso unico (calendario/profile-download.php), aberto no Safari.
                     var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
                     var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-                    if (!ios || !standalone) {
+                    var link = document.getElementById('caldav-ios-link');
+                    if (!ios || !standalone || !link) {
                         return;
                     }
-                    var iosButton = document.getElementById('caldav-ios-button');
-                    var manualButton = document.getElementById('caldav-manual-button');
-                    if (iosButton) { iosButton.classList.add('d-none'); }
-                    if (manualButton) { manualButton.innerHTML = '<i class="fa fa-key"></i> Configurar manualmente'; }
+                    document.getElementById('caldav-ios-button').classList.add('d-none');
+                    link.classList.remove('d-none');
                     document.getElementById('caldav-standalone-note').classList.remove('d-none');
+                    var manualButton = document.getElementById('caldav-manual-button');
+                    if (manualButton) { manualButton.innerHTML = '<i class="fa fa-key"></i> Configurar manualmente'; }
+                    var nameInput = document.getElementById('caldav-name');
+                    var refresh = function () {
+                        var name = nameInput ? nameInput.value.trim() : '';
+                        link.href = link.getAttribute('data-base') + (name !== '' ? '?n=' + encodeURIComponent(name) : '');
+                    };
+                    if (nameInput) { nameInput.addEventListener('input', refresh); }
+                    // Depois de usado, o link deixa de servir: recarregar a pagina gera outro.
+                    link.addEventListener('click', function () {
+                        window.setTimeout(function () { window.location.reload(); }, 4000);
+                    });
                 })();
                 </script>
 

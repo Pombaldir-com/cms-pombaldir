@@ -73,11 +73,7 @@ if ($isProfileForm && $isPost) {
     $user = currentUser();
     $login = caldavLogin((string) ($user['username'] ?? ''), caldavCurrentCompanyNif());
     if ($device === 'ios') {
-        header('Content-Type: application/x-apple-aspen-config');
-        header('Content-Disposition: attachment; filename="calendario.mobileconfig"');
-        header('Cache-Control: no-store');
-        echo caldavMobileConfig(appAbsoluteBaseUrl(), $login, $created['password'], caldavPrincipalPath($userId), calendarAppName());
-        exit;
+        caldavSendMobileConfig(caldavMobileConfig(appAbsoluteBaseUrl(), $login, $created['password'], caldavPrincipalPath($userId), calendarAppName()));
     }
     // A password so e mostrada uma vez (flash da sessao).
     setSessionFlash('caldav', ['type' => 'new', 'name' => $name, 'login' => $login, 'password' => $created['password']]);

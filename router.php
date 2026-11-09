@@ -83,6 +83,12 @@ if ($path === 'manifest.webmanifest') {
     require __DIR__ . '/manifest.php';
     exit;
 }
+// Perfil iOS do calendario por link de uso unico (app instalada -> Safari).
+if (preg_match('#^caldav-perfil/([A-Za-z0-9_-]{32,64})$#', $path, $profileMatch)) {
+    $_GET['caldav_token'] = $profileMatch[1];
+    require __DIR__ . '/calendario/profile-download.php';
+    exit;
+}
 if ($path === '.well-known/caldav') {
     header('Location: ' . ($base !== '' ? $base : '') . '/caldav/', true, 301);
     exit;
