@@ -95,6 +95,25 @@ switch (true) {
     case $path === 'calendario/handler':
         require __DIR__ . '/calendario/handler.php';
         break;
+    // Assiduidade / Registo de Ponto. Ver docs/assiduidade.md.
+    // "assiduidade" e um diretorio real (o Apache serve-o antes do router),
+    // por isso o mapa mensal vive em "assiduidade/registo-ponto".
+    case $path === 'assiduidade':
+    case $path === 'assiduidade/registo-ponto':
+        require __DIR__ . '/assiduidade/registo.php';
+        break;
+    case $path === 'assiduidade/ausencias':
+        require __DIR__ . '/assiduidade/ausencias.php';
+        break;
+    case $path === 'assiduidade/mapa':
+        require __DIR__ . '/assiduidade/mapa.php';
+        break;
+    case $path === 'assiduidade/configuracao':
+        require __DIR__ . '/assiduidade/configuracao.php';
+        break;
+    case $path === 'assiduidade/handler':
+        require __DIR__ . '/assiduidade/handler.php';
+        break;
     case $path === 'push/handler':
         require __DIR__ . '/push/handler.php';
         break;

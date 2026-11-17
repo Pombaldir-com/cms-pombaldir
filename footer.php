@@ -395,6 +395,9 @@ window.internalChatGlobalConfig = {
 
 <script src="assets/js/pnotify_theme_adapter.js"></script>
 <script src="assets/js/custom.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/custom.js'); ?>"></script>
+<?php if (!empty($attendanceShowPunchModal)): ?>
+<?php require __DIR__ . '/assiduidade/partials/punch-modal.php'; ?>
+<?php endif; ?>
 <?php if (!empty($pageScripts)): ?>
 <script>
 <?= $pageScripts ?>

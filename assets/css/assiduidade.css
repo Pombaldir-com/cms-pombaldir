@@ -1,0 +1,286 @@
+/* Assiduidade / Registo de Ponto. Carregado pelo header.php quando o modulo
+   esta ativo (botao da barra de topo + paginas assiduidade/*).
+   Ver docs/assiduidade.md. */
+
+/* Barra de topo */
+.attendance-topbar-btn {
+    white-space: nowrap;
+    font-weight: 600;
+    margin-bottom: 0;
+}
+@media (max-width: 767.98px) {
+    .attendance-topbar-label {
+        display: none;
+    }
+    .attendance-topbar-btn {
+        padding: 4px 10px;
+    }
+}
+
+/* Cabecalho das paginas */
+.attendance-user-select {
+    min-width: 200px;
+    max-width: 280px;
+}
+.attendance-month-input {
+    width: 175px;
+    border-radius: 0;
+}
+.attendance-page .tile_count {
+    margin-top: 0;
+}
+.attendance-page .tile_count .count.red { color: #E74C3C; }
+.attendance-page .tile_count .count.green { color: #1ABB9C; }
+.attendance-page .tile_count .count_bottom {
+    font-size: 12px;
+    color: #73879C;
+}
+
+/* Painel "Hoje" e modal */
+.attendance-clock {
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1;
+    color: #2A3F54;
+    font-variant-numeric: tabular-nums;
+}
+.attendance-today .attendance-punch-btn {
+    min-width: 260px;
+}
+.attendance-today .attendance-done {
+    font-size: 14px;
+    padding: 10px 14px;
+}
+
+/* Mapa mensal (registo.php) */
+.attendance-month-table {
+    font-variant-numeric: tabular-nums;
+}
+.attendance-month-table th,
+.attendance-month-table td {
+    vertical-align: middle;
+}
+.attendance-month-table thead th {
+    background: #f5f7fa;
+    font-size: 12px;
+}
+.attendance-month-table tr.is-rest td {
+    background: #eef0f2;
+    color: #8a96a3;
+}
+.attendance-month-table tr.is-holiday td {
+    background: #eaf3fb;
+}
+.attendance-month-table tr.is-today td {
+    box-shadow: inset 0 0 0 9999px rgba(52, 152, 219, 0.08);
+    font-weight: 600;
+}
+.attendance-month-table tr.is-missing td:first-child {
+    border-left: 3px solid #E74C3C;
+}
+.attendance-notes .badge {
+    margin: 1px 2px 1px 0;
+    font-weight: 500;
+}
+.attendance-badge-holiday {
+    background: #3498DB;
+    color: #fff;
+}
+.attendance-badge-absence {
+    background: var(--absence-color, #26B99A);
+    color: #fff;
+}
+.attendance-badge-absence.is-pending {
+    background: transparent;
+    color: var(--absence-color, #26B99A);
+    border: 1px dashed var(--absence-color, #26B99A);
+}
+
+/* Grelha do mapa de ausencias (mapa.php) */
+.attendance-grid {
+    font-size: 12px;
+    table-layout: auto;
+}
+.attendance-grid th,
+.attendance-grid td {
+    padding: 3px 2px !important;
+    min-width: 24px;
+    text-align: center;
+    vertical-align: middle;
+}
+.attendance-grid thead th {
+    background: #f5f7fa;
+    line-height: 1.1;
+}
+.attendance-grid .attendance-grid-name {
+    text-align: left;
+    min-width: 150px;
+    padding-left: 8px !important;
+    position: sticky;
+    left: 0;
+    background: #fff;
+    z-index: 1;
+}
+.attendance-grid thead .attendance-grid-name {
+    background: #f5f7fa;
+}
+.attendance-grid .is-rest {
+    background: #eef0f2;
+    color: #9aa5b1;
+}
+.attendance-grid .is-holiday {
+    background: #d6e9f8;
+}
+.attendance-grid .is-today {
+    outline: 2px solid #3498DB;
+    outline-offset: -2px;
+}
+.attendance-grid td.has-absence {
+    background: var(--absence-color, #26B99A);
+    color: #fff;
+    font-weight: 700;
+    font-size: 10px;
+}
+.attendance-grid td.has-absence.is-half-morning {
+    background: linear-gradient(135deg, var(--absence-color, #26B99A) 50%, #fff 50%);
+    color: #2A3F54;
+}
+.attendance-grid td.has-absence.is-half-afternoon {
+    background: linear-gradient(135deg, #fff 50%, var(--absence-color, #26B99A) 50%);
+    color: #2A3F54;
+}
+.attendance-grid td.has-absence.is-pending,
+.attendance-legend-swatch.is-pending {
+    background: repeating-linear-gradient(45deg, #fff, #fff 3px, var(--absence-color, #26B99A) 3px, var(--absence-color, #26B99A) 6px);
+    color: #2A3F54;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+}
+.attendance-grid td.is-missing {
+    color: #E74C3C;
+    font-weight: 700;
+}
+.attendance-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+}
+.attendance-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.attendance-legend-swatch {
+    display: inline-block;
+    min-width: 30px;
+    padding: 1px 4px;
+    text-align: center;
+    border-radius: 3px;
+    background: var(--absence-color, #26B99A);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.attendance-legend-swatch.is-holiday-swatch { background: #d6e9f8; }
+.attendance-legend-swatch.is-rest-swatch { background: #eef0f2; }
+.attendance-legend-swatch.is-missing-swatch { background: #fff; color: #E74C3C; }
+
+.attendance-year-table td,
+.attendance-year-table th {
+    text-align: center;
+    vertical-align: middle;
+}
+.attendance-year-table td:first-child,
+.attendance-year-table th:first-child {
+    text-align: left;
+}
+.attendance-year-table td.attendance-year-vac {
+    background: rgba(38, 185, 154, 0.15);
+}
+.attendance-year-table td.is-pending {
+    background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(115, 135, 156, 0.15) 4px, rgba(115, 135, 156, 0.15) 8px);
+}
+
+/* Configuracao */
+.attendance-color-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+.attendance-schedule-form input[type="time"] {
+    min-width: 96px;
+}
+.attendance-schedule-form tr.is-rest td {
+    background: #f5f6f7;
+}
+.attendance-input-days {
+    width: 80px;
+    display: inline-block;
+}
+.attendance-input-code {
+    width: 80px;
+    text-transform: uppercase;
+}
+.attendance-view-pills .nav-link {
+    padding: 4px 12px;
+}
+
+/* Impressao */
+.print-only {
+    display: none;
+}
+.attendance-signature {
+    margin-top: 40px;
+    justify-content: space-between;
+}
+@media print {
+    .left_col,
+    .top_nav,
+    .no-print,
+    footer,
+    .migration-alert-fixed,
+    #ai-float-btn,
+    .internal-chat-dock {
+        display: none !important;
+    }
+    .right_col {
+        margin-left: 0 !important;
+        padding: 0 !important;
+    }
+    .print-only {
+        display: block !important;
+    }
+    .attendance-signature.print-only {
+        display: flex !important;
+    }
+    .x_panel {
+        border: 0;
+        padding: 0;
+    }
+    .attendance-month-table,
+    .attendance-grid {
+        font-size: 10px;
+    }
+    .attendance-month-table td,
+    .attendance-month-table th {
+        padding: 1px 4px !important;
+    }
+    .attendance-grid td.has-absence,
+    .attendance-month-table tr.is-rest td,
+    .attendance-month-table tr.is-holiday td,
+    .attendance-grid .is-rest,
+    .attendance-grid .is-holiday,
+    .attendance-badge-absence,
+    .attendance-badge-holiday {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    .attendance-map-page {
+        zoom: 0.85;
+    }
+    @page {
+        margin: 10mm;
+    }
+}

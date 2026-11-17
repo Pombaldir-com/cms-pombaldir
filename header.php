@@ -43,6 +43,32 @@ $migrationSummary = ((int) ($user['role'] ?? 3) === 1)
 $showMigrationAlert = ((int) ($user['role'] ?? 3) === 1)
     && (!empty($migrationSummary['has_pending']) || !empty($migrationSummary['errors']) || is_array($migrationFlash));
 $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
+
+// Assiduidade (registo de ponto): menu, botao "Registar" na barra de topo e
+// modal de picagem (footer.php). Ver docs/assiduidade.md.
+$attendanceActive = false;
+$attendanceTopbar = null;
+$attendancePending = 0;
+if (isModuleActive('assiduidade')) {
+    require_once __DIR__ . '/assiduidade/functions.php';
+    if (attendanceHasTables()) {
+        $attendanceActive = true;
+        try {
+            if (getSetting('attendance_topbar_button', '1') === '1' && attendanceUserIsTracked((int) ($user['id'] ?? 0))) {
+                $attendanceTopbar = attendanceTodayStatus((int) ($user['id'] ?? 0));
+            }
+            if (attendanceCanManage()) {
+                $attendancePending = attendancePendingAbsenceCount();
+            }
+        } catch (Throwable $e) {
+            $attendanceTopbar = null;
+        }
+    }
+}
+$attendanceShowPunchModal = $attendanceActive && (
+    $attendanceTopbar !== null
+    || (($useAttendance ?? false) && attendanceUserIsTracked((int) ($user['id'] ?? 0)))
+);
 ?>
 <!DOCTYPE html>
 <html lang="pt">
@@ -83,6 +109,9 @@ $efaturaTopbarSelector = $efaturaTopbarSelector ?? ['enabled' => false];
 <?php endif; ?>
 
 <link rel="stylesheet" href="assets/css/custom.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/custom.css'); ?>">
+<?php if ($attendanceActive): ?>
+<link rel="stylesheet" href="assets/css/assiduidade.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/assiduidade.css'); ?>">
+<?php endif; ?>
 
 
     <!-- Custom styles for the CMS (optional) -->
@@ -323,6 +352,21 @@ foreach ($sidebarTypes as $sidebarType):
                                 </ul>
                             </li>
 <?php endif; ?>
+<?php if ($attendanceActive): ?>
+                            <li>
+                                <a><i class="fa fa-clock-o"></i> Assiduidade<?php if ($attendancePending > 0): ?> <span class="badge bg-warning text-dark" title="Pedidos de ausência pendentes"><?= (int) $attendancePending; ?></span><?php endif; ?> <span class="fa fa-chevron-down"></span></a>
+                                <ul class="nav child_menu">
+                                    <li><a href="<?= BASE_URL ?>assiduidade/registo-ponto">Registo de Ponto</a></li>
+                                    <li><a href="<?= BASE_URL ?>assiduidade/ausencias">Ausências e Férias</a></li>
+<?php if (attendanceCanViewTeam() || getSetting('attendance_map_public', '0') === '1'): ?>
+                                    <li><a href="<?= BASE_URL ?>assiduidade/mapa">Mapa de Ausências</a></li>
+<?php endif; ?>
+<?php if (attendanceIsAdmin()): ?>
+                                    <li><a href="<?= BASE_URL ?>assiduidade/configuracao">Configuração</a></li>
+<?php endif; ?>
+                                </ul>
+                            </li>
+<?php endif; ?>
 <?php if (isModuleActive('efatura') && userHasDepartmentPermission('ctb_efatura_aceder')): ?>
                             <li>
                                 <a><i class="fa fa-file-text-o"></i> E-fatura <span class="fa fa-chevron-down"></span></a>
@@ -386,6 +430,15 @@ foreach ($sidebarTypes as $sidebarType):
 <?php endforeach; ?>
             </select>
           </form>
+      </div>
+<?php endif; ?>
+<?php if ($attendanceTopbar !== null): ?>
+      <div class="d-flex align-items-center me-2">
+        <button type="button" class="btn btn-sm <?= !empty($attendanceTopbar['is_entry']) ? 'btn-danger' : 'btn-success'; ?> attendance-topbar-btn js-attendance-punch js-attendance-topbar"
+                title="Registar <?= htmlspecialchars((string) $attendanceTopbar['next_label'], ENT_QUOTES, 'UTF-8'); ?>"
+                <?= empty($attendanceTopbar['next']) ? 'style="display:none;"' : ''; ?>>
+          <i class="fa fa-clock-o"></i> <span class="js-attendance-label attendance-topbar-label">Registar <?= htmlspecialchars((string) $attendanceTopbar['next_label'], ENT_QUOTES, 'UTF-8'); ?></span>
+        </button>
       </div>
 <?php endif; ?>
 <?php if ($showInternalChatFloating): ?>

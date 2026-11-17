@@ -935,6 +935,29 @@ require_once __DIR__ . '/header.php';
                             </div>
                         </div>
                     </div>
+                    <?php $attendanceModuleActive = in_array('assiduidade', $currentModules, true); ?>
+                    <div class="col-12 col-lg-6">
+                        <div class="x_panel module-card">
+                            <div class="x_title">
+                                <h2><i class="fa fa-clock-o"></i> Assiduidade</h2>
+                                <div class="clearfix"></div>
+                            </div>
+                            <div class="x_content">
+                                <div class="module-toggle">
+                                    <div>
+                                        <p class="text-muted mb-1">Registo de ponto (entradas e saídas), horários, ausências, férias e mapas.</p>
+                                        <?php if ($attendanceModuleActive): ?>
+                                            <a href="<?= BASE_URL ?>assiduidade/configuracao" class="small"><i class="fa fa-cogs"></i> Configurar horários, tipos de ausência e feriados</a>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="module_assiduidade" name="modules[assiduidade]" value="1" <?= $attendanceModuleActive ? 'checked' : ''; ?>>
+                                        <label class="form-check-label" for="module_assiduidade">Ativo</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="col-12">
                         <button type="submit" class="btn btn-success btn-lg"><i class="fa fa-save"></i> Guardar módulos</button>
                     </div>

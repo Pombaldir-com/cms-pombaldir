@@ -2622,6 +2622,8 @@ function getBaseDepartmentPermissionOptions(): array {
         'ai_open_lancamentos' => 'Assistente AI - Abrir lancamentos',
         'ai_suggest_vat' => 'Assistente AI - Sugerir contas IVA',
         'ai_approve_docs' => 'Assistente AI - Aprovar/Rejeitar docs',
+        'assiduidade_ver_equipa' => 'Assiduidade - Ver mapas da equipa',
+        'assiduidade_gerir' => 'Assiduidade - Corrigir picagens e aprovar ausencias',
     ];
 }
 
