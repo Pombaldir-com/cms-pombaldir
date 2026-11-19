@@ -1,0 +1,24 @@
+<h1>Área reservada do cliente</h1>
+<p class="lead">Cada cliente do gabinete pode ter acesso a uma área própria, com a imagem do gabinete, onde consulta os seus documentos contabilísticos e os envios de SAF-T.</p>
+<!--toc-->
+
+<h2>Acesso</h2>
+<p>A área do cliente tem um endereço próprio por tenant, do tipo <code>…/t/{gabinete}/cliente</code>. O cliente entra com o utilizador e a palavra-passe criados pelo gabinete.</p>
+<shot id="70-extranet-login" url="t/…/cliente/login" cap="<b>Entrada na área reservada do cliente</b>, com o nome e o ícone do gabinete."/>
+
+<h2>O que o cliente vê</h2>
+<table class="t">
+  <tr><th>Secção</th><th>Conteúdo</th></tr>
+  <tr><td>Dashboard</td><td>Resumo da empresa e atalhos.</td></tr>
+  <tr><td>Documentos contabilísticos</td><td>Documentos tratados pelo gabinete (emitente, número, data, totais com e sem IVA, estado), com filtro e download.</td></tr>
+  <tr><td>Envio de SAF-T</td><td>Envios efetuados: período, ficheiro, data, resposta da AT e valores/faturas extraídos.</td></tr>
+</table>
+
+<h2>Gestão pelo gabinete</h2>
+<ol class="steps">
+  <li>Abra a ficha do cliente em <a href="entidades.html">Entidades &gt; Empresas</a>, separador <b>Extranet</b>.</li>
+  <li>Em <b>Gestão de utilizadores</b>, <span class="btn-like blue">Adicionar utilizador</span> (nome, e-mail, utilizador, palavra-passe).</li>
+  <li>Ative ou desative contas a qualquer momento; os contadores mostram contas ativas e inativas.</li>
+  <li>Use <b>Impersonar</b> para ver a área exatamente como o cliente a vê (abre noutro separador; fica registado em auditoria; termina com <i>Terminar impersonação</i>).</li>
+</ol>
+<div class="callout tip"><b>Mais-valia</b><p>O cliente deixa de pedir por telefone ou e-mail "o que já entregou" ou "se o SAF-T foi enviado": tem a resposta na sua área, a qualquer hora.</p></div>

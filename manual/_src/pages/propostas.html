@@ -1,0 +1,87 @@
+<h1>Propostas de melhoria</h1>
+<p class="lead">Sugestões recolhidas ao percorrer a aplicação ecrã a ecrã e ao rever o código, organizadas por horizonte. Servem de base para o roadmap e podem ser priorizadas com a equipa.</p>
+<!--toc-->
+
+<h2>Resumo</h2>
+<div class="table-wrap"><table class="t">
+  <tr><th>#</th><th>Proposta</th><th>Impacto</th><th>Esforço</th><th>Horizonte</th></tr>
+  <tr><td>1</td><td>Uniformizar a marca e o português na interface</td><td><span class="badge amber">Médio</span></td><td><span class="badge green">Baixo</span></td><td>Imediato</td></tr>
+  <tr><td>2</td><td>Corrigir aviso PHP no campo Telefone do utilizador</td><td><span class="badge amber">Médio</span></td><td><span class="badge green">Baixo</span></td><td>Imediato</td></tr>
+  <tr><td>3</td><td>Assistente: resolver o cliente sem pedir a base ERP</td><td><span class="badge red">Alto</span></td><td><span class="badge green">Baixo</span></td><td>Imediato</td></tr>
+  <tr><td>4</td><td>Centro de Regras de classificação</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Curto prazo</td></tr>
+  <tr><td>5</td><td>Indicadores de qualidade da classificação</td><td><span class="badge red">Alto</span></td><td><span class="badge green">Baixo</span></td><td>Curto prazo</td></tr>
+  <tr><td>6</td><td>Grau de confiança e importação automática</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Curto prazo</td></tr>
+  <tr><td>7</td><td>Assistente de configuração inicial</td><td><span class="badge amber">Médio</span></td><td><span class="badge green">Baixo</span></td><td>Curto prazo</td></tr>
+  <tr><td>8</td><td>Recolha de documentos por e-mail e pela extranet</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Médio prazo</td></tr>
+  <tr><td>9</td><td>Conector Primavera: certificação e casos de teste</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Curto prazo</td></tr>
+  <tr><td>10</td><td>Testes automáticos do motor de classificação</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Curto prazo</td></tr>
+  <tr><td>11</td><td>Página de estado dos serviços</td><td><span class="badge amber">Médio</span></td><td><span class="badge green">Baixo</span></td><td>Curto prazo</td></tr>
+  <tr><td>12</td><td>Autenticação de dois fatores e SSO</td><td><span class="badge red">Alto</span></td><td><span class="badge amber">Médio</span></td><td>Médio prazo</td></tr>
+  <tr><td>13</td><td>Relatórios em falta: Mapa de IVA e demonstração de resultados</td><td><span class="badge amber">Médio</span></td><td><span class="badge amber">Médio</span></td><td>Médio prazo</td></tr>
+  <tr><td>14</td><td>Novos módulos: reconciliação bancária, retenções, salários</td><td><span class="badge red">Alto</span></td><td><span class="badge red">Alto</span></td><td>Longo prazo</td></tr>
+  <tr><td>15</td><td>Modularização do código</td><td><span class="badge amber">Médio</span></td><td><span class="badge red">Alto</span></td><td>Contínuo</td></tr>
+</table></div>
+
+<h2>Melhorias imediatas</h2>
+<h3>1. Uniformizar a marca e o português</h3>
+<ul>
+  <li>Há textos sem acentos na interface: "Permissoes", "Definicoes", "Acoes", "Opcoes", "Ola! Como posso ajudar?", "Chat indisponivel", "Ultimo dia do mes". Rever todas as cadeias visíveis em PT-PT.</li>
+  <li>O título do ecrã de entrada ainda é "CMS – Login" e o README apresenta o projeto como CMS; alinhar com a marca <b>Teknisoft Contab</b> (título, manifest, e-mails, rodapé).</li>
+  <li>Criar um nome por omissão "Teknisoft Contab" em vez de "CMS" quando o tenant ainda não definiu o nome da app.</li>
+</ul>
+<h3>2. Aviso PHP no campo Telefone</h3>
+<p>Na edição de um utilizador sem telefone, com o modo debug ligado, o campo mostra um aviso <i>Deprecated: htmlspecialchars()</i> em vez de ficar vazio (valor nulo passado à função). Correção de uma linha: converter para texto antes de escapar. Convém procurar o mesmo padrão nos restantes formulários.</p>
+<h3>3. Assistente: resolver o cliente automaticamente</h3>
+<p>À pergunta "documentos pendentes de classificação, por cliente", o assistente pediu o número da base ERP em vez de consultar a lista local de documentos pendentes. Proposta: dar prioridade às ferramentas locais (documentos por adquirente) e resolver a base a partir da ficha do cliente, perguntando só quando houver ambiguidade real.</p>
+
+<h2>Motor de classificação</h2>
+<h3>4. Centro de Regras</h3>
+<p>Hoje as regras vivem em quatro sítios: o texto de Definições &gt; AI, as instruções de cada par fornecedor/cliente, os modelos e as correções memorizadas. Um ecrã único permitiria:</p>
+<ul>
+  <li>listar, pesquisar e filtrar todas as regras por cliente, fornecedor e tipo de entidade;</li>
+  <li>ver quantas vezes cada regra foi aplicada e quando;</li>
+  <li><b>simular</b> uma regra num documento antes de a gravar;</li>
+  <li>guardar o histórico de versões e quem alterou;</li>
+  <li>rever e aprovar as correções sugeridas pelos técnicos antes de entrarem em vigor.</li>
+</ul>
+<h3>5. Indicadores de qualidade</h3>
+<p>A aplicação já regista cada sugestão, as fontes usadas e se foi aceite. Um painel com <b>% de documentos verdes à chegada</b>, <b>taxa de aceitação</b> por fonte, cliente e técnico, e <b>tempo médio por documento</b> mostra o ganho do motor ao longo do tempo e é um argumento comercial forte.</p>
+<h3>6. Grau de confiança e importação automática</h3>
+<p>Atribuir a cada sugestão um grau de confiança (por exemplo: ligação ERP + histórico concordantes = alta). Documentos de alta confiança, de fornecedores recorrentes e abaixo de um valor-limite, poderiam ser importados automaticamente ("piloto automático") com relatório diário ao técnico, mantendo a revisão manual para os restantes.</p>
+<h3>10. Testes automáticos</h3>
+<p>Não existe uma bateria de testes formal. Um conjunto de <b>casos de referência</b> (documento + contexto + contas esperadas) executado em cada alteração protegeria o motor de regressões, sobretudo nas regras de bancos, seguros, combustíveis e notas de crédito.</p>
+
+<h2>Produto e operação</h2>
+<h3>7. Assistente de configuração inicial</h3>
+<p>Um percurso guiado na primeira entrada do administrador (marca &rarr; SMTP &rarr; ERP com teste de ligação &rarr; empresa base e diário &rarr; IA &rarr; departamentos &rarr; utilizadores &rarr; clientes), com verificação de cada passo. Reduz o tempo de arranque de um novo gabinete.</p>
+<h3>8. Recolha de documentos</h3>
+<ul>
+  <li><b>Caixa de e-mail por gabinete/cliente</b>: os PDF recebidos entram diretamente no Multi Upload.</li>
+  <li><b>Upload na área do cliente</b> (hoje só consulta), com a câmara do telemóvel e indicação do mês.</li>
+  <li>Pedido automático dos documentos em falta a partir do E-fatura, com lembretes.</li>
+</ul>
+<h3>9. Conector Primavera</h3>
+<p>No código da aplicação a integração está validada com Eticadata (e o software de faturação do cliente na extranet admite Eticadata, Techsul e Wintouch). Para posicionar comercialmente o Primavera ao mesmo nível, recomenda-se fechar o conector no ERP-SINC com uma base de testes, documentar as diferenças de mapeamento (ligações de contas por fornecedor, diários, tipos de documento) e acrescentar "Primavera" às opções onde se escolhe o ERP.</p>
+<h3>11. Página de estado</h3>
+<p>Um ecrã para administradores com o estado do ERP-SINC, da AT, do OCR, da IA, do SMTP, do cron (última execução) e das migrações pendentes, com teste de ligação a cada serviço.</p>
+
+<h2>Segurança e conformidade</h2>
+<h3>12. Dois fatores e SSO</h3>
+<ul>
+  <li>Autenticação de dois fatores (TOTP) obrigatória para administradores e opcional para técnicos e clientes da extranet.</li>
+  <li>Entrada com Microsoft 365 / Google para gabinetes que já os usam.</li>
+  <li>Cifrar as chaves de serviços (OpenAI, AWS, ERP) em repouso, como já acontece com as senhas do E-fatura.</li>
+  <li>Política de retenção RGPD configurável (documentos, conversas com a IA) e opção de modelo de IA alojado na UE.</li>
+</ul>
+
+<h2>Funcionalidades futuras</h2>
+<h3>13. Relatórios</h3>
+<p>O relatório "Mapa de IVA" e a demonstração de resultados no e-mail da DP IVA estão previstos mas ainda não disponíveis (o segundo depende de um novo serviço no ERP-SINC).</p>
+<h3>14. Novos módulos</h3>
+<ul>
+  <li><b>Reconciliação bancária</b>: importação de extratos e emparelhamento com lançamentos, aproveitando o mesmo motor de aprendizagem.</li>
+  <li><b>Retenções na fonte, salários e imobilizado</b>: as fases seguintes do fecho mensal, na ordem já prevista no menu Tarefas.</li>
+  <li><b>Vendas</b>: classificação de documentos emitidos e integração SAF-T na contabilidade.</li>
+</ul>
+<h3>15. Modularização</h3>
+<p>Alguns ficheiros centrais cresceram muito (o núcleo de funções e o handler do assistente têm centenas de KB). Migrar gradualmente para classes por domínio (a estrutura PSR-4 já existe) facilita testes, revisões e a entrada de novos programadores.</p>

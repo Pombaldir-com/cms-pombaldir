@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E-fatura · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" class="active" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>E-fatura</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>E-fatura</h1>
+<p class="lead">Sincroniza os documentos que os fornecedores comunicaram à AT em nome de cada cliente, para saber o que falta na pasta, confirmar o que foi lido e pedir os documentos em falta.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#empresas-e-credenciais">Empresas e credenciais</a></li><li><a href="#documentos">Documentos</a></li><li><a href="#sincronizacoes">Sincronizações</a></li></ol></div>
+
+<h2 id="empresas-e-credenciais">Empresas e credenciais</h2>
+<p><b>E-fatura &gt; Empresas</b>. Para cada cliente, guarde as credenciais do Portal das Finanças (NIF ou NIF/subutilizador e senha). A senha fica cifrada e é reutilizada pelo <a href="tarefas.html#envio-de-saf-t">Envio de SAF-T</a>.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/efatura/empresas</span></div><img src="screenshots/50-efatura-empresas.jpg" alt="E-fatura &amp;gt; Empresas. Clientes com credenciais e estado da última sincronização." loading="lazy"><figcaption><b>E-fatura &gt; Empresas.</b> Clientes com credenciais e estado da última sincronização.</figcaption></figure>
+<p>Permissões: <i>CTB E-fatura - Aceder</i> para consultar, <i>Sincronizar</i> para lançar sincronizações e <i>Gerir credenciais</i> para editar as senhas.</p>
+
+<h2 id="documentos">Documentos</h2>
+<p><b>E-fatura &gt; Documentos</b>. Lista os documentos do cliente escolhido no topo (<i>Empresa</i>) no intervalo de datas pedido (o calendário mostra dois meses lado a lado).</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/efatura/documentos</span></div><img src="screenshots/51-efatura-documentos.jpg" alt="E-fatura &amp;gt; Documentos. Para cada documento, o estado de upload, classificação e contabilização no Teknisoft Contab." loading="lazy"><figcaption><b>E-fatura &gt; Documentos.</b> Para cada documento, o estado de upload, classificação e contabilização no Teknisoft Contab.</figcaption></figure>
+<table class="t">
+  <tr><th>Coluna</th><th>Significado</th></tr>
+  <tr><td>Data, Emitente, NIF, Documento, Tipo, Líquido, IVA, Total</td><td>Dados comunicados à AT pelo fornecedor.</td></tr>
+  <tr><td>Upload</td><td>Se o PDF correspondente já foi carregado (emparelhamento automático).</td></tr>
+  <tr><td>Classificação</td><td>Se já está classificado.</td></tr>
+  <tr><td>Contabilidade</td><td>Se já foi lançado no ERP.</td></tr>
+</table>
+<div class="callout tip"><b>Botão "Faltas"</b><p>Prepara um e-mail ao cliente com a lista dos documentos que existem no E-fatura mas ainda não chegaram ao gabinete. Elimina o vai-e-vem de pedidos avulsos.</p></div>
+
+<h2 id="sincronizacoes">Sincronizações</h2>
+<p><b>E-fatura &gt; Sincronizações</b>. Histórico das sincronizações (manuais ou agendadas): período, documentos novos e atualizados, erros.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/efatura/sincronizacoes</span></div><img src="screenshots/52-efatura-sincronizacoes.jpg" alt="E-fatura &amp;gt; Sincronizações." loading="lazy"><figcaption><b>E-fatura &gt; Sincronizações.</b></figcaption></figure>
+<p>A sincronização corre em segundo plano; pode continuar a trabalhar enquanto decorre. Os ficheiros de trabalho são limpos automaticamente segundo a retenção definida em <a href="configuracao.html#modulos">Módulos &gt; E-fatura</a>.</p>
+
+      <div class="pager"><a class="prev" href="tarefas.html"><small>&larr; Anterior</small>Tarefas de fecho</a><a class="next" href="assistente-ia.html"><small>Seguinte &rarr;</small>Assistente IA</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

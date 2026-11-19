@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tarefas de fecho · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" class="active" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Tarefas de fecho</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Tarefas de fecho</h1>
+<p class="lead">O menu Tarefas organiza o fecho mensal de cada cliente: conferir a pasta, apurar o IVA, enviar o SAF-T à AT e comunicar a declaração periódica ao cliente. Cada tarefa compara automaticamente o que está na contabilidade com a fonte oficial e regista quem fechou e quando.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#confirmacao-de-pasta">Confirmação de Pasta</a></li><li><a href="#apuramento-de-iva">Apuramento de IVA</a></li><li><a href="#envio-de-saf-t">Envio de SAF-T</a></li><li><a href="#envio-dp-iva">Envio DP IVA</a></li></ol></div>
+
+<div class="callout"><b>Comum a todas as tarefas</b>
+<ul>
+  <li>Cada técnico vê só os clientes em que a tarefa lhe está atribuída (<a href="entidades.html#separador-admin">Entidades &gt; Admin</a>); administradores veem todos.</li>
+  <li>Filtros no topo: empresa, ano, mês/trimestre e estado (por fechar, fechados, todos).</li>
+  <li>O botão de engrenagem (&#9881;) no canto superior direito, só para administradores, abre a configuração da tarefa (fórmulas, modelos de e-mail).</li>
+  <li>O fecho fica registado com utilizador, data, resumo dos valores e observações.</li>
+</ul></div>
+
+<h2 id="confirmacao-de-pasta">Confirmação de Pasta</h2>
+<p><b>Tarefas &gt; Confirmação de Pasta</b>. Confirma, mês a mês, que tudo o que estava na pasta física/digital do cliente foi lançado.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/tarefas/confirmacao-pasta</span></div><img src="screenshots/40-tarefa-confirmacao-pasta.jpg" alt="Confirmação de Pasta. Lista de clientes para o mês escolhido; Conferir abre a conferência do mês." loading="lazy"><figcaption><b>Confirmação de Pasta.</b> Lista de clientes para o mês escolhido; Conferir abre a conferência do mês.</figcaption></figure>
+<h3>O que se confere</h3>
+<table class="t">
+  <tr><th>Comparação</th><th>Como funciona</th></tr>
+  <tr><td><b>Lançado (ERP) vs. fita</b>, por diário</td><td>Para cada diário (Caixa, Bancos, Vendas, Compras, Diversos, Imp. e-fatura, Recibos, Pagamentos...), o total a crédito lançado no ERP é comparado com os valores de controlo (a "fita") introduzidos pelo técnico. Verde quando bate ao cêntimo, vermelho quando não.</td></tr>
+  <tr><td><b>SAF-T vs. contabilidade</b></td><td>Total de débitos e créditos do(s) SAF-T de faturação do mês comparados com as fórmulas do balancete configuradas.</td></tr>
+</table>
+<h3>Passos</h3>
+<ol class="steps">
+  <li>Escolha o mês (por omissão, o mês anterior) e clique em <span class="btn-like blue">Conferir</span> no cliente.</li>
+  <li>Em cada diário, <b>Conferir</b> mostra à esquerda a fita (editável: escreva valores e prima Enter; aceita vários de uma vez separados por <code>+</code> ou <code>;</code>) e à direita os documentos lançados. Os valores sem par ficam a vermelho.</li>
+  <li>Reveja as caixas <b>Total Débitos / Total Créditos</b> (SAF-T vs. Ctb).</li>
+  <li><b>Fechar etapa</b>. As divergências não bloqueiam, mas a aplicação pede confirmação e regista quantas havia.</li>
+</ol>
+
+<h2 id="apuramento-de-iva">Apuramento de IVA</h2>
+<p><b>Tarefas &gt; Apuramento de IVA</b>. Reconcilia, campo a campo, a Declaração Periódica de IVA gerada no ERP com o que resulta do balancete.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/tarefas/apuramento-iva</span></div><img src="screenshots/41-tarefa-apuramento-iva.jpg" alt="Apuramento de IVA. Clientes com periodicidade mensal ou trimestral e períodos já fechados." loading="lazy"><figcaption><b>Apuramento de IVA.</b> Clientes com periodicidade mensal ou trimestral e períodos já fechados.</figcaption></figure>
+<ol class="steps">
+  <li>Escolha ano e mês ou trimestre; o período respeita a periodicidade de cada cliente.</li>
+  <li><span class="btn-like blue">Apurar período</span> abre o detalhe: uma linha por campo da DP com o valor da <b>DP (ERP)</b>, o valor de controlo da <b>contabilidade</b> (fórmula sobre o balancete) e o <b>estado</b>.</li>
+  <li>Estados: <span class="badge green">&#10003; ok</span> <span class="badge amber">! aviso</span> <span class="badge red">&#9888; erro (bloqueia)</span>, com a diferença no tooltip.</li>
+  <li>Em <b>Resultado do período</b> vê o IVA a pagar (campo 93) ou a recuperar (campo 94) e fecha o período.</li>
+</ol>
+<h3>Validações automáticas</h3>
+<ul>
+  <li>Campos de IVA validados contra a base × taxa (6%, 13%, 23%), com margem de erro de 1 €.</li>
+  <li>Campos de taxa desconhecida (13, 17) testam as três taxas e aceitam a de menor desvio.</li>
+  <li>Se o ERP ainda não tiver a DP do período, os valores podem ser introduzidos manualmente e guardados.</li>
+</ul>
+<div class="callout"><b>Configuração (administradores)</b><p>As fórmulas de cada campo escrevem-se como soma/subtração de saldos de contas, por exemplo <code>C2432319cre-C243234deb+</code> (saldo credor da 2432319 menos o devedor da 243234). Editam-se na engrenagem da tarefa.</p></div>
+
+<h2 id="envio-de-saf-t">Envio de SAF-T</h2>
+<p><b>Tarefas &gt; Envio de SAF-T</b>. Submete à AT o ficheiro SAF-T de faturação de cada cliente (comunicação mensal de faturas) e guarda os totais para as restantes tarefas.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/tarefas/envio-saft</span></div><img src="screenshots/42-tarefa-envio-saft.jpg" alt="Envio de SAF-T. Estado por cliente no mês; Enviar SAF-T carrega e submete o ficheiro." loading="lazy"><figcaption><b>Envio de SAF-T.</b> Estado por cliente no mês; Enviar SAF-T carrega e submete o ficheiro.</figcaption></figure>
+<ol class="steps">
+  <li>Escolha ano e mês. Clientes por enviar aparecem a amarelo.</li>
+  <li><span class="btn-like blue">Enviar SAF-T</span> e escolha o ficheiro XML. O cliente é reconhecido pelo NIF do ficheiro.</li>
+  <li>Com <b>Submeter à AT</b> ligado, o ficheiro é enviado pelo cliente oficial da AT (FACTEMICLI), com as credenciais do portal guardadas para o cliente. A resposta (código, totais, avisos, erros) fica registada.</li>
+  <li>Com <b>Submeter à AT</b> desligado (cliente que comunica sozinho), o ficheiro é apenas arquivado e os totais extraídos, com estado "importado".</li>
+  <li><b>Marcar como enviado</b> regista o envio feito por outra via.</li>
+</ol>
+<div class="callout warn"><b>Requisitos</b><p>Java 8 ou superior no servidor, o jar FACTEMICLI carregado em <a href="configuracao.html#servicos">Definições &gt; Serviços</a> e relógio do servidor sincronizado (caso contrário a AT responde "Validade da credencial expirada"). Use o <b>Modo teste</b> para formação.</p></div>
+
+<h2 id="envio-dp-iva">Envio DP IVA</h2>
+<p><b>Tarefas &gt; Envio DP IVA</b>. Comunica ao cliente, por e-mail, o resultado da declaração periódica: valor a pagar, a recuperar ou em crédito, e a data-limite de pagamento.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/tarefas/envio-dp-iva</span></div><img src="screenshots/43-tarefa-envio-dp-iva.jpg" alt="Envio DP IVA. Clientes por período; o valor vem pré-preenchido do Apuramento de IVA." loading="lazy"><figcaption><b>Envio DP IVA.</b> Clientes por período; o valor vem pré-preenchido do Apuramento de IVA.</figcaption></figure>
+<ol class="steps">
+  <li>O valor vem do fecho do <b>Apuramento de IVA</b> do mesmo período (ou, em falta, do balancete). Um aviso indica se o período ainda está "Por apurar".</li>
+  <li><b>Enviar</b> abre o e-mail: destinatário (e-mail do cliente no ERP), cópia para o técnico, assunto e mensagem editáveis, anexo opcional (guia de pagamento).</li>
+  <li>A data-limite é calculada (dia 25 do segundo mês seguinte ao fim do período).</li>
+  <li>Com "Fechar tarefa após o envio", o período fecha quando o e-mail chega ao cliente; <b>Fechar sem enviar</b> regista o fecho sem e-mail.</li>
+</ol>
+<p>O modelo do e-mail (administradores, na engrenagem) aceita marcadores como <code>{nome_cliente}</code>, <code>{nif}</code>, <code>{periodo}</code>, <code>{mensagem_valores}</code>, <code>{data_limite}</code> e <code>{nome_utilizador}</code>.</p>
+
+      <div class="pager"><a class="prev" href="motor-classificacao.html"><small>&larr; Anterior</small>Motor de classificação: regras e aprendizagem</a><a class="next" href="efatura.html"><small>Seguinte &rarr;</small>E-fatura</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

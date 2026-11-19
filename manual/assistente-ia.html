@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistente IA · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" class="active" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Assistente IA</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Assistente IA</h1>
+<p class="lead">Um assistente que fala português de Portugal, conhece os dados do gabinete e do ERP, respeita as permissões de cada utilizador e nunca altera nada sem autorização.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#o-que-faz">O que faz</a></li><li><a href="#usar-o-assistente">Usar o assistente</a></li><li><a href="#modo-seguro">Modo seguro</a></li><li><a href="#memoria">Memória</a></li><li><a href="#identidade-por-empresa">Identidade por empresa</a></li><li><a href="#principios">Princípios</a></li><li><a href="#tarefas-ai">Tarefas AI</a></li></ol></div>
+
+<h2 id="o-que-faz">O que faz</h2>
+<div class="card-grid">
+  <div class="card"><div class="ico">&#128269;</div><h4>Consulta</h4><p>Documentos importados, movimentos e plano de contas no ERP, E-fatura (local e, se pedido, remoto), envios de SAF-T.</p></div>
+  <div class="card"><div class="ico">&#127991;</div><h4>Classifica</h4><p>Propõe contas para documentos, explica a proposta e lê anexos (PDF) por OCR, incluindo anotações manuscritas.</p></div>
+  <div class="card"><div class="ico">&#9989;</div><h4>Age (com autorização)</h4><p>Aplica sugestões, cria tarefas internas, aprova ou rejeita documentos, abre lançamentos.</p></div>
+  <div class="card"><div class="ico">&#129517;</div><h4>Orienta</h4><p>Indica onde fazer cada coisa na aplicação, com o caminho de menu e a ligação.</p></div>
+</div>
+
+<h2 id="usar-o-assistente">Usar o assistente</h2>
+<p>Menu <b>Assistente AI</b> (permissão <i>Assistente AI - Acesso</i>), ou o <b>chat flutuante</b> em todas as páginas, se o tiver ativo no seu perfil.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/assistant</span></div><img src="screenshots/60-assistente.jpg" alt="Assistente AI. Conversa com anexos, indicador de modo seguro e de contexto ativo, e feedback rápido (Útil / Não útil)." loading="lazy"><figcaption><b>Assistente AI.</b> Conversa com anexos, indicador de modo seguro e de contexto ativo, e feedback rápido (Útil / Não útil).</figcaption></figure>
+<ul>
+  <li><kbd>Enter</kbd> envia, <kbd>Shift</kbd>+<kbd>Enter</kbd> muda de linha.</li>
+  <li>&#128206; anexa ficheiros (por exemplo, uma fatura em PDF para o assistente ler).</li>
+  <li><b>Útil / Não útil</b> e um comentário ajudam a melhorar as respostas.</li>
+  <li>Quando o assistente gera um ficheiro (por exemplo, uma listagem), fica disponível para download numa ligação temporária.</li>
+</ul>
+
+<h2 id="modo-seguro">Modo seguro</h2>
+<p>Com o <b>modo seguro</b> ativo (distintivo amarelo no topo), o assistente só lê. Se lhe pedir uma alteração, explica o que faria e pergunta: <i>"Posso executar esta ação, mas o modo seguro está ativo. Queres que eu prossiga?"</i></p>
+<p>O modo seguro define-se por utilizador (<a href="configuracao.html#utilizadores">Utilizadores</a>) e há um valor por omissão para novos utilizadores (<a href="configuracao.html#ai">Definições &gt; AI</a>). Mesmo fora do modo seguro, cada ação exige a permissão correspondente (criar tarefas, abrir lançamentos, sugerir contas, aprovar documentos).</p>
+
+<h2 id="memoria">Memória</h2>
+<p>O assistente guarda contexto entre sessões: instruções que lhe dá, tarefas contabilísticas relevantes e as correções de classificação. Comandos disponíveis na conversa:</p>
+<table class="t">
+  <tr><th>Comando</th><th>Efeito</th></tr>
+  <tr><td><code>memoriza: ...</code></td><td>Guarda explicitamente uma instrução.</td></tr>
+  <tr><td><code>listar memorias</code></td><td>Mostra o que está memorizado.</td></tr>
+  <tr><td><code>esquece: ...</code></td><td>Remove uma memória concreta.</td></tr>
+  <tr><td><code>esquece memorias</code></td><td>Limpa a memória do utilizador.</td></tr>
+</table>
+<p>Mensagens de correção ("errado", "esquece", "ignora") nunca são consolidadas como memória válida.</p>
+
+<h2 id="identidade-por-empresa">Identidade por empresa</h2>
+<p>Cada tenant pode dar ao assistente um nome e uma apresentação próprios (por exemplo, uma homenagem ao fundador do gabinete), resolvidos pelo NIF da empresa no login. Sem identidade definida, apresenta-se como "Assistente AI". As instruções gerais de tom e comportamento ficam em <a href="configuracao.html#ai">Definições &gt; AI</a>.</p>
+
+<h2 id="principios">Princípios</h2>
+<ul>
+  <li><b>Nunca inventa</b> valores, contas, movimentos ou classificações. Sem dados, responde que não encontrou informação suficiente.</li>
+  <li><b>Respeita permissões</b>: não mostra dados de empresas a que o utilizador não tem acesso.</li>
+  <li><b>Não é consultor fiscal ou jurídico</b>: apoia o trabalho, a decisão é do técnico.</li>
+</ul>
+
+<h2 id="tarefas-ai">Tarefas AI</h2>
+<p><b>Tabelas &gt; Tarefas AI</b> lista as tarefas internas criadas pelo assistente ou pela equipa, com estado, responsável e prazo.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/ai-tarefas</span></div><img src="screenshots/61-tarefas-ai.jpg" alt="Tarefas AI." loading="lazy"><figcaption><b>Tarefas AI.</b></figcaption></figure>
+
+      <div class="pager"><a class="prev" href="efatura.html"><small>&larr; Anterior</small>E-fatura</a><a class="next" href="colaboracao.html"><small>Seguinte &rarr;</small>Atividades, agenda e equipa</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

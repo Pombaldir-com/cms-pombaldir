@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Área reservada do cliente · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" class="active" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Área reservada do cliente</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Área reservada do cliente</h1>
+<p class="lead">Cada cliente do gabinete pode ter acesso a uma área própria, com a imagem do gabinete, onde consulta os seus documentos contabilísticos e os envios de SAF-T.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#acesso">Acesso</a></li><li><a href="#o-que-o-cliente-ve">O que o cliente vê</a></li><li><a href="#gestao-pelo-gabinete">Gestão pelo gabinete</a></li></ol></div>
+
+<h2 id="acesso">Acesso</h2>
+<p>A área do cliente tem um endereço próprio por tenant, do tipo <code>…/t/{gabinete}/cliente</code>. O cliente entra com o utilizador e a palavra-passe criados pelo gabinete.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/t/…/cliente/login</span></div><img src="screenshots/70-extranet-login.jpg" alt="Entrada na área reservada do cliente, com o nome e o ícone do gabinete." loading="lazy"><figcaption><b>Entrada na área reservada do cliente</b>, com o nome e o ícone do gabinete.</figcaption></figure>
+
+<h2 id="o-que-o-cliente-ve">O que o cliente vê</h2>
+<table class="t">
+  <tr><th>Secção</th><th>Conteúdo</th></tr>
+  <tr><td>Dashboard</td><td>Resumo da empresa e atalhos.</td></tr>
+  <tr><td>Documentos contabilísticos</td><td>Documentos tratados pelo gabinete (emitente, número, data, totais com e sem IVA, estado), com filtro e download.</td></tr>
+  <tr><td>Envio de SAF-T</td><td>Envios efetuados: período, ficheiro, data, resposta da AT e valores/faturas extraídos.</td></tr>
+</table>
+
+<h2 id="gestao-pelo-gabinete">Gestão pelo gabinete</h2>
+<ol class="steps">
+  <li>Abra a ficha do cliente em <a href="entidades.html">Entidades &gt; Empresas</a>, separador <b>Extranet</b>.</li>
+  <li>Em <b>Gestão de utilizadores</b>, <span class="btn-like blue">Adicionar utilizador</span> (nome, e-mail, utilizador, palavra-passe).</li>
+  <li>Ative ou desative contas a qualquer momento; os contadores mostram contas ativas e inativas.</li>
+  <li>Use <b>Impersonar</b> para ver a área exatamente como o cliente a vê (abre noutro separador; fica registado em auditoria; termina com <i>Terminar impersonação</i>).</li>
+</ol>
+<div class="callout tip"><b>Mais-valia</b><p>O cliente deixa de pedir por telefone ou e-mail "o que já entregou" ou "se o SAF-T foi enviado": tem a resposta na sua área, a qualquer hora.</p></div>
+
+      <div class="pager"><a class="prev" href="colaboracao.html"><small>&larr; Anterior</small>Atividades, agenda e equipa</a><a class="next" href="integracoes.html"><small>Seguinte &rarr;</small>Integrações e webservices</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<h1>Contabilidade: do documento ao ERP</h1>
+<p class="lead">O módulo mais crítico da aplicação. Aqui a fatura do fornecedor é carregada, lida, classificada e lançada na contabilidade do cliente, com o PDF anexado ao movimento no ERP.</p>
+<!--toc-->
+
+<div class="flow">
+  <div class="node"><span class="k">Passo 1</span><b>Multi Upload</b><small>Carregar PDF</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Passo 2</span><b>Leitura</b><small>QR fiscal, OCR, E-fatura</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Passo 3</span><b>Classificação</b><small>Contas por taxa de IVA</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Passo 4</span><b>Importação</b><small>Importar Ctb</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Passo 5</span><b>Lançamentos</b><small>Consultar e corrigir no ERP</small></div>
+</div>
+
+<h2>Passo 1 · Multi Upload</h2>
+<p>Menu <b>Multi Upload &gt; Compras</b> (permissão <i>Compras -&gt; Upload</i>).</p>
+<shot id="30-upload" url="contabilidade/upload" cap="<b>Multi Upload.</b> Arraste os PDF para a área tracejada ou clique para escolher. A tabela mostra os documentos lidos e ainda não enviados para classificação."/>
+<ol class="steps">
+  <li><b>Arraste os ficheiros</b> (vários de uma vez) para a zona tracejada, ou use <i>Usar câmara</i> no telemóvel para fotografar o documento.</li>
+  <li>Para cada ficheiro, o sistema <b>procura o código QR fiscal</b> em todas as páginas e extrai emitente, adquirente, tipo e número do documento, data, ATCUD e bases/IVA por taxa.</li>
+  <li>Se o QR não for legível, use <b>Selecionar zona do QR Code</b> e <b>Ler QR selecionado</b>, ou deixe o OCR completar os dados.</li>
+  <li>O <b>adquirente</b> (cliente do gabinete) é reconhecido pelo NIF; em caso de dúvida, o OCR sugere a empresa e pode escolher em <i>Selecionar empresa...</i></li>
+  <li>Confirme e o documento passa à <b>Classificação</b>. <b>Ignorar ficheiro</b> descarta-o.</li>
+</ol>
+<h3>Regras de leitura automáticas</h3>
+<ul>
+  <li><b>Um PDF, várias faturas</b>: todas as faturas (FT/FR) encontradas no mesmo ficheiro são preservadas como documentos separados.</li>
+  <li><b>Fatura + recibo no mesmo PDF</b>: os recibos (RC/RG) são ocultados; a informação de que a fatura já está paga é guardada e usada para sugerir a conta de valor total (banco/caixa em vez de fornecedor).</li>
+  <li><b>Ligação ao E-fatura</b>: o documento é emparelhado automaticamente com o registo correspondente do portal E-fatura (por ATCUD, NIF e número), servindo de confirmação cruzada.</li>
+  <li><b>Duplicados</b>: um documento já carregado ou já lançado no ERP é assinalado.</li>
+</ul>
+
+<h2>Passo 2 · Classificação</h2>
+<p>Menu <b>Contabilidade &gt; Classificação</b> (permissão <i>CTB Classificacao Docs</i>). Lista todos os documentos pendentes dos clientes da sua carteira.</p>
+<shot id="31-classificacao" url="contabilidade/classificacao-importacao?import_type=1" cap="<b>Classificação.</b> Uma linha por documento com bases e IVA por taxa. O botão por linha indica o estado; o botão azul no topo processa todos os prontos."/>
+<table class="t">
+  <tr><th>Elemento</th><th>Significado</th></tr>
+  <tr><td><span class="btn-like" style="background:#f0ad4e">Classificar</span></td><td>Faltam contas. Abre o modal de classificação.</td></tr>
+  <tr><td><span class="btn-like">Classificado</span></td><td>Documento pronto (verde): todas as taxas têm conta geral, conta de IVA (quando aplicável) e conta de valor total.</td></tr>
+  <tr><td><span class="btn-like blue">Classificado (N)</span></td><td>Importa diretamente para o ERP os N documentos verdes selecionados, mesmo de clientes diferentes.</td></tr>
+  <tr><td>Todas as empresas</td><td>Filtra por cliente.</td></tr>
+  <tr><td>PDF / &#128465;</td><td>Abre o documento original / remove o documento da lista.</td></tr>
+</table>
+<div class="callout tip"><b>Muitos documentos já chegam verdes</b><p>Quando o fornecedor e o cliente já são conhecidos, o motor de classificação preenche as contas sozinho e a linha aparece logo como <span class="btn-like">Classificado</span>. O técnico só abre o modal para rever ou corrigir. Ver <a href="motor-classificacao.html">Motor de classificação</a>.</p></div>
+
+<h3 id="modal-classificar">O modal Classificar</h3>
+<shot id="32-classificar-modal" url="contabilidade/classificacao-importacao?import_type=1" cap="<b>Classificar.</b> À esquerda o documento original (desfocado nesta imagem); à direita as linhas por taxa de IVA, com conta de IVA, conta geral e centro de custo, e o Valor Total."/>
+<table class="t">
+  <tr><th>Zona</th><th>Para que serve</th></tr>
+  <tr><td>Documento</td><td>Pré-visualização do PDF com zoom, rotação e páginas. Botão <b>Abrir</b> para nova janela.</td></tr>
+  <tr><td>Modelo</td><td><b>Selecionar modelo / Aplicar / Eliminar</b> modelos de classificação guardados; <b>Guardar Modelo</b> grava a classificação atual como modelo reutilizável.</td></tr>
+  <tr><td>Tipo de entidade</td><td><b>Normal</b>, <b>Banco</b> ou <b>Seguradora</b>. Muda as regras aplicadas (por exemplo, empréstimos com capital/juros/comissões, ou seguros com imposto do selo).</td></tr>
+  <tr><td>Linhas por taxa</td><td>Taxa %, Base, IVA, <b>Conta IVA</b>, <b>Conta Geral</b> e <b>C. Custo</b> (distribuição por centros de custo em percentagem ou valor).</td></tr>
+  <tr><td>Valor Total</td><td>Conta da contrapartida: fornecedor (22...), ou banco/caixa (12.../11...) se a fatura já vem paga. Para fornecedores novos aparece "Conta fornecedor: criada na importação".</td></tr>
+  <tr><td>Editar Valores</td><td>Permite corrigir bases e IVA quando o QR está errado ou incompleto.</td></tr>
+  <tr><td>Ignorar taxas do QR</td><td>Substitui as taxas lidas por linhas definidas manualmente ou pelo modelo.</td></tr>
+  <tr><td>Auto-liquidação</td><td>Para operações com inversão do sujeito passivo: escolhe se o IVA autoliquidado é dedutível e as contas de IVA dedutível / não dedutível.</td></tr>
+</table>
+<h4>Botões do modal</h4>
+<table class="t">
+  <tr><th>Botão</th><th>Ação</th></tr>
+  <tr><td><b>Sugestão de contas IA</b></td><td>Recalcula a proposta de contas com todas as fontes (histórico, regras, ERP, instruções e IA).</td></tr>
+  <tr><td><b>Sugerir correção</b></td><td>Ensina ao sistema uma regra a partir deste caso (fica memorizada para o tipo de entidade).</td></tr>
+  <tr><td><b>Explicação da sugestão</b></td><td>Mostra, por taxa, de onde veio cada conta e com que evidência.</td></tr>
+  <tr><td><b>Instruções IA</b> (&#129302;)</td><td>Regras personalizadas para este fornecedor e este cliente.</td></tr>
+  <tr><td><b>Adicionar linha de IVA</b></td><td>Acrescenta uma linha (por exemplo, uma taxa que o QR não trouxe).</td></tr>
+  <tr><td><span class="btn-like blue">Guardar</span></td><td>Grava a classificação. <b>É este gesto que ensina o sistema</b> para os próximos documentos.</td></tr>
+</table>
+
+<h3>Regras contabilísticas aplicadas automaticamente</h3>
+<ul>
+  <li><b>Taxa 0%</b>: a conta de IVA fica vazia e o documento pode ficar verde.</li>
+  <li><b>Cliente isento (art. 9.º)</b>: não pede conta de IVA; base + IVA vão para a conta geral.</li>
+  <li><b>Combustíveis</b>: nas rubricas configuradas (por exemplo "GASÓLEO 50%"), aplica-se a dedução parcial do IVA.</li>
+  <li><b>Notas de crédito (NC)</b>: invertem a natureza débito/crédito e preservam a linha de valor total.</li>
+  <li><b>FR/FTR</b>: tratados como FT para obter a parametrização contabilística no ERP.</li>
+  <li><b>Data do lançamento</b>: data do documento ou último dia do mês, conforme <a href="configuracao.html#modulos">Módulos</a>.</li>
+</ul>
+
+<h2>Passo 3 · Importação</h2>
+<p>Menu <b>Contabilidade &gt; Importação</b> (permissão <i>CTB Importar Docs</i>). Mostra só os documentos prontos (verdes).</p>
+<shot id="36-importacao" url="contabilidade/classificacao-importacao?import_type=1&type=import" cap="<b>Importação.</b> Documentos prontos; Importar Ctb envia os selecionados para o ERP."/>
+<ol class="steps">
+  <li>Selecione os documentos (pode misturar clientes).</li>
+  <li>Clique em <span class="btn-like blue">Importar Ctb</span>.</li>
+  <li>O sistema agrupa por base ERP de cada cliente, valida as contas no plano de contas do ERP e envia os lançamentos com o PDF anexado.</li>
+  <li>No fim mostra, por documento, o número de diário atribuído ou o motivo da recusa.</li>
+</ol>
+<div class="callout"><b>Fornecedor novo sem conta</b><p>Se a fatura for a crédito e o fornecedor ainda não tiver conta 22 no ERP, a importação <b>cria-a automaticamente</b> (ou reutiliza uma já existente com o mesmo NIF) antes de lançar.</p></div>
+<div class="callout warn"><b>Documento duplicado</b><p>Se o documento já existir no ERP, a importação não o repete e indica onde está: exercício, diário, mês e número de diário.</p></div>
+<div class="callout"><b>Separação de funções</b><p>Um gabinete pode separar quem classifica de quem importa: dando só <i>CTB Classificacao Docs</i> a uns técnicos e <i>CTB Importar Docs</i> a outros, cria-se um passo de revisão antes de os lançamentos entrarem no ERP.</p></div>
+
+<h2>Passo 4 · Lançamentos</h2>
+<p>Menu <b>Contabilidade &gt; Lançamentos</b> (permissão <i>CTB Lancamentos - Aceder</i>). Consulta em tempo real os movimentos existentes no ERP do cliente escolhido no topo (<i>Empresa</i>).</p>
+<shot id="37-lancamentos" url="contabilidade/lancamentos" cap="<b>Lançamentos ERP.</b> Filtros por ano, diário, mês e tipo de documento; acesso ao PDF anexado."/>
+<ul>
+  <li>Filtre por <b>exercício, diário, mês e tipo de documento</b>; pesquise por número ou NIF.</li>
+  <li>Abra um lançamento para ver ou corrigir as linhas; ao fechar, a grelha é atualizada a partir do ERP.</li>
+  <li>Eliminar um lançamento remove primeiro os anexos digitais; se isso falhar, o lançamento não é eliminado (nunca fica um movimento sem o documento ou vice-versa).</li>
+</ul>
+
+<h2>Importação de compras</h2>
+<p>Com o módulo <b>Compras</b> ativo, <b>Contabilidade &gt; Importação de Compras</b> oferece o mesmo fluxo para documentos de compras de mercadoria, com a sua própria lista e importação.</p>

@@ -1,0 +1,47 @@
+<h1>Entidades e clientes</h1>
+<p class="lead">A ficha de cada cliente do gabinete reúne a identificação (lida do ERP), os campos próprios do gabinete, o acesso à área reservada, o regime de IVA e as permissões de quem trata a empresa.</p>
+<!--toc-->
+
+<h2>Lista de empresas</h2>
+<p>Menu <b>Entidades &gt; Empresas</b>. Lista os clientes do gabinete com NIF, nome, número de cliente e base ERP. A pesquisa procura por nome, NIF ou código ERP.</p>
+<shot id="20-entidades" url="contabilidade/entidades/empresas" cap="<b>Entidades &gt; Empresas.</b> Carteira de clientes do gabinete."/>
+<div class="callout"><b>De onde vêm os dados</b><p>Os dados de identificação, morada e contactos são lidos <b>diretamente do ERP</b> através do ERP-SINC. O Teknisoft Contab não mantém uma cópia paralela: o que se altera na ficha é gravado no ERP.</p></div>
+
+<h2>Separador Detalhes</h2>
+<shot id="21-entidade-detalhes" url="contabilidade/entidades/empresas/..." cap="<b>Ficha do cliente &gt; Detalhes.</b> Identificação, morada e contactos sincronizados com o ERP."/>
+<ul>
+  <li><b>NIF, Nome, Nº Cliente</b>: identificação no ERP.</li>
+  <li><b>Base de dados ERP</b> (apenas administradores): a base de contabilidade do cliente, no formato <code>emp_XXX</code>. É o campo que define <b>para onde vão os lançamentos</b> deste cliente.</li>
+  <li><b>Morada e Localização, Contactos</b>: editáveis; <span class="btn-like">Guardar Alterações</span> grava no ERP, <b>Repor</b> volta aos valores lidos.</li>
+</ul>
+<div class="callout warn"><b>Sem base ERP não há importação</b><p>Se a <i>Base de dados ERP</i> estiver vazia, os documentos deste cliente podem ser classificados mas, na importação, o sistema pede para escolher a base manualmente.</p></div>
+
+<h2>Separador Campos Adicionais</h2>
+<shot id="22-entidade-campos" url="contabilidade/entidades/empresas/..." cap="<b>Campos Adicionais.</b> Dados próprios do gabinete: NISS, senhas de portais, códigos internos."/>
+<p>Mostra os campos definidos em <a href="configuracao.html#tabelas">Tabelas &gt; Campos Adicionais</a>. Os campos do tipo palavra-passe ficam ocultos e cifrados; a visibilidade depende da permissão <i>Entidades - Ver Campos Adicionais</i>.</p>
+
+<h2>Separador Extranet</h2>
+<shot id="23-entidade-extranet" url="contabilidade/entidades/empresas/..." cap="<b>Extranet.</b> Configuração da área reservada e contas de acesso do cliente."/>
+<ul>
+  <li><b>Configuração Extranet</b>: software de faturação do cliente e credenciais de API (para recolha automática de documentos/SAF-T), suporte online e técnico responsável.</li>
+  <li><b>Gestão de utilizadores</b>: crie contas para o cliente entrar na sua área reservada. Cada conta pode ser ativada ou desativada.</li>
+  <li><b>Impersonar</b>: abre a área do cliente tal como ele a vê, sem precisar da palavra-passe, para dar apoio. Fica registado em auditoria e um aviso no topo permite terminar.</li>
+</ul>
+<p>Ver <a href="extranet.html">Área reservada do cliente</a>.</p>
+
+<h2 id="separador-admin">Separador Admin</h2>
+<shot id="24-entidade-admin" url="contabilidade/entidades/empresas/..." cap="<b>Admin.</b> Periodicidade e regime de IVA, e atribuição das tarefas por técnico."/>
+<h3>IVA</h3>
+<table class="t">
+  <tr><th>Campo</th><th>Efeito</th></tr>
+  <tr><td>Periodicidade</td><td>Mensal ou Trimestral. Define o período proposto no <a href="tarefas.html#apuramento-de-iva">Apuramento de IVA</a>.</td></tr>
+  <tr><td>Regime</td><td><b>Normal (deduz IVA)</b> ou <b>Isento</b> (art. 9.º CIVA). Num cliente isento, a classificação deixa de pedir conta de IVA e o lançamento põe base + IVA na conta geral.</td></tr>
+</table>
+<h3>Tarefas administrativas</h3>
+<p>Para cada tarefa (Classificação de Documentos, Importação de Lançamentos, Envio de SAF-T, Apuramento de IVA, Envio DP IVA, Confirmação de Pasta), <span class="btn-like blue">Gerir utilizadores</span> escolhe os técnicos responsáveis <b>por este cliente</b>. Uma tarefa pode ter vários técnicos e um técnico pode ter várias tarefas.</p>
+<div class="callout tip"><b>Carteiras por técnico</b><p>É aqui que se constrói a carteira de cada pessoa: um técnico só vê nos ecrãs de classificação e de tarefas os clientes em que está atribuído.</p></div>
+
+<h2>Fornecedores do cliente e instruções IA</h2>
+<p>Na ficha, o atalho <b>Fornecedores</b> lista os emitentes com documentos para este cliente na base ERP, com o tipo (Normal, Banco, Seguradora) e o botão <span class="btn-like blue">IA</span>.</p>
+<shot id="25-entidade-fornecedores" url="contabilidade/entidades/empresas/.../fornecedores" cap="<b>Fornecedores do cliente.</b> O botão IA abre as instruções personalizadas para o par fornecedor/cliente."/>
+<p>As <b>Instruções IA</b> de cada par fornecedor + cliente são regras em linguagem natural que o motor de classificação aplica sempre que chega um documento desse fornecedor para esse cliente. Ver <a href="motor-classificacao.html#instrucoes-par">Regras personalizadas por fornecedor e cliente</a>.</p>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrações e webservices · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" class="active" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual técnico &rsaquo; <b>Integrações e webservices</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Integrações e webservices</h1>
+<p class="lead">O Teknisoft Contab não substitui o ERP de contabilidade: trabalha <b>sobre</b> ele. Lê a parametrização e os saldos, escreve lançamentos com o documento anexado e mantém as fichas de clientes, através de um webservice próprio, o ERP-SINC.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#mapa-de-integracoes">Mapa de integrações</a></li><li><a href="#erp-sinc">ERP-SINC</a></li><li><a href="#autoridade-tributaria">Autoridade Tributária</a></li><li><a href="#ocr-e-leitura-de-documentos">OCR e leitura de documentos</a></li><li><a href="#inteligencia-artificial">Inteligência artificial</a></li><li><a href="#notificacoes-e-calendario">Notificações e calendário</a></li><li><a href="#api-publica">API pública</a></li></ol></div>
+
+<h2 id="mapa-de-integracoes">Mapa de integrações</h2>
+<div class="flow">
+  <div class="node"><span class="k">Entrada</span><b>Documentos</b><small>PDF, câmara, E-fatura (AT), SAF-T</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Plataforma</span><b>Teknisoft Contab</b><small>Leitura, classificação, tarefas, IA</small></div><div class="arrow">&harr;</div>
+  <div class="node"><span class="k">Webservice</span><b>ERP-SINC</b><small>API REST com chave</small></div><div class="arrow">&harr;</div>
+  <div class="node"><span class="k">ERP</span><b>Eticadata · Primavera</b><small>Base de contabilidade de cada cliente</small></div>
+</div>
+<table class="t">
+  <tr><th>Sistema</th><th>Para quê</th><th>Sentido</th></tr>
+  <tr><td><b>ERP-SINC</b> (Eticadata, Primavera)</td><td>Contabilidade: plano de contas, ligações, movimentos, balancete, DP IVA, lançamentos, anexos, fichas de clientes e fornecedores.</td><td>Leitura e escrita</td></tr>
+  <tr><td><b>AT — Portal E-fatura</b></td><td>Documentos comunicados pelos fornecedores de cada cliente.</td><td>Leitura</td></tr>
+  <tr><td><b>AT — FACTEMICLI</b></td><td>Submissão do SAF-T de faturação.</td><td>Escrita</td></tr>
+  <tr><td><b>OCR</b> (Tesseract local, AWS Textract)</td><td>Leitura de documentos sem QR legível e de anotações manuscritas.</td><td>—</td></tr>
+  <tr><td><b>OpenAI</b></td><td>Modelo de linguagem do assistente e da interpretação de instruções.</td><td>—</td></tr>
+  <tr><td><b>SMTP</b></td><td>E-mails do sistema e envio de DP IVA ao cliente.</td><td>Escrita</td></tr>
+  <tr><td><b>Web Push / CalDAV</b></td><td>Notificações no telemóvel e agenda nos calendários nativos.</td><td>Escrita / leitura</td></tr>
+  <tr><td><b>API pública</b></td><td>Consulta de dados por terceiros com token.</td><td>Leitura</td></tr>
+</table>
+
+<h2 id="erp-sinc">ERP-SINC</h2>
+<p>O ERP-SINC é a camada de integração que isola a plataforma do ERP concreto. A aplicação fala sempre a mesma linguagem (REST/JSON); o ERP-SINC traduz para as tabelas e regras do ERP de destino.</p>
+<h3>Como se liga</h3>
+<ul>
+  <li><b>Endereço e token</b>: <a href="configuracao.html#erp">Definições &gt; ERP</a>. Nunca há endereços fixos no código.</li>
+  <li><b>Autenticação</b>: cabeçalho com a chave de API; a empresa ERP de autenticação (<code>EMP</code>) é a <b>Empresa base</b> do módulo Contabilidade.</li>
+  <li><b>Base de destino</b>: cada pedido indica a base do cliente (<code>emp_XXX</code>), resolvida pela ficha da entidade.</li>
+  <li><b>Desempenho</b>: as consultas usadas nas sugestões ficam em cache por empresa (6 h por omissão); nas listas com muitos dados, o browser chama o webservice diretamente, sem passar pelo servidor da aplicação.</li>
+</ul>
+<h3>Serviços disponíveis</h3>
+<div class="table-wrap"><table class="t">
+  <tr><th>Área</th><th>Endpoints</th><th>Uso no Teknisoft Contab</th></tr>
+  <tr><td>Contabilidade</td><td><code>contabilidade/planocontas</code>, <code>LigacaoCteTipoDoc</code>, <code>movimentos</code>, <code>lancamentos</code>, <code>diarios</code>, <code>eInvoice_TpDocs</code>, <code>listDBemp</code></td><td>Sugestão e validação de contas, importação de lançamentos, criação automática da conta do fornecedor, lista de bases.</td></tr>
+  <tr><td>Fecho</td><td><code>contabilidade/saldos</code> (balancete), <code>declperiodica</code> (DP IVA), <code>movimentosdiarios</code></td><td>Apuramento de IVA, Envio DP IVA, Confirmação de Pasta.</td></tr>
+  <tr><td>Entidades</td><td><code>clientes</code>, <code>clientes/{id}/contactos</code>, <code>fornecedores</code></td><td>Fichas de clientes (leitura e gravação), e-mail para envio de DP IVA.</td></tr>
+  <tr><td>Documentos</td><td><code>anexosdigitais</code></td><td>Anexar o PDF ao lançamento; remover anexos ao eliminar.</td></tr>
+  <tr><td>Tabelas</td><td><code>tabelas/exercicios</code>, <code>zonas</code>, <code>subzonas</code>, <code>taxasiva</code>, <code>tiposDocumentos</code>, <code>numeradores</code>...</td><td>Listas de seleção e validações.</td></tr>
+  <tr><td>Gestão comercial</td><td><code>artigos</code>, <code>stocks</code>, <code>compras</code>, <code>vendas</code>, <code>encomendas</code>, <code>picker</code></td><td>Disponíveis para extensões (compras, extranet, integrações de clientes).</td></tr>
+</table></div>
+<p>A especificação completa está publicada em OpenAPI (Swagger) e é mantida a par de cada novo endpoint.</p>
+
+<h3>Eticadata</h3>
+<p>Conector em produção. O ERP-SINC opera diretamente sobre a base SQL Server do Eticadata de cada empresa (plano de contas, movimentos de contabilidade, ligações de contas por tipo de documento, balancete, declaração periódica, anexos digitais). Os lançamentos importados entram no diário configurado, com numeração e exercício do próprio ERP, e as validações do ERP (por exemplo, documentos duplicados) são devolvidas ao utilizador com o local exato onde o documento já existe.</p>
+
+<h3>Primavera</h3>
+<p>O ERP-SINC expõe o mesmo contrato de serviços para o Primavera. Para a aplicação, mudar de Eticadata para Primavera é transparente: as regras de classificação, as tarefas e o assistente funcionam da mesma forma. O mapeamento de conceitos (plano de contas, diários, tipos de documento, ligações de contas por fornecedor) é feito no conector Primavera do ERP-SINC.</p>
+<div class="callout"><b>Gabinetes com clientes em ERP diferentes</b><p>Como a base de destino é escolhida por cliente, o mesmo gabinete pode ter clientes num ERP e clientes noutro, e importar para ambos na mesma operação.</p></div>
+
+<h2 id="autoridade-tributaria">Autoridade Tributária</h2>
+<h3>E-fatura</h3>
+<p>Com as credenciais do Portal das Finanças de cada cliente (guardadas cifradas), a aplicação sincroniza os documentos comunicados pelos fornecedores. Ver <a href="efatura.html">E-fatura</a>.</p>
+<h3>SAF-T (FACTEMICLI)</h3>
+<p>O envio do SAF-T de faturação usa o cliente oficial da AT (jar FACTEMICLI), com as versões de SAF-T em vigor (1.02_01, 1.03_01, 1.04_01). A resposta da AT (totais, avisos, erros) é guardada em cada envio. Ver <a href="tarefas.html#envio-de-saf-t">Envio de SAF-T</a>.</p>
+
+<h2 id="ocr-e-leitura-de-documentos">OCR e leitura de documentos</h2>
+<ul>
+  <li><b>Código QR fiscal</b>: primeira fonte, com várias tentativas a resoluções diferentes e procura em todas as páginas.</li>
+  <li><b>Tesseract</b> (local, sem custos por documento) por omissão.</li>
+  <li><b>AWS Textract</b> (opcional) para digitalizações difíceis; em caso de falha volta ao Tesseract.</li>
+  <li>Os ficheiros temporários de leitura são limpos automaticamente todos os dias.</li>
+</ul>
+
+<h2 id="inteligencia-artificial">Inteligência artificial</h2>
+<p>O assistente e a interpretação das instruções de classificação usam um modelo de linguagem (OpenAI, modelo configurável). A IA trabalha sempre sobre os dados fornecidos pela aplicação (histórico, ERP, regras) e está proibida de inventar contas ou valores. A chave e o modelo são configurados por tenant.</p>
+
+<h2 id="notificacoes-e-calendario">Notificações e calendário</h2>
+<ul>
+  <li><b>Web Push</b>: notificações no telemóvel e no computador, mesmo com a aplicação fechada.</li>
+  <li><b>CalDAV</b>: a agenda de cada utilizador subscreve-se no iPhone, Android, Outlook ou Thunderbird, com lembretes.</li>
+</ul>
+
+<h2 id="api-publica">API pública</h2>
+<p>Ativável em <a href="configuracao.html#geral">Definições &gt; Geral</a>. Endpoints de consulta (por exemplo, taxonomias e termos) protegidos por token, para integrar com sites ou outros sistemas.</p>
+
+      <div class="pager"><a class="prev" href="extranet.html"><small>&larr; Anterior</small>Área reservada do cliente</a><a class="next" href="manual-tecnico.html"><small>Seguinte &rarr;</small>Manual técnico</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

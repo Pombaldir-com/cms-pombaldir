@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atividades, agenda e equipa · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" class="active" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Atividades, agenda e equipa</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Atividades, agenda e equipa</h1>
+<p class="lead">Ferramentas do dia a dia do gabinete: registar o trabalho feito por cliente, marcar reuniões e prazos, falar com a equipa e registar a assiduidade.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#atividades">Atividades</a></li><li><a href="#calendario">Agenda (calendário)</a></li><li><a href="#chat-interno">Chat interno</a></li><li><a href="#assiduidade">Assiduidade (registo de ponto)</a></li></ol></div>
+
+<h2 id="atividades">Atividades</h2>
+<p><b>Atividades &gt; Listagem</b> e <b>Registar atividade</b>. Registo do trabalho feito para cada cliente: atendimentos, entregas de documentos, reuniões, pendências.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/atividades</span></div><img src="screenshots/45-atividades.jpg" alt="Atividades. Indicadores do dia e do mês, filtros por colaborador, categoria, período e estado." loading="lazy"><figcaption><b>Atividades.</b> Indicadores do dia e do mês, filtros por colaborador, categoria, período e estado.</figcaption></figure>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/atividades/novo</span></div><img src="screenshots/46-atividade-nova.jpg" alt="Registar atividade. Cliente, colaborador, uma ou mais categorias e observações, com resumo à direita." loading="lazy"><figcaption><b>Registar atividade.</b> Cliente, colaborador, uma ou mais categorias e observações, com resumo à direita.</figcaption></figure>
+<ol class="steps">
+  <li><b>Cliente</b>: pesquise por nome, código ERP ou NIF.</li>
+  <li><b>Colaborador</b>: por omissão, você.</li>
+  <li><b>Tipo de evento</b>: uma ou mais categorias (definidas em <i>Tabelas &gt; Categorias de atividade</i>), cada uma com os seus campos.</li>
+  <li><b>Observações</b>: texto formatado (documentos entregues, pendências...).</li>
+  <li><span class="btn-like">Registar evento</span> fica ativo quando os campos obrigatórios estão completos.</li>
+</ol>
+<p>Uma atividade pode ser anulada (fica no histórico com o estado "Anulada").</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/atividades/categorias</span></div><img src="screenshots/47-atividades-categorias.jpg" alt="Tabelas &amp;gt; Categorias de atividade. Tipos de trabalho e os campos de cada um." loading="lazy"><figcaption><b>Tabelas &gt; Categorias de atividade.</b> Tipos de trabalho e os campos de cada um.</figcaption></figure>
+
+<h2 id="calendario">Agenda (calendário)</h2>
+<p>No <a href="primeiros-passos.html#o-dashboard">Dashboard</a>. Vistas Mês, Semana, Dia e Lista.</p>
+<ul>
+  <li><b>Criar</b>: clique num dia ou horário (toque longo no telemóvel) ou <span class="btn-like">Novo evento</span>. Arraste para mudar a hora.</li>
+  <li><b>Campos</b>: título, cliente (opcional, com ligação à ficha), início e fim, dia inteiro, local, lembrete (15 min a 1 dia), convidados e observações.</li>
+  <li><b>Quem vê</b>: o criador e os convidados; administradores podem convidar "Todos os utilizadores".</li>
+  <li><b>Avisos</b>: convite, alteração de hora e lembrete chegam na página aberta, por <b>notificação push</b> (app instalada ou browser, mesmo fechados) e no calendário do telemóvel.</li>
+  <li><b>No telemóvel</b>: <i>Ver no telemóvel</i> mostra como subscrever a agenda por <b>CalDAV</b> (iPhone, Android, Outlook, Thunderbird). Os eventos aparecem com o nome da app, com lembretes.</li>
+</ul>
+
+<h2 id="chat-interno">Chat interno</h2>
+<p>Ativa-se em <a href="configuracao.html#geral">Definições &gt; Geral &gt; Chat interno</a>. Oferece um canal público e grupos, presença (quem está online) e notificações. Pode aparecer como item de menu ou como janela flutuante em todas as páginas.</p>
+
+<h2 id="assiduidade">Assiduidade (registo de ponto)</h2>
+<p>Ativa-se em <a href="configuracao.html#modulos">Definições &gt; Módulos &gt; Assiduidade</a>. Acrescenta o menu <b>Assiduidade</b> e um relógio de ponto no topo de todas as páginas.</p>
+<table class="t">
+  <tr><th>Ecrã</th><th>Quem</th><th>Para quê</th></tr>
+  <tr><td>Registo de Ponto</td><td>Todos</td><td>Picar entradas e saídas (manhã e tarde) e ver o mapa mensal próprio. Atrasos para além da tolerância pedem justificação.</td></tr>
+  <tr><td>Ausências e Férias</td><td>Todos</td><td>Pedir férias, faltas, formação, etc. (dia inteiro, manhã ou tarde) e ver o saldo de férias. Gestores aprovam ou recusam.</td></tr>
+  <tr><td>Mapa de Ausências</td><td>Gestores (ou todos, se público)</td><td>Visão de equipa do mês: quem está ausente e porquê.</td></tr>
+  <tr><td>Configuração</td><td>Administradores</td><td>Horários (vários, por dia da semana, contínuos ou com intervalo), tipos de ausência, feriados municipais e encerramentos, dias de férias por colaborador.</td></tr>
+</table>
+<p>Os feriados nacionais são calculados automaticamente (incluindo a Páscoa e, opcionalmente, o Carnaval). Correções feitas por um gestor ficam assinaladas no mapa.</p>
+
+      <div class="pager"><a class="prev" href="assistente-ia.html"><small>&larr; Anterior</small>Assistente IA</a><a class="next" href="extranet.html"><small>Seguinte &rarr;</small>Área reservada do cliente</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

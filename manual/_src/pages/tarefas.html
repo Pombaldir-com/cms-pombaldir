@@ -1,0 +1,68 @@
+<h1>Tarefas de fecho</h1>
+<p class="lead">O menu Tarefas organiza o fecho mensal de cada cliente: conferir a pasta, apurar o IVA, enviar o SAF-T à AT e comunicar a declaração periódica ao cliente. Cada tarefa compara automaticamente o que está na contabilidade com a fonte oficial e regista quem fechou e quando.</p>
+<!--toc-->
+
+<div class="callout"><b>Comum a todas as tarefas</b>
+<ul>
+  <li>Cada técnico vê só os clientes em que a tarefa lhe está atribuída (<a href="entidades.html#separador-admin">Entidades &gt; Admin</a>); administradores veem todos.</li>
+  <li>Filtros no topo: empresa, ano, mês/trimestre e estado (por fechar, fechados, todos).</li>
+  <li>O botão de engrenagem (&#9881;) no canto superior direito, só para administradores, abre a configuração da tarefa (fórmulas, modelos de e-mail).</li>
+  <li>O fecho fica registado com utilizador, data, resumo dos valores e observações.</li>
+</ul></div>
+
+<h2>Confirmação de Pasta</h2>
+<p><b>Tarefas &gt; Confirmação de Pasta</b>. Confirma, mês a mês, que tudo o que estava na pasta física/digital do cliente foi lançado.</p>
+<shot id="40-tarefa-confirmacao-pasta" url="contabilidade/tarefas/confirmacao-pasta" cap="<b>Confirmação de Pasta.</b> Lista de clientes para o mês escolhido; Conferir abre a conferência do mês."/>
+<h3>O que se confere</h3>
+<table class="t">
+  <tr><th>Comparação</th><th>Como funciona</th></tr>
+  <tr><td><b>Lançado (ERP) vs. fita</b>, por diário</td><td>Para cada diário (Caixa, Bancos, Vendas, Compras, Diversos, Imp. e-fatura, Recibos, Pagamentos...), o total a crédito lançado no ERP é comparado com os valores de controlo (a "fita") introduzidos pelo técnico. Verde quando bate ao cêntimo, vermelho quando não.</td></tr>
+  <tr><td><b>SAF-T vs. contabilidade</b></td><td>Total de débitos e créditos do(s) SAF-T de faturação do mês comparados com as fórmulas do balancete configuradas.</td></tr>
+</table>
+<h3>Passos</h3>
+<ol class="steps">
+  <li>Escolha o mês (por omissão, o mês anterior) e clique em <span class="btn-like blue">Conferir</span> no cliente.</li>
+  <li>Em cada diário, <b>Conferir</b> mostra à esquerda a fita (editável: escreva valores e prima Enter; aceita vários de uma vez separados por <code>+</code> ou <code>;</code>) e à direita os documentos lançados. Os valores sem par ficam a vermelho.</li>
+  <li>Reveja as caixas <b>Total Débitos / Total Créditos</b> (SAF-T vs. Ctb).</li>
+  <li><b>Fechar etapa</b>. As divergências não bloqueiam, mas a aplicação pede confirmação e regista quantas havia.</li>
+</ol>
+
+<h2>Apuramento de IVA</h2>
+<p><b>Tarefas &gt; Apuramento de IVA</b>. Reconcilia, campo a campo, a Declaração Periódica de IVA gerada no ERP com o que resulta do balancete.</p>
+<shot id="41-tarefa-apuramento-iva" url="contabilidade/tarefas/apuramento-iva" cap="<b>Apuramento de IVA.</b> Clientes com periodicidade mensal ou trimestral e períodos já fechados."/>
+<ol class="steps">
+  <li>Escolha ano e mês ou trimestre; o período respeita a periodicidade de cada cliente.</li>
+  <li><span class="btn-like blue">Apurar período</span> abre o detalhe: uma linha por campo da DP com o valor da <b>DP (ERP)</b>, o valor de controlo da <b>contabilidade</b> (fórmula sobre o balancete) e o <b>estado</b>.</li>
+  <li>Estados: <span class="badge green">&#10003; ok</span> <span class="badge amber">! aviso</span> <span class="badge red">&#9888; erro (bloqueia)</span>, com a diferença no tooltip.</li>
+  <li>Em <b>Resultado do período</b> vê o IVA a pagar (campo 93) ou a recuperar (campo 94) e fecha o período.</li>
+</ol>
+<h3>Validações automáticas</h3>
+<ul>
+  <li>Campos de IVA validados contra a base × taxa (6%, 13%, 23%), com margem de erro de 1 €.</li>
+  <li>Campos de taxa desconhecida (13, 17) testam as três taxas e aceitam a de menor desvio.</li>
+  <li>Se o ERP ainda não tiver a DP do período, os valores podem ser introduzidos manualmente e guardados.</li>
+</ul>
+<div class="callout"><b>Configuração (administradores)</b><p>As fórmulas de cada campo escrevem-se como soma/subtração de saldos de contas, por exemplo <code>C2432319cre-C243234deb+</code> (saldo credor da 2432319 menos o devedor da 243234). Editam-se na engrenagem da tarefa.</p></div>
+
+<h2>Envio de SAF-T</h2>
+<p><b>Tarefas &gt; Envio de SAF-T</b>. Submete à AT o ficheiro SAF-T de faturação de cada cliente (comunicação mensal de faturas) e guarda os totais para as restantes tarefas.</p>
+<shot id="42-tarefa-envio-saft" url="contabilidade/tarefas/envio-saft" cap="<b>Envio de SAF-T.</b> Estado por cliente no mês; Enviar SAF-T carrega e submete o ficheiro."/>
+<ol class="steps">
+  <li>Escolha ano e mês. Clientes por enviar aparecem a amarelo.</li>
+  <li><span class="btn-like blue">Enviar SAF-T</span> e escolha o ficheiro XML. O cliente é reconhecido pelo NIF do ficheiro.</li>
+  <li>Com <b>Submeter à AT</b> ligado, o ficheiro é enviado pelo cliente oficial da AT (FACTEMICLI), com as credenciais do portal guardadas para o cliente. A resposta (código, totais, avisos, erros) fica registada.</li>
+  <li>Com <b>Submeter à AT</b> desligado (cliente que comunica sozinho), o ficheiro é apenas arquivado e os totais extraídos, com estado "importado".</li>
+  <li><b>Marcar como enviado</b> regista o envio feito por outra via.</li>
+</ol>
+<div class="callout warn"><b>Requisitos</b><p>Java 8 ou superior no servidor, o jar FACTEMICLI carregado em <a href="configuracao.html#servicos">Definições &gt; Serviços</a> e relógio do servidor sincronizado (caso contrário a AT responde "Validade da credencial expirada"). Use o <b>Modo teste</b> para formação.</p></div>
+
+<h2>Envio DP IVA</h2>
+<p><b>Tarefas &gt; Envio DP IVA</b>. Comunica ao cliente, por e-mail, o resultado da declaração periódica: valor a pagar, a recuperar ou em crédito, e a data-limite de pagamento.</p>
+<shot id="43-tarefa-envio-dp-iva" url="contabilidade/tarefas/envio-dp-iva" cap="<b>Envio DP IVA.</b> Clientes por período; o valor vem pré-preenchido do Apuramento de IVA."/>
+<ol class="steps">
+  <li>O valor vem do fecho do <b>Apuramento de IVA</b> do mesmo período (ou, em falta, do balancete). Um aviso indica se o período ainda está "Por apurar".</li>
+  <li><b>Enviar</b> abre o e-mail: destinatário (e-mail do cliente no ERP), cópia para o técnico, assunto e mensagem editáveis, anexo opcional (guia de pagamento).</li>
+  <li>A data-limite é calculada (dia 25 do segundo mês seguinte ao fim do período).</li>
+  <li>Com "Fechar tarefa após o envio", o período fecha quando o e-mail chega ao cliente; <b>Fechar sem enviar</b> regista o fecho sem e-mail.</li>
+</ol>
+<p>O modelo do e-mail (administradores, na engrenagem) aceita marcadores como <code>{nome_cliente}</code>, <code>{nif}</code>, <code>{periodo}</code>, <code>{mensagem_valores}</code>, <code>{data_limite}</code> e <code>{nome_utilizador}</code>.</p>

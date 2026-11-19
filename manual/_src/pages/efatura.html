@@ -1,0 +1,25 @@
+<h1>E-fatura</h1>
+<p class="lead">Sincroniza os documentos que os fornecedores comunicaram à AT em nome de cada cliente, para saber o que falta na pasta, confirmar o que foi lido e pedir os documentos em falta.</p>
+<!--toc-->
+
+<h2>Empresas e credenciais</h2>
+<p><b>E-fatura &gt; Empresas</b>. Para cada cliente, guarde as credenciais do Portal das Finanças (NIF ou NIF/subutilizador e senha). A senha fica cifrada e é reutilizada pelo <a href="tarefas.html#envio-de-saf-t">Envio de SAF-T</a>.</p>
+<shot id="50-efatura-empresas" url="contabilidade/efatura/empresas" cap="<b>E-fatura &gt; Empresas.</b> Clientes com credenciais e estado da última sincronização."/>
+<p>Permissões: <i>CTB E-fatura - Aceder</i> para consultar, <i>Sincronizar</i> para lançar sincronizações e <i>Gerir credenciais</i> para editar as senhas.</p>
+
+<h2>Documentos</h2>
+<p><b>E-fatura &gt; Documentos</b>. Lista os documentos do cliente escolhido no topo (<i>Empresa</i>) no intervalo de datas pedido (o calendário mostra dois meses lado a lado).</p>
+<shot id="51-efatura-documentos" url="contabilidade/efatura/documentos" cap="<b>E-fatura &gt; Documentos.</b> Para cada documento, o estado de upload, classificação e contabilização no Teknisoft Contab."/>
+<table class="t">
+  <tr><th>Coluna</th><th>Significado</th></tr>
+  <tr><td>Data, Emitente, NIF, Documento, Tipo, Líquido, IVA, Total</td><td>Dados comunicados à AT pelo fornecedor.</td></tr>
+  <tr><td>Upload</td><td>Se o PDF correspondente já foi carregado (emparelhamento automático).</td></tr>
+  <tr><td>Classificação</td><td>Se já está classificado.</td></tr>
+  <tr><td>Contabilidade</td><td>Se já foi lançado no ERP.</td></tr>
+</table>
+<div class="callout tip"><b>Botão "Faltas"</b><p>Prepara um e-mail ao cliente com a lista dos documentos que existem no E-fatura mas ainda não chegaram ao gabinete. Elimina o vai-e-vem de pedidos avulsos.</p></div>
+
+<h2>Sincronizações</h2>
+<p><b>E-fatura &gt; Sincronizações</b>. Histórico das sincronizações (manuais ou agendadas): período, documentos novos e atualizados, erros.</p>
+<shot id="52-efatura-sincronizacoes" url="contabilidade/efatura/sincronizacoes" cap="<b>E-fatura &gt; Sincronizações.</b>"/>
+<p>A sincronização corre em segundo plano; pode continuar a trabalhar enquanto decorre. Os ficheiros de trabalho são limpos automaticamente segundo a retenção definida em <a href="configuracao.html#modulos">Módulos &gt; E-fatura</a>.</p>

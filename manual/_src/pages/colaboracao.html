@@ -1,0 +1,41 @@
+<h1>Atividades, agenda e equipa</h1>
+<p class="lead">Ferramentas do dia a dia do gabinete: registar o trabalho feito por cliente, marcar reuniões e prazos, falar com a equipa e registar a assiduidade.</p>
+<!--toc-->
+
+<h2 id="atividades">Atividades</h2>
+<p><b>Atividades &gt; Listagem</b> e <b>Registar atividade</b>. Registo do trabalho feito para cada cliente: atendimentos, entregas de documentos, reuniões, pendências.</p>
+<shot id="45-atividades" url="contabilidade/atividades" cap="<b>Atividades.</b> Indicadores do dia e do mês, filtros por colaborador, categoria, período e estado."/>
+<shot id="46-atividade-nova" url="contabilidade/atividades/novo" cap="<b>Registar atividade.</b> Cliente, colaborador, uma ou mais categorias e observações, com resumo à direita."/>
+<ol class="steps">
+  <li><b>Cliente</b>: pesquise por nome, código ERP ou NIF.</li>
+  <li><b>Colaborador</b>: por omissão, você.</li>
+  <li><b>Tipo de evento</b>: uma ou mais categorias (definidas em <i>Tabelas &gt; Categorias de atividade</i>), cada uma com os seus campos.</li>
+  <li><b>Observações</b>: texto formatado (documentos entregues, pendências...).</li>
+  <li><span class="btn-like">Registar evento</span> fica ativo quando os campos obrigatórios estão completos.</li>
+</ol>
+<p>Uma atividade pode ser anulada (fica no histórico com o estado "Anulada").</p>
+<shot id="47-atividades-categorias" url="contabilidade/atividades/categorias" cap="<b>Tabelas &gt; Categorias de atividade.</b> Tipos de trabalho e os campos de cada um."/>
+
+<h2 id="calendario">Agenda (calendário)</h2>
+<p>No <a href="primeiros-passos.html#o-dashboard">Dashboard</a>. Vistas Mês, Semana, Dia e Lista.</p>
+<ul>
+  <li><b>Criar</b>: clique num dia ou horário (toque longo no telemóvel) ou <span class="btn-like">Novo evento</span>. Arraste para mudar a hora.</li>
+  <li><b>Campos</b>: título, cliente (opcional, com ligação à ficha), início e fim, dia inteiro, local, lembrete (15 min a 1 dia), convidados e observações.</li>
+  <li><b>Quem vê</b>: o criador e os convidados; administradores podem convidar "Todos os utilizadores".</li>
+  <li><b>Avisos</b>: convite, alteração de hora e lembrete chegam na página aberta, por <b>notificação push</b> (app instalada ou browser, mesmo fechados) e no calendário do telemóvel.</li>
+  <li><b>No telemóvel</b>: <i>Ver no telemóvel</i> mostra como subscrever a agenda por <b>CalDAV</b> (iPhone, Android, Outlook, Thunderbird). Os eventos aparecem com o nome da app, com lembretes.</li>
+</ul>
+
+<h2>Chat interno</h2>
+<p>Ativa-se em <a href="configuracao.html#geral">Definições &gt; Geral &gt; Chat interno</a>. Oferece um canal público e grupos, presença (quem está online) e notificações. Pode aparecer como item de menu ou como janela flutuante em todas as páginas.</p>
+
+<h2 id="assiduidade">Assiduidade (registo de ponto)</h2>
+<p>Ativa-se em <a href="configuracao.html#modulos">Definições &gt; Módulos &gt; Assiduidade</a>. Acrescenta o menu <b>Assiduidade</b> e um relógio de ponto no topo de todas as páginas.</p>
+<table class="t">
+  <tr><th>Ecrã</th><th>Quem</th><th>Para quê</th></tr>
+  <tr><td>Registo de Ponto</td><td>Todos</td><td>Picar entradas e saídas (manhã e tarde) e ver o mapa mensal próprio. Atrasos para além da tolerância pedem justificação.</td></tr>
+  <tr><td>Ausências e Férias</td><td>Todos</td><td>Pedir férias, faltas, formação, etc. (dia inteiro, manhã ou tarde) e ver o saldo de férias. Gestores aprovam ou recusam.</td></tr>
+  <tr><td>Mapa de Ausências</td><td>Gestores (ou todos, se público)</td><td>Visão de equipa do mês: quem está ausente e porquê.</td></tr>
+  <tr><td>Configuração</td><td>Administradores</td><td>Horários (vários, por dia da semana, contínuos ou com intervalo), tipos de ausência, feriados municipais e encerramentos, dias de férias por colaborador.</td></tr>
+</table>
+<p>Os feriados nacionais são calculados automaticamente (incluindo a Páscoa e, opcionalmente, o Carnaval). Correções feitas por um gestor ficam assinaladas no mapa.</p>

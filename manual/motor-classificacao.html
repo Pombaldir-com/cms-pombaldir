@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor de classificação: regras e aprendizagem · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" class="active" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Motor de classificação: regras e aprendizagem</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Motor de classificação: regras e aprendizagem</h1>
+<p class="lead">Como o Teknisoft Contab decide que contas propor para cada documento, como o gabinete impõe as suas próprias regras e como cada classificação gravada torna as seguintes mais rápidas e mais certas.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#visao-geral">Visão geral</a></li><li><a href="#regras-automaticas">Regras automáticas</a></li><li><a href="#regras-personalizadas">Regras personalizadas</a></li><li><a href="#aprendizagem">Modo de aprendizagem</a></li><li><a href="#prioridades">Ordem de prioridade</a></li><li><a href="#explicacao">Explicação da sugestão</a></li><li><a href="#boas-praticas">Boas práticas</a></li><li><a href="#exemplos-praticos">Exemplos práticos</a></li></ol></div>
+
+<h2 id="visao-geral">Visão geral</h2>
+<p>Para cada documento, e para <b>cada taxa de IVA</b> nele presente, o motor tem de propor três contas: a <b>conta geral</b> (gasto/ativo), a <b>conta de IVA</b> e a conta de <b>valor total</b> (contrapartida: fornecedor, banco ou caixa). Para isso combina três famílias de conhecimento:</p>
+<div class="card-grid">
+  <div class="card"><div class="ico">&#9881;</div><h4>Regras automáticas</h4><p>Já vêm com o sistema e com o ERP: parametrização do fornecedor no ERP, movimentos anteriores, plano de contas e regras fiscais. Não exigem configuração.</p></div>
+  <div class="card"><div class="ico">&#9998;</div><h4>Regras personalizadas</h4><p>Escritas pelo gabinete: regras gerais, instruções por fornecedor/cliente, modelos, centros de custo e associações de tipos de documento.</p></div>
+  <div class="card"><div class="ico">&#129504;</div><h4>Aprendizagem</h4><p>O que a equipa grava: cada classificação, cada correção e cada "esquece" alimentam as próximas sugestões.</p></div>
+</div>
+
+<h3>O contexto de cada sugestão</h3>
+<p>O motor não olha só para o fornecedor. A "chave" de cada decisão combina:</p>
+<table class="t">
+  <tr><th>Dado</th><th>Origem</th><th>Exemplo de efeito</th></tr>
+  <tr><td>NIF do emitente</td><td>QR / OCR</td><td>Procura a parametrização deste fornecedor no ERP.</td></tr>
+  <tr><td>NIF do adquirente</td><td>QR / OCR</td><td>O mesmo fornecedor pode ter contas diferentes em clientes diferentes.</td></tr>
+  <tr><td>Tipo de documento</td><td>QR (FT, FR, FS, NC, ND...)</td><td>Uma NC inverte débito/crédito; FR é tratada como FT no ERP.</td></tr>
+  <tr><td>Data do documento</td><td>QR</td><td>A parametrização do ERP é pedida para o exercício certo.</td></tr>
+  <tr><td>Taxas presentes</td><td>QR (6%, 13%, 23%, 0%, regiões autónomas)</td><td>Cada taxa recebe as suas contas.</td></tr>
+  <tr><td>Tipo de entidade</td><td>Normal · Banco · Seguradora</td><td>Ativa regras próprias (empréstimos, seguros).</td></tr>
+  <tr><td>Recibo no mesmo PDF</td><td>Leitura do ficheiro</td><td>A fatura já paga leva a conta de banco/caixa no valor total.</td></tr>
+  <tr><td>Regime do cliente</td><td>Ficha &gt; Admin</td><td>Cliente isento: sem conta de IVA.</td></tr>
+</table>
+
+<h2 id="regras-automaticas">Regras automáticas</h2>
+<p>Funcionam desde o primeiro dia, sem configuração, porque se apoiam no que já existe no ERP do cliente.</p>
+
+<h3>1. Ligação Cte Tipo Doc (parametrização no ERP)</h3>
+<p>É a fonte mais autoritativa. No ERP, cada fornecedor pode ter, por tipo de documento, as contas a usar. O motor consulta essa ligação com o NIF do emitente, o tipo de documento e a data, e usa:</p>
+<ul>
+  <li>a conta da linha de gasto como <b>conta geral</b>;</li>
+  <li>a conta de IVA como <b>conta de IVA</b>;</li>
+  <li>a linha da entidade (tipo C) como <b>conta de valor total</b>.</li>
+</ul>
+<p>A taxa de cada linha é reconhecida pela descrição da rubrica no ERP (<i>Taxa Reduzida</i> = 6%, <i>Taxa Intermédia</i> = 13%, <i>Taxa Normal</i> = 23%), porque os campos numéricos de taxa nem sempre vêm preenchidos. O motor tenta vários candidatos (NIF do emitente, variações, base do cliente, base por omissão) até encontrar a parametrização.</p>
+
+<h3>2. Movimentos anteriores no ERP</h3>
+<p>Se ainda faltar alguma conta, o motor analisa os lançamentos já existentes na contabilidade do cliente para o mesmo tipo de documento e usa as contas mais frequentes para preencher o que está vazio.</p>
+
+<h3>3. Plano de contas do ERP (último recurso e validação)</h3>
+<p>O plano de contas serve para duas coisas: <b>validar</b> que cada conta proposta existe e aceita movimento, e, em último caso, encontrar a conta de IVA adequada a uma taxa (por exemplo, a conta de IVA dedutível 23% associada à conta geral escolhida). Nunca se sobrepõe a evidência de maior prioridade.</p>
+
+<h3>4. Regras fiscais e contabilísticas fixas</h3>
+<table class="t">
+  <tr><th>Situação</th><th>Regra aplicada</th></tr>
+  <tr><td>Taxa 0%</td><td>Sem conta de IVA; o documento pode ficar verde.</td></tr>
+  <tr><td>Cliente isento (art. 9.º CIVA)</td><td>Sem linha de IVA; base + IVA na conta geral.</td></tr>
+  <tr><td>Combustíveis (rubricas configuradas)</td><td>Só 50% do IVA é dedutível; os outros 50% somam-se à base e o total mantém-se. Aplica-se quando a taxa já tem conta geral e conta de IVA, também na importação em lote.</td></tr>
+  <tr><td>Nota de crédito</td><td>Natureza invertida; conta de IVA direta para a taxa; linha de valor total preservada.</td></tr>
+  <tr><td>Fatura com recibo no mesmo PDF</td><td>Valor total numa conta de banco/caixa (12.../11...), memorizado à parte.</td></tr>
+  <tr><td>Valor total sugerido em 21 (clientes) com ligação a 22 (fornecedor)</td><td>Corrigido automaticamente para a conta de fornecedor.</td></tr>
+  <tr><td>Fornecedor sem parametrização no ERP</td><td>Não inventa conta geral; avisa "fornecedor não encontrado no ERP".</td></tr>
+  <tr><td>Fornecedor sem conta corrente</td><td>A conta 22 é criada (ou reutilizada pelo NIF) no momento da importação.</td></tr>
+  <tr><td>Autoliquidação</td><td>Sugere o tratamento de IVA autoliquidado e pede a dedutibilidade.</td></tr>
+</table>
+
+<h3>5. Deteção do tipo de entidade</h3>
+<p>Bancos e seguradoras têm documentos com estrutura própria. O motor deteta-os (por exemplo, pelos termos <i>capital, juros, comissão</i> ou <i>apólice, prémio, segurado</i>) e aplica as regras do tipo certo, dando sempre <b>prioridade a Seguradora sobre Banco</b> para não confundir imposto do selo de um seguro com um empréstimo. O técnico pode mudar o tipo no modal; o tipo fica também visível na lista de fornecedores do cliente.</p>
+
+<h3 id="classificacao-automatica">6. Classificação automática na lista</h3>
+<p>Quando a combinação <b>fornecedor + cliente + tipo de documento</b> já foi classificada antes, a linha é preenchida sem abrir o modal e aparece logo como <span class="btn-like">Classificado</span>. O botão global <span class="btn-like blue">Classificado (N)</span> importa esses documentos com a configuração efetiva (linhas do documento + classificação memorizada), mesmo que ninguém tenha aberto o modal.</p>
+<div class="callout"><b>Desempenho</b><p>As respostas do ERP usadas nas sugestões ficam em cache por empresa (6 horas por omissão), pelo que abrir a lista ou trocar de cliente não volta a consultar o ERP linha a linha.</p></div>
+
+<h2 id="regras-personalizadas">Regras personalizadas</h2>
+<p>Cada gabinete tem critérios próprios. O Teknisoft Contab permite escrevê-los em <b>linguagem natural</b>, em três âmbitos, do mais geral ao mais específico.</p>
+
+<h3>1. Regras gerais do gabinete</h3>
+<p><a href="configuracao.html#ai">Definições &gt; AI &gt; Instruções adicionais</a>. Tudo o que estiver a seguir a um título começado por <b>"Regras de classificação"</b> é lido pelo motor como regras de classificação para todos os clientes.</p>
+<pre><code>Regras de classificacao - Seguradoras com Imposto do Selo
+Aplicar apenas quando emitter_type == 2.
+
+- Criar 1 linha unica, taxa 0%, base = total do documento.
+- Nao tratar imposto do selo como IVA.
+- Se nao existir Ligacao ERP para documento de seguradora:
+  - Conta Geral = 626312
+  - Valor Total = 1205</code></pre>
+<ul>
+  <li><b>Blocos condicionais</b>: frases como <i>"Aplicar apenas quando emitter_type == 1"</i> (Banco) ou <i>== 2</i> (Seguradora) fazem com que o bloco só valha para esse tipo de entidade.</li>
+  <li><b>Contas explícitas</b> ("Conta Geral = 626312") são aplicadas diretamente; o restante texto orienta a IA na estrutura das linhas (dividir em juros e comissões, criar linha única, etc.).</li>
+</ul>
+
+<h3 id="instrucoes-par">2. Instruções por fornecedor e cliente</h3>
+<p>Regras que só valem para um <b>par emitente + adquirente</b>. Editam-se no modal de classificação (botão &#129302; <b>Instruções IA</b>) ou na lista de <a href="entidades.html">Fornecedores</a> do cliente (botão <span class="btn-like blue">IA</span>). Um distintivo <i>Instruções IA definidas</i> avisa quando o par já tem regras.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/classificacao-importacao?import_type=1</span></div><img src="screenshots/34-instrucoes-par.jpg" alt="Instruções IA do par fornecedor/cliente. Exemplos prontos a usar e texto livre. São lidas juntamente com as regras gerais." loading="lazy"><figcaption><b>Instruções IA do par fornecedor/cliente.</b> Exemplos prontos a usar e texto livre. São lidas juntamente com as regras gerais.</figcaption></figure>
+<p>Exemplos típicos:</p>
+<ul>
+  <li><i>"Ao classificar um documento desta entidade, adicionar uma linha de taxa 0% com conta geral 6248."</i></li>
+  <li><i>"Este fornecedor fatura eletricidade da sede e do armazém: 60% centro de custo 01, 40% centro de custo 02."</i></li>
+  <li><i>"Usar sempre a conta 62211 para a taxa 23%; a 6% é material de escritório, conta 62213."</i></li>
+  <li><i>"O cliente escreve à mão no documento a obra a que se destina; usar essa anotação como centro de custo."</i></li>
+</ul>
+<div class="callout tip"><b>Anotações manuscritas</b><p>Quando uma instrução fala de "anotações" (notas escritas à mão no papel antes da digitalização), o motor usa OCR sobre a imagem para as tentar ler e aplicar (conta, centro de custo, taxa). Se a leitura não for fiável, diz-o explicitamente e pede confirmação, em vez de adivinhar.</p></div>
+
+<h3>3. Modelos de classificação</h3>
+<p>No topo do modal, <b>Guardar Modelo</b> grava as linhas e contas atuais com um nome. Depois, em qualquer documento do mesmo tenant, adquirente e tipo documental, <b>Selecionar modelo &gt; Aplicar</b> repõe essa estrutura. Útil para reaproveitar uma classificação manual trabalhosa entre emitentes diferentes (por exemplo, rendas de vários senhorios).</p>
+<div class="callout"><b>O que o modelo guarda</b><p>Apenas linhas e contas. Bases e IVA vêm sempre do QR/documento atual. Os centros de custo não ficam no modelo: introduza-os manualmente ou automatize-os nas Instruções IA do par.</p></div>
+
+<h3>4. Centros de custo e dedutibilidade</h3>
+<p>Por cliente e centro de custo, pode definir se o IVA é <b>dedutível</b> e as contas de IVA dedutível e não dedutível. Quando um documento é distribuído por centros de custo, cada parte recebe a conta de IVA certa.</p>
+
+<h3>5. Associação de tipos documentais</h3>
+<p>Quando o tipo de documento lido no QR não corresponde a um tipo do ERP do cliente, <b>Associar tipo documental QR</b> grava o mapeamento (por base ERP) e passa a aplicá-lo nas importações seguintes.</p>
+
+<h2 id="aprendizagem">Modo de aprendizagem</h2>
+<p>O motor aprende com o trabalho normal da equipa: <b>não há um "modo de treino" separado</b>. Cada gesto de validação ou correção fica registado e reutilizado.</p>
+<div class="flow">
+  <div class="node"><span class="k">Chega</span><b>Documento</b><small>Fornecedor X, cliente Y</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Propõe</span><b>Sugestão</b><small>Regras + ERP + memória</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Valida</span><b>Técnico grava</b><small>Aceita ou corrige</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Memoriza</span><b>Classificação</b><small>Para X + Y + tipo</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Próxima vez</span><b>Verde à chegada</b><small>Sem abrir o modal</small></div>
+</div>
+
+<h3>1. Memória de classificação (por fornecedor + cliente + tipo)</h3>
+<p>Ao <span class="btn-like blue">Guardar</span> no modal, a classificação fica memorizada para a combinação emitente + adquirente + tipo de documento, com as contas por taxa e a conta de valor total. A memória distingue faturas normais de faturas <b>com recibo no mesmo PDF</b>, para não confundir a conta de fornecedor com a de banco.</p>
+
+<h3>2. Histórico de documentos</h3>
+<p>Cada documento classificado é também um exemplo. Quando não há memória exata, o motor alarga a procura por etapas:</p>
+<ol class="steps">
+  <li><b>Estrito</b>: mesmo cliente, mesmo tipo de documento, mesmo fornecedor.</li>
+  <li><b>Por cliente</b>: outros documentos do mesmo cliente, para taxas ainda sem conta.</li>
+  <li><b>Por tipo de documento</b>: documentos do mesmo tipo noutros contextos, como último recurso do histórico.</li>
+</ol>
+<p>Em cada etapa contam-se as contas mais usadas por taxa (as mais frequentes ganham).</p>
+
+<h3>3. Correções memorizadas ("Sugerir correção")</h3>
+<p>Quando uma sugestão está errada por uma razão que se vai repetir, use <b>Sugerir correção</b> no modal e escreva a regra de forma curta e reutilizável.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/classificacao-importacao?import_type=1</span></div><img src="screenshots/35-sugerir-correcao.jpg" alt="Sugerir correção. A regra fica memorizada por grupo de entidade (Normal, Banco ou Seguradora) e passa a ser aplicada nas sugestões seguintes desse grupo." loading="lazy"><figcaption><b>Sugerir correção.</b> A regra fica memorizada por grupo de entidade (Normal, Banco ou Seguradora) e passa a ser aplicada nas sugestões seguintes desse grupo.</figcaption></figure>
+<ul>
+  <li>As correções ficam agrupadas por tipo de entidade: uma correção de Banco nunca afeta documentos de fornecedores normais.</li>
+  <li>As correções mais recentes de cada grupo são incluídas em todas as sugestões desse grupo.</li>
+  <li>Exemplos: <i>"Banco com CAPITAL, JUROS e COMISSÕES: JUROS = 6911, COMISSÕES = 698812"</i>; <i>"Medis/Multicare: tratar como Seguradora e nunca como Banco"</i>.</li>
+</ul>
+
+<h3>4. Registo de cada sugestão</h3>
+<p>Cada sugestão fica registada com as <b>fontes usadas</b> (histórico, regras, instruções gerais, instruções do par, correções, ligação ERP, movimentos, plano de contas) e com a indicação de se foi aceite. Isto alimenta a explicação da sugestão e permite medir a qualidade ao longo do tempo.</p>
+
+<h3>5. Desaprender</h3>
+<ul>
+  <li><b>Limpar histórico/regras errados deste contexto</b> (na Explicação da sugestão): remove memórias inválidas do contexto atual (por exemplo, uma taxa textual "Imposto do Selo" gravada por engano).</li>
+  <li>Voltar a classificar e gravar corretamente substitui a memória da combinação.</li>
+  <li>Instruções de par e regras gerais podem ser editadas ou apagadas a qualquer momento.</li>
+  <li>No assistente, mensagens como <i>"esquece"</i>, <i>"errado"</i> ou <i>"ignora"</i> não são memorizadas e removem a memória recente correspondente.</li>
+</ul>
+
+<h2 id="prioridades">Ordem de prioridade</h2>
+<p>Quando várias fontes têm opinião, vale a seguinte ordem para a <b>conta geral e a conta de IVA</b> de cada taxa:</p>
+<ul class="ladder">
+  <li><div class="lvl">1</div><div><b>Instruções com conta explícita</b><span>Regras do par fornecedor/cliente, regras gerais do gabinete e correções memorizadas que indicam uma conta concreta.</span></div></li>
+  <li><div class="lvl">2</div><div><b>Ligação Cte Tipo Doc do ERP</b><span>Parametrização oficial do fornecedor no ERP, por taxa.</span></div></li>
+  <li><div class="lvl">3</div><div><b>Memória de classificação e histórico</b><span>O que o gabinete já gravou para esta combinação, depois para o cliente, depois para o tipo de documento.</span></div></li>
+  <li><div class="lvl">4</div><div><b>Linhas esperadas</b><span>Estrutura deduzida dos exemplos (por exemplo, linhas extra de banco ou seguro).</span></div></li>
+  <li><div class="lvl">5</div><div><b>Movimentos ERP</b><span>Contas mais frequentes nos lançamentos do cliente, só para o que estiver vazio.</span></div></li>
+  <li><div class="lvl">6</div><div><b>Plano de contas ERP</b><span>Validação e último recurso para a conta de IVA da taxa.</span></div></li>
+  <li><div class="lvl">7</div><div><b>IA (modelo de linguagem)</b><span>Interpreta as instruções em texto livre e propõe operações sobre as linhas (dividir, juntar, acrescentar), sempre sobre as contas encontradas acima, nunca inventando contas.</span></div></li>
+</ul>
+<p>Para a <b>conta de valor total</b>: Ligação ERP (conta de fornecedor) &gt; instruções (só se a ligação não tiver conta) &gt; memória/histórico &gt; regras; com as correções automáticas de recibo no mesmo PDF e de 21 para 22 descritas acima.</p>
+
+<h2 id="explicacao">Explicação da sugestão</h2>
+<p>Em qualquer documento, <b>Explicação da sugestão</b> mostra, taxa a taxa, as evidências encontradas e de onde veio a conta proposta.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/classificacao-importacao?import_type=1</span></div><img src="screenshots/33-explicacao-sugestao.jpg" alt="Explicação da sugestão. Contagem por fonte (Histórico, Regras, Instruções, Ligação ERP, Movimentos, Plano) e razões por taxa e para o valor total." loading="lazy"><figcaption><b>Explicação da sugestão.</b> Contagem por fonte (Histórico, Regras, Instruções, Ligação ERP, Movimentos, Plano) e razões por taxa e para o valor total.</figcaption></figure>
+<ul>
+  <li>No topo: quantas evidências houve em cada fonte e a ordem de instruções aplicada.</li>
+  <li>Por taxa: conta geral e conta de IVA propostas e as razões ("Histórico analisado (12 registos): top geral 62211...", "Ligação Cte Tipo Doc analisada...").</li>
+  <li>No valor total: a conta sugerida e porquê; avisa explicitamente quando o fornecedor não existe no ERP.</li>
+</ul>
+<div class="callout tip"><b>Transparência</b><p>A explicação permite ao técnico confiar na sugestão (ou perceber depressa porque está errada) e ao responsável auditar a qualidade da classificação.</p></div>
+
+<h2 id="boas-praticas">Boas práticas</h2>
+<ol class="steps">
+  <li><b>Comece pelo ERP</b>: mantenha a Ligação Cte Tipo Doc dos fornecedores recorrentes no ERP. É a regra com maior autoridade e serve todas as ferramentas.</li>
+  <li><b>Grave sempre pelo modal</b> os primeiros documentos de um fornecedor novo: a partir daí, chegam verdes.</li>
+  <li><b>Use instruções de par</b> para exceções de um fornecedor num cliente; use <b>regras gerais</b> para critérios do gabinete inteiro.</li>
+  <li><b>Escreva correções curtas e reutilizáveis</b>, com a conta concreta.</li>
+  <li><b>Confira a Explicação</b> quando uma sugestão surpreender, e limpe memórias erradas do contexto.</li>
+  <li><b>Separe classificar de importar</b> nas permissões, se quiser um passo de revisão.</li>
+</ol>
+
+<h2 id="exemplos-praticos">Exemplos práticos</h2>
+<h3>Fornecedor recorrente já parametrizado</h3>
+<p>Fatura de telecomunicações, 23%. A Ligação ERP devolve as contas do fornecedor (por exemplo, gasto 6222, IVA dedutível 23% e conta corrente 2211...). A linha chega verde; o técnico importa em lote com <span class="btn-like blue">Classificado (N)</span>.</p>
+<h3>Fornecedor novo, sem parametrização</h3>
+<p>O motor avisa "fornecedor não encontrado no ERP" e não inventa conta geral. O técnico classifica uma vez e grava; na importação, a conta corrente 22 do fornecedor é criada automaticamente. O próximo documento deste fornecedor para este cliente chega verde.</p>
+<h3>Prestação de empréstimo bancário</h3>
+<p>Tipo de entidade Banco. As regras gerais dividem o documento em linhas de juros e comissões com as contas definidas (por exemplo 6911 e 698812), e o capital segue a conta do ERP. Uma correção memorizada no grupo Banco aplica-se a todos os bancos.</p>
+<h3>Fatura já paga (com recibo no mesmo PDF)</h3>
+<p>O recibo é ocultado; o valor total vai para a conta de banco que o gabinete usou nesse caso da última vez, e não para a conta do fornecedor.</p>
+
+      <div class="pager"><a class="prev" href="contabilidade.html"><small>&larr; Anterior</small>Contabilidade: do documento ao ERP</a><a class="next" href="tarefas.html"><small>Seguinte &rarr;</small>Tarefas de fecho</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

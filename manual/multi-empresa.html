@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-empresa (tenants) · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" class="active" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Multi-empresa (tenants)</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Multi-empresa (tenants)</h1>
+<p class="lead">Uma única instalação do Teknisoft Contab serve várias empresas, com dados isolados entre si, e dentro de cada empresa trata a contabilidade de muitos clientes, cada um na sua base ERP.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#dois-niveis-de-empresa">Dois níveis de "empresa"</a></li><li><a href="#isolamento-de-dados-por-tenant">Isolamento de dados por tenant</a></li><li><a href="#varias-bases-erp-numa-so-operacao">Várias bases ERP numa só operação</a></li><li><a href="#empresa-base-e-autenticacao-no-erp">Empresa base e autenticação no ERP</a></li><li><a href="#carteira-de-cada-tecnico">Carteira de cada técnico</a></li></ol></div>
+
+<h2 id="dois-niveis-de-empresa">Dois níveis de "empresa"</h2>
+<p>É importante distinguir os dois níveis com que a aplicação trabalha:</p>
+<div class="card-grid">
+  <div class="card"><div class="ico">&#127970;</div><h4>Tenant (o gabinete)</h4><p>Quem usa a aplicação. Entra-se pelo NIF no ecrã de entrada. Cada tenant tem a sua base de dados, utilizadores, definições, logótipo, nome do assistente e ficheiros.</p></div>
+  <div class="card"><div class="ico">&#128101;</div><h4>Empresa cliente (entidade)</h4><p>Cada cliente do gabinete. Vive dentro do tenant, tem ficha própria e está ligado a uma base de dados ERP no formato <code>emp_XXX</code>.</p></div>
+</div>
+
+<div class="flow">
+  <div class="node"><span class="k">Instalação</span><b>Teknisoft Contab</b><small>Um só código, um só servidor</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Tenants</span><b>Gabinete A · Gabinete B · ...</b><small>Base de dados MySQL por NIF</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Clientes</span><b>Empresas cliente</b><small>Fichas, documentos, tarefas</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">ERP</span><b>emp_101 · emp_227 · ...</b><small>Uma base ERP por cliente</small></div>
+</div>
+
+<h2 id="isolamento-de-dados-por-tenant">Isolamento de dados por tenant</h2>
+<ul>
+  <li><b>Base de dados própria</b>: cada NIF de tenant aponta para uma base MySQL distinta. Utilizadores, documentos, classificações, memória do assistente e definições nunca se misturam.</li>
+  <li><b>Ficheiros próprios</b>: uploads, anexos e marca ficam em pastas separadas por tenant.</li>
+  <li><b>Identidade própria</b>: nome da app, logótipo, ícone e até o nome e a personalidade do assistente IA podem ser diferentes em cada tenant.</li>
+  <li><b>Área do cliente própria</b>: a extranet de cada tenant tem endereço próprio (<code>t/{tenant}/cliente</code>).</li>
+</ul>
+<div class="callout tip"><b>Mais-valia</b><p>O mesmo servidor pode alojar vários gabinetes (modelo SaaS) ou várias empresas de um grupo, sem instalações duplicadas e com atualizações aplicadas a todos de uma vez.</p></div>
+
+<h2 id="varias-bases-erp-numa-so-operacao">Várias bases ERP numa só operação</h2>
+<p>Dentro do tenant, o técnico vê numa só lista os documentos de todos os clientes que lhe estão atribuídos. Ao importar:</p>
+<ol class="steps">
+  <li>O sistema identifica o <b>adquirente</b> de cada documento (pelo NIF lido do QR).</li>
+  <li>Resolve a <b>base ERP</b> desse cliente (campo <i>Base de dados ERP</i> da ficha, por exemplo <code>emp_227</code>).</li>
+  <li><b>Agrupa</b> os documentos selecionados por base e importa cada grupo na base certa, numa única ação.</li>
+  <li>Só pede ao utilizador para escolher a base quando há exatamente um cliente sem base definida.</li>
+</ol>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/contabilidade/classificacao-importacao?import_type=1</span></div><img src="screenshots/31-classificacao.jpg" alt="Lista única com vários clientes. O filtro Todas as empresas permite trabalhar a carteira inteira ou restringir a um cliente." loading="lazy"><figcaption><b>Lista única com vários clientes.</b> O filtro <i>Todas as empresas</i> permite trabalhar a carteira inteira ou restringir a um cliente.</figcaption></figure>
+
+<h2 id="empresa-base-e-autenticacao-no-erp">Empresa base e autenticação no ERP</h2>
+<p>Todas as chamadas ao ERP-SINC são autenticadas com a <b>Empresa base</b> (<a href="configuracao.html#modulos">Definições &gt; Módulos &gt; Contabilidade</a>) e indicam, quando aplicável, a base de destino do cliente. Assim, um só token serve todos os clientes do gabinete.</p>
+
+<h2 id="carteira-de-cada-tecnico">Carteira de cada técnico</h2>
+<p>Os técnicos só veem e tratam as empresas cliente para as quais têm tarefas atribuídas (na ficha do cliente, separador <a href="entidades.html#separador-admin">Admin</a>). Administradores veem todas. O mesmo princípio aplica-se às tarefas de fecho (IVA, SAF-T, Confirmação de Pasta).</p>
+
+      <div class="pager"><a class="prev" href="configuracao.html"><small>&larr; Anterior</small>Parâmetros e configuração</a><a class="next" href="entidades.html"><small>Seguinte &rarr;</small>Entidades e clientes</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

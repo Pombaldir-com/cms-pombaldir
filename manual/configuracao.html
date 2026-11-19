@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parâmetros e configuração · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" class="active" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Parâmetros e configuração</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Parâmetros e configuração</h1>
+<p class="lead">Tudo o que o administrador deve configurar antes de pôr a equipa a classificar: aplicação, serviços externos, ligação ao ERP, inteligência artificial, módulos, permissões, utilizadores e tabelas de apoio.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#geral">Geral</a></li><li><a href="#servicos">Serviços</a></li><li><a href="#erp">ERP</a></li><li><a href="#ai">AI</a></li><li><a href="#modulos">Módulos</a></li><li><a href="#permissoes">Permissões</a></li><li><a href="#utilizadores">Utilizadores</a></li><li><a href="#tabelas">Tabelas de apoio</a></li></ol></div>
+
+<div class="callout"><b>Onde fica</b><p>Menu do perfil (canto superior direito) &gt; <b>Definições</b>, endereço <code>definicoes</code>. Só administradores e superadministradores veem este ecrã. As definições valem para a empresa (tenant) em que entrou.</p></div>
+
+<h3>Ordem recomendada na primeira instalação</h3>
+<ol class="steps">
+  <li><b>Geral</b>: nome, logótipo e ícone da aplicação.</li>
+  <li><b>Serviços</b>: SMTP para os e-mails, SAF-T (FACTEMICLI) e o motor de OCR.</li>
+  <li><b>ERP</b>: endereço e token do webservice ERP-SINC.</li>
+  <li><b>Módulos</b>: ativar a Contabilidade e indicar a <b>Empresa base</b>, o <b>Diário</b> e a data de lançamento.</li>
+  <li><b>AI</b>: ativar o assistente, chave e modelo, e escrever as regras gerais de classificação.</li>
+  <li><b>Departamentos</b> e <b>Permissões</b>; depois criar os <b>utilizadores</b>.</li>
+  <li><b>Entidades</b>: confirmar as empresas cliente e a base ERP de cada uma (ver <a href="entidades.html">Entidades</a>).</li>
+</ol>
+
+<h2 id="geral">Geral</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/10-def-geral.jpg" alt="Definições &amp;gt; Geral. Identidade da aplicação, API pública, modo debug e chat interno." loading="lazy"><figcaption><b>Definições &gt; Geral.</b> Identidade da aplicação, API pública, modo debug e chat interno.</figcaption></figure>
+<table class="t">
+  <tr><th>Campo</th><th>Para que serve</th></tr>
+  <tr><td>Nome da app</td><td>Aparece no cabeçalho, no separador do browser, na app instalada no telemóvel e nos calendários sincronizados.</td></tr>
+  <tr><td>Logotipo</td><td>Imagem da marca, também usada como foto por omissão dos utilizadores.</td></tr>
+  <tr><td>Ícone (favicon e app)</td><td>Imagem quadrada (512×512 recomendado). Usada no browser, na app instalada e nas notificações.</td></tr>
+  <tr><td>Modo debug</td><td>Grava diagnósticos adicionais (leitura de QR, chamadas ao ERP) para o suporte. Desligar em uso normal.</td></tr>
+  <tr><td>Chat interno</td><td>Ativa o chat entre colaboradores, com canal público e grupos.</td></tr>
+  <tr><td>API pública</td><td>Disponibiliza endpoints de consulta protegidos por token (botão <span class="btn-like grey">Gerar</span>).</td></tr>
+</table>
+
+<h2 id="servicos">Serviços</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/11-def-servicos.jpg" alt="Definições &amp;gt; Serviços. SMTP, envio de SAF-T à AT e motor de OCR." loading="lazy"><figcaption><b>Definições &gt; Serviços.</b> SMTP, envio de SAF-T à AT e motor de OCR.</figcaption></figure>
+<h3>SMTP</h3>
+<p>Servidor, porta, utilizador, senha e encriptação (TLS/SSL) para os e-mails automáticos: recuperação de palavra-passe, convites de acesso, envio de declarações. Em <b>Remetente de mensagens do sistema</b> define o nome e o e-mail que os destinatários veem.</p>
+<h3>SAF-T (AT)</h3>
+<p>Carregue o <b>jar FACTEMICLI</b> fornecido pela AT e indique o binário Java. Com <b>Modo teste</b> ligado, o envio é registado sem comunicar com a AT, útil para formação e validação.</p>
+<h3>OCR e AWS</h3>
+<p>O <b>Fornecedor OCR</b> pode ser o Tesseract (local, por omissão) ou o <b>AWS Textract</b> (maior precisão em digitalizações difíceis; requer chaves AWS e região). Se o Textract falhar, a aplicação recorre automaticamente ao Tesseract.</p>
+<p>Os parâmetros <b>QR DPI / Retry DPI / Max Pages / Max Attempts / Parallel Uploads</b> controlam a leitura do código QR: resolução da primeira tentativa, resolução da segunda, quantas páginas analisar e quantos ficheiros processar em paralelo.</p>
+<div class="callout warn"><b>Atenção aos parâmetros de QR</b><p>Valores demasiado baixos (afinados só para velocidade) fazem falhar a deteção em PDF com várias faturas. Se começarem a aparecer documentos sem leitura, reponha os valores recomendados pelo suporte antes de investigar outras causas.</p></div>
+
+<h2 id="erp">ERP</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/12-def-erp.jpg" alt="Definições &amp;gt; ERP. Ligação ao webservice ERP-SINC." loading="lazy"><figcaption><b>Definições &gt; ERP.</b> Ligação ao webservice ERP-SINC.</figcaption></figure>
+<p>Indique o <b>URL do webservice</b> ERP-SINC e o <b>Token</b> de acesso. Todas as consultas (plano de contas, ligações, movimentos, balancete) e a importação de lançamentos passam por aqui. A empresa usada para autenticar no ERP é a <b>Empresa base</b> definida em Módulos &gt; Contabilidade.</p>
+<p>O ERP de destino (Eticadata ou Primavera) é transparente para o utilizador: o ERP-SINC traduz os pedidos. Ver <a href="integracoes.html">Integrações</a>.</p>
+
+<h2 id="ai">AI</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/13-def-ai.jpg" alt="Definições &amp;gt; AI. Ativação do assistente, modelo, chave e instruções gerais (que incluem as regras gerais de classificação)." loading="lazy"><figcaption><b>Definições &gt; AI.</b> Ativação do assistente, modelo, chave e instruções gerais (que incluem as regras gerais de classificação).</figcaption></figure>
+<table class="t">
+  <tr><th>Campo</th><th>Para que serve</th></tr>
+  <tr><td>Ativo</td><td>Liga o Assistente AI e a sugestão de contas por IA.</td></tr>
+  <tr><td>Modo seguro por defeito</td><td>Os novos utilizadores começam com o assistente em modo só de leitura (não executa alterações sem confirmação).</td></tr>
+  <tr><td>Modelo / OpenAI API Key</td><td>Modelo de linguagem a usar e respetiva chave (apenas administradores a veem e editam).</td></tr>
+  <tr><td>Instruções adicionais (PT-PT)</td><td>Texto anexado às instruções base do assistente. A secção que começa por <i>"Regras de classificação"</i> é lida pelo motor de sugestão como <b>regras gerais do gabinete</b>. Ver <a href="motor-classificacao.html#regras-personalizadas">Regras personalizadas</a>.</td></tr>
+</table>
+
+<h2 id="modulos">Módulos</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/14-def-modulos.jpg" alt="Definições &amp;gt; Módulos. Contabilidade, Compras, E-fatura e Assiduidade." loading="lazy"><figcaption><b>Definições &gt; Módulos.</b> Contabilidade, Compras, E-fatura e Assiduidade.</figcaption></figure>
+<h3>Contabilidade</h3>
+<table class="t">
+  <tr><th>Campo</th><th>Para que serve</th></tr>
+  <tr><td>Empresa base</td><td>Código da empresa ERP usada para autenticar (<code>EMP</code>) em todas as chamadas ao ERP-SINC.</td></tr>
+  <tr><td>Diário</td><td>Diário contabilístico onde os documentos importados são lançados (por exemplo 8, "Importação e-fatura").</td></tr>
+  <tr><td>Data de lançamento</td><td><b>Data do documento</b> ou <b>Último dia do mês</b>. Define a data do movimento no ERP.</td></tr>
+  <tr><td>Rúbricas combustíveis</td><td>Códigos ERP de rubricas de combustível (por exemplo "GASÓLEO 50% CD"). Nestas linhas aplica-se a regra de dedução parcial de IVA (50%).</td></tr>
+</table>
+<h3>Compras, E-fatura e Assiduidade</h3>
+<ul>
+  <li><b>Compras</b>: fluxo separado de importação e classificação de compras (<i>Contabilidade &gt; Importação de Compras</i>).</li>
+  <li><b>E-fatura</b>: sincronização com o portal da AT; <b>Retenção dos logs</b> define quantos dias se guardam os ficheiros de trabalho.</li>
+  <li><b>Assiduidade</b>: registo de ponto, horários, ausências e férias (ver <a href="colaboracao.html#assiduidade">Assiduidade</a>).</li>
+</ul>
+
+<h2 id="permissoes">Permissões</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/definicoes</span></div><img src="screenshots/15-def-permissoes.jpg" alt="Definições &amp;gt; Permissões. Cada departamento recebe um conjunto de permissões; os técnicos herdam as dos departamentos a que pertencem." loading="lazy"><figcaption><b>Definições &gt; Permissões.</b> Cada departamento recebe um conjunto de permissões; os técnicos herdam as dos departamentos a que pertencem.</figcaption></figure>
+<p>As permissões dos técnicos (perfil Utilizador) vêm <b>exclusivamente dos departamentos</b>. Um técnico pode pertencer a vários; as permissões somam-se. Administradores têm sempre acesso total.</p>
+<div class="callout tip"><b>Departamento "Técnico (Base)"</b><p>As permissões deste departamento especial aplicam-se automaticamente a <b>todos</b> os técnicos, mesmo sem atribuição. Use-o para o mínimo comum (por exemplo, ver os campos adicionais da ficha do cliente). Não pode ser eliminado.</p></div>
+<div class="table-wrap"><table class="t">
+  <tr><th>Permissão</th><th>Permite</th></tr>
+  <tr><td>Compras -&gt; Upload</td><td>Carregar documentos no Multi Upload.</td></tr>
+  <tr><td>Entidades - Editar / Ver Campos Adicionais</td><td>Alterar fichas de clientes / ver campos adicionais (incluindo senhas guardadas).</td></tr>
+  <tr><td>CTB Classificacao Docs</td><td>Classificar documentos (botão <span class="btn-like" style="background:#f0ad4e">Classificar</span>).</td></tr>
+  <tr><td>CTB Importar Docs</td><td>Aceder à vista Importação e enviar para o ERP.</td></tr>
+  <tr><td>CTB Lancamentos - Aceder / Remover locais</td><td>Consultar e editar lançamentos ERP / remover registos locais.</td></tr>
+  <tr><td>CTB E-fatura - Aceder / Sincronizar / Gerir credenciais</td><td>Ver documentos E-fatura, lançar sincronizações, gerir credenciais do portal.</td></tr>
+  <tr><td>Assistente AI - Acesso / Criar tarefas / Abrir lançamentos / Sugerir contas IVA / Aprovar-Rejeitar docs</td><td>Usar o assistente e as ações que este pode executar.</td></tr>
+  <tr><td>Assiduidade - Ver mapas da equipa / Corrigir picagens e aprovar ausências</td><td>Consulta da equipa / gestão de assiduidade.</td></tr>
+</table></div>
+<p>Além disto, há permissões <b>por empresa cliente</b> (classificação, importação, SAF-T, IVA, DP IVA, Confirmação de Pasta), atribuídas na ficha de cada cliente. Ver <a href="entidades.html#separador-admin">Entidades &gt; Admin</a>.</p>
+
+<h2 id="utilizadores">Utilizadores</h2>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/users</span></div><img src="screenshots/16-utilizadores.jpg" alt="Utilizadores. Lista com nível, departamentos e ações." loading="lazy"><figcaption><b>Utilizadores.</b> Lista com nível, departamentos e ações.</figcaption></figure>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/users/edit/6</span></div><img src="screenshots/17-utilizador-editar.jpg" alt="Editar utilizador. Dados, departamentos, acesso e preferências do assistente." loading="lazy"><figcaption><b>Editar utilizador.</b> Dados, departamentos, acesso e preferências do assistente.</figcaption></figure>
+<ul>
+  <li><b>Nível</b>: Superadmin, Administrador ou Utilizador.</li>
+  <li><b>Departamentos</b>: determinam as permissões do técnico.</li>
+  <li><b>Reenviar acesso por e-mail</b>: envia o NIF da empresa, o utilizador e uma ligação (válida 7 dias) para o próprio definir a palavra-passe. Assim nunca é preciso comunicar senhas.</li>
+  <li><b>Palavra-passe</b>: mínimo 8 caracteres, com maiúsculas, minúsculas e números.</li>
+  <li><b>Assistente AI</b>: chat flutuante em todas as páginas e <b>Modo seguro</b> (apenas leitura) individual.</li>
+</ul>
+
+<h2 id="tabelas">Tabelas de apoio</h2>
+<h3>Departamentos</h3>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/tabelas/departamentos</span></div><img src="screenshots/18-departamentos.jpg" alt="Tabelas &amp;gt; Departamentos." loading="lazy"><figcaption><b>Tabelas &gt; Departamentos.</b></figcaption></figure>
+<p>Organizam a equipa (Administração, Técnico Classificação, Técnico Importação, Digitalização, RH...) e são a base das permissões.</p>
+<h3>Campos adicionais</h3>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/tabelas/campos-adicionais</span></div><img src="screenshots/19-campos-adicionais.jpg" alt="Tabelas &amp;gt; Campos Adicionais. Campos próprios do gabinete na ficha do cliente (NISS, senha AT, senha Segurança Social...)." loading="lazy"><figcaption><b>Tabelas &gt; Campos Adicionais.</b> Campos próprios do gabinete na ficha do cliente (NISS, senha AT, senha Segurança Social...).</figcaption></figure>
+<p>Crie campos à medida (texto, número, data, lista, palavra-passe) que aparecem no separador <b>Campos Adicionais</b> da ficha do cliente. Os campos do tipo palavra-passe ficam cifrados e só são visíveis a quem tem a permissão respetiva. Para cada campo define-se a largura (coluna) e o deslocamento no formulário.</p>
+<h3>Tarefas AI e Categorias de atividade</h3>
+<p><b>Tarefas AI</b> lista as tarefas criadas pelo assistente (ou manualmente) e a quem estão atribuídas. <b>Categorias de atividade</b> define os tipos de trabalho usados no registo de atividades (ver <a href="colaboracao.html#atividades">Atividades</a>).</p>
+
+      <div class="pager"><a class="prev" href="primeiros-passos.html"><small>&larr; Anterior</small>Primeiros passos</a><a class="next" href="multi-empresa.html"><small>Seguinte &rarr;</small>Multi-empresa (tenants)</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

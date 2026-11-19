@@ -1,0 +1,50 @@
+<h1>Assistente IA</h1>
+<p class="lead">Um assistente que fala português de Portugal, conhece os dados do gabinete e do ERP, respeita as permissões de cada utilizador e nunca altera nada sem autorização.</p>
+<!--toc-->
+
+<h2>O que faz</h2>
+<div class="card-grid">
+  <div class="card"><div class="ico">&#128269;</div><h4>Consulta</h4><p>Documentos importados, movimentos e plano de contas no ERP, E-fatura (local e, se pedido, remoto), envios de SAF-T.</p></div>
+  <div class="card"><div class="ico">&#127991;</div><h4>Classifica</h4><p>Propõe contas para documentos, explica a proposta e lê anexos (PDF) por OCR, incluindo anotações manuscritas.</p></div>
+  <div class="card"><div class="ico">&#9989;</div><h4>Age (com autorização)</h4><p>Aplica sugestões, cria tarefas internas, aprova ou rejeita documentos, abre lançamentos.</p></div>
+  <div class="card"><div class="ico">&#129517;</div><h4>Orienta</h4><p>Indica onde fazer cada coisa na aplicação, com o caminho de menu e a ligação.</p></div>
+</div>
+
+<h2>Usar o assistente</h2>
+<p>Menu <b>Assistente AI</b> (permissão <i>Assistente AI - Acesso</i>), ou o <b>chat flutuante</b> em todas as páginas, se o tiver ativo no seu perfil.</p>
+<shot id="60-assistente" url="assistant" cap="<b>Assistente AI.</b> Conversa com anexos, indicador de modo seguro e de contexto ativo, e feedback rápido (Útil / Não útil)."/>
+<ul>
+  <li><kbd>Enter</kbd> envia, <kbd>Shift</kbd>+<kbd>Enter</kbd> muda de linha.</li>
+  <li>&#128206; anexa ficheiros (por exemplo, uma fatura em PDF para o assistente ler).</li>
+  <li><b>Útil / Não útil</b> e um comentário ajudam a melhorar as respostas.</li>
+  <li>Quando o assistente gera um ficheiro (por exemplo, uma listagem), fica disponível para download numa ligação temporária.</li>
+</ul>
+
+<h2>Modo seguro</h2>
+<p>Com o <b>modo seguro</b> ativo (distintivo amarelo no topo), o assistente só lê. Se lhe pedir uma alteração, explica o que faria e pergunta: <i>"Posso executar esta ação, mas o modo seguro está ativo. Queres que eu prossiga?"</i></p>
+<p>O modo seguro define-se por utilizador (<a href="configuracao.html#utilizadores">Utilizadores</a>) e há um valor por omissão para novos utilizadores (<a href="configuracao.html#ai">Definições &gt; AI</a>). Mesmo fora do modo seguro, cada ação exige a permissão correspondente (criar tarefas, abrir lançamentos, sugerir contas, aprovar documentos).</p>
+
+<h2>Memória</h2>
+<p>O assistente guarda contexto entre sessões: instruções que lhe dá, tarefas contabilísticas relevantes e as correções de classificação. Comandos disponíveis na conversa:</p>
+<table class="t">
+  <tr><th>Comando</th><th>Efeito</th></tr>
+  <tr><td><code>memoriza: ...</code></td><td>Guarda explicitamente uma instrução.</td></tr>
+  <tr><td><code>listar memorias</code></td><td>Mostra o que está memorizado.</td></tr>
+  <tr><td><code>esquece: ...</code></td><td>Remove uma memória concreta.</td></tr>
+  <tr><td><code>esquece memorias</code></td><td>Limpa a memória do utilizador.</td></tr>
+</table>
+<p>Mensagens de correção ("errado", "esquece", "ignora") nunca são consolidadas como memória válida.</p>
+
+<h2>Identidade por empresa</h2>
+<p>Cada tenant pode dar ao assistente um nome e uma apresentação próprios (por exemplo, uma homenagem ao fundador do gabinete), resolvidos pelo NIF da empresa no login. Sem identidade definida, apresenta-se como "Assistente AI". As instruções gerais de tom e comportamento ficam em <a href="configuracao.html#ai">Definições &gt; AI</a>.</p>
+
+<h2>Princípios</h2>
+<ul>
+  <li><b>Nunca inventa</b> valores, contas, movimentos ou classificações. Sem dados, responde que não encontrou informação suficiente.</li>
+  <li><b>Respeita permissões</b>: não mostra dados de empresas a que o utilizador não tem acesso.</li>
+  <li><b>Não é consultor fiscal ou jurídico</b>: apoia o trabalho, a decisão é do técnico.</li>
+</ul>
+
+<h2>Tarefas AI</h2>
+<p><b>Tabelas &gt; Tarefas AI</b> lista as tarefas internas criadas pelo assistente ou pela equipa, com estado, responsável e prazo.</p>
+<shot id="61-tarefas-ai" url="contabilidade/ai-tarefas" cap="<b>Tarefas AI.</b>"/>

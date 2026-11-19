@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual técnico · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" class="active" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual técnico &rsaquo; <b>Manual técnico</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Manual técnico</h1>
+<p class="lead">Arquitetura, requisitos, instalação, operação e segurança da plataforma, para a equipa de TI e de suporte.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#arquitetura">Arquitetura</a></li><li><a href="#requisitos">Requisitos</a></li><li><a href="#instalacao">Instalação</a></li><li><a href="#base-de-dados-e-migracoes">Base de dados e migrações</a></li><li><a href="#tarefas-agendadas">Tarefas agendadas</a></li><li><a href="#seguranca">Segurança</a></li><li><a href="#copias-de-seguranca">Cópias de segurança</a></li><li><a href="#diagnostico">Diagnóstico</a></li></ol></div>
+
+<h2 id="arquitetura">Arquitetura</h2>
+<div class="flow">
+  <div class="node"><span class="k">Cliente</span><b>Browser / PWA</b><small>Bootstrap 5, jQuery, DataTables 2, FullCalendar</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Aplicação</span><b>PHP 8.2</b><small>Router de URLs amigáveis, sessões, CSRF</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Dados</span><b>MySQL / MariaDB</b><small>Uma base por tenant</small></div>
+</div>
+<div class="flow">
+  <div class="node"><span class="k">Workers</span><b>Python 3</b><small>QR (OpenCV), OCR, Textract, leitor documental, E-fatura</small></div><div class="arrow">&harr;</div>
+  <div class="node"><span class="k">Serviços</span><b>ERP-SINC · AT · OpenAI · SMTP</b><small>HTTPS</small></div><div class="arrow">&harr;</div>
+  <div class="node"><span class="k">Agendador</span><b>Cron único</b><small>De 5 em 5 minutos</small></div>
+</div>
+<ul>
+  <li><b>Sem framework MVC</b>: cada ecrã é um script PHP servido por um router central (<code>router.php</code>), com reescrita de URL pelo Apache (<code>.htaccess</code>).</li>
+  <li><b>Layout</b> comum (cabeçalho, menu, rodapé) com o tema Gentelella; cada ecrã carrega apenas as bibliotecas de que precisa.</li>
+  <li><b>Multi-tenant</b>: o NIF de login escolhe a base de dados e a pasta de ficheiros do tenant; cada pedido corre no contexto desse tenant.</li>
+  <li><b>Área do cliente</b> servida no mesmo código, em rotas <code>t/{tenant}/cliente/...</code>.</li>
+</ul>
+
+<h2 id="requisitos">Requisitos</h2>
+<table class="t">
+  <tr><th>Componente</th><th>Versão / notas</th></tr>
+  <tr><td>Servidor web</td><td>Apache com <code>mod_rewrite</code> (ou Nginx com regra equivalente); HTTPS obrigatório em produção.</td></tr>
+  <tr><td>PHP</td><td>8.2 recomendado; extensões PDO MySQL, cURL, mbstring, OpenSSL, GD/Imagick, ZIP.</td></tr>
+  <tr><td>Base de dados</td><td>MySQL 5.7+ / 8 ou MariaDB 10.4+.</td></tr>
+  <tr><td>Python</td><td>3.9+ com OpenCV, NumPy, Pillow, requests; <code>boto3</code> se usar Textract.</td></tr>
+  <tr><td>OCR</td><td>Tesseract com dados de português; ImageMagick/Ghostscript para rasterizar PDF.</td></tr>
+  <tr><td>Java</td><td>8+ para o envio de SAF-T (FACTEMICLI).</td></tr>
+  <tr><td>Relógio</td><td>NTP ativo (a AT rejeita credenciais com relógio dessincronizado).</td></tr>
+  <tr><td>PHP (Composer)</td><td>Tesseract OCR wrapper, leitor de QR, PDF parser, FPDF, sabre/dav (CalDAV).</td></tr>
+</table>
+
+<h2 id="instalacao">Instalação</h2>
+<pre><code>composer install                  # dependencias PHP
+mysql -u root -p &lt; schema.sql     # esquema inicial
+php scripts/migrate.php           # aplicar migracoes
+# configurar data/db.php (ligacao) e data/companies.php (tenants por NIF)
+php -S localhost:8001 router.php  # servidor de desenvolvimento</code></pre>
+<ol class="steps">
+  <li>Aponte o vhost para a pasta da aplicação e confirme a reescrita para <code>router.php</code>.</li>
+  <li>Registe cada tenant (NIF &rarr; base de dados, credenciais, identificador curto) no ficheiro de empresas.</li>
+  <li>Aplique as migrações a cada base (pela linha de comandos ou, como superadmin, pelo aviso de migrações pendentes na aplicação).</li>
+  <li>Entre como administrador e siga a <a href="configuracao.html">ordem de configuração recomendada</a>.</li>
+  <li>Configure o cron único (ver abaixo).</li>
+</ol>
+
+<h2 id="base-de-dados-e-migracoes">Base de dados e migrações</h2>
+<ul>
+  <li>Todas as alterações de esquema são <b>migrações SQL versionadas por data</b> (pasta <code>migrations/</code>), aplicadas por <code>scripts/migrate.php</code> e registadas na tabela <code>migrations</code>.</li>
+  <li>Os campos do ERP (prefixos <code>str*</code>, <code>int*</code>, <code>flt*</code>) <b>não existem</b> na base local: são lidos em tempo real pelo ERP-SINC.</li>
+</ul>
+<table class="t">
+  <tr><th>Grupo</th><th>Tabelas principais</th></tr>
+  <tr><td>Documentos e classificação</td><td><code>accounting_imports</code>, <code>accounting_classifications</code>, <code>accounting_entity_ai_instructions</code>, <code>accounting_entity_cost_center_vat_rules</code>, <code>erp_suggestion_cache</code></td></tr>
+  <tr><td>Entidades</td><td><code>accounting_entities</code>, campos adicionais, permissões de tarefas por entidade, utilizadores da extranet</td></tr>
+  <tr><td>Tarefas de fecho</td><td>Confirmação de pasta, apuramento de IVA (fórmulas, valores, fechos), DP IVA, envios e faturas de SAF-T</td></tr>
+  <tr><td>E-fatura</td><td>Credenciais, documentos, linhas, trabalhos e registos de sincronização</td></tr>
+  <tr><td>IA</td><td><code>ai_assistant_logs</code> (memória, sugestões e fontes), downloads, tarefas AI</td></tr>
+  <tr><td>Colaboração</td><td>Calendário (eventos, convidados, avisos, tokens CalDAV), push, chat interno, assiduidade, atividades</td></tr>
+  <tr><td>Sistema</td><td><code>users</code>, <code>settings</code>, <code>audit_logs</code>, departamentos (taxonomias)</td></tr>
+</table>
+
+<h2 id="tarefas-agendadas">Tarefas agendadas</h2>
+<p>Há <b>um único cron</b> no servidor, de 5 em 5 minutos, que executa as tarefas devidas registadas na aplicação (<code>scripts/cron-jobs.php</code>). Cada tarefa declara o âmbito (por empresa ou global), a periodicidade e a função a correr; o estado e um bloqueio evitam execuções sobrepostas.</p>
+<pre><code>*/5 * * * * php /caminho/app/scripts/calendar-push.php --url=https://app.exemplo.pt/
+30 3 * * *  /bin/bash /caminho/app/scripts/cleanup-caches.sh</code></pre>
+<ul>
+  <li><code>php scripts/cron-run.php --list</code> mostra as tarefas e a última execução; <code>--job=nome</code> corre uma já.</li>
+  <li>A limpeza diária apaga caches regeneráveis (imagens de leitura de QR, pré-visualizações, logs de E-fatura, temporários), sem tocar nos PDF/XML. Sem ela, as caches crescem sem limite.</li>
+</ul>
+
+<h2 id="seguranca">Segurança</h2>
+<ul>
+  <li><b>Autenticação</b>: palavras-passe com hash forte (bcrypt/argon via <code>password_hash</code>), política mínima de complexidade, recuperação por ligação temporária.</li>
+  <li><b>Sessões</b>: cookies <i>HttpOnly</i> e <i>SameSite</i>; proteção CSRF em todos os formulários e pedidos AJAX.</li>
+  <li><b>Isolamento</b>: base de dados e ficheiros por tenant; permissões por perfil, departamento e empresa cliente.</li>
+  <li><b>Segredos</b>: senhas do E-fatura e campos de palavra-passe cifrados; chaves de serviços só visíveis a administradores.</li>
+  <li><b>Pasta de dados</b> bloqueada ao acesso web, exceto os pontos de entrada necessários.</li>
+  <li><b>Auditoria</b>: alterações relevantes, impersonações e instruções IA ficam em <code>audit_logs</code>.</li>
+  <li><b>IA</b>: modo seguro por utilizador; nenhuma escrita sem permissão e confirmação.</li>
+</ul>
+
+<h2 id="copias-de-seguranca">Cópias de segurança</h2>
+<ul>
+  <li>Diárias: todas as bases de tenant (dump MySQL) e as pastas <code>uploads/</code> e <code>attachments/</code>.</li>
+  <li>Ficheiros de configuração (<code>data/db.php</code>, lista de tenants, chaves VAPID das notificações). <b>Não regenerar as chaves VAPID</b>: as subscrições push existentes deixam de funcionar.</li>
+  <li>As caches de leitura não precisam de backup.</li>
+</ul>
+
+<h2 id="diagnostico">Diagnóstico</h2>
+<table class="t">
+  <tr><th>Sintoma</th><th>Verificar</th></tr>
+  <tr><td>"O webservice de contabilidade devolveu uma resposta vazia"</td><td>Conectividade e token do ERP-SINC (Definições &gt; ERP); testar o endpoint com <code>curl</code>.</td></tr>
+  <tr><td>Documentos sem leitura de QR</td><td>Parâmetros de QR em Definições &gt; Serviços (resolução, tentativas, páginas); ativar <i>Modo debug</i> e rever o registo de leitura.</td></tr>
+  <tr><td>Importação recusada por duplicado</td><td>A mensagem indica exercício/diário/mês/nº onde o documento já existe.</td></tr>
+  <tr><td>Sugestão inesperada</td><td><i>Explicação da sugestão</i>; limpar memórias erradas do contexto.</td></tr>
+  <tr><td>Envio SAF-T "credencial expirada"</td><td>Sincronização do relógio do servidor (NTP).</td></tr>
+  <tr><td>Lembretes push não chegam</td><td>Cron a correr; chaves VAPID inalteradas; saída HTTPS para os serviços de push.</td></tr>
+</table>
+
+      <div class="pager"><a class="prev" href="integracoes.html"><small>&larr; Anterior</small>Integrações e webservices</a><a class="next" href="propostas.html"><small>Seguinte &rarr;</small>Propostas de melhoria</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

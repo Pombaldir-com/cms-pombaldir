@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Primeiros passos · Teknisoft Contab</title>
+<meta name="description" content="Manual de apresentação, utilizador e técnico do Teknisoft Contab.">
+<link rel="icon" href="assets/img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/manual.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand"><img src="assets/img/icon.svg" alt=""><div><b>Teknisoft Contab</b><small>Manual</small></div></div>
+    <div class="search"><input type="search" placeholder="Pesquisar no manual..." aria-label="Pesquisar"></div>
+    <nav>
+<div class="group">Visão geral</div>
+<a href="index.html" data-k="inicio mais valias capa"><span class="n">00</span>Apresentação</a>
+<a href="introducao.html" data-k="objetivo convencoes publico"><span class="n">01</span>Nota introdutória</a>
+<div class="group">Manual do utilizador</div>
+<a href="primeiros-passos.html" class="active" data-k="login dashboard navegacao telemovel pwa"><span class="n">02</span>Primeiros passos</a>
+<a href="configuracao.html" data-k="definicoes geral servicos erp ai modulos permissoes utilizadores departamentos"><span class="n">03</span>Parâmetros e configuração</a>
+<a href="multi-empresa.html" data-k="tenant nif base de dados empresa base emp"><span class="n">04</span>Multi-empresa (tenants)</a>
+<a href="entidades.html" data-k="empresas ficha fornecedores campos adicionais extranet admin"><span class="n">05</span>Entidades e clientes</a>
+<a href="contabilidade.html" data-k="upload qr ocr classificacao importacao lancamentos"><span class="n">06</span>Contabilidade: do documento ao ERP</a>
+<a href="motor-classificacao.html" data-k="regras automaticas personalizadas aprendizagem historico modelos instrucoes correcao sugestao"><span class="n">07</span>Motor de classificação: regras e aprendizagem</a>
+<a href="tarefas.html" data-k="confirmacao pasta apuramento iva saft dp iva"><span class="n">08</span>Tarefas de fecho</a>
+<a href="efatura.html" data-k="at portal sincronizacao documentos"><span class="n">09</span>E-fatura</a>
+<a href="assistente-ia.html" data-k="ia chat memoria modo seguro openai"><span class="n">10</span>Assistente IA</a>
+<a href="colaboracao.html" data-k="atividades calendario chat interno assiduidade ponto"><span class="n">11</span>Atividades, agenda e equipa</a>
+<a href="extranet.html" data-k="extranet cliente documentos saft impersonar"><span class="n">12</span>Área reservada do cliente</a>
+<div class="group">Manual técnico</div>
+<a href="integracoes.html" data-k="eticadata primavera erp-sinc api at textract openai caldav push"><span class="n">13</span>Integrações e webservices</a>
+<a href="manual-tecnico.html" data-k="arquitetura instalacao requisitos migracoes cron seguranca backups"><span class="n">14</span>Manual técnico</a>
+<div class="group">Roadmap</div>
+<a href="propostas.html" data-k="roadmap melhorias futuro"><span class="n">15</span>Propostas de melhoria</a>
+    </nav>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <button class="menu-btn" aria-label="Menu">&#9776;</button>
+      <div class="crumb">Manual do utilizador &rsaquo; <b>Primeiros passos</b></div>
+      <div class="spacer"></div>
+      <button class="print-btn" type="button">Imprimir / PDF</button>
+    </div>
+    <main class="content">
+<h1>Primeiros passos</h1>
+<p class="lead">Como entrar na aplicação, orientar-se no painel e no menu, e usá-la também no telemóvel.</p>
+<div class="toc"><b>Nesta página</b><ol><li><a href="#entrar-na-aplicacao">Entrar na aplicação</a></li><li><a href="#o-dashboard">O Dashboard</a></li><li><a href="#navegacao">Navegação</a></li><li><a href="#no-telemovel">No telemóvel</a></li></ol></div>
+
+<h2 id="entrar-na-aplicacao">Entrar na aplicação</h2>
+<p>O Teknisoft Contab é <b>multi-empresa</b>: a mesma instalação serve várias empresas (tenants), cada uma com os seus dados isolados. Por isso, o ecrã de entrada pede três dados:</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/login</span></div><img src="screenshots/01-login.jpg" alt="Ecrã de entrada. NIF da empresa, utilizador e palavra-passe. O título passa a mostrar o nome da última empresa usada neste browser." loading="lazy"><figcaption><b>Ecrã de entrada.</b> NIF da empresa, utilizador e palavra-passe. O título passa a mostrar o nome da última empresa usada neste browser.</figcaption></figure>
+<ol class="steps">
+  <li><b>NIF da empresa</b>: identifica o tenant (o gabinete) e, com ele, a base de dados a usar.</li>
+  <li><b>Utilizador</b> e <b>palavra-passe</b>: as credenciais pessoais dentro dessa empresa.</li>
+  <li>Clique em <span class="btn-like">Entrar</span>. Se tinha tentado abrir uma página antes de entrar, a aplicação leva-o diretamente para lá.</li>
+</ol>
+<div class="callout tip"><b>Esqueceu-se da palavra-passe?</b><p>Use <b>Recuperar palavra-passe</b> no ecrã de entrada. Recebe por e-mail uma ligação temporária para definir uma nova (exige o SMTP configurado em <a href="configuracao.html#servicos">Definições &gt; Serviços</a>).</p></div>
+<div class="callout warn"><b>Segurança</b><p>Todos os formulários estão protegidos contra pedidos forjados (CSRF) e as sessões terminam em <b>Terminar sessão</b>. Num computador partilhado, termine sempre a sessão.</p></div>
+
+<h2 id="o-dashboard">O Dashboard</h2>
+<p>Depois de entrar, abre o <b>Dashboard</b>. No topo estão os indicadores do módulo de Contabilidade; por baixo, o calendário partilhado do gabinete.</p>
+<figure class="shot "><div class="chrome"><i></i><i></i><i></i><span>app.teknisoftcontab.pt/dashboard</span></div><img src="screenshots/02-dashboard.jpg" alt="Dashboard. Documentos para importação, documentos por classificar e empresas integradas com o ERP, cada um com atalho direto." loading="lazy"><figcaption><b>Dashboard.</b> Documentos para importação, documentos por classificar e empresas integradas com o ERP, cada um com atalho direto.</figcaption></figure>
+<table class="t">
+  <tr><th>Cartão</th><th>O que mostra</th><th>Atalho</th></tr>
+  <tr><td>Documentos para importação</td><td>Documentos carregados e ainda por tratar.</td><td><span class="btn-like blue">Ver documentos</span></td></tr>
+  <tr><td>Documentos p/ Classif.</td><td>Linhas a que ainda faltam contas antes de poderem ser importadas.</td><td><span class="btn-like" style="background:#f0ad4e">Abrir classificação</span></td></tr>
+  <tr><td>Empresas integradas</td><td>Clientes com base de dados ERP associada, prontos a receber lançamentos.</td><td>Lista de empresas</td></tr>
+</table>
+<p>O <b>calendário</b> (vistas Mês, Semana, Dia e Lista) mostra os eventos criados por si, os convites recebidos e, para administradores, os eventos de toda a equipa. Ver <a href="colaboracao.html#calendario">Agenda</a>.</p>
+
+<h2 id="navegacao">Navegação</h2>
+<p>O menu lateral agrupa as áreas da aplicação. Só aparecem os itens a que o seu perfil tem acesso e os módulos ativos.</p>
+<table class="t">
+  <tr><th>Menu</th><th>Para quê</th></tr>
+  <tr><td>Dashboard</td><td>Indicadores e calendário.</td></tr>
+  <tr><td>Assistente AI</td><td>Chat com o assistente de IA da empresa.</td></tr>
+  <tr><td>Multi Upload &gt; Compras</td><td>Carregar faturas em lote (PDF).</td></tr>
+  <tr><td>Contabilidade</td><td>Classificação, Importação e Lançamentos ERP.</td></tr>
+  <tr><td>Tarefas</td><td>Confirmação de Pasta, Apuramento de IVA, Envio de SAF-T, Envio DP IVA.</td></tr>
+  <tr><td>Atividades</td><td>Registo de trabalho por cliente (tempo, categoria, descrição).</td></tr>
+  <tr><td>Assiduidade</td><td>Registo de ponto, ausências e férias (quando o módulo está ativo).</td></tr>
+  <tr><td>E-fatura</td><td>Credenciais por empresa, documentos sincronizados e histórico de sincronizações.</td></tr>
+  <tr><td>Entidades &gt; Empresas</td><td>Fichas dos clientes do gabinete.</td></tr>
+  <tr><td>Tabelas</td><td>Departamentos, campos adicionais, tarefas AI e categorias de atividade (administradores).</td></tr>
+</table>
+<p>O botão <b>&#9776;</b> no topo recolhe o menu para ganhar espaço; a escolha fica memorizada. O menu da área em que está mantém-se aberto e assinalado.</p>
+<p>No canto superior direito ficam o seu perfil (foto, dados pessoais, palavra-passe), o seletor de empresa do E-fatura quando aplicável, e o relógio de ponto quando a Assiduidade está ativa.</p>
+
+<h2 id="no-telemovel">No telemóvel</h2>
+<p>Toda a aplicação se adapta ao ecrã do telemóvel: tabelas com deslocamento horizontal, menu deslizante e calendário em formato lista.</p>
+<figure class="shot phone"><img src="screenshots/02b-dashboard-mobile.jpg" alt="Dashboard no telemóvel." loading="lazy"><figcaption><b>Dashboard no telemóvel.</b></figcaption></figure>
+<p>Pode também <b>instalar a aplicação</b> no ecrã principal (PWA): no Safari use <i>Partilhar &gt; Adicionar ao ecrã principal</i>; no Chrome use <i>Instalar aplicação</i>. A app instalada usa o nome e o ícone definidos em <a href="configuracao.html#geral">Definições &gt; Geral</a> e pode receber <b>notificações push</b> (lembretes de eventos, convites) mesmo fechada.</p>
+
+      <div class="pager"><a class="prev" href="introducao.html"><small>&larr; Anterior</small>Nota introdutória</a><a class="next" href="configuracao.html"><small>Seguinte &rarr;</small>Parâmetros e configuração</a></div>
+      <div class="foot">Teknisoft Contab · Edição 1.0 · novembro 2026 · Imagens com dados de demonstração anonimizados.</div>
+    </main>
+  </div>
+</div>
+<script src="assets/js/manual.js"></script>
+</body>
+</html>

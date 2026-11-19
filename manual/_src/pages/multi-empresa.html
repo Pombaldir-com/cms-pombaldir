@@ -1,0 +1,42 @@
+<h1>Multi-empresa (tenants)</h1>
+<p class="lead">Uma única instalação do Teknisoft Contab serve várias empresas, com dados isolados entre si, e dentro de cada empresa trata a contabilidade de muitos clientes, cada um na sua base ERP.</p>
+<!--toc-->
+
+<h2>Dois níveis de "empresa"</h2>
+<p>É importante distinguir os dois níveis com que a aplicação trabalha:</p>
+<div class="card-grid">
+  <div class="card"><div class="ico">&#127970;</div><h4>Tenant (o gabinete)</h4><p>Quem usa a aplicação. Entra-se pelo NIF no ecrã de entrada. Cada tenant tem a sua base de dados, utilizadores, definições, logótipo, nome do assistente e ficheiros.</p></div>
+  <div class="card"><div class="ico">&#128101;</div><h4>Empresa cliente (entidade)</h4><p>Cada cliente do gabinete. Vive dentro do tenant, tem ficha própria e está ligado a uma base de dados ERP no formato <code>emp_XXX</code>.</p></div>
+</div>
+
+<div class="flow">
+  <div class="node"><span class="k">Instalação</span><b>Teknisoft Contab</b><small>Um só código, um só servidor</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Tenants</span><b>Gabinete A · Gabinete B · ...</b><small>Base de dados MySQL por NIF</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">Clientes</span><b>Empresas cliente</b><small>Fichas, documentos, tarefas</small></div><div class="arrow">&rarr;</div>
+  <div class="node"><span class="k">ERP</span><b>emp_101 · emp_227 · ...</b><small>Uma base ERP por cliente</small></div>
+</div>
+
+<h2>Isolamento de dados por tenant</h2>
+<ul>
+  <li><b>Base de dados própria</b>: cada NIF de tenant aponta para uma base MySQL distinta. Utilizadores, documentos, classificações, memória do assistente e definições nunca se misturam.</li>
+  <li><b>Ficheiros próprios</b>: uploads, anexos e marca ficam em pastas separadas por tenant.</li>
+  <li><b>Identidade própria</b>: nome da app, logótipo, ícone e até o nome e a personalidade do assistente IA podem ser diferentes em cada tenant.</li>
+  <li><b>Área do cliente própria</b>: a extranet de cada tenant tem endereço próprio (<code>t/{tenant}/cliente</code>).</li>
+</ul>
+<div class="callout tip"><b>Mais-valia</b><p>O mesmo servidor pode alojar vários gabinetes (modelo SaaS) ou várias empresas de um grupo, sem instalações duplicadas e com atualizações aplicadas a todos de uma vez.</p></div>
+
+<h2>Várias bases ERP numa só operação</h2>
+<p>Dentro do tenant, o técnico vê numa só lista os documentos de todos os clientes que lhe estão atribuídos. Ao importar:</p>
+<ol class="steps">
+  <li>O sistema identifica o <b>adquirente</b> de cada documento (pelo NIF lido do QR).</li>
+  <li>Resolve a <b>base ERP</b> desse cliente (campo <i>Base de dados ERP</i> da ficha, por exemplo <code>emp_227</code>).</li>
+  <li><b>Agrupa</b> os documentos selecionados por base e importa cada grupo na base certa, numa única ação.</li>
+  <li>Só pede ao utilizador para escolher a base quando há exatamente um cliente sem base definida.</li>
+</ol>
+<shot id="31-classificacao" url="contabilidade/classificacao-importacao?import_type=1" cap="<b>Lista única com vários clientes.</b> O filtro <i>Todas as empresas</i> permite trabalhar a carteira inteira ou restringir a um cliente."/>
+
+<h2>Empresa base e autenticação no ERP</h2>
+<p>Todas as chamadas ao ERP-SINC são autenticadas com a <b>Empresa base</b> (<a href="configuracao.html#modulos">Definições &gt; Módulos &gt; Contabilidade</a>) e indicam, quando aplicável, a base de destino do cliente. Assim, um só token serve todos os clientes do gabinete.</p>
+
+<h2>Carteira de cada técnico</h2>
+<p>Os técnicos só veem e tratam as empresas cliente para as quais têm tarefas atribuídas (na ficha do cliente, separador <a href="entidades.html#separador-admin">Admin</a>). Administradores veem todas. O mesmo princípio aplica-se às tarefas de fecho (IVA, SAF-T, Confirmação de Pasta).</p>

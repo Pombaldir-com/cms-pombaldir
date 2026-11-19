@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" width="360" height="80">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1abc9c"/><stop offset="1" stop-color="#2a6fdb"/></linearGradient></defs>
+  <rect x="4" y="8" width="64" height="64" rx="16" fill="url(#g)"/>
+  <path d="M20 28h32v8H40v24h-8V36H20z" fill="#fff"/>
+  <circle cx="52" cy="56" r="5" fill="#fff" opacity=".85"/>
+  <text x="82" y="44" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#ffffff">Teknisoft</text>
+  <text x="84" y="66" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="4" fill="#7fe3cf">CONTAB</text>
+</svg>

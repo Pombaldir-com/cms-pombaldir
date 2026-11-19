@@ -1,0 +1,48 @@
+<h1>Primeiros passos</h1>
+<p class="lead">Como entrar na aplicação, orientar-se no painel e no menu, e usá-la também no telemóvel.</p>
+<!--toc-->
+
+<h2>Entrar na aplicação</h2>
+<p>O Teknisoft Contab é <b>multi-empresa</b>: a mesma instalação serve várias empresas (tenants), cada uma com os seus dados isolados. Por isso, o ecrã de entrada pede três dados:</p>
+<shot id="01-login" url="login" cap="<b>Ecrã de entrada.</b> NIF da empresa, utilizador e palavra-passe. O título passa a mostrar o nome da última empresa usada neste browser."/>
+<ol class="steps">
+  <li><b>NIF da empresa</b>: identifica o tenant (o gabinete) e, com ele, a base de dados a usar.</li>
+  <li><b>Utilizador</b> e <b>palavra-passe</b>: as credenciais pessoais dentro dessa empresa.</li>
+  <li>Clique em <span class="btn-like">Entrar</span>. Se tinha tentado abrir uma página antes de entrar, a aplicação leva-o diretamente para lá.</li>
+</ol>
+<div class="callout tip"><b>Esqueceu-se da palavra-passe?</b><p>Use <b>Recuperar palavra-passe</b> no ecrã de entrada. Recebe por e-mail uma ligação temporária para definir uma nova (exige o SMTP configurado em <a href="configuracao.html#servicos">Definições &gt; Serviços</a>).</p></div>
+<div class="callout warn"><b>Segurança</b><p>Todos os formulários estão protegidos contra pedidos forjados (CSRF) e as sessões terminam em <b>Terminar sessão</b>. Num computador partilhado, termine sempre a sessão.</p></div>
+
+<h2>O Dashboard</h2>
+<p>Depois de entrar, abre o <b>Dashboard</b>. No topo estão os indicadores do módulo de Contabilidade; por baixo, o calendário partilhado do gabinete.</p>
+<shot id="02-dashboard" url="dashboard" cap="<b>Dashboard.</b> Documentos para importação, documentos por classificar e empresas integradas com o ERP, cada um com atalho direto."/>
+<table class="t">
+  <tr><th>Cartão</th><th>O que mostra</th><th>Atalho</th></tr>
+  <tr><td>Documentos para importação</td><td>Documentos carregados e ainda por tratar.</td><td><span class="btn-like blue">Ver documentos</span></td></tr>
+  <tr><td>Documentos p/ Classif.</td><td>Linhas a que ainda faltam contas antes de poderem ser importadas.</td><td><span class="btn-like" style="background:#f0ad4e">Abrir classificação</span></td></tr>
+  <tr><td>Empresas integradas</td><td>Clientes com base de dados ERP associada, prontos a receber lançamentos.</td><td>Lista de empresas</td></tr>
+</table>
+<p>O <b>calendário</b> (vistas Mês, Semana, Dia e Lista) mostra os eventos criados por si, os convites recebidos e, para administradores, os eventos de toda a equipa. Ver <a href="colaboracao.html#calendario">Agenda</a>.</p>
+
+<h2>Navegação</h2>
+<p>O menu lateral agrupa as áreas da aplicação. Só aparecem os itens a que o seu perfil tem acesso e os módulos ativos.</p>
+<table class="t">
+  <tr><th>Menu</th><th>Para quê</th></tr>
+  <tr><td>Dashboard</td><td>Indicadores e calendário.</td></tr>
+  <tr><td>Assistente AI</td><td>Chat com o assistente de IA da empresa.</td></tr>
+  <tr><td>Multi Upload &gt; Compras</td><td>Carregar faturas em lote (PDF).</td></tr>
+  <tr><td>Contabilidade</td><td>Classificação, Importação e Lançamentos ERP.</td></tr>
+  <tr><td>Tarefas</td><td>Confirmação de Pasta, Apuramento de IVA, Envio de SAF-T, Envio DP IVA.</td></tr>
+  <tr><td>Atividades</td><td>Registo de trabalho por cliente (tempo, categoria, descrição).</td></tr>
+  <tr><td>Assiduidade</td><td>Registo de ponto, ausências e férias (quando o módulo está ativo).</td></tr>
+  <tr><td>E-fatura</td><td>Credenciais por empresa, documentos sincronizados e histórico de sincronizações.</td></tr>
+  <tr><td>Entidades &gt; Empresas</td><td>Fichas dos clientes do gabinete.</td></tr>
+  <tr><td>Tabelas</td><td>Departamentos, campos adicionais, tarefas AI e categorias de atividade (administradores).</td></tr>
+</table>
+<p>O botão <b>&#9776;</b> no topo recolhe o menu para ganhar espaço; a escolha fica memorizada. O menu da área em que está mantém-se aberto e assinalado.</p>
+<p>No canto superior direito ficam o seu perfil (foto, dados pessoais, palavra-passe), o seletor de empresa do E-fatura quando aplicável, e o relógio de ponto quando a Assiduidade está ativa.</p>
+
+<h2>No telemóvel</h2>
+<p>Toda a aplicação se adapta ao ecrã do telemóvel: tabelas com deslocamento horizontal, menu deslizante e calendário em formato lista.</p>
+<shot id="02b-dashboard-mobile" url="dashboard" class="phone" cap="<b>Dashboard no telemóvel.</b>"/>
+<p>Pode também <b>instalar a aplicação</b> no ecrã principal (PWA): no Safari use <i>Partilhar &gt; Adicionar ao ecrã principal</i>; no Chrome use <i>Instalar aplicação</i>. A app instalada usa o nome e o ícone definidos em <a href="configuracao.html#geral">Definições &gt; Geral</a> e pode receber <b>notificações push</b> (lembretes de eventos, convites) mesmo fechada.</p>
